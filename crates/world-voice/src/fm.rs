@@ -159,13 +159,34 @@ pub struct Ran {
 /// if it could not start or had not finished within `timeout`, when it is
 /// stopped.
 pub fn run(program: &str, args: &[String], timeout: Duration) -> Option<Ran> {
+    run_with_input(program, args, None, timeout)
+}
+
+/// As [`run`], giving it `input` on standard input when there is some.
+pub fn run_with_input(
+    program: &str,
+    args: &[String],
+    input: Option<&str>,
+    timeout: Duration,
+) -> Option<Ran> {
     let mut child = Command::new(program)
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .ok()?;
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        let input = input.to_string();
+        std::thread::spawn(move || {
+            use std::io::Write as _;
+            let _ = stdin.write_all(input.as_bytes());
+        });
+    }
     // Read both pipes while waiting, so a long answer cannot stall it.
     let mut stdout = child.stdout.take()?;
     let mut stderr = child.stderr.take()?;
@@ -328,6 +349,8 @@ mod tests {
             places: vec!["the quay".into()],
             words: words.into(),
             answer: "Hello.".into(),
+            known: Vec::new(),
+            era: conversation::Era::Radio,
         }
     }
 

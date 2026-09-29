@@ -8301,3 +8301,224 @@ Finished at last: {work}.	终于完工了：{work}。
 {a} went to work at {place} the next morning, grown at last.	第二天一早，终于长大的{a}去{place}上工了。
 By morning everyone was out counting what the storm had left.	天一亮，大家就出门清点风暴留下了什么。
 The {season} sky went dark.	{season}的天暗了下来。
+
+# v0.23 the player's mark: works on plots, and who they draw
+Hydroponics bay	水培舱
+hydroponics bay	水培舱
+Infirmary	医务舱
+infirmary	医务舱
+Mess hall	食堂
+mess hall	食堂
+Workshop dome	工坊穹顶
+workshop dome	工坊穹顶
+Music pod	音乐舱
+music pod	音乐舱
+Schoolroom	教室
+schoolroom	教室
+Colony flag	殖民地旗
+colony flag	殖民地旗
+Quilt line	拼布晾绳
+quilt line	拼布晾绳
+Airlock sign	气闸标牌
+airlock sign	气闸标牌
+Fern planter	蕨类花槽
+fern planter	蕨类花槽
+Control tower	控制塔
+control tower	控制塔
+Rover garage	漫游车库
+rover garage	漫游车库
+Radio dish	射电天线
+radio dish	射电天线
+Supply shop	补给商店
+supply shop	补给商店
+Cargo depot	货物仓
+cargo depot	货物仓
+Landing lights	着陆灯
+landing lights	着陆灯
+Windsock	风向袋
+windsock	风向袋
+Fuel tanks	燃料罐
+fuel tanks	燃料罐
+Dust shelter	防尘棚
+dust shelter	防尘棚
+Solar array	太阳能板阵
+solar array	太阳能板阵
+Survey station	勘测站
+survey station	勘测站
+Ice drill	冰钻
+ice drill	冰钻
+Observatory	天文台
+observatory	天文台
+Crater bench	陨坑长椅
+crater bench	陨坑长椅
+Marker cairn	路标石堆
+marker cairn	路标石堆
+Greenhouse tent	温室帐篷
+greenhouse tent	温室帐篷
+Weather mast	气象桅
+weather mast	气象桅
+Lichen garden	地衣园
+lichen garden	地衣园
+Low-gravity swing	低重力秋千
+low-gravity swing	低重力秋千
+Ridge beacon	山脊信标
+ridge beacon	山脊信标
+Record store	唱片店
+record store	唱片店
+Diner	小餐馆
+diner	小餐馆
+Garage	修车铺
+garage	修车铺
+Arcade	游戏厅
+arcade	游戏厅
+Barber shop	理发店
+barber shop	理发店
+Video store	录像带店
+video store	录像带店
+Painted shop sign	彩绘招牌
+painted shop sign	彩绘招牌
+Newsstand	报摊
+newsstand	报摊
+Bus shelter	公交候车亭
+bus shelter	公交候车亭
+Neon lamp	霓虹灯
+neon lamp	霓虹灯
+Bandstand	音乐台
+bandstand	音乐台
+Ice cream stand	冰淇淋摊
+ice cream stand	冰淇淋摊
+Town clock	镇上的大钟
+town clock	镇上的大钟
+Flower beds	花坛
+flower beds	花坛
+Quilt shop	拼布店
+quilt shop	拼布店
+Town flag	镇旗
+town flag	镇旗
+Wishing fountain	许愿池
+wishing fountain	许愿池
+Gazebo	凉亭
+gazebo	凉亭
+Chess tables	棋桌
+chess tables	棋桌
+Bike rack	自行车架
+bike rack	自行车架
+Library	图书馆
+library	图书馆
+Gym hall	体育馆
+gym hall	体育馆
+Boathouse	船屋
+boathouse	船屋
+Bee garden	蜂园
+bee garden	蜂园
+Science shed	科学小屋
+science shed	科学小屋
+Sailboat	帆船
+sailboat	帆船
+Treehouse	树屋
+treehouse	树屋
+Bleachers	看台
+bleachers	看台
+Fishing dock	钓鱼码头
+fishing dock	钓鱼码头
+Rope swing	绳秋千
+rope swing	绳秋千
+Chick nursery	小企鹅育儿所
+chick nursery	小企鹅育儿所
+Song circle	歌圈
+song circle	歌圈
+Fish larder	鱼仓
+fish larder	鱼仓
+Lantern ring	灯笼圈
+lantern ring	灯笼圈
+Storytelling berg	讲故事冰山
+storytelling berg	讲故事冰山
+Rookery flag	栖息地旗
+rookery flag	栖息地旗
+Feather quilt	羽毛被
+feather quilt	羽毛被
+Pebble garden	卵石园
+pebble garden	卵石园
+Snow house	雪屋
+snow house	雪屋
+Ice slide	冰滑梯
+ice slide	冰滑梯
+Ice market	冰上集市
+ice market	冰上集市
+Carving hall	冰雕厅
+carving hall	冰雕厅
+Lookout post	瞭望哨
+lookout post	瞭望哨
+Bridge sign	桥头标牌
+bridge sign	桥头标牌
+Skating rink	溜冰场
+skating rink	溜冰场
+Kelp racks	海带架
+kelp racks	海带架
+Ice bench	冰长椅
+ice bench	冰长椅
+Bell post	铃柱
+bell post	铃柱
+Snow arch	雪拱门
+snow arch	雪拱门
+Warming hut	取暖小屋
+warming hut	取暖小屋
+Kayak shelter	皮艇棚
+kayak shelter	皮艇棚
+Whale watch	观鲸台
+whale watch	观鲸台
+Ice sculpture garden	冰雕园
+ice sculpture garden	冰雕园
+Sail sled	帆橇
+sail sled	帆橇
+Aurora seat	极光座
+aurora seat	极光座
+Fishing hole	钓鱼洞
+fishing hole	钓鱼洞
+Moss patch	苔藓地
+moss patch	苔藓地
+Seal fence	海豹围栏
+seal fence	海豹围栏
+Far beacon	远方信标
+far beacon	远方信标
+Snow maze	雪迷宫
+snow maze	雪迷宫
+botanist	植物学家
+medic	医生
+cook	厨师
+engineer	工程师
+musician	乐手
+teacher	老师
+pilot	飞行员
+mechanic	机修工
+radio operator	无线电操作员
+quartermaster	军需官
+geologist	地质学家
+driller	钻探工
+astronomer	天文学家
+record collector	唱片收藏家
+diner cook	餐馆厨师
+arcade owner	游戏厅老板
+barber	理发师
+video clerk	录像带店店员
+guitarist	吉他手
+ice cream seller	卖冰淇淋的人
+clockmaker	钟表匠
+gardener	园丁
+quilter	拼布匠
+librarian	图书管理员
+coach	教练
+boatwright	造船匠
+beekeeper	养蜂人
+science teacher	科学老师
+nanny	保育员
+singer	歌手
+fisher	渔夫
+lantern tender	灯笼看护
+storyteller	讲故事的人
+trader	商人
+ice carver	冰雕匠
+scout	侦察员
+boatbuilder	造船匠
+whale watcher	观鲸者
+sculptor	雕塑家

@@ -1,7 +1,8 @@
 //! A World shown as a strip along the edge of a screen: opened from the
-//! World menu, placed as the player chose (which edge, which display,
-//! whether it stays in front), kept up to date with its World's window, and
-//! opening that window again on a double-click.
+//! World menu, placed as the player chose (which of the four edges, which
+//! display, whether it stays in front, from the menu bar or the strip's own
+//! right-click menu), kept up to date with its World's window, and opening
+//! that window again on a double-click.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,7 +11,7 @@ use gpui::{
     px, size, App, AppContext, Bounds, Entity, WindowBounds, WindowHandle, WindowKind,
     WindowOptions,
 };
-use world_gpui::strip::{self, Edge, StripView};
+use world_gpui::strip::{self, Edge, StripChoice, StripView};
 use world_gpui::ProjectionSnapshot;
 use world_machine_desktop::app_settings::{self, StripSettings};
 
@@ -40,35 +41,56 @@ pub fn placement() -> StripSettings {
         .unwrap_or_default()
 }
 
-fn edge(placement: &StripSettings) -> Edge {
-    if placement.top {
-        Edge::Top
-    } else {
-        Edge::Bottom
-    }
+/// Which edge a strip goes along, as the player last chose.
+pub fn edge(placement: &StripSettings) -> Edge {
+    placement
+        .edge
+        .as_deref()
+        .and_then(Edge::from_id)
+        .unwrap_or(if placement.top {
+            Edge::Top
+        } else {
+            Edge::Bottom
+        })
+}
+
+/// Chooses `edge` for every strip, keeping `top` for the versions that
+/// only knew the top and the bottom.
+fn place(strip: &mut StripSettings, edge: Edge) {
+    strip.edge = Some(edge.id().to_string());
+    strip.top = edge == Edge::Top;
 }
 
 /// Registers the Strip menu's choices. They apply to every strip open.
 pub fn install(cx: &mut App) {
-    cx.on_action(|_: &about::StripAlongBottom, cx| change(cx, |strip| strip.top = false));
-    cx.on_action(|_: &about::StripAlongTop, cx| change(cx, |strip| strip.top = true));
-    cx.on_action(|_: &about::StripAlwaysOnTop, cx| {
-        change(cx, |strip| strip.always_on_top = !strip.always_on_top)
-    });
-    cx.on_action(|_: &about::StripNextDisplay, cx| {
-        let displays = cx
-            .displays()
-            .iter()
-            .filter_map(|display| display.uuid().ok().map(|uuid| uuid.to_string()))
-            .collect::<Vec<_>>();
-        let current = placement().display.or_else(|| {
-            cx.primary_display()
-                .and_then(|display| display.uuid().ok())
-                .map(|uuid| uuid.to_string())
-        });
-        let next = next_display(&displays, current.as_deref());
-        change(cx, move |strip| strip.display = next);
-    });
+    cx.on_action(|_: &about::StripAlongBottom, cx| choose(StripChoice::Edge(Edge::Bottom), cx));
+    cx.on_action(|_: &about::StripAlongTop, cx| choose(StripChoice::Edge(Edge::Top), cx));
+    cx.on_action(|_: &about::StripDownLeft, cx| choose(StripChoice::Edge(Edge::Left), cx));
+    cx.on_action(|_: &about::StripDownRight, cx| choose(StripChoice::Edge(Edge::Right), cx));
+    cx.on_action(|_: &about::StripAlwaysOnTop, cx| choose(StripChoice::InFront, cx));
+    cx.on_action(|_: &about::StripNextDisplay, cx| choose(StripChoice::NextDisplay, cx));
+}
+
+/// A choice from the menu bar's Strip menu or a strip's own menu.
+fn choose(choice: StripChoice, cx: &mut App) {
+    match choice {
+        StripChoice::Edge(chosen) => change(cx, move |strip| place(strip, chosen)),
+        StripChoice::InFront => change(cx, |strip| strip.always_on_top = !strip.always_on_top),
+        StripChoice::NextDisplay => {
+            let displays = cx
+                .displays()
+                .iter()
+                .filter_map(|display| display.uuid().ok().map(|uuid| uuid.to_string()))
+                .collect::<Vec<_>>();
+            let current = placement().display.or_else(|| {
+                cx.primary_display()
+                    .and_then(|display| display.uuid().ok())
+                    .map(|uuid| uuid.to_string())
+            });
+            let next = next_display(&displays, current.as_deref());
+            change(cx, move |strip| strip.display = next);
+        }
+    }
 }
 
 /// The display after `current` in `displays`, going round; `None` (the
@@ -198,12 +220,18 @@ fn open(
     };
     let for_open = document.clone();
     let title = snapshot.title.clone();
+    let (at, in_front) = (edge(placement), placement.always_on_top);
     let opened = cx.open_window(options, move |window, cx| {
         watch_appearance(window);
         window.set_window_title(&title);
         cx.new(|_| {
             StripView::new(snapshot)
                 .on_open(move |_, cx| open_world(&for_open, cx))
+                // Every strip is opened again where it now goes, this one
+                // too, so the choice waits until its own click is done.
+                .on_choose(at, in_front, |choice, _, cx| {
+                    cx.defer(move |cx| choose(choice, cx))
+                })
                 .on_close(|window, cx| {
                     window.remove_window();
                     // Closing the last strip with no World open brings Home
@@ -263,6 +291,29 @@ fn open_world(document: &SharedDocument, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where a strip goes is read from the settings as they were kept by
+    /// this version or an older one, and choosing an edge keeps both.
+    #[test]
+    fn a_strip_goes_along_the_edge_last_chosen() {
+        assert_eq!(edge(&StripSettings::default()), Edge::Bottom);
+        let older = StripSettings {
+            top: true,
+            ..StripSettings::default()
+        };
+        assert_eq!(edge(&older), Edge::Top);
+        for chosen in Edge::ALL {
+            let mut settings = older.clone();
+            place(&mut settings, chosen);
+            assert_eq!(edge(&settings), chosen);
+            assert_eq!(settings.top, chosen == Edge::Top);
+        }
+        let unknown = StripSettings {
+            edge: Some("diagonal".into()),
+            ..StripSettings::default()
+        };
+        assert_eq!(edge(&unknown), Edge::Bottom);
+    }
 
     #[test]
     fn the_next_display_goes_round_and_stays_put_with_one() {

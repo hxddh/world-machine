@@ -22,6 +22,9 @@ mod model;
 mod moments;
 mod payroll;
 mod persistence;
+mod plots;
+#[cfg(test)]
+mod plots_tests;
 mod projection;
 mod reciprocity;
 mod recovery;
@@ -113,10 +116,43 @@ pub struct TinySocietyBranch {
     world: World,
 }
 
+/// The guests staying in this World, as the canvas stands them.
+pub(crate) fn guests_staying(world: &World, cast: &lives::Cast) -> Vec<world_projection::Staying> {
+    lives::guests_staying(world, cast)
+        .into_iter()
+        .map(|guest| world_projection::Staying {
+            visit: guest.visit,
+            name: guest.name,
+            from: guest.from,
+            line: guest.line,
+            look: guest.look,
+            drawing: guest.drawing,
+        })
+        .collect()
+}
+
+/// What a visit tells this World of a guest.
+pub(crate) fn guest_words<'a>(
+    guest: &'a world_projection::Guest,
+    look: &'a Option<String>,
+    drawing: &'a Option<String>,
+) -> lives::GuestWords<'a> {
+    lives::GuestWords {
+        name: &guest.name,
+        from: &guest.from,
+        letter: &guest.letter,
+        gift: &guest.gift,
+        line: guest.line.as_deref(),
+        look: look.as_deref(),
+        drawing: drawing.as_deref(),
+    }
+}
+
 /// Mark each choice with how it would move the town's gauges, by making it
 /// on a copy of the town and reading them again. The town's rules answer the
 /// same way twice, so the mark is what will happen, not a guess.
 pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+    world_projection::with_guests(&mut snapshot, &guests_staying(world, &life::cast()));
     let before = snapshot.gauges.clone();
     // One copy for every choice, each tried and then taken back: going back
     // to a checkpoint leaves the copy exactly as it was, so each mark is
@@ -232,6 +268,7 @@ impl TinySocietyBranch {
             _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
             _ if kin::parse_command(command_id).is_some() => self.place_memorial(command_id),
             _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
+            _ if plots::parse_command(command_id).is_some() => self.mark(command_id),
             _ if command_id.starts_with(life::SUGGEST_COMMAND) => self.suggest(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
@@ -246,14 +283,12 @@ impl TinySocietyBranch {
         guest: &world_projection::Guest,
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
-        Ok(vec![lives::host_guest(
+        let (look, drawing) = (guest.look_code(), guest.drawing_code());
+        Ok(vec![lives::host_guest_with(
             &mut self.world,
             actions,
             &life::cast(),
-            &guest.name,
-            &guest.from,
-            &guest.letter,
-            &guest.gift,
+            &guest_words(guest, &look, &drawing),
         )?])
     }
 
@@ -343,6 +378,15 @@ impl TinySocietyBranch {
         let mut events = vec![event];
         events.extend(story::after_first_deed(&mut self.world, actions)?);
         Ok(events)
+    }
+
+    /// The player paints a design on something, or names it: the harbour
+    /// checks it like anything else, and it changes nothing else.
+    fn mark(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request = plots::request(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a mark: {command_id}")))?;
+        let actions = build_action_registry()?;
+        Ok(vec![self.world.execute(actions, &request)?.id])
     }
 
     fn do_deed(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {

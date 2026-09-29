@@ -144,6 +144,7 @@ fn a_book_and_where_things_stand_cross_the_wire_and_an_older_pack_sends_neither(
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             }],
             ..Default::default()
         },
@@ -174,6 +175,7 @@ fn a_guest_crosses_the_wire_and_too_long_a_letter_is_cut() {
         from: "Ares Station".into(),
         letter: "Dust storm cleared. Thought of you.".into(),
         gift: "a postcard of Ares Station".into(),
+        ..Guest::default()
     };
     let wire = ProjectionIntentWire::from(ProjectionIntent::Host(guest.clone()));
     let json = serde_json::to_string(&wire).unwrap();
@@ -185,11 +187,73 @@ fn a_guest_crosses_the_wire_and_too_long_a_letter_is_cut() {
         from: "Ares".into(),
         letter: "x".repeat(MOST_GUEST_TEXT * 3),
         gift: String::new(),
+        look: None,
+        drawing: None,
+        line: Some("y".repeat(MOST_GUEST_TEXT * 2)),
     };
     let ProjectionIntent::Host(cut) = ProjectionIntent::from(long) else {
         panic!("a guest");
     };
     assert_eq!(cut.letter.chars().count(), MOST_GUEST_TEXT);
+    assert_eq!(
+        cut.line.map(|line| line.chars().count()),
+        Some(MOST_GUEST_TEXT)
+    );
+}
+
+/// A friend's resident crosses with how they look, their own drawing and
+/// a line from their World; a guest without them reads as before, and an
+/// older guest's JSON, which has none of them, still reads.
+#[test]
+fn a_friends_resident_crosses_the_wire_with_their_drawing_and_line() {
+    use world_pack_protocol::ProjectionIntentWire;
+    use world_projection::{
+        AgeStage, Carry, DrawPart, Drawing, Guest, Ink, Look, ProjectionIntent, Stance,
+    };
+    let guest = Guest {
+        name: "Piko".into(),
+        from: "Icebridge".into(),
+        letter: "The ice sang all night.".into(),
+        gift: "a postcard of Icebridge".into(),
+        look: Some(Look {
+            clothes: Some(0x223344),
+            carries: Some(Carry::Fish),
+            bird: true,
+            age: Some(AgeStage::Elder),
+            ..Look::default()
+        }),
+        drawing: Some(Drawing::new(
+            "penguin",
+            0.6,
+            vec![
+                DrawPart::ellipse(0.0, 0.45, 0.3, 0.45, Ink::Colour(0x1b1d24)),
+                DrawPart::ellipse(0.0, 0.4, 0.2, 0.35, Ink::Colour(0xf4f1ea)).tone(0.1),
+                DrawPart::line((0.2, 0.5), (0.4, 0.7), 0.05, Ink::Colour(0x1b1d24))
+                    .only(&[Stance::Waving]),
+            ],
+        )),
+        line: Some("Mind the thin ice by the Fish Vault.".into()),
+    };
+    let wire = ProjectionIntentWire::from(ProjectionIntent::Host(guest.clone()));
+    let json = serde_json::to_string(&wire).unwrap();
+    let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+    assert_eq!(ProjectionIntent::from(back), ProjectionIntent::Host(guest));
+
+    let plain = Guest {
+        name: "Nia".into(),
+        from: "Ares".into(),
+        letter: "Hello.".into(),
+        gift: String::new(),
+        ..Guest::default()
+    };
+    let json = serde_json::to_string(&ProjectionIntentWire::from(ProjectionIntent::Host(
+        plain.clone(),
+    )))
+    .unwrap();
+    assert!(!json.contains("look") && !json.contains("drawing") && !json.contains("line"));
+    let older = r#"{"type":"host","name":"Nia","from":"Ares","letter":"Hello."}"#;
+    let back: ProjectionIntentWire = serde_json::from_str(older).unwrap();
+    assert_eq!(ProjectionIntent::from(back), ProjectionIntent::Host(plain));
 }
 
 /// The place a snapshot draws: a panorama in districts, a season on the
@@ -222,6 +286,7 @@ fn a_place() -> ProjectionSnapshot {
         home: None,
         day: Vec::new(),
         built: None,
+        ..Default::default()
     };
     let mut resident = item(person, CanvasItemKind::Actor, 1.2);
     resident.home = Some(home);

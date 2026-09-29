@@ -1,6 +1,8 @@
 mod causal;
 mod drawing;
+mod guest;
 mod influence;
+mod mark;
 mod stories;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -14,7 +16,16 @@ pub use drawing::{
     contact_sheet, drop_of, figure, figure_point, person, person_base, short_hair, toned, DrawPart,
     DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
+pub use guest::{
+    drawing_code, drawing_from_code, guest_drawing_id, look_code, look_from_code, with_guests,
+    Guest, Staying, GUEST_GREETING, MOST_DRAWING_CODE, MOST_GUEST_PARTS,
+};
 pub use influence::effect_headline;
+pub use mark::{
+    clean_name, command_argument, command_with, Design, Designable, MarkError, Naming, Pattern,
+    Plot, PlotOffer, Variant, Wears, MOST_PATTERN_COLOURS, PATTERN_CELLS, PATTERN_PALETTE,
+    PATTERN_SIDE,
+};
 pub use stories::{
     cause_in_words, day_of, latest_before, latest_moments, life_events, lowered, one_a_day,
     Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat, StoryPage,
@@ -159,7 +170,7 @@ pub struct StateEvidenceNeighborhood {
     pub edges: Vec<StateEvidenceEdge>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
     InvokeCommand(String),
@@ -174,56 +185,6 @@ pub enum ProjectionIntent {
     /// arrive only as words, which this World checks like anything else;
     /// nothing is shared with, or written back to, the World they came from.
     Host(Guest),
-}
-
-/// A guest from another World: who they are, where from, the letter they
-/// bring, and something they leave to keep.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Guest {
-    pub name: String,
-    pub from: String,
-    pub letter: String,
-    pub gift: String,
-}
-
-impl Guest {
-    /// Someone from the World a snapshot shows, read and never written:
-    /// whoever last said something there, bringing that line as their
-    /// letter and a postcard of the place. `None` when nobody lives there.
-    pub fn from_snapshot(snapshot: &ProjectionSnapshot) -> Option<Self> {
-        let person = |id: &SelectionId| {
-            snapshot
-                .canvas
-                .items
-                .iter()
-                .find(|item| &item.id == id && item.kind == CanvasItemKind::Actor)
-        };
-        let (who, line) = snapshot
-            .voices
-            .iter()
-            .rev()
-            .find_map(|voice| person(&voice.speaker).map(|who| (who, voice.line.clone())))
-            .or_else(|| {
-                snapshot
-                    .canvas
-                    .items
-                    .iter()
-                    .find(|item| item.kind == CanvasItemKind::Actor)
-                    .map(|who| {
-                        (
-                            who,
-                            "Thought I'd come and see how you're all getting on.".to_string(),
-                        )
-                    })
-            })?;
-        let from = snapshot.title.clone();
-        Some(Guest {
-            name: who.label.clone(),
-            gift: format!("a postcard of {from}"),
-            from,
-            letter: line,
-        })
-    }
 }
 
 /// Who hears what the player says to someone.
@@ -905,6 +866,14 @@ impl ProjectionSnapshot {
         for link in &self.canvas.links {
             text.push(&link.label);
         }
+        for plot in &self.canvas.plots {
+            for offer in &plot.offers {
+                text.push(&offer.label);
+                if let Some(why) = &offer.unavailable {
+                    text.push(why);
+                }
+            }
+        }
         for district in &self.canvas.districts {
             text.push(&district.label);
         }
@@ -1545,6 +1514,9 @@ pub struct CanvasProjection {
     pub ground: Option<GroundCover>,
     /// Whether the water's edge is frozen today.
     pub ice: bool,
+    /// Plots along the paths where the player can build, and what could
+    /// stand on each. Empty for a World without them.
+    pub plots: Vec<Plot>,
 }
 
 impl CanvasProjection {
@@ -1738,10 +1710,11 @@ pub struct CanvasLink {
     pub selection: Option<SelectionId>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CanvasItemKind {
     Place,
     Actor,
+    #[default]
     Object,
 }
 
@@ -1792,6 +1765,46 @@ pub struct CanvasItem {
     pub day: Vec<RoutineStop>,
     /// The day a work or made thing was finished, in the World's own days.
     pub built: Option<u32>,
+    /// The design painted on it (a flag, a sail, a sign, a quilt), if any.
+    pub pattern: Option<Pattern>,
+    /// Whether the player can paint a design on it, and how.
+    pub design: Option<Designable>,
+    /// Whether the player can name it, and how: a boat, a work, a newborn.
+    pub naming: Option<Naming>,
+    /// How the town built it, for something built on a plot.
+    pub variant: Option<Variant>,
+}
+
+/// An empty object at the left edge, for a literal to fill in with
+/// `..Default::default()`.
+impl Default for CanvasItem {
+    fn default() -> Self {
+        Self {
+            id: SelectionId::Entity(EntityId::new(0)),
+            kind: CanvasItemKind::default(),
+            label: String::new(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            changes: Vec::new(),
+            shape: None,
+            at: None,
+            look: None,
+            drawing: None,
+            stance: None,
+            standing: None,
+            mood: None,
+            spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
+            pattern: None,
+            design: None,
+            naming: None,
+            variant: None,
+        }
+    }
 }
 
 /// How someone stands with the player: a mark from -2 (does not trust

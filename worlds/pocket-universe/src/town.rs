@@ -112,7 +112,7 @@ fn layout(place: Place) -> &'static Layout {
 
 /// Houses at the back, works in the middle, small things at the front; no
 /// two rows share a spot along the ground.
-const ROWS: [Row; 4] = [
+const ROWS: [Row; 5] = [
     Row {
         pitch: 0.16,
         offset: 0.0,
@@ -129,12 +129,39 @@ const ROWS: [Row; 4] = [
         pitch: 0.08,
         offset: 0.02,
     },
+    // The plots the player can build on, which nothing else takes.
+    Row {
+        pitch: crate::plots::PLOT_PITCH,
+        offset: crate::plots::PLOT_OFFSET,
+    },
 ];
 const BACK: usize = 0;
 const MIDDLE: usize = 1;
 const NEARER: usize = 2;
 const FRONT: usize = 3;
-const ROW_Y: [f32; 4] = [0.3, 0.45, 0.6, 0.76];
+/// How far along the ground what stands in front of or behind a work on a
+/// plot keeps from it.
+const CLEAR: f32 = 0.08;
+const ROW_Y: [f32; 5] = [0.3, 0.45, 0.6, 0.76, crate::plots::PLOT_Y];
+
+/// How wide a place is, in screens.
+pub(crate) fn width(place: Place) -> f32 {
+    layout(place).width
+}
+
+/// Which of a place's stretches a point lies in, the last if none.
+pub(crate) fn stretch_at(place: Place, px: f32) -> usize {
+    layout(place)
+        .stretches
+        .iter()
+        .position(|stretch| stretch.holds(px))
+        .unwrap_or(2)
+}
+
+/// The ids of a place's stretches, left to right.
+pub(crate) fn stretch_ids(place: Place) -> [&'static str; 3] {
+    layout(place).stretches.map(|stretch| stretch.id)
+}
 
 /// The ids homes and works go by on the scene: neither is a thing the
 /// World records, so they take ids no entity ever has.
@@ -561,6 +588,23 @@ pub(crate) fn lay_out(
         ));
     }
 
+    // What the player built on plots stands on its plot, and everything
+    // says what it can wear and be called.
+    crate::plots::dress(world, &mut items);
+    for item in items.iter().filter(|item| item.variant.is_some()) {
+        if let Some(px) = item.px {
+            placed.insert(item.id, px);
+            if let Some(at) = street.stretch_at(px) {
+                works[at].push(item.id);
+            }
+            // Nothing the player puts up after stands right before or
+            // behind it: a flag on a plot never hangs from a lamp post.
+            for row in [NEARER, FRONT] {
+                street.keep_clear(row, px, CLEAR);
+            }
+        }
+    }
+
     let mut fixtures = items
         .iter()
         .enumerate()
@@ -613,6 +657,17 @@ pub(crate) fn lay_out(
     let mut others = home_of.keys().copied().collect::<Vec<_>>();
     others.retain(|person| ![SLOT_B, SLOT_E].contains(person));
     for person in others {
+        // Someone drawn here by what the player built works at it.
+        if let Some(work) = lives::drawn_by(state, person)
+            .map(SelectionId::Entity)
+            .filter(|work| placed.contains_key(work))
+        {
+            if let Some(at) = stretch_of(work) {
+                busy[at] += 1;
+            }
+            day_place.insert(person, work);
+            continue;
+        }
         let offset = (days::mix(&[person.0, 7]) % 3) as usize;
         let Some(at) = (0..3)
             .map(|step| (step + offset) % 3)
@@ -688,6 +743,7 @@ pub(crate) fn lay_out(
         season: Some(season),
         ground,
         ice,
+        plots: crate::plots::canvas_plots(world),
     }
 }
 
@@ -720,6 +776,7 @@ fn new_item(
         home: None,
         day: Vec::new(),
         built,
+        ..Default::default()
     }
 }
 

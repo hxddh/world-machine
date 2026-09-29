@@ -227,6 +227,7 @@ mod tests {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         }
     }
 

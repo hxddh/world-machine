@@ -29,13 +29,21 @@ pub use generations::{
 
 mod answers;
 pub use answers::answer_label;
+mod drawn;
+pub use drawn::{
+    draw_newcomers, drawn_by, drawn_request, drew, name_proposals, to_be_named, Draw, DRAWN_AFTER,
+    DRAWN_BY, DRAWN_ROOM, NAMING_DAYS,
+};
 mod host;
 mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
 #[doc(hidden)]
 pub mod scanned;
 mod suggest;
-pub use host::{host_guest, MOST_GUEST_TEXT};
+pub use host::{
+    guests_staying, host_guest, host_guest_with, GuestWords, Staying, GUEST_STAY_PERIODS,
+    MOST_GUEST_TEXT,
+};
 pub use quiet::{firsts, firsts_count, welcome_back, Corner, QuietDays, Subject};
 use std::collections::{BTreeMap, BTreeSet};
 pub use suggest::{can_suggest, suggestion_request, Idea, IDEAS, SUGGEST_REST};
@@ -4673,6 +4681,7 @@ pub fn register_actions(
     registry.register(suggest::Suggests(cast))?;
     registry.register(host::Hosts(cast))?;
     registry.register(quiet::Firsts(cast))?;
+    registry.register(drawn::Drawn(cast))?;
     generations::register_actions(registry, cast)?;
     Ok(())
 }
@@ -4851,6 +4860,7 @@ pub fn is_life(event: &Event) -> bool {
             | "heirloom_passed"
             | "memorial_placed"
             | "anniversary_kept"
+            | "drawn_here"
     )
 }
 
@@ -4885,8 +4895,9 @@ pub fn is_news(event: &Event) -> bool {
 }
 
 /// The kinds of moment [`is_news`] counts as news.
-pub const NEWS_KINDS: [&str; 16] = [
+pub const NEWS_KINDS: [&str; 17] = [
     "bond_changed",
+    "drawn_here",
     "born",
     "came_of_age",
     "left_home",
@@ -4915,7 +4926,8 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         .rev()
         .take_while(|event| event.world_time >= since)
         .filter(|event| match event.kind.as_str() {
-            "bond_changed" | "born" | "came_of_age" | "retired" | "died" | "left_home" => true,
+            "bond_changed" | "born" | "came_of_age" | "retired" | "died" | "left_home"
+            | "drawn_here" => true,
             "situation_answered" | "situation_lapsed" => matches!(
                 (event.payload.get("kind"), event.payload.get("answer")),
                 (Some(Value::Text(kind)), Some(Value::Text(answer)))

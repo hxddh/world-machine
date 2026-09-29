@@ -1,13 +1,37 @@
-//! Sharing a World: its code, copied or saved as a `.worldcode` file, and a
-//! visit to a World someone shared.
+//! Sharing a World: its code, copied or saved as a `.worldcode` file, a
+//! visit to a World someone shared, and a resident of a friend's World
+//! come to stay in one of yours.
 //!
 //! A visit is a copy replayed from the code's recorded history. Its window
 //! says so, offers nothing that would change it, refuses anything that
 //! asks to, and is never saved: it has no file and no place in My Worlds.
+//! A friend's resident is read from such a copy, as their World shows
+//! them, and arrives in yours only as a guest your World checks and
+//! records; nothing is written to the friend's World.
 
 use super::*;
 use gpui::ClipboardItem;
 use world_library::{looks_like_world_code, write_world_code_file, WorldVisit, WORLD_CODE_SUFFIX};
+use world_projection::Guest;
+
+/// Who from a friend's World could come to visit: everyone living there,
+/// each as their World draws them and saying the last thing they said
+/// there, which they bring as their letter too. Read from the visit's copy
+/// only.
+pub(crate) fn friends_residents(visit: &WorldVisit) -> Vec<Guest> {
+    let from = visit.display_name();
+    Guest::residents(&visit.snapshot())
+        .into_iter()
+        .map(|mut guest| {
+            guest.from = from.clone();
+            guest.gift = format!("a postcard of {from}");
+            if let Some(line) = &guest.line {
+                guest.letter = line.clone();
+            }
+            guest
+        })
+        .collect()
+}
 
 /// What a visit's window says it is, beside the World's name.
 pub(crate) const VISITING_LABEL: &str = "Visiting — this is a copy";
@@ -118,33 +142,125 @@ impl WorldDocumentView {
     /// visits this one. The other World is only read from the library's
     /// listing; the visit is an intent this World checks like any other.
     pub(crate) fn invite_guest(&mut self, cx: &mut Context<Self>) {
-        let result = {
-            let mut document = self.document.borrow_mut();
+        let guest = {
+            let document = self.document.borrow();
             let own = document.session.document_id().cloned();
-            let library = std::sync::Arc::clone(&document.library);
-            let registry = std::sync::Arc::clone(&document.registry);
-            match library.list() {
+            match document.library.list() {
                 Err(error) => Err(error.to_string()),
-                Ok(worlds) => match worlds
+                Ok(worlds) => worlds
                     .iter()
                     .filter(|world| Some(&world.id) != own.as_ref())
                     .find_map(world_library::guest_from)
-                {
-                    None => Err(
+                    .ok_or_else(|| {
                         "Start another World first: a guest comes from one of your other Worlds"
-                            .into(),
-                    ),
-                    Some(guest) => document
-                        .session
-                        .handle(
-                            world_projection::ProjectionIntent::Host(guest.clone()),
-                            &registry,
-                            &library,
-                        )
-                        .map(|_| guest)
-                        .map_err(|error| error.to_string()),
-                },
+                            .to_string()
+                    }),
             }
+        };
+        match guest {
+            Ok(guest) => self.host_guest(guest, cx),
+            Err(error) => {
+                self.status = Some(DocumentStatus::error(error));
+                cx.notify();
+            }
+        }
+    }
+
+    /// World ▸ Invite a Friend's Resident…: a friend's World code, from the
+    /// clipboard or a `.worldcode` file, is opened as a copy, and the
+    /// player chooses who from there comes to stay.
+    pub(crate) fn invite_friend(&mut self, cx: &mut Context<Self>) {
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        if looks_like_world_code(&text) {
+            let opened = WorldVisit::open_code(&text, &self.document.borrow().registry);
+            self.choose_friend(opened, cx);
+            return;
+        }
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = picker.await else {
+                return;
+            };
+            let Some(path) = paths.pop() else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                let opened = WorldVisit::open_file(&path, &this.document.borrow().registry);
+                this.choose_friend(opened, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn choose_friend(
+        &mut self,
+        opened: Result<WorldVisit, world_library::WorldCodeError>,
+        cx: &mut Context<Self>,
+    ) {
+        let visit = match opened {
+            Ok(visit) => visit,
+            Err(error) => {
+                self.status = Some(DocumentStatus::error(error.to_string()));
+                cx.notify();
+                return;
+            }
+        };
+        let residents = friends_residents(&visit);
+        if residents.is_empty() {
+            self.status = Some(DocumentStatus::error(format!(
+                "Nobody lives in {} yet to come and visit",
+                visit.display_name()
+            )));
+            cx.notify();
+            return;
+        }
+        let document = self.document.clone();
+        let world = visit.display_name();
+        let bounds = Bounds::centered(None, size(px(440.0), px(560.0)), cx);
+        let opened = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            },
+            move |window, cx| {
+                watch_appearance(window);
+                window.set_window_title(&format!("Who from {world} will visit?"));
+                cx.new(|_| FriendPicker {
+                    document,
+                    world,
+                    residents,
+                })
+            },
+        );
+        if let Err(error) = opened {
+            self.status = Some(DocumentStatus::error(error.to_string()));
+            cx.notify();
+        }
+    }
+
+    /// A guest comes to stay: an intent this World checks like any other.
+    pub(crate) fn host_guest(&mut self, guest: Guest, cx: &mut Context<Self>) {
+        let result = {
+            let mut document = self.document.borrow_mut();
+            let library = std::sync::Arc::clone(&document.library);
+            let registry = std::sync::Arc::clone(&document.registry);
+            document
+                .session
+                .handle(
+                    world_projection::ProjectionIntent::Host(guest.clone()),
+                    &registry,
+                    &library,
+                )
+                .map(|_| guest)
+                .map_err(|error| error.to_string())
         };
         self.status = Some(match result {
             Ok(guest) => {
@@ -275,6 +391,151 @@ impl WorldMachineHome {
             Err(error) => Some(HomeStatus::error(error.to_string())),
         };
         cx.notify();
+    }
+}
+
+/// The window a friend's residents are chosen from: each drawn as their
+/// World draws them, with their name and what they last said there.
+pub(crate) struct FriendPicker {
+    document: SharedDocument,
+    world: String,
+    residents: Vec<Guest>,
+}
+
+impl FriendPicker {
+    /// Sends `guest` to the World this picker was opened for, through its
+    /// window so it shows them at once, and closes.
+    fn choose(&mut self, guest: Guest, window: &mut Window, cx: &mut Context<Self>) {
+        let document = self.document.clone();
+        let world = cx.windows().into_iter().find_map(|handle| {
+            let world = handle.downcast::<WorldDocumentView>()?;
+            world
+                .read(cx)
+                .is_ok_and(|view| Rc::ptr_eq(&view.document, &document))
+                .then_some(world)
+        });
+        if let Some(world) = world {
+            let _ = world.update(cx, move |view, window, cx| {
+                view.host_guest(guest, cx);
+                window.activate_window();
+            });
+        }
+        window.remove_window();
+    }
+}
+
+/// A resident's drawing, in their own look, waving.
+fn resident_portrait(guest: &Guest) -> impl IntoElement {
+    let drawing = guest
+        .drawing
+        .clone()
+        .unwrap_or_else(|| world_projection::person_base("guest"));
+    let inks =
+        world_gpui::art::Inks::of_person(&world_gpui::art::Figure::of(&guest.name, guest.look));
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            let tall = h * 0.9;
+            world_gpui::art::paint_drawing(
+                window,
+                x + w / 2.0,
+                y + h - 2.0,
+                (tall * drawing.aspect).min(w),
+                tall,
+                &drawing,
+                &inks,
+                world_projection::Stance::Waving,
+                world_projection::Mood::Happy,
+                0.0,
+                0.0,
+                1.0,
+            );
+        },
+    )
+    .w(px(48.0))
+    .h(px(64.0))
+    .flex_shrink_0()
+}
+
+impl Render for FriendPicker {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
+        let rows = self
+            .residents
+            .iter()
+            .enumerate()
+            .map(|(index, guest)| {
+                let chosen = guest.clone();
+                div()
+                    .id(("friend-resident", index))
+                    .role(gpui::Role::Button)
+                    .aria_label(format!("{} from {}", guest.name, self.world))
+                    .flex()
+                    .gap_3()
+                    .items_center()
+                    .p_2()
+                    .rounded_lg()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
+                    .child(resident_portrait(guest))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .min_w(px(0.0))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(guest.name.clone()),
+                            )
+                            .children(guest.line.clone().map(|line| {
+                                div()
+                                    .text_xs()
+                                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                                    .child(format!("“{line}”"))
+                            })),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.choose(chosen.clone(), window, cx)
+                    }))
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("friend-picker")
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_4()
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
+            .child(
+                div()
+                    .text_base()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(format!("Who from {} will visit?", self.world)),
+            )
+            .child(ui::caption(
+                "They stay a few days and bring a letter. Nothing is changed in their World.",
+            ))
+            .child(
+                div()
+                    .id("friend-residents")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .children(rows),
+            )
     }
 }
 
@@ -481,6 +742,48 @@ mod tests {
             assert!(refused.contains("visit"), "{refused}");
         }
         assert_eq!(controller.visit.borrow().snapshot(), original);
+    }
+
+    /// A friend's World code shows who lives there, each with their own
+    /// drawing and line; one of them comes to stay in another World, stands
+    /// on its canvas drawn as at home, and the friend's World is unchanged.
+    #[test]
+    fn a_friends_resident_comes_to_stay_and_their_world_is_untouched() {
+        let (visit, registry) = played_visit();
+        let before = visit.archive().clone();
+        let residents = friends_residents(&visit);
+        assert!(!residents.is_empty(), "somebody lives there");
+        assert!(residents
+            .iter()
+            .all(|guest| guest.from == visit.display_name()));
+        let drawn = residents
+            .iter()
+            .find(|guest| guest.drawing.is_some())
+            .cloned()
+            .expect("a resident drawn their World's way");
+
+        let pack = registry.descriptors()[0].pack.id.clone();
+        let mut home = registry.create(&pack).unwrap();
+        // Somebody must live there to welcome them.
+        let first = home.snapshot().commands[0].id.clone();
+        home.handle(world_gpui::ProjectionIntent::InvokeCommand(first))
+            .unwrap();
+        let after = home
+            .handle(world_gpui::ProjectionIntent::Host(drawn.clone()))
+            .unwrap();
+        let standing = after
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.label == drawn.name && item.detail.contains("Visiting"))
+            .expect("the guest stands on the canvas");
+        let drawing = after.drawing_of(standing).expect("their own drawing");
+        assert_eq!(drawing.parts, drawn.travelling_drawing().unwrap().parts);
+        assert_eq!(
+            visit.archive(),
+            &before,
+            "nothing is written to the friend's World"
+        );
     }
 
     #[test]

@@ -27,3 +27,4 @@ world-compare = { path = "../../crates/world-compare" }
 world-library = { path = "../../crates/world-library" }
 world-document = { path = "../../crates/world-document" }
 world-i18n = { path = "../../crates/world-i18n" }
+serde_json = "1"

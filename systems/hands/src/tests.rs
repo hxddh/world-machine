@@ -43,6 +43,29 @@ const THINGS: &[Thing] = &[
     },
 ];
 
+const WORKS: &[Thing] = &[
+    Thing {
+        id: "bandstand",
+        name: "Bandstand",
+        verb: Verb::Build,
+        shape: "bandstand",
+        cost: 40,
+        lasts: None,
+        stages: &[],
+        effect: Effect::Gather,
+    },
+    Thing {
+        id: "boathouse",
+        name: "Boathouse",
+        verb: Verb::Build,
+        shape: "boathouse",
+        cost: 0,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+];
+
 fn kit(_: &WorldState) -> Kit {
     Kit {
         notes: NOTES,
@@ -83,6 +106,25 @@ fn kit(_: &WorldState) -> Kit {
             }]
         },
         most_standing: 10,
+        works: WORKS,
+        plots: |_| {
+            vec![
+                Plot {
+                    id: "p1".into(),
+                    at: QUAY,
+                    offers: vec!["bandstand", "boathouse"],
+                },
+                Plot {
+                    id: "p2".into(),
+                    at: SQUARE,
+                    offers: vec!["bandstand"],
+                },
+            ]
+        },
+        wears: |state, id| {
+            (text(state, id, "hands.thing") == Some("boathouse") || id == SQUARE).then_some("sail")
+        },
+        naming: |state, id| made(state).contains(&id).then(|| "work".to_string()),
     }
 }
 
@@ -382,4 +424,139 @@ fn only_this_periods_count_of_deeds_is_kept() {
     );
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn a_plot_takes_one_work_the_place_finishes() {
+    let (mut world, registry) = world(100);
+    let plots = plot_deeds(&world, &kit(world.state()));
+    assert_eq!(plots.len(), 2);
+    assert_eq!(plots[0].1.len(), 2);
+    let key = plot_key("bandstand", "p1");
+    assert_eq!(plots[0].1[0].key, key);
+    // Not offered there, or not a plot at all: refused.
+    assert!(world
+        .execute(&registry, &do_request(&plot_key("boathouse", "p2")))
+        .is_err());
+    assert!(world
+        .execute(&registry, &do_request(&plot_key("boathouse", "p9")))
+        .is_err());
+    let began = world.execute(&registry, &do_request(&key)).unwrap().clone();
+    assert_eq!(began.kind, "built_by_hand");
+    let work = made(world.state())[0];
+    assert!(building(world.state(), work));
+    assert_eq!(plot_of(world.state(), work), Some("p1"));
+    assert_eq!(integer(world.state(), FUND, "cash"), Some(60));
+    // The plot is taken, and the bandstand is built once: p2 has nothing
+    // left to offer.
+    let plots = plot_deeds(&world, &kit(world.state()));
+    assert!(plots.iter().all(|(_, deeds)| deeds.is_empty()));
+    assert!(world
+        .execute(&registry, &do_request(&plot_key("bandstand", "p2")))
+        .is_err());
+    // It takes none of the room for what is made by hand, and is not moved.
+    assert!(deeds(&world, &kit(world.state()))
+        .iter()
+        .all(|deed| deed.verb != Verb::Move));
+    for _ in 0..3 {
+        pass(&mut world, &registry);
+    }
+    let finished = world
+        .events()
+        .iter()
+        .find(|event| event.kind == "plot_finished")
+        .expect("the place finished it");
+    assert_eq!(finished.caused_by, vec![began.id]);
+    assert!(!building(world.state(), work));
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn designs_and_names_are_checked_and_kept() {
+    let (mut world, registry) = world(100);
+    world
+        .execute(&registry, &do_request(&plot_key("boathouse", "p1")))
+        .unwrap();
+    let boathouse = made(world.state())[0];
+    let cells = "01".repeat(128);
+    let design = format!("{cells}:8a");
+    // Only what can wear one, and only a whole design.
+    let bench = world
+        .execute(&registry, &do_request(&format!("build.bench.{}", QUAY.0)))
+        .unwrap()
+        .targets[0];
+    assert!(world
+        .execute(&registry, &design_request(bench, &design))
+        .is_err());
+    for broken in [
+        format!("{cells}:8"),
+        format!("{cells}:88"),
+        format!("{}:8a", &cells[1..]),
+        cells.clone(),
+    ] {
+        assert!(world
+            .execute(&registry, &design_request(boathouse, &broken))
+            .is_err());
+    }
+    let painted = world
+        .execute(&registry, &design_request(boathouse, &design))
+        .unwrap()
+        .kind
+        .clone();
+    assert_eq!(painted, "designed");
+    assert_eq!(pattern_of(world.state(), boathouse), Some(design.as_str()));
+    // Names: tidied, one line, one to twenty-four letters.
+    for bad in ["", "   ", "two\nlines", &"x".repeat(25)] {
+        assert!(world
+            .execute(&registry, &name_request(boathouse, bad))
+            .is_err());
+    }
+    assert!(world.execute(&registry, &name_request(ANN, "Bo")).is_err());
+    let named_event = world
+        .execute(&registry, &name_request(boathouse, "  Old Reliable "))
+        .unwrap()
+        .clone();
+    assert_eq!(
+        named_event.payload.get("told"),
+        Some(&Value::Text("You named the work Old Reliable".into()))
+    );
+    assert_eq!(name(world.state(), boathouse), "Old Reliable");
+    assert!(named(world.state(), boathouse));
+    assert_eq!(was_called(world.state(), boathouse), Some("Boathouse"));
+    world
+        .execute(&registry, &name_request(boathouse, "Second Thoughts"))
+        .unwrap();
+    assert_eq!(was_called(world.state(), boathouse), Some("Boathouse"));
+    // Finished, it keeps the name it was given.
+    for _ in 0..3 {
+        pass(&mut world, &registry);
+    }
+    assert!(!building(world.state(), boathouse));
+    assert_eq!(name(world.state(), boathouse), "Second Thoughts");
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn a_named_plant_grows_and_keeps_its_name() {
+    let (mut world, registry) = world(100);
+    world
+        .execute(&registry, &do_request(&format!("plant.garden.{}", QUAY.0)))
+        .unwrap();
+    let garden = made(world.state())[0];
+    world
+        .execute(&registry, &name_request(garden, "Ann's Patch"))
+        .unwrap();
+    for _ in 0..10 {
+        pass(&mut world, &registry);
+    }
+    assert_eq!(name(world.state(), garden), "Ann's Patch");
+    assert_eq!(text(world.state(), garden, "shape"), Some("garden"));
+    let grew = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "plant_grew")
+        .count();
+    assert_eq!(grew, 2, "each stage once");
 }

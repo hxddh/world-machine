@@ -697,6 +697,7 @@ fn item(n: u64, kind: CanvasItemKind, label: &str, x: f32, at: Option<u64>) -> C
         home: None,
         day: Vec::new(),
         built: None,
+        ..Default::default()
     }
 }
 
@@ -1048,12 +1049,12 @@ fn a_three_year_world_never_waits_for_painting() {
     crate::painter::paint_elsewhere(true);
     let snapshot = crate::diorama::tests::three_years();
     let (width, height) = (1440.0_f32, 900.0_f32);
-    let make = |hour: f32, pan: f32, daylight: Daylight| {
-        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
-        let living = diorama::living(&stage, &snapshot, 0.0, daylight, &Default::default(), None);
+    let make_of = |snapshot: &ProjectionSnapshot, hour: f32, pan: f32, daylight: Daylight| {
+        let stage = diorama::stage_at(snapshot, width, height, diorama::Clock::at(hour as u8));
+        let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
         let camera = Camera::around(&stage, 1.0, stage.width / 2.0 + pan, height / 2.0);
         diorama::frame(
-            &snapshot,
+            snapshot,
             &stage,
             &living,
             camera,
@@ -1064,6 +1065,7 @@ fn a_three_year_world_never_waits_for_painting() {
         )
         .at_hour(hour)
     };
+    let make = |hour: f32, pan: f32, daylight: Daylight| make_of(&snapshot, hour, pan, daylight);
     let shared = std::rc::Rc::new(std::cell::RefCell::new(make(12.0, 0.0, Daylight::Day)));
     let over = std::rc::Rc::new(std::cell::RefCell::new(None));
     let strip = over.clone();
@@ -1161,6 +1163,43 @@ fn a_three_year_world_never_waits_for_painting() {
     settle(&mut cx, &mut phase, &mut frames);
     eprintln!(
         "birth strip: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
+    // The player's designs: two sails, a flag, two shop signs and a quilt
+    // in view, each painted off the window's thread, then the hour turning
+    // under them and the wind moving them.
+    *over.borrow_mut() = None;
+    let mut designed = snapshot.clone();
+    let design = motif_of(&[9, 0, 2, 4], |x, y| {
+        (x / 4 + y / 4) % 3 + usize::from(x == y)
+    });
+    for item in &mut designed.canvas.items {
+        let key = item.id.stable_key();
+        match key.as_str() {
+            "entity-309" | "entity-312" => item.shape = Some(MarkShape::Boat),
+            "entity-310" => item.shape = Some(MarkShape::Flag),
+            "entity-120" | "entity-126" => item.shape = Some(MarkShape::Shop),
+            "entity-118" => item.shape = Some(MarkShape::House),
+            _ => continue,
+        }
+        item.pattern = Some(design.clone());
+    }
+    let frame = make_of(&designed, 19.5, 0.0, Daylight::Dusk);
+    assert_eq!(frame.worn().len(), 6, "six designs are worn");
+    *shared.borrow_mut() = frame;
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "six designs: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
+    *shared.borrow_mut() = make_of(&designed, 21.0, 0.0, Daylight::Night);
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "six designs at night: the longest frame {:.2} ms",
         phase.as_secs_f64() * 1000.0
     );
     worst = worst.max(phase);
@@ -1482,6 +1521,137 @@ fn a_wedding_a_birth_and_a_farewell_match_their_golden_pictures() {
                 )
                 .into_any_element()
         });
+        matches_golden(name, &image);
+    }
+}
+
+/// A design drawn from a rule over its squares, in palette places.
+fn motif_of(colours: &[u8], rule: impl Fn(usize, usize) -> usize) -> world_projection::Pattern {
+    let cells = (0..crate::mark::CELLS)
+        .map(|at| {
+            let index = rule(at % crate::mark::SIDE, at / crate::mark::SIDE);
+            char::from_digit(index as u32, 16).unwrap()
+        })
+        .collect::<String>();
+    world_projection::Design::new(&cells, colours)
+        .expect("a design")
+        .pattern()
+}
+
+/// The harbour with the player's designs: stripes and a sun on the
+/// square's flag, chevrons on the boat's sail, a fish on the bakery's
+/// sign, and a patchwork quilt at the lighthouse keeper's.
+pub(crate) fn designed() -> ProjectionSnapshot {
+    let mut snapshot = harbour();
+    let flag = motif_of(&[8, 0, 2], |x, y| {
+        let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+        if dx * dx + dy * dy < 12.0 {
+            2
+        } else {
+            (y / 3) % 2
+        }
+    });
+    let sail = motif_of(&[0, 3, 9], |x, y| {
+        if y >= 13 {
+            2
+        } else if (x + y) % 8 < 3 {
+            1
+        } else {
+            0
+        }
+    });
+    let sign = motif_of(&[13, 9, 2, 0], |x, y| {
+        let (dx, dy) = (x as f32 - 6.5, y as f32 - 7.5);
+        if x == 0 || y == 0 || x == 15 || y == 15 {
+            1
+        } else if (dx / 4.2).powi(2) + (dy / 2.6).powi(2) < 1.0 {
+            if x == 4 && y == 6 {
+                3
+            } else {
+                1
+            }
+        } else if (10..=13).contains(&x) && (y as i32 - 7).unsigned_abs() as usize <= x - 10 {
+            1
+        } else if x == 14 || y == 14 || x == 1 || y == 1 {
+            2
+        } else {
+            0
+        }
+    });
+    let quilt = motif_of(&[11, 0, 5, 12, 7], |x, y| {
+        let block = (x / 4 + y / 4 * 4) % 4;
+        if (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1 || y % 4 == 2) {
+            1
+        } else {
+            [0, 2, 3, 4][block]
+        }
+    });
+    let mut flagpole = item(
+        201,
+        CanvasItemKind::Object,
+        "The square's flag",
+        0.0,
+        Some(102),
+    );
+    flagpole.shape = Some(MarkShape::Flag);
+    flagpole.pattern = Some(flag);
+    snapshot.canvas.items.push(flagpole);
+    for item in &mut snapshot.canvas.items {
+        match item.label.as_str() {
+            "Boat" => item.pattern = Some(sail.clone()),
+            "Bakery" => {
+                item.shape = Some(MarkShape::Shop);
+                item.pattern = Some(sign.clone());
+            }
+            "Lighthouse" => item.pattern = Some(quilt.clone()),
+            _ => {}
+        }
+    }
+    // Keep the lighthouse a home, where a quilt is aired.
+    snapshot
+}
+
+/// The diorama of `snapshot` at `hour`, close on the item called `label`.
+fn close_on(snapshot: &ProjectionSnapshot, label: &str, hour: f32) -> diorama::Frame {
+    let (width, height) = (480.0, 300.0);
+    let daylight = crate::scene::daylight_at(hour as u32);
+    let stage = diorama::stage_at(snapshot, width, height, diorama::Clock::at(hour as u8));
+    let index = snapshot
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.label == label)
+        .expect("the item");
+    let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
+    let mut camera = Camera::on(&stage, stage.frame_of(index).expect("on stage"));
+    camera.zoom = 1.8;
+    diorama::frame(
+        snapshot,
+        &stage,
+        &living,
+        Camera::around(&stage, camera.zoom, camera.x, camera.y),
+        0.0,
+        daylight,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(hour)
+}
+
+#[test]
+fn designs_on_a_flag_a_sail_a_sign_and_a_quilt_match_their_golden_pictures() {
+    let snapshot = designed();
+    for (name, label, hour) in [
+        ("design-flag", "The square's flag", 13.0),
+        ("design-sail", "Boat", 13.0),
+        ("design-sign", "Bakery", 13.0),
+        ("design-quilt", "Lighthouse", 13.0),
+        ("design-quilt-night", "Lighthouse", 22.0),
+    ] {
+        let frame = close_on(&snapshot, label, hour);
+        let worn = frame.worn().len();
+        assert_eq!(worn, 4, "{name}: every design is worn");
+        let image = draw(480.0, 300.0, move || painted(frame.clone()));
         matches_golden(name, &image);
     }
 }

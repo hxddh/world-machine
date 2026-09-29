@@ -31,6 +31,8 @@ fn kit(_: &WorldState) -> Kit {
         weather: |_| "Grey and wet.".into(),
         occasions: |_| vec!["the Harbour Fair".into()],
         recalled: |_, _, _| None,
+        era: Era::Radio,
+        elsewhere: &["the mainland"],
     }
 }
 

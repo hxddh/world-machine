@@ -3762,6 +3762,9 @@ pub(crate) fn tick(
     // What the year brings comes first, so the day's round of lives knows
     // whether the day has already brought something new.
     events.extend(crate::years::tick(world, actions)?);
+    // Whoever what the player built draws comes before the day's round, so
+    // a room come free goes to them before a stranger at the door.
+    events.extend(crate::plots::draw(world, actions)?);
     let cast = crate::life::cast_in(world.state());
     events.extend(lives::tick_with(
         world,
@@ -4066,7 +4069,7 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     }
     // Being greeted is the first thing that happens to a newcomer.
     if lives::is_news(event) || event.kind == "greeted" {
-        return lives::told(event);
+        return lives::told(event).map(|told| crate::plots::renamed(world.state(), event, told));
     }
     if hands::is_hands(event) {
         return hands::told(event);
@@ -6234,6 +6237,9 @@ pub(crate) fn fixture_shape(shape: &str) -> world_projection::MarkShape {
         "statue" => MarkShape::Statue,
         "postbox" => MarkShape::Postbox,
         "stone" => MarkShape::Statue,
+        "house" => MarkShape::House,
+        "shop" => MarkShape::Shop,
+        "tower" => MarkShape::Tower,
         _ => MarkShape::Parcel,
     }
 }
@@ -6283,6 +6289,7 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                     Some(Value::Integer(day)) => Some((*day).max(0) as u32),
                     _ => None,
                 },
+                ..Default::default()
             }
         })
         .collect()

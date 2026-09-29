@@ -13,6 +13,7 @@ use world_theme::tokens;
 
 use crate::scene;
 
+mod marking;
 mod stories;
 mod world_window;
 #[cfg(test)]
@@ -1712,6 +1713,7 @@ mod focus_hierarchy_tests {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         };
         let mut snapshot = ProjectionSnapshot {
             drawings: vec![

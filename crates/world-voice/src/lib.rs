@@ -14,6 +14,7 @@ use std::process::{Command, Stdio};
 use world_pi_rpc::{PiCommand, PiRpcTransport, ProcessPiRpcTransport};
 
 pub mod fm;
+pub mod helper;
 pub use fm::{FmCompletion, FmStatus};
 
 /// Told to a Pack whose World should speak in a model's words.
@@ -451,6 +452,8 @@ mod tests {
             places: Vec::new(),
             words: "Hi!".into(),
             answer: "Hello.".into(),
+            known: Vec::new(),
+            era: conversation::Era::Radio,
         };
         let heard = ModelListener(Canned("MEANING: greet\nABOUT: none\nREPLY: Morning, love!"))
             .listen(&hearing)

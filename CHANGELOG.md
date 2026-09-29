@@ -2,6 +2,44 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.23.0 (2026-09-29)
+
+**Worlds from `v0.22` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. A World saved by `v0.22.0` opens, replays event for event and plays on.
+
+This is the last of the three releases planned in the [v0.20 review](docs/REVIEW_v0.20.md). That review found a place where the player could leave no mark of their own, and a World that stayed inside its window. This release is about your mark and the world outside.
+
+- **Plots you build on, which the town finishes.**
+  - Tiny Society has 19 plots along its paths and 36 kinds of thing to build on them. Each Pocket Universe place has 15 to 18 plots and 30 kinds of thing.
+  - Click a plot to see what could stand there, each drawn small with its cost.
+  - Building is a deed like any other: it counts toward your two a day and can be undone that day. The town finishes the work five days later and chooses its colour and which way it faces, and joins it to its neighbours with a low wall. There is no wrong place.
+- **What you build decides who comes.** A bandstand draws a musician, a boathouse a boatwright, a garden a beekeeper, and more. The newcomer says what brought them, works there, and their story begins with it. In three years a warm builder draws 8 newcomers to the harbour and 7 to 9 to each Pocket Universe place.
+- **Designs.**
+  - A 16×16 design canvas for a flag, a sail, a shop sign or a quilt, with 8 colours from a palette of 16, pencil, fill and eyedropper tools, and undo.
+  - The design shows on its target while you draw.
+  - In the scene flags ripple in the wind, sails fill and roll with the boat, signs hang from iron brackets, and quilts air on a line or show through a lit window at night.
+- **Names.**
+  - Name boats, works and newborns. A newborn's parents offer three names; pick one or write your own.
+  - The name is used everywhere afterwards: labels, legends, the book, moments.
+  - Designs and names survive a World code and a replay exactly.
+- **A strip you can touch.** Click someone on the strip and they wave and say a line. Drag the envelope to open the letter. Put the strip on any edge of the screen: top, bottom, left or right.
+- **Friends' residents.**
+  - **World → Invite a Friend's Resident…** reads a friend's World code from the clipboard or a `.worldcode` file.
+  - Choose one of their people, who stays for three days, drawn as they are in their own World and bringing a line from it.
+  - It works in both Packs, and nothing is written to your friend's World.
+- **A new World voice guard.**
+  - The guard that checks a model's answers used to be an English phrase list. It now reads English and Chinese, and declines an answer that:
+    - speaks as a machine;
+    - breaks the fourth wall;
+    - brings in the outside world or the wrong era;
+    - claims people or places the World doesn't have;
+    - urges harm;
+    - echoes an injection, uses formatting, refuses like an assistant, or switches language.
+  - It is deterministic, and the World's own words stand in for a declined answer.
+  - It was measured on three red-team sets written blind by someone who never read the guard. **The bar (95% declined, none wrongly) is met on the first set but not on the later ones:** on the last, 161 of 210 bad answers were declined (77%) and 12 of 236 good ones wrongly declined (5%). World voice stays off by default. See [known issues](docs/KNOWN_ISSUES.md).
+- **Words on cards.** No card shows an engine word ("asset", "Place") any more. A test checks every item's detail in both Packs.
+- **An `fm` helper, in source only.** It is a small Swift program for Apple's on-device model that asks the World for facts and cites the events it used, and the app checks those citations. It has not been built or run, and the app does not use it yet.
+- **Not in this release:** notarization, a desktop widget and Quick Look thumbnails. All three wait for a Developer ID.
+
 ## v0.22.0 (2026-09-29)
 
 **Worlds from `v0.21` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Everyone in an older World is given an age worked out from who they are and when the World began, so nothing is rewritten and its history replays exactly. From here on, births, comings of age and deaths are recorded as they happen.

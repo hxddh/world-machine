@@ -620,8 +620,16 @@ impl WorldDocumentView {
                     },
                 )),
             )
+            .child(
+                item("share-invite-friend", "Invite a Friend's Resident…").on_click(
+                    cx.listener(|this, _, _, cx| {
+                        this.share_open = false;
+                        this.invite_friend(cx);
+                    }),
+                ),
+            )
             .child(div().px_3().pt_1().pb(px(6.0)).child(ui::caption(
-                "Anyone can open a World code as a visit. A guest comes from another of your Worlds.",
+                "Anyone can open a World code as a visit. A guest comes from another of your Worlds, or from a friend's World code.",
             )))
     }
 }
@@ -799,6 +807,7 @@ impl Render for WorldDocumentView {
                 cx.listener(|this, _: &about::SaveWorldCode, _, cx| this.save_world_code(cx)),
             )
             .on_action(cx.listener(|this, _: &about::InviteGuest, _, cx| this.invite_guest(cx)))
+            .on_action(cx.listener(|this, _: &about::InviteFriend, _, cx| this.invite_friend(cx)))
             .on_action(cx.listener(|this, _: &about::ShowAsStrip, _, cx| {
                 world_gpui::pointers::used(world_gpui::pointers::Pointer::Strip);
                 let snapshot = this.projection.read(cx).snapshot().clone();

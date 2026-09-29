@@ -92,9 +92,13 @@ impl HintSettings {
 /// How a World shown as a strip along the edge of a screen is placed.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StripSettings {
-    /// Along the top of the screen rather than the bottom.
+    /// Along the top of the screen rather than the bottom. Kept for the
+    /// versions before a strip could go down a side; `edge` wins.
     #[serde(default, skip_serializing_if = "is_off")]
     pub top: bool,
+    /// Which edge: `top`, `bottom`, `left` or `right`. Absent reads `top`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<String>,
     /// In front of every other window.
     #[serde(default, skip_serializing_if = "is_off")]
     pub always_on_top: bool,
@@ -734,9 +738,20 @@ mod tests {
             top: true,
             always_on_top: true,
             display: Some("display-2".into()),
+            edge: None,
         };
         save_strip(&fixture.root, strip.clone()).unwrap();
         assert_eq!(load(&fixture.root).unwrap().strip, strip);
+        // Down a side, as a later version keeps it; and an older settings
+        // file, with no edge, still reads.
+        let side = StripSettings {
+            edge: Some("left".into()),
+            ..StripSettings::default()
+        };
+        save_strip(&fixture.root, side.clone()).unwrap();
+        assert_eq!(load(&fixture.root).unwrap().strip, side);
+        let older: StripSettings = serde_json::from_str(r#"{"top":true}"#).unwrap();
+        assert!(older.top && older.edge.is_none());
     }
 
     #[test]

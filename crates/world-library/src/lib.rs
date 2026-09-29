@@ -1011,6 +1011,7 @@ fn cast_from_document(
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             })
         })
         .collect()
@@ -1461,6 +1462,7 @@ pub fn guest_from(summary: &WorldDocumentSummary) -> Option<world_projection::Gu
         gift: format!("a postcard of {from}"),
         from,
         letter,
+        ..world_projection::Guest::default()
     })
 }
 
@@ -2134,6 +2136,7 @@ mod tests {
                         home: None,
                         day: Vec::new(),
                         built: None,
+                        ..Default::default()
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -2162,6 +2165,7 @@ mod tests {
                         home: None,
                         day: Vec::new(),
                         built: None,
+                        ..Default::default()
                     },
                 ],
                 ..Default::default()

@@ -636,6 +636,13 @@ Strip	长条
 Along the Bottom	沿屏幕底部
 Along the Top	沿屏幕顶部
 Always in Front	始终在最前面
+Down the Left	沿屏幕左侧
+Down the Right	沿屏幕右侧
+Click someone to say hello. Double-click to open the World	点一下某人，打个招呼。双击打开世界
+Hello!	你好！
+Visiting from {from}	从{from}来做客
+Invite a Friend's Resident…	邀请朋友世界的居民…
+They stay a few days and bring a letter. Nothing is changed in their World.	他们会住上几天，还带来一封信。他们的世界不会有任何改变。
 Move to Next Display	移到下一个显示器
 Invite a Guest	邀请客人
 {name} came over from {from} with a letter	{name}从{from}带着一封信来了
@@ -665,7 +672,7 @@ Keep this World along the edge of your screen as a strip (⌥⌘S).	把这个世
 Share	分享
 Copy World Code	复制世界码
 Save World Code…	保存世界码…
-Anyone can open a World code as a visit. A guest comes from another of your Worlds.	任何人都能以访客身份打开世界码。客人来自你的另一个世界。
+Anyone can open a World code as a visit. A guest comes from another of your Worlds, or from a friend's World code.	任何人都能以访客身份打开世界码。客人来自你的另一个世界，或来自朋友的世界码。
 More for {title}	{title} 的更多操作
 Postcard	明信片
 Their story	他们的故事
@@ -700,3 +707,46 @@ Two seasons in the town	在镇上两季
 Three seasons in the town	在镇上三季
 A month in the town	在镇上一个月
 {} months in the town	在镇上 {} 个月
+A plot	一块空地
+What could stand here	这里可以建什么
+What could stand here?	这里可以建什么？
+Design…	设计…
+Name…	起名…
+More in the drawer	在抽屉里看更多
+Names proposed	提议的名字
+Enter to name it · Esc to leave it	按回车起名 · 按 Esc 作罢
+Type a name, or pick one · Enter to name it	输入一个名字，或选一个 · 按回车起名
+A name…	一个名字…
+The design, sixteen squares by sixteen	图案，十六乘十六格
+Arrows move · Space paints · 1–8 colours · F fills	方向键移动 · 空格上色 · 1–8 选颜色 · F 填充
+Save	保存
+Colours	颜色
+Colour	颜色
+The palette	调色板
+Tools	工具
+Mix the chosen colour	调换所选的颜色
+Redo	重做
+Clear	清空
+Pencil (P)	铅笔 (P)
+Fill (F)	填充 (F)
+Eyedropper (I)	取色 (I)
+Design for the flag	为旗子设计图案
+Design for the sail	为船帆设计图案
+Design for the sign	为招牌设计图案
+Design for the quilt	为被子设计图案
+Chalk white	粉白
+Soot	煤黑
+Signal red	信号红
+Marigold	金盏橙
+Buttercup	毛茛黄
+Meadow	草地绿
+Bottle green	瓶绿
+Sky	天蓝
+Harbour blue	港湾蓝
+Navy	藏青
+Heather	石楠紫
+Rose	玫瑰粉
+Chestnut	栗色
+Sand	沙色
+Slate	石板灰
+Peat	泥炭褐

@@ -361,3 +361,102 @@ fn a_guest_from_another_world_visits_and_writes_nothing_back() {
     let reopened = registry.open_archive(&archive).unwrap();
     assert_eq!(reopened.snapshot().letters, after.letters);
 }
+
+/// A friend's resident, read from their World's code, comes to stay: they
+/// stand on the harbour's canvas drawn as their own World draws them and
+/// say a line from there, the visit replays exactly from the record, they
+/// leave when their stay is over, and nothing is written to the friend's
+/// World.
+#[test]
+fn a_friends_resident_stays_drawn_as_at_home_and_their_world_is_untouched() {
+    use world_projection::{Guest, ProjectionIntent};
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::tiny_society_registration())
+        .unwrap();
+    let mut friend = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    for _ in 0..4 {
+        friend
+            .handle(ProjectionIntent::InvokeCommand(
+                crate::story::WAIT_COMMAND.into(),
+            ))
+            .unwrap();
+    }
+    let code = friend.archive().unwrap().unwrap();
+    let visit = registry.open_archive(&code).unwrap();
+    let residents = Guest::residents(&visit.snapshot());
+    assert!(residents.len() >= 3, "{} residents", residents.len());
+    let guest = residents
+        .iter()
+        .find(|guest| guest.drawing.is_some() && guest.line.is_some())
+        .or_else(|| residents.iter().find(|guest| guest.drawing.is_some()))
+        .cloned()
+        .expect("a resident with their own drawing");
+    let guest = Guest {
+        line: Some(
+            guest
+                .line
+                .clone()
+                .unwrap_or_else(|| "Lovely harbour.".into()),
+        ),
+        ..guest
+    };
+
+    let mut home = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    let after = home.handle(ProjectionIntent::Host(guest.clone())).unwrap();
+    let standing = after
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.label == guest.name && item.detail.contains("Visiting"))
+        .expect("the guest stands on the canvas");
+    assert_eq!(
+        after.drawing_of(standing).map(|drawing| &drawing.parts),
+        guest
+            .travelling_drawing()
+            .as_ref()
+            .map(|drawing| &drawing.parts),
+        "drawn with their own drawing"
+    );
+    assert_eq!(
+        after
+            .drawing_of(standing)
+            .map(|drawing| drawing.parts.len()),
+        guest.drawing.as_ref().map(|drawing| drawing.parts.len()),
+        "all of it"
+    );
+    assert!(after
+        .voices
+        .iter()
+        .any(|voice| voice.speaker == standing.id && Some(&voice.line) == guest.line.as_ref()));
+
+    // The visit replays from the record alone.
+    let archive = home.archive().unwrap().unwrap();
+    let reopened = registry.open_archive(&archive).unwrap().snapshot();
+    let again = reopened
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.id == standing.id)
+        .expect("still there after reopening");
+    assert_eq!(reopened.drawing_of(again), after.drawing_of(standing));
+    assert_eq!(
+        friend.archive().unwrap().unwrap(),
+        code,
+        "nothing is written to the friend's World"
+    );
+
+    // When their stay is over they go home.
+    for _ in 0..(lives::GUEST_STAY_PERIODS + 1) {
+        home.handle(ProjectionIntent::InvokeCommand(
+            crate::story::WAIT_COMMAND.into(),
+        ))
+        .unwrap();
+    }
+    assert!(!home
+        .snapshot()
+        .canvas
+        .items
+        .iter()
+        .any(|item| item.id == standing.id));
+}

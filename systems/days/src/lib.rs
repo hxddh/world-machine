@@ -138,6 +138,19 @@ impl Street {
             .find_map(|&row| self.take(row, None, near).map(|px| (row, px)))
     }
 
+    /// Keeps the free slots of `row` within `reach` of `px` clear: they are
+    /// taken, so nothing is put in them after. How many were.
+    pub fn keep_clear(&mut self, row: usize, px: f32, reach: f32) -> usize {
+        let near = (0..self.slots(row))
+            .filter(|slot| !self.taken.contains(&(row, *slot)))
+            .filter(|slot| (self.px(row, *slot) - px).abs() < reach)
+            .collect::<Vec<_>>();
+        for slot in &near {
+            self.taken.insert((row, *slot));
+        }
+        near.len()
+    }
+
     /// Whether a row has a slot free in a stretch (or anywhere).
     pub fn free_in(&self, row: usize, within: Option<usize>) -> bool {
         let stretch = within.and_then(|at| self.stretches.get(at));

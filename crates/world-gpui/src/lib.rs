@@ -1,11 +1,13 @@
 pub mod age;
 pub mod art;
 pub mod brush;
+pub mod design;
 pub mod diorama;
 #[cfg(test)]
 mod golden;
 pub mod i18n;
 mod macos;
+pub mod mark;
 pub mod painter;
 pub mod panels;
 pub mod pointers;

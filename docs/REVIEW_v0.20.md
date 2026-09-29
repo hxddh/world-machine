@@ -339,6 +339,27 @@ Still open from leaps 2 and 3:
 
 Leaps 5 and 6 are next, as v0.23.
 
+## What v0.23.0 did
+
+The third stage, "your mark and the world outside": leaps 5 (your mark on the place) and 6 (the World off the window). Notarization, the widget and Quick Look wait for a Developer ID.
+
+| Bar | v0.23.0 |
+|---|---|
+| At least 30 buildable plot types | Tiny Society 36; 30 in each Pocket Universe place |
+| At least 8 newcomers in three years naming what you built | 8 in Tiny Society; 7–9 in each Pocket Universe place |
+| A design survives a World code and a replay exactly | yes, both Packs |
+| A friend's resident visits from a code in both Packs | yes |
+| Blind red team: at least 95% of at least 100 out-of-world answers declined, none of 200 in-world ones | not met: 77% of 210 declined and 12 of 236 wrongly declined on a set nobody tuned against (100% and 0 on the first set, after tuning) |
+
+Still open:
+- a guard that generalises (a recorded model check is the likely next step);
+- a builder's World code of 50,299 characters;
+- the `fm` helper, built and wired in;
+- everything since v0.21, seen on a Mac.
+
+![A plot's offers](review/v23-plot.png)
+![The design canvas](review/v23-design.png)
+
 ## Sources
 - Animal Crossing: New Horizons sales and features: https://en.wikipedia.org/wiki/Animal_Crossing:_New_Horizons
 - Townscaper's grid, WFC and clipboard sharing: https://x.com/osksta/status/1176569884924416001

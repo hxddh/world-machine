@@ -1,6 +1,9 @@
 //! A World as a band along the edge of a screen: its landscape in a strip
-//! a hand tall, its people walking the length of it now and then, and the
-//! day's letter arriving in it as a small envelope to click and read.
+//! a hand tall (or, along the side of a screen, a column of such bands),
+//! its people walking the length of it now and then, and the day's letter
+//! arriving in it as a small envelope to click, or drag out, and read.
+//! Click someone and they wave and say something: the World's own line for
+//! them, read from what it shows and never sent back to it.
 //!
 //! A strip lives on the desktop all day, so it draws only while something
 //! in it moves, never faster than [`MOST_FRAMES_A_SECOND`], not at all
@@ -18,13 +21,24 @@ use gpui::{
     Pixels, Render, Role, SharedString, SpringConfig, SpringState, Styled, Subscription, Task,
     Window,
 };
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use world_projection::ProjectionSnapshot;
+use world_projection::SelectionId;
 use world_theme::tokens;
 
 /// How tall a strip is, in points.
 pub const HEIGHT: f32 = 140.0;
+
+/// How wide a strip down the side of a screen is, in points.
+pub const WIDTH: f32 = 180.0;
+
+/// How long someone says their line after a click, in seconds.
+pub const SAYING_SECONDS: f32 = 5.0;
+
+/// How far the envelope must be dragged to open, in points.
+pub const DRAG_OPENS: f32 = 16.0;
 
 /// The most a strip ever draws in a second while something moves: under
 /// fifteen, so a strip left on all day costs next to nothing.
@@ -57,23 +71,145 @@ pub const LETTER_SPRING: SpringConfig = SpringConfig::new(90.0, 11.0, 1.0);
 const LETTER_REST: f32 = 0.004;
 
 /// Which edge of the screen a strip lies along.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum Edge {
     #[default]
     Bottom,
     Top,
+    Left,
+    Right,
+}
+
+impl Edge {
+    pub const ALL: [Edge; 4] = [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right];
+
+    /// Down the side of the screen rather than across it.
+    pub fn vertical(self) -> bool {
+        matches!(self, Edge::Left | Edge::Right)
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Edge::Bottom => "bottom",
+            Edge::Top => "top",
+            Edge::Left => "left",
+            Edge::Right => "right",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|edge| edge.id() == id)
+    }
+
+    /// What the strip's menu calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Edge::Bottom => "Along the Bottom",
+            Edge::Top => "Along the Top",
+            Edge::Left => "Down the Left",
+            Edge::Right => "Down the Right",
+        }
+    }
 }
 
 /// Where a strip goes on a display whose usable area (without the menu bar
-/// and the Dock) is `visible`: the full width, [`HEIGHT`] tall, along
-/// `edge`.
+/// and the Dock) is `visible`: along the top or bottom the full width and
+/// [`HEIGHT`] tall; down a side the full height and [`WIDTH`] wide.
 pub fn band(visible: Bounds<Pixels>, edge: Edge) -> Bounds<Pixels> {
     let height = px(HEIGHT.min(f32::from(visible.size.height)));
-    let y = match edge {
-        Edge::Top => visible.origin.y,
-        Edge::Bottom => visible.origin.y + visible.size.height - height,
-    };
-    Bounds::new(point(visible.origin.x, y), size(visible.size.width, height))
+    let width = px(WIDTH.min(f32::from(visible.size.width)));
+    match edge {
+        Edge::Top => Bounds::new(visible.origin, size(visible.size.width, height)),
+        Edge::Bottom => Bounds::new(
+            point(
+                visible.origin.x,
+                visible.origin.y + visible.size.height - height,
+            ),
+            size(visible.size.width, height),
+        ),
+        Edge::Left => Bounds::new(visible.origin, size(width, visible.size.height)),
+        Edge::Right => Bounds::new(
+            point(
+                visible.origin.x + visible.size.width - width,
+                visible.origin.y,
+            ),
+            size(width, visible.size.height),
+        ),
+    }
+}
+
+/// How a strip is cut into bands: one across a wide strip; down a tall
+/// one, as many as fit, each a hand tall, the place running on from the
+/// end of one band to the start of the next like lines of writing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rows {
+    pub count: usize,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Rows {
+    pub fn of(width: f32, height: f32) -> Self {
+        if height <= width {
+            return Self {
+                count: 1,
+                w: width,
+                h: height,
+            };
+        }
+        let count = ((height / HEIGHT).floor() as usize).max(1);
+        Self {
+            count,
+            w: width,
+            h: height / count as f32,
+        }
+    }
+
+    /// How long the place is, all its bands laid end to end.
+    pub fn length(&self) -> f32 {
+        self.w * self.count as f32
+    }
+
+    /// The window onto band `row` of `stage`, as a stage of its own width
+    /// and a camera over its stretch of the place.
+    pub fn view(&self, stage: &Stage, row: usize) -> (Stage, Camera) {
+        let start = stage.width / 2.0 - self.length() / 2.0;
+        let mut band = stage.clone();
+        band.view_w = self.w;
+        let camera = Camera {
+            zoom: 1.0,
+            x: start + self.w * (row as f32 + 0.5),
+            y: stage.height / 2.0,
+        };
+        (band, camera)
+    }
+}
+
+/// Whether letting go of the envelope at `to`, having taken it at `from`,
+/// opens the letter.
+pub fn drag_opens(from: (f32, f32), to: (f32, f32)) -> bool {
+    (to.0 - from.0).hypot(to.1 - from.1) >= DRAG_OPENS
+}
+
+/// What someone on a strip says when clicked: the last thing their World
+/// shows them saying, or else what they answer when asked, or else a
+/// greeting. Read from the snapshot only.
+pub fn line_for(snapshot: &ProjectionSnapshot, who: SelectionId) -> String {
+    snapshot
+        .voices
+        .iter()
+        .rev()
+        .find(|voice| voice.speaker == who)
+        .map(|voice| voice.line.clone())
+        .or_else(|| {
+            snapshot
+                .talks
+                .iter()
+                .find(|talk| talk.who == who)
+                .map(|talk| talk.answer.clone())
+        })
+        .filter(|line| !line.trim().is_empty())
+        .unwrap_or_else(|| ui::t("Hello!").to_string())
 }
 
 /// How long to wait before the next frame: a frame's time while something
@@ -305,19 +441,91 @@ pub fn frame(
     daylight: Daylight,
     still: bool,
 ) -> diorama::Frame {
-    let lives = outings.living(seconds, daylight == Daylight::Night, still);
-    // The sky, the water and the trees are drawn at one moment always, so
-    // a strip at rest is a picture and draws nothing.
-    diorama::frame(
+    let rows = Rows {
+        count: 1,
+        w: stage.view_w,
+        h: stage.height,
+    };
+    frames(
         snapshot,
         stage,
-        &lives,
-        Camera::whole(stage),
-        0.0,
+        outings,
+        rows,
+        seconds,
         daylight,
-        &Glows::new(),
-        1.0,
+        still,
+        &BTreeMap::new(),
     )
+    .remove(0)
+}
+
+/// Works out one frame of each of a strip's bands `seconds` in, with
+/// everyone clicked on (`poked`: how many seconds ago) waving.
+#[allow(clippy::too_many_arguments)]
+pub fn frames(
+    snapshot: &ProjectionSnapshot,
+    stage: &Stage,
+    outings: &Outings,
+    rows: Rows,
+    seconds: f32,
+    daylight: Daylight,
+    still: bool,
+    poked: &BTreeMap<SelectionId, f32>,
+) -> Vec<diorama::Frame> {
+    let mut lives = outings.living(seconds, daylight == Daylight::Night, still);
+    diorama::wave(&mut lives, stage, snapshot, poked, still);
+    // The sky, the water and the trees are drawn at one moment always, so
+    // a strip at rest is a picture and draws nothing.
+    (0..rows.count.max(1))
+        .map(|row| {
+            let (band, camera) = rows.view(stage, row);
+            diorama::frame(
+                snapshot,
+                &band,
+                &lives,
+                camera,
+                0.0,
+                daylight,
+                &Glows::new(),
+                1.0,
+            )
+        })
+        .collect()
+}
+
+/// Whether anyone clicked on is still waving, `poked` seconds ago each.
+pub fn waving(poked: &BTreeMap<SelectionId, f32>, still: bool) -> bool {
+    !still
+        && poked
+            .values()
+            .any(|ago| (0.0..diorama::WAVE_SECONDS).contains(ago))
+}
+
+/// Seconds until the next change a still strip must draw: the end of a
+/// wave or of a line being said, or the next walk.
+pub fn next_change(next_walk: Option<f32>, poked: &BTreeMap<SelectionId, f32>) -> Option<f32> {
+    poked
+        .values()
+        .flat_map(|ago| [diorama::WAVE_SECONDS - ago, SAYING_SECONDS - ago])
+        .filter(|left| *left > 0.0)
+        .chain(next_walk)
+        .reduce(f32::min)
+}
+
+/// Who, if anyone, is drawn under the point `at` in a band's frame: the
+/// canvas item index of the person nearest in front.
+pub fn person_at(frame: &diorama::Frame, at: (f32, f32)) -> Option<usize> {
+    frame
+        .people
+        .iter()
+        .filter(|person| {
+            let half = (person.height * 0.35).max(8.0);
+            (at.0 - person.x).abs() <= half
+                && at.1 <= person.y + 4.0
+                && at.1 >= person.y - person.height - 4.0
+        })
+        .min_by(|a, b| (a.x - at.0).abs().total_cmp(&(b.x - at.0).abs()))
+        .map(|person| person.index)
 }
 
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -338,8 +546,34 @@ pub struct StripView {
     visibility: Option<Subscription>,
     on_open: Option<Handler>,
     on_close: Option<Handler>,
+    on_choose: Option<Chooser>,
     drawn: u64,
+    /// Who was clicked, and when.
+    poked: BTreeMap<SelectionId, Instant>,
+    /// Who is saying something, what, and since when.
+    saying: Option<(SelectionId, String, Instant)>,
+    /// The envelope being dragged: where it was taken and where it is.
+    dragging: Option<((f32, f32), (f32, f32))>,
+    /// The strip's own menu, open at a point.
+    menu: Option<(f32, f32)>,
+    /// Where the strip lies, and whether it stays in front, for its menu.
+    edge: Edge,
+    in_front: bool,
+    /// The last frames drawn, one a band, and where each band is.
+    bands: Vec<(Bounds<Pixels>, diorama::Frame)>,
+    /// Where the envelope rests.
+    letter_spot: (f32, f32),
 }
+
+/// What the strip's own menu offers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StripChoice {
+    Edge(Edge),
+    InFront,
+    NextDisplay,
+}
+
+type Chooser = Rc<dyn Fn(StripChoice, &mut Window, &mut App)>;
 
 impl StripView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
@@ -353,8 +587,52 @@ impl StripView {
             visibility: None,
             on_open: None,
             on_close: None,
+            on_choose: None,
             drawn: 0,
+            poked: BTreeMap::new(),
+            saying: None,
+            dragging: None,
+            menu: None,
+            edge: Edge::default(),
+            in_front: false,
+            bands: Vec::new(),
+            letter_spot: (0.0, 0.0),
         }
+    }
+
+    /// What a choice in the strip's own menu (a right-click) does, and
+    /// where the strip lies now, for the menu to tick.
+    pub fn on_choose(
+        mut self,
+        edge: Edge,
+        in_front: bool,
+        choose: impl Fn(StripChoice, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.edge = edge;
+        self.in_front = in_front;
+        self.on_choose = Some(Rc::new(choose));
+        self
+    }
+
+    /// Someone on the strip is clicked: they wave and say their line.
+    pub fn poke(&mut self, who: SelectionId, now: Instant) {
+        self.poked
+            .retain(|_, at| now.duration_since(*at).as_secs_f32() < SAYING_SECONDS);
+        self.poked.insert(who, now);
+        self.saying = Some((who, line_for(&self.snapshot, who), now));
+    }
+
+    /// What is being said on the strip now, by whom.
+    pub fn saying(&self) -> Option<(SelectionId, &str)> {
+        self.saying
+            .as_ref()
+            .filter(|(_, _, at)| at.elapsed().as_secs_f32() < SAYING_SECONDS)
+            .map(|(who, line, _)| (*who, line.as_str()))
+    }
+
+    /// Whether the letter is open to read.
+    pub fn is_reading(&self) -> bool {
+        self.reading
     }
 
     /// What a double-click does: open the full World.
@@ -434,32 +712,59 @@ impl StripView {
         rest: (f32, f32),
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let (x, y) = rest;
-        let y = y - drop * (y + LETTER_H + 4.0);
-        letter_button(letter_from(&self.snapshot), self.reading, x, y).on_click(cx.listener(
-            |this, _, _, cx| {
-                this.reading = !this.reading;
+        let (x, y) = match self.dragging {
+            // Dragged, it follows the pointer from where it was taken.
+            Some((from, to)) => (rest.0 + to.0 - from.0, rest.1 + to.1 - from.1),
+            None => (rest.0, rest.1 - drop * (rest.1 + LETTER_H + 4.0)),
+        };
+        letter_button(letter_from(&self.snapshot), self.reading, x, y)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    let at = (f32::from(event.position.x), f32::from(event.position.y));
+                    this.dragging = Some((at, at));
+                    cx.stop_propagation();
+                }),
+            )
+            .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
                 cx.stop_propagation();
+                // Let go of where it was dragged to, far enough, it opens;
+                // clicked, it opens or is put away.
+                let to = event.position();
+                match this.dragging.take() {
+                    Some((from, _)) if drag_opens(from, (f32::from(to.x), f32::from(to.y))) => {
+                        this.reading = true
+                    }
+                    _ => this.reading = !this.reading,
+                }
                 cx.notify();
-            },
-        ))
+            }))
     }
 
     fn render_reading(&self, width: f32, height: f32) -> Option<gpui::Stateful<gpui::Div>> {
         let letter = self.snapshot.letters.last()?;
         let from = letter_from(&self.snapshot);
-        let card_w = (width - 2.0 * LETTER_W - 48.0).clamp(160.0, 520.0);
-        Some(
-            div()
-                .id("strip-reading")
-                .role(Role::Article)
-                .aria_label(from.clone())
-                .absolute()
-                .right(px(LETTER_W + 40.0))
+        let card = div()
+            .id("strip-reading")
+            .role(Role::Article)
+            .aria_label(from.clone())
+            .absolute();
+        // Down a side the letter opens across the column; along the top or
+        // bottom, beside the envelope.
+        let card = if height > width {
+            card.left(px(8.0))
+                .right(px(8.0))
+                .top(px(34.0))
+                .h(px((height - 48.0).clamp(40.0, 360.0)))
+        } else {
+            let card_w = (width - 2.0 * LETTER_W - 48.0).clamp(160.0, 520.0);
+            card.right(px(LETTER_W + 40.0))
                 .top(px(10.0))
                 .w(px(card_w))
                 .h(px((height - 20.0).max(40.0)))
-                .p_3()
+        };
+        Some(
+            card.p_3()
                 .flex()
                 .flex_col()
                 .gap_1()
@@ -478,6 +783,130 @@ impl StripView {
                 .child(ui::body(letter.note.clone()))
                 .on_click(|_, _, cx| cx.stop_propagation()),
         )
+    }
+
+    /// What someone clicked on says, in a bubble over them.
+    fn render_saying(&self, width: f32) -> Option<gpui::Div> {
+        let (who, line) = self.saying()?;
+        let (band, frame) = self.bands.iter().find(|(band, frame)| {
+            frame.people.iter().any(|person| {
+                self.snapshot
+                    .canvas
+                    .items
+                    .get(person.index)
+                    .map(|item| item.id)
+                    == Some(who)
+                    && person.x >= 0.0
+                    && person.x <= f32::from(band.size.width)
+            })
+        })?;
+        let person = frame.people.iter().find(|person| {
+            self.snapshot
+                .canvas
+                .items
+                .get(person.index)
+                .map(|item| item.id)
+                == Some(who)
+        })?;
+        let bubble_w = (width - 16.0).min(260.0);
+        let x = (f32::from(band.origin.x) + person.x - bubble_w / 2.0)
+            .clamp(8.0, width - bubble_w - 8.0);
+        let top = f32::from(band.origin.y) + (person.y - person.height - 44.0).max(4.0);
+        Some(
+            div()
+                .absolute()
+                .left(px(x))
+                .top(px(top))
+                .w(px(bubble_w))
+                .px_2()
+                .py_1()
+                .rounded_lg()
+                .shadow_sm()
+                .bg(ui::color(tokens::SURFACE))
+                .text_color(ui::color(tokens::TEXT))
+                .text_xs()
+                .child(line.to_string()),
+        )
+    }
+
+    /// The strip's own menu: where it lies, whether it stays in front,
+    /// and which display it is on.
+    fn render_menu(
+        &self,
+        at: (f32, f32),
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let menu_w = 176.0;
+        let item = |id: &'static str, label: SharedString, ticked: bool, choice: StripChoice| {
+            div()
+                .id(id)
+                .role(Role::MenuItem)
+                .aria_label(label.clone())
+                .px_2()
+                .py(px(3.0))
+                .rounded_md()
+                .flex()
+                .gap_1()
+                .cursor_pointer()
+                .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
+                .child(div().w(px(12.0)).child(if ticked { "✓" } else { "" }))
+                .child(label)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.menu = None;
+                    cx.notify();
+                    if let Some(choose) = this.on_choose.clone() {
+                        choose(choice, window, cx);
+                    }
+                }))
+        };
+        let mut menu = div()
+            .id("strip-menu")
+            .role(Role::Menu)
+            .aria_label(ui::t("Strip"))
+            .absolute()
+            .left(px(at.0.clamp(4.0, (width - menu_w - 4.0).max(4.0))))
+            .top(px(at.1.clamp(4.0, (height - 150.0).max(4.0))))
+            .w(px(menu_w))
+            .p_1()
+            .flex()
+            .flex_col()
+            .rounded_lg()
+            .shadow_md()
+            .bg(ui::color(tokens::SURFACE))
+            .text_color(ui::color(tokens::TEXT))
+            .text_xs()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.menu = None;
+                cx.notify();
+            }));
+        for (id, edge) in [
+            ("strip-top", Edge::Top),
+            ("strip-bottom", Edge::Bottom),
+            ("strip-left", Edge::Left),
+            ("strip-right", Edge::Right),
+        ] {
+            menu = menu.child(item(
+                id,
+                ui::t(edge.label()),
+                self.edge == edge,
+                StripChoice::Edge(edge),
+            ));
+        }
+        menu.child(item(
+            "strip-in-front",
+            ui::t("Always in Front"),
+            self.in_front,
+            StripChoice::InFront,
+        ))
+        .child(item(
+            "strip-next-display",
+            ui::t("Move to Next Display"),
+            false,
+            StripChoice::NextDisplay,
+        ))
     }
 }
 
@@ -620,39 +1049,91 @@ impl Render for StripView {
         }
         let viewport = window.viewport_size();
         let (width, height) = (f32::from(viewport.width), f32::from(viewport.height));
-        let stage = stage(&self.snapshot, width, height);
+        let rows = Rows::of(width, height);
+        let stage = stage(&self.snapshot, rows.length(), rows.h);
         let outings = Outings::new(&stage, &self.snapshot);
         let daylight = scene::daylight_now();
         let night = daylight == Daylight::Night;
         let still = cx.reduce_motion();
-        let frame = frame(&self.snapshot, &stage, &outings, seconds, daylight, still);
+        self.poked
+            .retain(|_, at| now.duration_since(*at).as_secs_f32() < SAYING_SECONDS);
+        let poked = self
+            .poked
+            .iter()
+            .map(|(who, at)| (*who, now.duration_since(*at).as_secs_f32()))
+            .collect::<BTreeMap<_, _>>();
+        let frames = frames(
+            &self.snapshot,
+            &stage,
+            &outings,
+            rows,
+            seconds,
+            daylight,
+            still,
+            &poked,
+        );
+        self.bands = frames
+            .into_iter()
+            .enumerate()
+            .map(|(row, frame)| {
+                let origin = point(px(0.0), px(rows.h * row as f32));
+                (Bounds::new(origin, size(px(rows.w), px(rows.h))), frame)
+            })
+            .collect();
         let drop = self
             .letter_at
             .filter(|_| !still)
             .and_then(|at| letter_drop(now.duration_since(at).as_secs_f32()));
-        let moving = outings.moving(seconds, night, still) || drop.is_some();
+        let moving =
+            outings.moving(seconds, night, still) || drop.is_some() || waving(&poked, still);
         self.watch_visibility(window, cx);
         match wake_after(
             moving,
             window.is_visible(),
-            outings.next_start(seconds, night),
+            next_change(outings.next_start(seconds, night), &poked),
         ) {
             Some(wake) => self.schedule(wake, window, cx),
             None => self.wake = None,
         }
 
+        // The envelope rests at the end of the last band, at its feet.
+        let last_row = rows.count.saturating_sub(1) as f32;
         let letter_rest = (
             width - LETTER_W - 22.0,
-            (stage.feet - LETTER_H - 2.0).max(4.0),
+            rows.h * last_row + (stage.feet - LETTER_H - 2.0).max(4.0),
         );
         let has_letter = !self.snapshot.letters.is_empty();
+        self.letter_spot = letter_rest;
         let ink: Hsla = ui::color(tokens::TEXT).into();
+        let bands = self
+            .bands
+            .iter()
+            .map(|(bounds, frame)| {
+                let frame = frame.clone();
+                div()
+                    .absolute()
+                    .left(bounds.origin.x)
+                    .top(bounds.origin.y)
+                    .w(bounds.size.width)
+                    .h(bounds.size.height)
+                    .overflow_hidden()
+                    .child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, _, window, _| diorama::paint(&frame, bounds, window),
+                        )
+                        .size_full(),
+                    )
+            })
+            .collect::<Vec<_>>();
 
         div()
             .id("strip")
             .role(Role::Region)
             .aria_label(self.snapshot.title.clone())
-            .aria_description(ui::t("Double-click to open the World"))
+            .aria_description(ui::t(
+                "Click someone to say hello. Double-click to open the World",
+            ))
             .size_full()
             .relative()
             .overflow_hidden()
@@ -664,21 +1145,66 @@ impl Render for StripView {
                     if let Some(open) = this.on_open.clone() {
                         open(window, cx);
                     }
-                } else if this.reading {
-                    this.reading = false;
+                    return;
+                }
+                if this.menu.take().is_some() || std::mem::take(&mut this.reading) {
+                    cx.notify();
+                    return;
+                }
+                let at = event.position();
+                let at = (f32::from(at.x), f32::from(at.y));
+                let hit = this.bands.iter().find_map(|(band, frame)| {
+                    band.contains(&point(px(at.0), px(at.1))).then(|| {
+                        let local = (
+                            at.0 - f32::from(band.origin.x),
+                            at.1 - f32::from(band.origin.y),
+                        );
+                        person_at(frame, local)
+                    })?
+                });
+                if let Some(who) = hit.and_then(|index| this.snapshot.canvas.items.get(index)) {
+                    let who = who.id;
+                    this.poke(who, Instant::now());
                     cx.notify();
                 }
             }))
-            .child(
-                canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, _| diorama::paint(&frame, bounds, window),
-                )
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full(),
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    if this.on_choose.is_some() {
+                        this.menu =
+                            Some((f32::from(event.position.x), f32::from(event.position.y)));
+                        cx.notify();
+                    }
+                }),
             )
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                if let Some((from, _)) = this.dragging {
+                    if event.pressed_button != Some(gpui::MouseButton::Left) {
+                        this.dragging = None;
+                    } else {
+                        this.dragging = Some((
+                            from,
+                            (f32::from(event.position.x), f32::from(event.position.y)),
+                        ));
+                    }
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseUpEvent, _, cx| {
+                    if let Some((from, _)) = this.dragging.take() {
+                        let to = (f32::from(event.position.x), f32::from(event.position.y));
+                        if drag_opens(from, to) {
+                            this.reading = true;
+                        }
+                        cx.notify();
+                    }
+                }),
+            )
+            .children(bands)
+            .children(self.render_saying(width))
             .when(has_letter, |strip| {
                 strip.child(self.render_letter(drop.unwrap_or(0.0), letter_rest, cx))
             })
@@ -693,6 +1219,9 @@ impl Render for StripView {
                     }
                 })),
             )
+            .when_some(self.menu, |strip, at| {
+                strip.child(self.render_menu(at, width, height, cx))
+            })
     }
 }
 
@@ -726,6 +1255,7 @@ mod tests {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         }
     }
 
@@ -912,6 +1442,174 @@ mod tests {
         // A second display to the left keeps its own origin.
         let left = Bounds::new(point(px(-1920.0), px(0.0)), size(px(1920.0), px(1080.0)));
         assert_eq!(band(left, Edge::Bottom).origin.x, px(-1920.0));
+        // Down a side: the full usable height, a column wide.
+        let side = band(visible, Edge::Left);
+        assert_eq!(side.origin, visible.origin);
+        assert_eq!(side.size, size(px(WIDTH), px(870.0)));
+        let right = band(visible, Edge::Right);
+        assert_eq!(right.origin.x + right.size.width, px(1512.0));
+        assert_eq!(right.origin.y, px(25.0));
+        for edge in Edge::ALL {
+            assert_eq!(Edge::from_id(edge.id()), Some(edge));
+            assert_eq!(
+                edge.vertical(),
+                band(visible, edge).size.height > band(visible, edge).size.width
+            );
+        }
+    }
+
+    /// Down a side of the screen, the place runs in bands a hand tall, one
+    /// under the next; across the top or bottom it is one band, drawn
+    /// exactly as before.
+    #[test]
+    fn a_tall_strip_runs_the_place_in_bands() {
+        let rows = Rows::of(WIDTH, 870.0);
+        assert_eq!(rows.count, 6);
+        assert!((rows.h - 145.0).abs() < 0.01);
+        assert_eq!(rows.length(), WIDTH * 6.0);
+        assert_eq!(Rows::of(1512.0, HEIGHT).count, 1);
+
+        let snapshot = town(8);
+        let whole = stage(&snapshot, 1512.0, HEIGHT);
+        let outings = Outings::new(&whole, &snapshot);
+        let one = frames(
+            &snapshot,
+            &whole,
+            &outings,
+            Rows::of(1512.0, HEIGHT),
+            40.0,
+            Daylight::Day,
+            false,
+            &BTreeMap::new(),
+        );
+        assert_eq!(one.len(), 1);
+        assert_eq!(
+            format!("{:?}", one[0]),
+            format!(
+                "{:?}",
+                frame(&snapshot, &whole, &outings, 40.0, Daylight::Day, false)
+            )
+        );
+
+        let long = stage(&snapshot, rows.length(), rows.h);
+        let outings = Outings::new(&long, &snapshot);
+        let bands = frames(
+            &snapshot,
+            &long,
+            &outings,
+            rows,
+            40.0,
+            Daylight::Day,
+            false,
+            &BTreeMap::new(),
+        );
+        assert_eq!(bands.len(), 6);
+        // Everyone is in some band, and in only one.
+        let seen = bands
+            .iter()
+            .flat_map(|frame| {
+                frame
+                    .people
+                    .iter()
+                    .filter(|person| person.x >= 0.0 && person.x < rows.w)
+                    .map(|person| person.index)
+            })
+            .collect::<Vec<_>>();
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), seen.len(), "{seen:?}");
+        assert_eq!(unique.len(), 8, "{seen:?}");
+    }
+
+    /// Click someone and they wave and say their World's line for them;
+    /// the strip reads it from the snapshot and changes nothing.
+    #[test]
+    fn a_clicked_resident_says_their_worlds_line() {
+        let mut snapshot = town(3);
+        let mara = entity(1);
+        let leo = entity(2);
+        snapshot.voices.push(world_projection::Voice {
+            moment: mara,
+            speaker: mara,
+            line: "Bread's out of the oven.".into(),
+        });
+        assert_eq!(line_for(&snapshot, mara), "Bread's out of the oven.");
+        assert_eq!(line_for(&snapshot, leo), "Hello!");
+
+        let whole = stage(&snapshot, 1200.0, HEIGHT);
+        let outings = Outings::new(&whole, &snapshot);
+        let frame = frame(&snapshot, &whole, &outings, 0.0, Daylight::Day, false);
+        let someone = frame
+            .people
+            .iter()
+            .find(|person| person.x > 0.0 && person.x < 1200.0)
+            .expect("someone in view");
+        let at = (someone.x, someone.y - someone.height * 0.5);
+        assert_eq!(person_at(&frame, at), Some(someone.index));
+        assert_eq!(
+            person_at(&frame, (someone.x, someone.y - someone.height * 3.0)),
+            None
+        );
+
+        let before = snapshot.clone();
+        let mut view = StripView::new(snapshot);
+        let now = Instant::now();
+        view.poke(mara, now);
+        assert_eq!(view.saying(), Some((mara, "Bread's out of the oven.")));
+        assert_eq!(view.snapshot(), &before, "nothing about the World changes");
+    }
+
+    /// A wave moves for a moment at the strip's pace and then stops; the
+    /// line stays until it is done being said, and the strip wakes once to
+    /// take it away, not before.
+    #[test]
+    fn a_wave_keeps_the_pace_and_then_the_strip_is_still() {
+        let who = entity(1);
+        let mut drawn = Vec::new();
+        let mut now = 0.0_f32;
+        let poked_at = 0.0_f32;
+        while now < 12.0 {
+            let poked = [(who, now - poked_at)]
+                .into_iter()
+                .filter(|(_, ago)| *ago < SAYING_SECONDS)
+                .collect::<BTreeMap<_, _>>();
+            let moving = waving(&poked, false);
+            drawn.push((now, moving));
+            let Some(wake) = wake_after(moving, true, next_change(None, &poked)) else {
+                break;
+            };
+            now += wake.as_secs_f32();
+        }
+        let during = drawn
+            .iter()
+            .filter(|(at, _)| *at < diorama::WAVE_SECONDS)
+            .count();
+        assert!(during as f32 <= diorama::WAVE_SECONDS * MOST_FRAMES_A_SECOND as f32 + 1.0);
+        assert!(during >= 3, "the wave is seen: {drawn:?}");
+        let after = drawn
+            .iter()
+            .filter(|(at, _)| *at >= diorama::WAVE_SECONDS)
+            .map(|(at, _)| *at)
+            .collect::<Vec<_>>();
+        assert!(
+            after.len() <= 3,
+            "still once the wave is done, but for taking the line away: {after:?}"
+        );
+        assert!(
+            after.iter().any(|at| (at - SAYING_SECONDS).abs() < 0.05),
+            "{after:?}"
+        );
+        // Reduce Motion: a wave is a raised hand, never motion.
+        let poked = BTreeMap::from([(who, 0.1)]);
+        assert!(!waving(&poked, true));
+    }
+
+    #[test]
+    fn dragging_the_envelope_far_enough_opens_it() {
+        assert!(!drag_opens((10.0, 10.0), (12.0, 14.0)));
+        assert!(drag_opens((10.0, 10.0), (10.0, 10.0 + DRAG_OPENS)));
+        assert!(drag_opens((40.0, 40.0), (20.0, 25.0)));
     }
 
     /// Working out a strip's frame (the stage, everyone's walk, the frame)
@@ -992,6 +1690,62 @@ mod tests {
             letter_from(&town(3)).as_ref(),
             "From Item",
             "named by the first word of who wrote it"
+        );
+    }
+
+    /// Through GPUI's own test window: dragging the envelope out opens the
+    /// letter, and a click on someone makes them say their line.
+    #[gpui::test]
+    fn the_envelope_drags_open_and_a_resident_answers_a_click(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton, VisualTestContext};
+        let window = cx.add_window(|_, _| StripView::new(town(3)));
+        let view = window.root(cx).expect("the strip");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        // Once it has landed.
+        cx.executor().advance_clock(Duration::from_secs(3));
+        cx.run_until_parked();
+        let (x, y) = view.read_with(cx, |strip, _| strip.letter_spot);
+        let from = point(px(x + LETTER_W / 2.0), px(y + LETTER_H / 2.0));
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        let to = point(from.x - px(60.0), from.y - px(10.0));
+        cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::none());
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |strip, _| strip.is_reading()),
+            "dragged open"
+        );
+
+        // Put it away, then click someone.
+        let person = view.read_with(cx, |strip, _| {
+            strip.bands.iter().find_map(|(band, frame)| {
+                frame
+                    .people
+                    .iter()
+                    .find(|person| person.x > 10.0 && person.x < f32::from(band.size.width) - 10.0)
+                    .map(|person| {
+                        point(
+                            band.origin.x + px(person.x),
+                            band.origin.y + px(person.y - person.height * 0.5),
+                        )
+                    })
+            })
+        });
+        let person = person.expect("someone in view");
+        cx.executor().advance_clock(Duration::from_secs(2));
+        cx.simulate_click(point(px(4.0), px(30.0)), Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            !view.read_with(cx, |strip, _| strip.is_reading()),
+            "a click puts it away"
+        );
+        cx.executor().advance_clock(Duration::from_secs(2));
+        cx.simulate_click(person, Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |strip, _| strip.saying().is_some()),
+            "they say something"
         );
     }
 

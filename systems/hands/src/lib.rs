@@ -19,6 +19,13 @@ use world_core::{
     EventId, StateChange, Value, World, WorldError, WorldState,
 };
 
+mod mark;
+pub use mark::{
+    building, design_parts, design_request, finished_at, name_request, named, offers, on_plots,
+    pattern_of, plot_key, plot_of, plot_work, tidy_name, was_called, Plot, BUILDING, NAMED,
+    PATTERN, PLOT, WAS,
+};
+
 /// What the player can do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Verb {
@@ -156,6 +163,32 @@ pub struct Kit {
     /// What using something the player made does for someone, in the
     /// Pack's terms: a rest on a bench, an evening under a lamp.
     pub enjoy: fn(&WorldState, EntityId, Effect) -> Vec<StateChange>,
+    /// What can be built on plots, each once: the player begins it and the
+    /// place finishes it after [`Kit::growing`] periods.
+    pub works: &'static [Thing],
+    /// The plots the player can build on, and what each could hold.
+    pub plots: fn(&WorldState) -> Vec<Plot>,
+    /// What a design painted on something is painted on (`flag`, `sail`,
+    /// `sign` or `quilt`), if it can wear one.
+    pub wears: fn(&WorldState, EntityId) -> Option<&'static str>,
+    /// What something the player can name is, in a word for how naming it
+    /// is told ("You named the boat …"), if it can be named.
+    pub naming: fn(&WorldState, EntityId) -> Option<String>,
+}
+
+/// A Kit's plots when the Pack has none.
+pub fn no_plots(_: &WorldState) -> Vec<Plot> {
+    Vec::new()
+}
+
+/// A Kit's `wears` when nothing can wear a design.
+pub fn wears_nothing(_: &WorldState, _: EntityId) -> Option<&'static str> {
+    None
+}
+
+/// A Kit's `naming` when nothing can be named.
+pub fn names_nothing(_: &WorldState, _: EntityId) -> Option<String> {
+    None
 }
 
 /// How far along the ground something stands, from 0 (the left edge) to
@@ -266,7 +299,7 @@ pub fn deeds(world: &World, kit: &Kit) -> Vec<Deed> {
         .filter(|place| state.entity(*place).is_some())
         .collect::<Vec<_>>();
     let cost_words = |cost: i64| (kit.purse.is_some() && cost > 0).then(|| cost.to_string());
-    let full = made(state).len() >= kit.most_standing;
+    let full = by_hand(state).len() >= kit.most_standing;
     let mut deeds = Vec::new();
     for thing in kit.things {
         for place in &places {
@@ -284,7 +317,7 @@ pub fn deeds(world: &World, kit: &Kit) -> Vec<Deed> {
             });
         }
     }
-    for fixture in made(state) {
+    for fixture in by_hand(state) {
         let at = match state
             .entity(fixture)
             .and_then(|entity| entity.component("at"))
@@ -323,6 +356,40 @@ pub fn deeds(world: &World, kit: &Kit) -> Vec<Deed> {
         });
     }
     deeds
+}
+
+/// What the player made by hand that stands, less the works on plots,
+/// which take none of its room and are not moved about.
+fn by_hand(state: &WorldState) -> Vec<EntityId> {
+    made(state)
+        .into_iter()
+        .filter(|id| !mark::on_a_plot(state, *id))
+        .collect()
+}
+
+/// Every plot free now and what could be built on it, as deeds: a plot
+/// with nothing left to offer is not listed.
+pub fn plot_deeds(world: &World, kit: &Kit) -> Vec<(Plot, Vec<Deed>)> {
+    let state = world.state();
+    let cost_words = |cost: i64| (kit.purse.is_some() && cost > 0).then(|| cost.to_string());
+    (kit.plots)(state)
+        .into_iter()
+        .filter(|plot| state.entity(plot.at).is_some())
+        .map(|plot| {
+            let deeds = mark::offers(state, kit, &plot)
+                .into_iter()
+                .map(|work| Deed {
+                    key: plot_key(work.id, &plot.id),
+                    verb: Verb::Build,
+                    thing: work.name.to_string(),
+                    at: plot.at,
+                    cost: cost_words(work.cost),
+                    unavailable: why_not(state, kit, work.cost),
+                })
+                .collect::<Vec<_>>();
+            (plot, deeds)
+        })
+        .collect()
 }
 
 /// A deed's key, `verb.what.where`, with `@spot` after it when the player
@@ -374,8 +441,14 @@ impl Action for Does {
             Some(Value::Text(key)) => key.as_str(),
             _ => return Err(ActionError::Invalid("missing deed".into())),
         };
-        let (verb, what, at, spot) =
-            parse(key).ok_or_else(|| ActionError::Invalid(format!("no deed {key}")))?;
+        let plot = mark::parse_plot(key);
+        let (verb, what, at, spot) = match plot {
+            Some((work, plot)) => {
+                let (_, at) = mark::plot_refused(state, &kit, work, plot)?;
+                (Verb::Build, work, at, None)
+            }
+            None => parse(key).ok_or_else(|| ActionError::Invalid(format!("no deed {key}")))?,
+        };
         if spot.is_some() && matches!(verb, Verb::Give | Verb::Invite) {
             return Err(ActionError::Invalid("a person has no spot".into()));
         }
@@ -386,6 +459,43 @@ impl Action for Does {
         let at_name = name(state, at);
         let mut changes = Vec::new();
         let (kind, cost, told, made_id) = match verb {
+            Verb::Build if plot.is_some() => {
+                let (work, plot_id) = plot.unwrap_or_default();
+                let thing = mark::work(&kit, work)
+                    .ok_or_else(|| ActionError::Invalid(format!("no {work} to build")))?;
+                let id = next_id(state, &kit)
+                    .ok_or_else(|| ActionError::Invalid("nothing more can be made".into()))?;
+                changes.push(StateChange::CreateEntity(
+                    Entity::new(id, FIXTURE)
+                        .with_component("name", thing.name)
+                        .with_component("shape", thing.shape)
+                        .with_component("at", Value::Entity(at))
+                        .with_component(MADE, true)
+                        .with_component("hands.thing", thing.id)
+                        .with_component("hands.since", now as i64)
+                        .with_component(PLOT, plot_id)
+                        .with_component(BUILDING, true),
+                ));
+                changes.push(StateChange::SetComponent {
+                    entity: kit.notes,
+                    key: "hands.last".into(),
+                    value: (id.0 as i64).into(),
+                });
+                (
+                    "built_by_hand",
+                    thing.cost,
+                    {
+                        let work = thing.name.to_lowercase();
+                        let a = if work.starts_with(['a', 'e', 'i', 'o', 'u']) {
+                            "an"
+                        } else {
+                            "a"
+                        };
+                        format!("You began {a} {work} by {at_name}")
+                    },
+                    Some(id),
+                )
+            }
             Verb::Build | Verb::Decorate | Verb::Plant => {
                 let thing = thing(&kit, what)
                     .filter(|thing| thing.verb == verb)
@@ -393,7 +503,7 @@ impl Action for Does {
                 if !(kit.places)(state).contains(&at) {
                     return Err(ActionError::Invalid("it can't go there".into()));
                 }
-                if made(state).len() >= kit.most_standing {
+                if by_hand(state).len() >= kit.most_standing {
                     return Err(ActionError::Invalid("there's no more room".into()));
                 }
                 let id = next_id(state, &kit)
@@ -443,7 +553,7 @@ impl Action for Does {
                     what.parse()
                         .map_err(|_| ActionError::Invalid("move what?".into()))?,
                 );
-                if !made(state).contains(&fixture) {
+                if !by_hand(state).contains(&fixture) {
                     return Err(ActionError::Invalid(
                         "only what you made can be moved".into(),
                     ));
@@ -577,6 +687,10 @@ impl Action for Does {
         draft.targets = made_id.into_iter().chain([at]).collect();
         draft.payload.insert("deed".into(), key.into());
         draft.payload.insert("told".into(), told.into());
+        if let Some((work, plot)) = plot {
+            draft.payload.insert("plot".into(), plot.into());
+            draft.payload.insert("work".into(), work.into());
+        }
         draft.changes = changes;
         Ok(draft)
     }
@@ -620,20 +734,43 @@ impl Action for Grows {
             )
             .into(),
         );
-        draft.changes = vec![
-            StateChange::SetComponent {
+        draft.changes = vec![StateChange::SetComponent {
+            entity: plant,
+            key: "shape".into(),
+            value: shape.into(),
+        }];
+        // Something the player named keeps its name as it grows; which
+        // stage it has reached is kept beside it instead.
+        if named(state, plant) {
+            let stage = stage_due(state, &kit, plant).unwrap_or(0);
+            draft.changes.push(StateChange::SetComponent {
                 entity: plant,
-                key: "name".into(),
-                value: label.into(),
-            },
-            StateChange::SetComponent {
-                entity: plant,
-                key: "shape".into(),
-                value: shape.into(),
-            },
-        ];
+                key: STAGE.into(),
+                value: (stage as i64).into(),
+            });
+        } else {
+            draft.changes.insert(
+                0,
+                StateChange::SetComponent {
+                    entity: plant,
+                    key: "name".into(),
+                    value: label.into(),
+                },
+            );
+        }
         Ok(draft)
     }
+}
+
+/// Which stage a named plant has been given.
+const STAGE: &str = "hands.stage";
+
+/// The stage a plant has grown to by now.
+fn stage_due(state: &WorldState, kit: &Kit, plant: EntityId) -> Option<usize> {
+    let thing = thing(kit, text(state, plant, "hands.thing")?)?;
+    let since = integer(state, plant, "hands.since")?.max(0) as u64;
+    let age = period(state, kit).saturating_sub(since);
+    Some(((age / kit.growing.max(1)) as usize).min(thing.stages.len().saturating_sub(1)))
 }
 
 /// The stage a plant has grown into and not yet been given, if any.
@@ -643,10 +780,21 @@ fn due_stage(
     plant: EntityId,
 ) -> Option<(&'static str, &'static str)> {
     let thing = thing(kit, text(state, plant, "hands.thing")?)?;
-    let since = integer(state, plant, "hands.since")?.max(0) as u64;
-    let age = period(state, kit).saturating_sub(since);
-    let stage = ((age / kit.growing.max(1)) as usize).min(thing.stages.len().saturating_sub(1));
+    let stage = stage_due(state, kit, plant)?;
     let (label, shape) = *thing.stages.get(stage)?;
+    if named(state, plant) {
+        // Named, it keeps its name: the stage it was last given is kept
+        // beside it, or read from its shape if it was named before.
+        let given = integer(state, plant, STAGE)
+            .map(|at| at as usize)
+            .or_else(|| {
+                thing
+                    .stages
+                    .iter()
+                    .rposition(|(_, drawn)| text(state, plant, "shape") == Some(drawn))
+            });
+        return (given.is_none_or(|given| given < stage)).then_some((label, shape));
+    }
     (text(state, plant, "name") != Some(label)).then_some((label, shape))
 }
 
@@ -659,6 +807,9 @@ pub fn register_actions(
     registry.register(Grows(kit))?;
     registry.register(Undoes(kit))?;
     registry.register(Enjoys(kit))?;
+    registry.register(mark::Finishes(kit))?;
+    registry.register(mark::Designs(kit))?;
+    registry.register(mark::Names(kit))?;
     Ok(())
 }
 
@@ -986,7 +1137,7 @@ pub fn tick(
     actions: &ActionRegistry,
     kit: &Kit,
 ) -> Result<Vec<EventId>, WorldError> {
-    let mut events = Vec::new();
+    let mut events = mark::finish(world, actions, kit)?;
     for plant in made(world.state()) {
         if due_stage(world.state(), kit, plant).is_some() {
             let request = ActionRequest::new("hands_grow").arg("plant", Value::Entity(plant));
@@ -1024,8 +1175,11 @@ pub fn tick(
     }
     for fixture in all {
         let state = world.state();
+        if building(state, fixture) {
+            continue;
+        }
         let Some(effect) = text(state, fixture, "hands.thing")
-            .and_then(|id| thing(kit, id))
+            .and_then(|id| thing(kit, id).or_else(|| mark::work(kit, id)))
             .map(|thing| thing.effect)
         else {
             continue;
@@ -1139,6 +1293,9 @@ pub fn is_hands(event: &Event) -> bool {
             | "plant_grew"
             | "undone_by_hand"
             | "enjoyed"
+            | "plot_finished"
+            | "designed"
+            | "named"
     )
 }
 

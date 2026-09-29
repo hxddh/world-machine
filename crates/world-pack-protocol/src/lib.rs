@@ -19,6 +19,11 @@ use world_projection::{
 };
 use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
 
+mod mark;
+pub use mark::{
+    DesignableWire, NamingWire, PatternWire, PlotOfferWire, PlotWire, VariantWire,
+    MOST_MARK_COMMAND, MOST_PLOTS, MOST_PLOT_OFFERS, MOST_PROPOSALS,
+};
 mod stories;
 pub use stories::{
     AlmanacWire, LegendLineWire, LegendWire, MomentWire, NamedWire, PanelWire, StoryPageWire,
@@ -712,7 +717,7 @@ fn validate_selection_for_protocol(
     Ok(())
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectionIntentWire {
     ForkBeforeEvent {
@@ -733,6 +738,15 @@ pub enum ProjectionIntentWire {
         letter: String,
         #[serde(default)]
         gift: String,
+        /// How they look at home.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        look: Option<LookWire>,
+        /// The drawing their own World draws them with.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        drawing: Option<DrawingWire>,
+        /// Something they say, in their own World's words.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line: Option<String>,
     },
 }
 
@@ -797,6 +811,9 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
                 ears: ears.into(),
             },
             ProjectionIntent::Host(guest) => Self::Host {
+                look: guest.look.map(LookWire::from),
+                drawing: guest.drawing.as_ref().map(DrawingWire::from),
+                line: guest.line,
                 name: guest.name,
                 from: guest.from,
                 letter: guest.letter,
@@ -823,11 +840,20 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 from,
                 letter,
                 gift,
+                look,
+                drawing,
+                line,
             } => Self::Host(world_projection::Guest {
                 name: guest_text(name),
                 from: guest_text(from),
                 letter: guest_text(letter),
                 gift: guest_text(gift),
+                look: look.map(world_projection::Look::from),
+                // A drawing too big to be anyone's is not read at all.
+                drawing: drawing
+                    .filter(|drawing| drawing.parts.len() <= world_projection::MOST_GUEST_PARTS)
+                    .map(Drawing::from),
+                line: line.map(guest_text).filter(|line| !line.trim().is_empty()),
             }),
         }
     }
@@ -2340,6 +2366,9 @@ pub struct CanvasProjectionWire {
     pub ground: Option<GroundCoverWire>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub ice: bool,
+    /// Plots the player can build on; an older Pack sends none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plots: Vec<PlotWire>,
 }
 
 /// The widest panorama a snapshot may ask for, in screen-widths.
@@ -2580,6 +2609,7 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
             season: canvas.season.map(Into::into),
             ground: canvas.ground.map(Into::into),
             ice: canvas.ice,
+            plots: canvas.plots.iter().map(Into::into).collect(),
         }
     }
 }
@@ -2624,6 +2654,12 @@ impl From<CanvasProjectionWire> for CanvasProjection {
             season: canvas.season.and_then(SeasonWire::known),
             ground: canvas.ground.and_then(GroundCoverWire::known),
             ice: canvas.ice,
+            plots: canvas
+                .plots
+                .into_iter()
+                .filter_map(PlotWire::known)
+                .take(MOST_PLOTS)
+                .collect(),
         }
     }
 }
@@ -2765,6 +2801,15 @@ pub struct CanvasItemWire {
     pub day: Vec<RoutineStopWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub built: Option<u32>,
+    /// A design painted on it; one not of the fixed palette reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<PatternWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<DesignableWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub naming: Option<NamingWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<VariantWire>,
 }
 
 /// The longest few words a standing is told in.
@@ -2827,6 +2872,10 @@ impl From<&CanvasItem> for CanvasItemWire {
                 })
                 .collect(),
             built: item.built,
+            pattern: item.pattern.as_ref().map(Into::into),
+            design: item.design.as_ref().map(Into::into),
+            naming: item.naming.as_ref().map(Into::into),
+            variant: item.variant.map(Into::into),
         }
     }
 }
@@ -2899,6 +2948,10 @@ impl From<CanvasItemWire> for CanvasItem {
                 day
             },
             built: item.built,
+            pattern: item.pattern.and_then(PatternWire::known),
+            design: item.design.and_then(DesignableWire::known),
+            naming: item.naming.and_then(NamingWire::known),
+            variant: item.variant.map(Into::into),
         }
     }
 }
@@ -3273,6 +3326,7 @@ mod tests {
                     home: None,
                     day: Vec::new(),
                     built: None,
+                    ..Default::default()
                 }],
                 links: vec![CanvasLink {
                     from: entity,

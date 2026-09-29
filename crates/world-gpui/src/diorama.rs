@@ -19,6 +19,7 @@
 use crate::age::{self, Age};
 use crate::art::{self, Figure, Inks, Palette, Pose};
 use crate::brush::{Brush, Shape, Xform};
+use crate::mark::{self, Picture, PlotPaint, Wear, Worn};
 use crate::painter::{self, Canvas, Key};
 use crate::scene::Daylight;
 use gpui::{point, px, size, Bounds, Corners, Hsla, Pixels, Window};
@@ -87,6 +88,9 @@ pub struct Stage {
     /// People on their way to where the hour's routine puts them: where
     /// they set off from, and how many seconds ago.
     pub routes: BTreeMap<usize, (f32, f32)>,
+    /// Plots staked out where something could be built, by their index in
+    /// the World's plots: their front edge's middle, and how wide.
+    pub plots: Vec<PlotPaint>,
 }
 
 impl Stage {
@@ -548,7 +552,38 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         people,
         inside,
         routes,
+        plots: plots_on(snapshot, view_w, base, height * FRONT, building_w),
     }
+}
+
+/// Where a World's plots lie on the stage: along the panorama where the
+/// World says, in their row, each about a building wide.
+fn plots_on(
+    snapshot: &ProjectionSnapshot,
+    view_w: f32,
+    base: f32,
+    front: f32,
+    building_w: f32,
+) -> Vec<PlotPaint> {
+    let panorama = snapshot.canvas.width.unwrap_or(1.0).clamp(1.0, 24.0);
+    crate::mark::plots_of(snapshot)
+        .iter()
+        .enumerate()
+        .map(|(plot, at)| {
+            // Rows as a Pack lays its places out, counted from the back: the
+            // back row on the line buildings stand on, and each row after
+            // it a step nearer the water, where what is built there will
+            // stand (`row_line`).
+            let y = 0.30 + at.row as f32 * 0.095;
+            let depth = ((y - 0.30) / 0.46).clamp(0.0, 1.0);
+            PlotPaint {
+                plot,
+                x: at.px.clamp(0.0, panorama) * view_w,
+                y: base + depth * (front - base) * 0.62 + building_w * 0.06,
+                w: building_w * (0.85 + depth * 0.1),
+            }
+        })
+        .collect()
 }
 
 /// How long someone takes to walk to where a turn put them.
@@ -997,6 +1032,10 @@ struct BuildingPaint {
     grow: f32,
     /// Someone indoors: their colours, seen as a shape in a lit window.
     inside: Vec<Figure>,
+    /// Facing the other way, as the town built it.
+    flip: bool,
+    /// A low wall run on to the neighbour on the left, and on the right.
+    joins: (bool, bool),
 }
 
 impl BuildingPaint {
@@ -1021,6 +1060,8 @@ struct ThingPaint {
     glow: Option<Hsla>,
     drawing: Option<Drawing>,
     grow: f32,
+    /// Facing the other way, as the town built it.
+    flip: bool,
 }
 
 /// A built thing on the far ridge: where along it (0 to 1), its shape, and
@@ -1074,6 +1115,13 @@ pub struct Frame {
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
     bonds: Vec<(f32, f32, f32, CanvasLinkTone)>,
+    /// Plots staked out on the ground, in stage pixels, and which one is
+    /// pointed at or chosen with the keys.
+    plots: Vec<PlotPaint>,
+    hot_plot: Option<usize>,
+    /// Designs worn this frame, and their pictures once painted, by item.
+    wearing: Vec<Worn>,
+    pictures: BTreeMap<usize, Picture>,
 }
 
 impl Frame {
@@ -1176,6 +1224,28 @@ impl Frame {
             let facing = person.pose.facing;
             person.pose.facing = facing + (toward - facing) * turned;
         }
+    }
+
+    /// The plot (by its index in the World's plots) pointed at, or chosen
+    /// with the keys: drawn brighter.
+    pub fn point_at_plot(&mut self, plot: Option<usize>) {
+        self.hot_plot = plot;
+    }
+
+    /// The item at `index` wearing `pattern` as `wear` this frame: a design
+    /// being made, shown on its target as it is drawn.
+    pub fn wear(&mut self, index: usize, wear: Wear, pattern: mark::Motif) {
+        self.wearing.retain(|worn| worn.index != index);
+        self.wearing.push(Worn {
+            index,
+            wear,
+            pattern: std::sync::Arc::new(pattern),
+        });
+    }
+
+    /// The designs worn this frame.
+    pub fn worn(&self) -> &[Worn] {
+        &self.wearing
     }
 
     /// Whether the item at `index` is lit up this frame.
@@ -1319,7 +1389,11 @@ pub fn frame(
                 w,
                 h,
                 shape,
-                palette: Palette::of(&item.id.stable_key(), lit),
+                palette: painted_as(item, lit),
+                flip: item.variant.is_some_and(|variant| variant.flip),
+                joins: item.variant.map_or((false, false), |variant| {
+                    (variant.join_left, variant.join_right)
+                }),
                 glow: glow_of(item),
                 drawing,
                 squash: (1.0, 1.0),
@@ -1361,12 +1435,13 @@ pub fn frame(
                 base: spot.y + bob,
                 w,
                 shape,
-                palette: Palette::of(&key, lit),
+                palette: painted_as(item, lit),
                 sway,
                 roll,
                 glow: glow_of(item),
                 drawing: snapshot.drawing_of(item).cloned(),
                 grow: 1.0,
+                flip: item.variant.is_some_and(|variant| variant.flip),
             }
         })
         .collect();
@@ -1478,7 +1553,34 @@ pub fn frame(
         things,
         people,
         bonds,
+        plots: stage.plots.clone(),
+        hot_plot: None,
+        wearing: stage
+            .buildings
+            .iter()
+            .chain(&stage.things)
+            .filter_map(|spot| {
+                let item = &items[spot.index];
+                Some(Worn {
+                    index: spot.index,
+                    wear: mark::wear_of(item)?,
+                    pattern: std::sync::Arc::new(mark::pattern_of(item)?),
+                })
+            })
+            .collect(),
+        pictures: BTreeMap::new(),
     }
+}
+
+/// The colours something is painted in: its own, with the colour the town
+/// chose for it when it was built on a plot.
+fn painted_as(item: &CanvasItem, lit: bool) -> Palette {
+    let mut palette = Palette::of(&item.id.stable_key(), lit);
+    if let Some(variant) = item.variant {
+        let [r, g, b] = variant.colour;
+        palette.roof = art::hex(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
+    }
+    palette
 }
 
 /// A baby out and about is carried: in the arms of a grown-up from their
@@ -2186,7 +2288,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     if width < 2.0 || height < 2.0 {
         return;
     }
-    let frame = std::sync::Arc::new(frame.clone());
+    let mut frame = frame.clone();
+    fetch_pictures(&mut frame, window, true);
+    let frame = std::sync::Arc::new(frame);
     let layers = plan(&frame, window, width, height, true);
     let light = light_at(frame.hour, frame.weather);
     for (layer, plan) in &layers {
@@ -2225,6 +2329,10 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     let width = frame.view_w;
     let height = frame.height;
     let _ = viewport;
+    let mut frame = frame;
+    painter::timed("main: pictures", || {
+        fetch_pictures(&mut frame, window, painter::synchronous())
+    });
     let frame = std::sync::Arc::new(frame);
     let layers = painter::timed("main: plan", || {
         plan(&frame, window, width, height, painter::synchronous())
@@ -2756,7 +2864,8 @@ fn ground_key(frame: &Frame, scale: f32) -> Key {
             .colour(building.palette.glass)
             .add(building.palette.seed)
             .add(building.drawing.as_ref().map(|d| d.id.clone()))
-            .add(building.glow.is_some());
+            .add(building.glow.is_some())
+            .add((building.flip, building.joins));
         if let Some(glow) = building.glow {
             key.colour(glow);
         }
@@ -3397,9 +3506,35 @@ fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32) -> Sprite
             glow.opacity(0.45),
         );
     }
+    // A low wall run on toward a neighbour it joins.
+    for (joined, side) in [(building.joins.0, -1.0_f32), (building.joins.1, 1.0)] {
+        if joined {
+            let stone = art::shade(building.palette.wall, -0.18);
+            let from = building.x + side * w * 0.36;
+            let reach = w * 0.36;
+            let (left, tall) = (from.min(from + side * reach), h * 0.1);
+            canvas.rect(left, building.base - tall, reach, tall, 1.0, stone);
+            canvas.rect(
+                left,
+                building.base - tall - 1.5,
+                reach,
+                2.5,
+                1.0,
+                art::shade(stone, -0.12),
+            );
+        }
+    }
+    let mut mirrored = crate::brush::Xform {
+        inner: &mut canvas,
+        m: if building.flip {
+            [-1.0, 0.0, 0.0, 1.0, building.x * 2.0, 0.0]
+        } else {
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        },
+    };
     painter::timed("sprite: paint", || match &building.drawing {
         Some(drawing) => art::paint_drawing(
-            &mut canvas,
+            &mut mirrored,
             building.x,
             building.base,
             w,
@@ -3413,7 +3548,7 @@ fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32) -> Sprite
             1.0,
         ),
         None => art::paint_building(
-            &mut canvas,
+            &mut mirrored,
             building.x,
             building.base,
             w,
@@ -3647,6 +3782,15 @@ impl Brush for Tint<'_> {
         let (from, to) = ((self.lit(from.0), from.1), (self.lit(to.0), to.1));
         self.inner.gradient(x, y, w, h, angle, from, to);
     }
+    fn picture(
+        &mut self,
+        image: &std::sync::Arc<gpui::RenderImage>,
+        rect: crate::brush::Rect,
+        clip: crate::brush::Rect,
+    ) {
+        // A picture is painted in the hour's light already.
+        self.inner.picture(image, rect, clip);
+    }
 }
 
 /// Clouds drifting across, slowly, each at its own pace, soft-edged; more
@@ -3728,6 +3872,229 @@ fn wind(frame: &Frame) -> f32 {
         _ => 0.8,
     };
     from * strength * (0.75 + 0.25 * (frame.seconds * 0.05).sin())
+}
+
+/// The light a quilt is seen by through a window at night: the lamp's.
+const LAMP: [f32; 3] = [1.0, 0.84, 0.6];
+
+/// How big a design's cloth is on screen this frame, and whether it is a
+/// quilt seen through a lit window.
+fn cloth_on_screen(frame: &Frame, worn: &Worn) -> Option<(f32, f32, bool)> {
+    let z = frame.camera.zoom;
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    if let Some(building) = frame.buildings.iter().find(|b| b.index == worn.index) {
+        let w = building.w * z;
+        return Some(match worn.wear {
+            Wear::Quilt if lit => {
+                let ww = w * 0.13 * 0.8;
+                (ww, ww / Wear::Quilt.aspect(), true)
+            }
+            Wear::Flag | Wear::Sail => {
+                let (cw, ch) = mark::cloth_size(worn.wear, w * 0.62);
+                (cw, ch, false)
+            }
+            wear => {
+                let (cw, ch) = mark::cloth_size(wear, w);
+                (cw, ch, false)
+            }
+        });
+    }
+    let thing = frame.things.iter().find(|t| t.index == worn.index)?;
+    let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
+    let (cw, ch) = mark::cloth_size(worn.wear, w);
+    Some((cw, ch, false))
+}
+
+/// Pictures of designs kept after they were shown, by the design, what it
+/// is worn as, which way it faces and in whose light: shown while a new
+/// size or light is being painted, so nothing blinks.
+type Worn_ = (u64, Wear, bool, bool);
+
+/// Asks for the pictures of the designs worn this frame, painted off the
+/// window's thread (or right here, `now`), and puts those ready in the
+/// frame.
+fn fetch_pictures(frame: &mut Frame, window: &mut Window, now: bool) {
+    use std::cell::RefCell;
+    thread_local! {
+        static LAST: RefCell<std::collections::HashMap<Worn_, Picture>> =
+            RefCell::new(std::collections::HashMap::new());
+    }
+    if frame.wearing.is_empty() {
+        return;
+    }
+    let dpr = window.scale_factor().max(0.5);
+    // A quarter hour at a time, so the light on a cloth moves on in steps.
+    let hour = (frame.hour * 4.0).round() / 4.0;
+    let grade = grade_at(hour);
+    let light = mark::rounded_light(light_at(hour, frame.weather));
+    let mirror = wind(frame) < 0.0;
+    let view = frame.view_w;
+    for worn in frame.wearing.clone() {
+        let Some((cw, ch, in_window)) = cloth_on_screen(frame, &worn) else {
+            continue;
+        };
+        let x = frame
+            .buildings
+            .iter()
+            .find(|b| b.index == worn.index)
+            .map(|b| b.x)
+            .or_else(|| {
+                frame
+                    .things
+                    .iter()
+                    .find(|t| t.index == worn.index)
+                    .map(|t| t.x)
+            })
+            .unwrap_or(0.0);
+        let sx = frame.at(x, 0.0).0;
+        if sx + cw * 4.0 < 0.0 || sx - cw * 4.0 > view {
+            continue;
+        }
+        let size = mark::picture_size(cw, ch, dpr);
+        let mirror = worn.wear == Wear::Flag && mirror;
+        let lit = if in_window { LAMP } else { light };
+        let key = mark::picture_key(&worn.pattern, worn.wear, size, lit, grade, mirror);
+        let identity = (worn.pattern.key(), worn.wear, mirror, in_window);
+        let picture = match painter::ready(key) {
+            Some(painter::Ready::Image(image, _)) => {
+                let picture = Picture(image);
+                LAST.with(|last| {
+                    let mut last = last.borrow_mut();
+                    if last.len() > 64 {
+                        last.clear();
+                    }
+                    last.insert(identity, picture.clone());
+                });
+                Some(picture)
+            }
+            _ => {
+                let pattern = worn.pattern.clone();
+                let wear = worn.wear;
+                painter::want(
+                    window,
+                    key,
+                    now,
+                    Box::new(move || mark::paint_cloth(&pattern, wear, size, lit, grade, mirror)),
+                );
+                match painter::ready(key) {
+                    Some(painter::Ready::Image(image, _)) => Some(Picture(image)),
+                    _ => LAST.with(|last| last.borrow().get(&identity).cloned()),
+                }
+            }
+        };
+        if let Some(picture) = picture {
+            frame.pictures.insert(worn.index, picture);
+        }
+    }
+}
+
+/// A flag on a pole standing at (`x`, `base`) for a thing `w` wide.
+#[allow(clippy::too_many_arguments)]
+fn paint_flag_pole(
+    window: &mut dyn Brush,
+    picture: &Picture,
+    x: f32,
+    base: f32,
+    w: f32,
+    t: f32,
+    blow: f32,
+    light: [f32; 3],
+) {
+    let (cw, ch) = mark::cloth_size(Wear::Flag, w);
+    let pole = w * 1.08;
+    let top = base - pole;
+    {
+        let mut tinted = Tint::new(window, light);
+        tinted.rect(x - 1.3, top, 2.6, pole, 1.0, art::hex(0x5b5048));
+        tinted.rect(x - 1.3, top, 1.0, pole, 0.5, art::hex(0x8a7d70));
+        art::circle(&mut tinted, x, top - 1.5, 2.6, art::hex(0xc9a24a));
+    }
+    mark::paint_flag(window, picture, x, top + 2.0, cw, ch, t, blow);
+}
+
+/// Designs worn by places: a shop's hanging sign, a home's quilt out on
+/// the line by day or over a lit sill at night.
+fn paint_worn_places(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    screen: &dyn Fn(f32, f32) -> (f32, f32),
+    light: [f32; 3],
+) {
+    let t = frame.seconds;
+    let z = frame.camera.zoom;
+    let blow = wind(frame);
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    for worn in &frame.wearing {
+        let Some(building) = frame.buildings.iter().find(|b| b.index == worn.index) else {
+            continue;
+        };
+        let Some(picture) = frame.pictures.get(&worn.index) else {
+            continue;
+        };
+        let (x, base) = screen(building.x, building.base);
+        let (w, h) = (building.w * z, building.h * z);
+        let swing = (t * 1.1 + building.index as f32).sin() * blow.abs().min(1.5) * 0.6;
+        // A home's first window, where a quilt is seen at night.
+        let pane = if building.shape == MarkShape::House && building.drawing.is_none() {
+            art::first_window(x, base, w, h, &building.palette)
+        } else {
+            (x - w * 0.3, base - h * 0.45, w * 0.16, h * 0.16)
+        };
+        match worn.wear {
+            Wear::Sign => {
+                let (bw, bh) = mark::cloth_size(Wear::Sign, w);
+                mark::paint_sign(
+                    window,
+                    picture,
+                    x + w * 0.4,
+                    base - h * 0.64,
+                    bw,
+                    bh,
+                    1.0,
+                    swing,
+                );
+            }
+            Wear::Quilt if lit => {
+                mark::paint_quilt_window(window, picture, pane, art::hex(0xffd27a));
+            }
+            Wear::Quilt => {
+                let (qw, qh) = mark::cloth_size(Wear::Quilt, w);
+                let ground = base + h * 0.02;
+                // Out on a line beside the house, on whichever side is
+                // clear of what stands there; with neither clear, aired
+                // over a window sill.
+                let span = qw * 1.7;
+                let clear = |lx: f32| {
+                    let things = frame.things.iter().all(|thing| {
+                        (screen(thing.x, 0.0).0 - lx).abs() > span / 2.0 + thing.w * z * 0.5
+                    });
+                    let places = frame.buildings.iter().all(|other| {
+                        other.index == building.index
+                            || (screen(other.x, 0.0).0 - lx).abs() > span / 2.0 + other.w * z * 0.45
+                    });
+                    things && places
+                };
+                let reach = w * 0.5 + span * 0.55;
+                match [x - reach, x + reach].into_iter().find(|lx| clear(*lx)) {
+                    Some(lx) => mark::paint_quilt_line(
+                        window,
+                        picture,
+                        lx,
+                        ground - qh * 1.5,
+                        ground,
+                        qw,
+                        qh,
+                        t,
+                        blow,
+                    ),
+                    None => mark::paint_quilt_sill(window, picture, pane),
+                }
+            }
+            Wear::Flag | Wear::Sail => {
+                paint_flag_pole(window, picture, x + w * 0.3, base, w * 0.62, t, blow, light);
+            }
+        }
+    }
 }
 
 /// Everything that moves, over the still layers, lit by the hour.
@@ -3824,10 +4191,11 @@ fn paint_live(
         let grow = ease(building.grow);
         window.soft(x, base, w * 0.56 * grow, h * 0.05, h * 0.06, contact);
         let mut tinted = Tint::new(window, light);
+        let facing = if building.flip { -1.0 } else { 1.0 };
         let mut posed = Xform::about(
             &mut tinted,
             (x, base),
-            building.squash.0 * (0.7 + 0.3 * grow),
+            facing * building.squash.0 * (0.7 + 0.3 * grow),
             building.squash.1 * grow,
             0.0,
         );
@@ -3894,6 +4262,29 @@ fn paint_live(
         }
     }
 
+    // Plots staked out on the ground, fading as the place becomes a
+    // postcard.
+    let opacity = mark::plot_opacity(z);
+    if opacity > 0.01 {
+        for plot in &frame.plots {
+            if !seen(plot.x, plot.w * z) {
+                continue;
+            }
+            let (x, y) = screen(plot.x, plot.y);
+            let mut tinted = Tint::new(window, light);
+            mark::paint_plot(
+                &mut tinted,
+                x,
+                y,
+                plot.w * z,
+                opacity,
+                frame.hot_plot == Some(plot.plot),
+                t + plot.plot as f32,
+            );
+        }
+    }
+    paint_worn_places(window, frame, &screen, light);
+
     // Things: carts, parcels, boats riding the swell.
     let mut things = frame.things.iter().collect::<Vec<_>>();
     things.sort_by(|a, b| a.base.total_cmp(&b.base).then(a.index.cmp(&b.index)));
@@ -3919,8 +4310,42 @@ fn paint_live(
         } else {
             window.soft(x, base, w * 0.48, w * 0.07, w * 0.06, contact);
         }
+        let worn = frame
+            .wearing
+            .iter()
+            .find(|worn| worn.index == thing.index)
+            .and_then(|worn| Some((worn.wear, frame.pictures.get(&thing.index)?)));
+        match worn {
+            Some((Wear::Flag, picture)) => {
+                paint_flag_pole(window, picture, x, base, w, t, wind(frame), light);
+                continue;
+            }
+            Some((Wear::Quilt, picture)) => {
+                let (qw, qh) = mark::cloth_size(Wear::Quilt, w);
+                mark::paint_quilt_line(
+                    window,
+                    picture,
+                    x,
+                    base - qh * 1.5,
+                    base,
+                    qw,
+                    qh,
+                    t,
+                    wind(frame),
+                );
+                continue;
+            }
+            _ => {}
+        }
         let mut tinted = Tint::new(window, light);
-        let mut rolled = Xform::turned(&mut tinted, (x, base), thing.roll);
+        let mut facing = Xform::about(
+            &mut tinted,
+            (x, base),
+            if thing.flip { -1.0 } else { 1.0 },
+            1.0,
+            0.0,
+        );
+        let mut rolled = Xform::turned(&mut facing, (x, base), thing.roll);
         match &thing.drawing {
             Some(drawing) => art::paint_drawing(
                 &mut rolled,
@@ -3945,6 +4370,66 @@ fn paint_live(
                 &thing.palette,
                 thing.sway,
             ),
+        }
+        match worn {
+            Some((Wear::Sail, picture)) => {
+                // A taller mast, and the sail on it, filling.
+                let h = w * 0.55;
+                let mast = x - w * 0.2;
+                let (sw, sh) = mark::cloth_size(Wear::Sail, w);
+                let top = base - h * 0.78 - sh;
+                {
+                    let mut tinted = Tint::new(window, light);
+                    let mut rolled = Xform::turned(&mut tinted, (x, base), thing.roll);
+                    art::line(
+                        &mut rolled,
+                        (mast, base - h * 0.4),
+                        (mast, top - h * 0.12),
+                        2.0,
+                        art::hex(0x6b4a33),
+                    );
+                    art::line(
+                        &mut rolled,
+                        (mast, base - h * 0.78),
+                        (mast + sw * 1.02, base - h * 0.78),
+                        1.6,
+                        art::hex(0x6b4a33),
+                    );
+                }
+                mark::paint_sail(
+                    window,
+                    picture,
+                    mast + 1.0,
+                    top,
+                    sw,
+                    sh,
+                    t,
+                    wind(frame),
+                    thing.roll,
+                    base,
+                );
+            }
+            Some((Wear::Sign, picture)) => {
+                // A board hung from a post beside the stall.
+                let post = x + w * 0.46;
+                let tall = w * 0.8;
+                {
+                    let mut tinted = Tint::new(window, light);
+                    tinted.rect(post - 1.2, base - tall, 2.4, tall, 1.0, art::hex(0x5b4636));
+                }
+                let (bw, bh) = mark::cloth_size(Wear::Sign, w * 1.4);
+                mark::paint_sign(
+                    window,
+                    picture,
+                    post,
+                    base - tall + 2.0,
+                    bw,
+                    bh,
+                    1.0,
+                    (t * 1.1 + thing.index as f32).sin() * 0.5,
+                );
+            }
+            _ => {}
         }
     }
 
@@ -4271,6 +4756,7 @@ pub(crate) mod tests {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         }
     }
 

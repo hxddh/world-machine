@@ -3,8 +3,11 @@
 //! drawing code paints on both, so a building looks the same whether it
 //! is painted once into an image or drawn live while it springs.
 
-use gpui::{point, px, quad, size, BorderStyle, Bounds, BoxShadow, Corners, Hsla, Window};
+use gpui::{
+    point, px, quad, size, BorderStyle, Bounds, BoxShadow, Corners, Hsla, RenderImage, Window,
+};
 use std::f32::consts::FRAC_1_SQRT_2;
+use std::sync::Arc;
 
 /// A path in drawing coordinates: moves, straight lines, quadratic curves
 /// (to a point, bending toward a control point, as GPUI's `curve_to`
@@ -201,7 +204,15 @@ pub trait Brush {
         from: (Hsla, f32),
         to: (Hsla, f32),
     );
+    /// A painted picture laid over `rect` (x, y, width, height), of which
+    /// only the part inside `clip` shows: a design on a flag drawn a strip
+    /// at a time. Only a window shows pictures; a brush that cannot skips
+    /// them.
+    fn picture(&mut self, _image: &Arc<RenderImage>, _rect: Rect, _clip: Rect) {}
 }
+
+/// A rectangle: x, y, width, height.
+pub type Rect = (f32, f32, f32, f32);
 
 impl Brush for Window {
     fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, colour: Hsla) {
@@ -278,6 +289,21 @@ impl Brush for Window {
                 gpui::linear_color_stop(to.0, to.1),
             ),
         ));
+    }
+
+    fn picture(&mut self, image: &Arc<RenderImage>, rect: Rect, clip: Rect) {
+        let bounds = |(x, y, w, h): Rect| Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+        if rect.2 <= 0.0 || rect.3 <= 0.0 || clip.2 <= 0.0 || clip.3 <= 0.0 {
+            return;
+        }
+        let _ = self.paint_image(
+            bounds(clip).intersect(&bounds(rect)),
+            bounds(rect),
+            Corners::default(),
+            image.clone(),
+            0,
+            false,
+        );
     }
 }
 
@@ -397,6 +423,23 @@ impl Brush for Xform<'_> {
             to,
         );
     }
+
+    fn picture(&mut self, image: &Arc<RenderImage>, rect: Rect, clip: Rect) {
+        // A picture cannot turn: it is moved and scaled with the rest, and
+        // a turn only moves it.
+        let map = |(x, y, w, h): Rect| {
+            let (x0, y0) = self.map(x, y);
+            let (x1, y1) = self.map(x + w, y + h);
+            let (sx, sy) = (self.m[0].abs().max(0.01), self.m[3].abs().max(0.01));
+            if self.straight() {
+                (x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs())
+            } else {
+                (x0, y0, w * sx, h * sy)
+            }
+        };
+        let (rect, clip) = (map(rect), map(clip));
+        self.inner.picture(image, rect, clip);
+    }
 }
 
 /// A brush that only counts what it is asked to draw: for measuring how
@@ -422,6 +465,9 @@ impl Brush for Tally {
         self.soft += 1;
     }
     fn gradient(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: (Hsla, f32), _: (Hsla, f32)) {
+        self.quads += 1;
+    }
+    fn picture(&mut self, _: &Arc<RenderImage>, _: Rect, _: Rect) {
         self.quads += 1;
     }
 }
