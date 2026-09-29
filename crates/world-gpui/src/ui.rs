@@ -177,6 +177,58 @@ pub fn button(
     }
 }
 
+/// How long the pointer rests on a control before its name shows.
+pub const TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(450);
+
+/// A control's name, shown in a small dark label while the pointer rests
+/// on it: what an icon means, for everyone, not only a screen reader.
+pub struct Tip {
+    text: SharedString,
+}
+
+impl gpui::Render for Tip {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let text = self.text.clone();
+        div()
+            .id("tip")
+            .role(Role::Tooltip)
+            .aria_label(text.clone())
+            .debug_selector(|| format!("tip: {text}"))
+            .max_w(px(280.0))
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(color(tokens::TEXT).opacity(0.92))
+            .text_xs()
+            .text_color(color(tokens::SURFACE))
+            .child(self.text.clone())
+    }
+}
+
+/// The builder GPUI asks for a tooltip naming a control, in the app's
+/// language.
+pub fn tip(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView {
+    let text = t(text);
+    move |_, cx| {
+        let text = text.clone();
+        cx.new(|_| Tip { text }).into()
+    }
+}
+
+/// Names an icon-like control twice from the same words: for a screen
+/// reader (its label) and for the eye (a tooltip after [`TIP_DELAY`]).
+pub fn named(element: Stateful<Div>, name: impl Into<SharedString>) -> Stateful<Div> {
+    let name = t(name);
+    let selector = format!("named: {name}");
+    element
+        .aria_label(name.clone())
+        .debug_selector(|| selector)
+        .tooltip(tip(name))
+        .tooltip_show_delay(TIP_DELAY)
+}
+
 /// A selectable row in a list or sidebar.
 pub fn list_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     let row = div()

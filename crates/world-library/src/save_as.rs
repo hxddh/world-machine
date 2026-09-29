@@ -186,6 +186,9 @@ mod tests {
             metadata: WorldDocumentMetadata::default(),
             checkpoint: None,
             session: Box::new(MockSession { count }),
+            saved: None,
+            own_title: Default::default(),
+            opened_from: Default::default(),
         }
     }
 

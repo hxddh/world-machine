@@ -2,6 +2,47 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.20.0 (2026-09-29)
+
+**Worlds from `v0.19` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; a World saved by `v0.19.1` opens, keeps its history and plays on under the new rules.
+
+The [v0.19 review](docs/REVIEW_v0.19.md) found a town that only a yes-sayer could build, a third year that ran out of new things, three Pocket Universe places that were one place in three coats, and half the app hidden from a newcomer. This release works on the four parts of the 1.0 plan that need nobody's decision but ours.
+
+- **Your choices make the town.** Measured over three years with four scripted players (the first answer every time, the last, never answering, and never playing):
+  - **Tiny Society:**
+    - works finished 62 / 29 / 19 / 18 (was 51 / 0 / 0 / 0);
+    - couples 6 / 5 / 4 / 2 (was 7 / 0 / 0 / 0);
+    - who lives there, what the town has and how people think of each other differ for every player.
+  - **How it works:**
+    - someone let down too often leaves;
+    - a visitor nobody answers moves on;
+    - a harbour that keeps hearing "not now" starts its own works;
+    - asking, waiting and falling out each end a romance differently;
+    - every question has at least two answers that change something (was 79%);
+    - a birthday is a party, a gift, a cake or a card.
+  - **Pocket Universe:** the same holds. A player who never answers still sees 28–35 works in three years (was 2), and arrivals and departures follow how you play.
+- **Something new all three years.** In Tiny Society at least 12 new kinds of thing come in every 30 days of year three (was 2–7), no line is said more than 17 times a year (was 43), and year three brings 26 new works instead of another coat of paint.
+- **Three Pocket Universe places, not one.**
+  - Each place has its own turns of the year:
+    - Ares every 50 days, with the dust windows;
+    - Maple Street with the school year and New Year;
+    - Icebridge with the thaw and the freeze.
+  - Each has its own works (32, 50, 38) and eras (8, 9, 9), a gauge of its own (stores, street fund, fish vault) and four new festivals. The turns go on for as long as the World does: the last turn before day 1,080 now falls after day 1,040, where the old turns stopped at day 480.
+  - New lines hold at 58% or more in every 120 days (was 32–35% by year three).
+- **A first hour you can find.**
+  - Every icon names itself on hover, in English and Chinese.
+  - After the first minute, one pointer at a time shows something not yet used (your hands, the cards, the drawer, zoom, letters, the strip), never over a card or anyone speaking, and never again once it has been used. What has been shown is kept with the app's settings, not in the World.
+  - Zoom has on-screen buttons, keys and pinch.
+  - The World window has **Share** (World code, invite a guest) and **Show as Strip**.
+- **Fast at three years** (measured on a busy Linux machine):
+  - opening a World from a click takes 120–150 ms (was 330–470);
+  - each thing you do takes 26–41 ms (was 331–444), or 61–106 ms through the Pack program including the save (was 843–1,140);
+  - a three-year World stays under 100 MB after 20 actions (was 186–232 MB);
+  - Home lists ten three-year Worlds in 40–49 ms (was about a second).
+  - How: a change runs on the open World after a checkpoint and rolls back if the save fails; a save writes only what is new; one Pack program serves an open World; the World file starts with a small summary for Home; a World code leaves out what was made and removed within a season (46,000 characters at three years).
+  - Snapshot at three years: 13.6 ms.
+- **Pack protocol v6:** a Pack can take a checkpoint, roll back and hand over only the events since a point. Packs that speak v5 or earlier still work the old way.
+
 ## v0.19.1 (2026-09-29)
 
 **Worlds from `v0.19.0` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; the fixed Pack programs replace the installed ones in place.

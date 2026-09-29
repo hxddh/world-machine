@@ -513,10 +513,8 @@ pub(crate) fn letter_button(
     } else {
         ui::t(format!("A letter. {from}. Open it to read"))
     };
-    div()
-        .id("strip-letter")
+    ui::named(div().id("strip-letter"), label)
         .role(Role::Button)
-        .aria_label(label)
         .aria_expanded(reading)
         .absolute()
         .left(px(x))
@@ -535,10 +533,8 @@ pub(crate) fn letter_button(
 
 /// The small round button that puts the strip away.
 pub(crate) fn close_button(ink: Hsla) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id("strip-close")
+    ui::named(div().id("strip-close"), "Close the strip")
         .role(Role::Button)
-        .aria_label(ui::t("Close the strip"))
         .absolute()
         .top(px(6.0))
         .right(px(8.0))

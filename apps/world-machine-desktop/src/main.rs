@@ -347,6 +347,17 @@ struct WorldDocumentView {
     /// When, in Unix seconds, this World next moves on its own; read once
     /// when it opens, since it only moves between visits.
     next_move_at: Option<u64>,
+    /// Whether the Share list under the title bar is open.
+    share_open: bool,
+}
+
+/// A World's own view in its window: the scene with no title bar of its
+/// own (the window has one), and a handle that shows it as a strip.
+#[cfg(target_os = "macos")]
+fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionView {
+    world_gpui::ProjectionView::controlled(controller)
+        .without_header()
+        .with_strip(|window, cx| window.dispatch_action(Box::new(about::ShowAsStrip), cx))
 }
 
 #[cfg(target_os = "macos")]
@@ -383,8 +394,7 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&document),
         };
-        let projection =
-            cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
+        let projection = cx.new(|_| world_view(controller));
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
         cx.observe(&projection, |_, _, cx| cx.notify()).detach();
@@ -403,6 +413,7 @@ impl WorldDocumentView {
             projection,
             status: None,
             next_move_at,
+            share_open: false,
         }
     }
 
@@ -506,8 +517,70 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&self.document),
         };
-        self.projection =
-            cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
+        self.projection = cx.new(|_| world_view(controller));
+    }
+
+    /// Share, under the title bar: the World's code, copied or saved, and
+    /// a guest from another World; the same as the World menu's items.
+    fn share_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let item = |id: &'static str, label: &'static str| {
+            let label = ui::t(label);
+            div()
+                .id(id)
+                .role(gpui::Role::MenuItem)
+                .aria_label(label.clone())
+                .px_3()
+                .py(px(6.0))
+                .rounded_md()
+                .text_sm()
+                .text_color(ui::color(tokens::TEXT))
+                .cursor_pointer()
+                .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
+                .child(label)
+        };
+        div()
+            .id("share-list")
+            .role(gpui::Role::Menu)
+            .aria_label(ui::t("Share"))
+            .absolute()
+            .top(px(48.0))
+            .right(px(16.0))
+            .w(px(240.0))
+            .p_1()
+            .flex()
+            .flex_col()
+            .rounded_lg()
+            .border_1()
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
+            .shadow_lg()
+            .child(
+                item("share-copy-code", "Copy World Code").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.share_open = false;
+                        this.copy_world_code(cx);
+                    },
+                )),
+            )
+            .child(
+                item("share-save-code", "Save World Code…").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.share_open = false;
+                        this.save_world_code(cx);
+                    },
+                )),
+            )
+            .child(
+                item("share-invite-guest", "Invite a Guest").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.share_open = false;
+                        this.invite_guest(cx);
+                    },
+                )),
+            )
+            .child(div().px_3().pt_1().pb(px(6.0)).child(ui::caption(
+                "Anyone can open a World code as a visit. A guest comes from another of your Worlds.",
+            )))
     }
 }
 
@@ -648,8 +721,37 @@ impl Render for WorldDocumentView {
                     .child(status.message.clone()),
             );
         }
+        let share_open = self.share_open;
+        chrome = chrome.child(
+            div()
+                .id("share-handle")
+                .role(gpui::Role::Button)
+                .aria_label(ui::t("Share"))
+                .aria_expanded(share_open)
+                .flex_shrink_0()
+                .px_3()
+                .py(px(5.0))
+                .rounded_md()
+                .text_sm()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(ui::color(tokens::TEXT))
+                .border_1()
+                .border_color(ui::color(tokens::BORDER_STRONG))
+                .when(share_open, |handle| {
+                    handle.bg(ui::color(tokens::ROW_SELECTED))
+                })
+                .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
+                .cursor_pointer()
+                .child(ui::t("Share"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.share_open = !this.share_open;
+                    cx.notify();
+                })),
+        );
+        let share = share_open.then(|| self.share_list(cx));
 
         div()
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -665,6 +767,7 @@ impl Render for WorldDocumentView {
             )
             .on_action(cx.listener(|this, _: &about::InviteGuest, _, cx| this.invite_guest(cx)))
             .on_action(cx.listener(|this, _: &about::ShowAsStrip, _, cx| {
+                world_gpui::pointers::used(world_gpui::pointers::Pointer::Strip);
                 let snapshot = this.projection.read(cx).snapshot().clone();
                 strip_window::toggle(&this.document, snapshot, cx);
             }))
@@ -677,6 +780,7 @@ impl Render for WorldDocumentView {
                     .overflow_hidden()
                     .child(self.projection.clone()),
             )
+            .children(share)
     }
 }
 
@@ -2281,6 +2385,8 @@ impl WorldMachineHome {
                 .id(SharedString::from(format!("more-{document_label}")))
                 .role(gpui::Role::Button)
                 .aria_label(ui::t(format!("More for {title}")))
+                .tooltip(ui::tip(format!("More for {title}")))
+                .tooltip_show_delay(ui::TIP_DELAY)
                 .aria_expanded(menu_open)
                 .absolute()
                 .top_2()
@@ -4166,6 +4272,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     world_i18n::install(&world_builtins::zh_hans_voices());
     world_machine_desktop::display::apply(saved.as_ref());
+    install_pointers(saved.as_ref());
     ambience::set_enabled(
         saved
             .as_ref()
@@ -4293,6 +4400,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// The one Home entity, kept alive across window closes so the library
 /// listener and Pack activation state survive Cmd-W.
+/// Turns on the gentle pointers from the record in the app's settings,
+/// writing it back, off the window's thread, whenever it grows.
+#[cfg(target_os = "macos")]
+fn install_pointers(saved: Option<&world_machine_desktop::app_settings::AppSettings>) {
+    use world_machine_desktop::app_settings::{self, HintSettings};
+    let hints = saved
+        .map(|settings| settings.hints.clone())
+        .unwrap_or_default();
+    world_gpui::pointers::install(
+        world_gpui::pointers::Record::from_keys(&hints.shown, &hints.used),
+        |record| {
+            let (shown, used) = record.keys();
+            std::thread::spawn(move || {
+                let saved = app_settings::application_support_root()
+                    .and_then(|root| app_settings::save_hints(&root, HintSettings { shown, used }));
+                if let Err(error) = saved {
+                    diagnostics::error(format!("could not keep the hints record: {error}"));
+                }
+            });
+        },
+    );
+}
+
 #[cfg(target_os = "macos")]
 struct HomeEntity(Entity<WorldMachineHome>);
 

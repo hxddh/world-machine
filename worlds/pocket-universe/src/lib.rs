@@ -3,15 +3,18 @@ mod book;
 #[cfg(test)]
 mod density;
 mod drawings;
+mod eras;
 mod firsts;
 mod handwork;
 mod life;
 pub mod narrator;
+mod places;
 mod projection;
 mod speech;
 mod story;
 mod talk;
 mod voices;
+mod works;
 mod years;
 
 use std::error::Error;
@@ -89,6 +92,17 @@ impl PocketUniverse {
     pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
+            actions: build_action_registry()?,
+            narrator: Box::new(narrator::NoNarrator),
+        })
+    }
+
+    /// Opens an archive this World may keep: its history becomes the
+    /// World's own rather than a copy of it, so the parsed archive is not
+    /// held alongside the World.
+    pub fn resume_owned_archive(archive: WorldArchive) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            world: archive.into_world(&pocket_universe_pack_ref(), baseline()?)?,
             actions: build_action_registry()?,
             narrator: Box::new(narrator::NoNarrator),
         })
@@ -263,9 +277,12 @@ impl PocketUniverse {
                 .execute(&self.actions, &hands::do_request(deed))?
                 .id;
             // Someone nearby says what they make of it, and in a new World
-            // the first question follows.
-            let cast = life::cast(self.world.state());
-            lives::react_to(&mut self.world, &self.actions, &cast, event)?;
+            // the first question follows. Moving things about is only
+            // remarked on now and then: nobody comments on every shuffle.
+            if !moved_lately(&self.world, event) {
+                let cast = life::cast(self.world.state());
+                lives::react_to(&mut self.world, &self.actions, &cast, event)?;
+            }
             story::after_first_deed(&mut self.world, &self.actions)?;
             return Ok(event);
         }
@@ -434,6 +451,21 @@ impl PocketUniverseSession {
             listener,
         }))
     }
+
+    fn open_owned_archive(
+        archive: WorldArchive,
+        voice: Box<dyn narrator::Narrator>,
+        listener: Box<dyn conversation::Listener>,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
+        let mut world =
+            PocketUniverse::resume_owned_archive(archive).map_err(HostError::session)?;
+        world.set_narrator(voice);
+        Ok(Box::new(Self {
+            world,
+            return_since_event_count: None,
+            listener,
+        }))
+    }
 }
 
 impl WorldSession for PocketUniverseSession {
@@ -511,6 +543,53 @@ impl WorldSession for PocketUniverseSession {
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         self.world.archive().map(Some).map_err(HostError::session)
     }
+
+    /// Where the World stands, and where a return's digest starts, for a
+    /// host to come back to if saving what happens next fails.
+    fn checkpoint(&mut self) -> Result<Option<world_host::SessionCheckpoint>, HostError> {
+        Ok(Some(world_host::SessionCheckpoint::new((
+            self.world.world.checkpoint(),
+            self.return_since_event_count,
+        ))))
+    }
+
+    fn rollback(&mut self, checkpoint: world_host::SessionCheckpoint) -> Result<(), HostError> {
+        let (world, return_since_event_count) =
+            checkpoint.into_inner::<(world_core::Checkpoint, Option<usize>)>()?;
+        self.world.world.rollback(world);
+        self.return_since_event_count = return_since_event_count;
+        Ok(())
+    }
+
+    fn archive_since(&self, from: usize) -> Result<Option<WorldArchive>, HostError> {
+        WorldArchive::capture_since(pocket_universe_pack_ref(), self.world.world(), from)
+            .map(Some)
+            .map_err(HostError::session)
+    }
+}
+
+/// How many periods pass before someone remarks on the player moving
+/// something again.
+const MOVES_REMARKED_EVERY: u64 = 30;
+
+/// Whether `deed` moved something, and something else was moved not long
+/// before it.
+fn moved_lately(world: &World, deed: EventId) -> bool {
+    let Some(event) = world.event(deed) else {
+        return false;
+    };
+    if event.kind != "moved_by_hand" {
+        return false;
+    }
+    let since = event
+        .world_time
+        .saturating_sub(MOVES_REMARKED_EVERY * BACKGROUND_PERIOD);
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|other| other.world_time >= since)
+        .any(|other| other.id != deed && other.kind == "moved_by_hand")
 }
 
 pub fn pocket_universe_descriptor() -> WorldDescriptor {
@@ -551,14 +630,19 @@ pub fn pocket_universe_registration_with_voices(
     listener_factory: ListenerFactory,
 ) -> WorldRegistration {
     let create_ears = Arc::clone(&listener_factory);
-    let open_ears = listener_factory;
+    let open_ears = Arc::clone(&listener_factory);
+    let own_ears = listener_factory;
     let create_voice = Arc::clone(&narrator_factory);
-    let open_voice = narrator_factory;
+    let open_voice = Arc::clone(&narrator_factory);
+    let own_voice = narrator_factory;
     WorldRegistration::new(pocket_universe_descriptor(), move || {
         PocketUniverseSession::fresh(create_voice(), create_ears())
     })
     .with_archive_opener(move |archive| {
         PocketUniverseSession::open_archive(archive, open_voice(), open_ears())
+    })
+    .with_owned_archive_opener(move |archive| {
+        PocketUniverseSession::open_owned_archive(archive, own_voice(), own_ears())
     })
 }
 
@@ -735,6 +819,11 @@ fn seed_draft(
             entity: UNIVERSE,
             key: LAST_CHANGE.into(),
             value: "A new world has taken shape.".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: years::STORES.into(),
+            value: 40_i64.into(),
         },
     ];
     draft
@@ -1087,7 +1176,7 @@ mod tests {
             .iter()
             .map(|gauge| gauge.id.as_str())
             .collect();
-        assert_eq!(ids, ["trust", "tension"]);
+        assert_eq!(ids, ["trust", "tension", "stores"]);
         let after = session
             .handle(ProjectionIntent::InvokeCommand(command.id.clone()))
             .unwrap();
@@ -1274,6 +1363,221 @@ mod tests {
 
         assert_eq!(reopened.snapshot(), before);
         assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+    }
+
+    /// An archive the Pack may keep opens to the same World as one it is
+    /// lent.
+    #[test]
+    fn an_owned_archive_opens_to_the_same_world_as_a_lent_one() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_1980S_TOWN_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(12).unwrap();
+        let archive = session.archive().unwrap().unwrap();
+
+        let lent = PocketUniverse::resume_archive(&archive).unwrap();
+        let owned = PocketUniverse::resume_owned_archive(archive.clone()).unwrap();
+        assert_eq!(owned.world().events(), lent.world().events());
+        assert_eq!(owned.world().state(), lent.world().state());
+        assert_eq!(owned.projection_snapshot(), lent.projection_snapshot());
+
+        let (reopened, _) = registry.open_owned_archive(archive.clone()).unwrap();
+        let borrowed = registry.open_archive(&archive).unwrap();
+        assert_eq!(reopened.snapshot(), borrowed.snapshot());
+        assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+    }
+
+    /// A session as a host saw one before sessions could go back: it has
+    /// no checkpoint, so every change is tried on a copy opened anew.
+    struct Reopened(Box<dyn WorldSession>);
+
+    impl WorldSession for Reopened {
+        fn pack(&self) -> world_persistence::WorldPackRef {
+            self.0.pack()
+        }
+
+        fn snapshot(&self) -> ProjectionSnapshot {
+            self.0.snapshot()
+        }
+
+        fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            self.0.handle(intent)
+        }
+
+        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+            self.0.advance_background(periods)
+        }
+
+        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+            self.0.archive()
+        }
+    }
+
+    fn reopening_registry() -> world_host::WorldRegistry {
+        let mut registry = world_host::WorldRegistry::new();
+        registry
+            .register(
+                WorldRegistration::new(pocket_universe_descriptor(), || {
+                    let session = PocketUniverseSession::fresh(
+                        Box::new(narrator::NoNarrator),
+                        Box::new(conversation::OwnEars),
+                    )?;
+                    Ok(Box::new(Reopened(session)) as Box<dyn WorldSession>)
+                })
+                .with_archive_opener(|archive| {
+                    let session = PocketUniverseSession::open_archive(
+                        archive,
+                        Box::new(narrator::NoNarrator),
+                        Box::new(conversation::OwnEars),
+                    )?;
+                    Ok(Box::new(Reopened(session)) as Box<dyn WorldSession>)
+                }),
+            )
+            .unwrap();
+        registry
+    }
+
+    /// A folder of Worlds of its own, under the system's temporary folder.
+    fn temp_library(name: &str) -> (std::path::PathBuf, world_library::WorldLibrary) {
+        let root =
+            std::env::temp_dir().join(format!("pocket-universe-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        (root.clone(), world_library::WorldLibrary::new(root))
+    }
+
+    /// Whatever can be done at `turn`: the next day, or in turn a choice or
+    /// a deed on offer.
+    fn next_intent(snapshot: &ProjectionSnapshot, turn: usize) -> ProjectionIntent {
+        let offered = snapshot
+            .commands
+            .iter()
+            .filter(|command| command.unavailable.is_none() && command.id != NUDGE_COMMAND)
+            .collect::<Vec<_>>();
+        match offered.get(turn % offered.len().max(1)) {
+            Some(command) if turn % 2 == 1 => ProjectionIntent::InvokeCommand(command.id.clone()),
+            _ => ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()),
+        }
+    }
+
+    /// A session goes back exactly: after a checkpoint, a day and a return
+    /// rolled back leave its archive and what it shows as they were.
+    #[test]
+    fn a_session_rolled_back_is_as_it_was() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_1980S_TOWN_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(3).unwrap();
+        let snapshot = session.snapshot();
+        let archive = session.archive().unwrap().unwrap();
+        let events = archive.events.len();
+
+        let mark = session.checkpoint().unwrap().expect("a session goes back");
+        session
+            .handle(ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()))
+            .unwrap();
+        session.advance_background(2).unwrap();
+        assert_ne!(session.archive().unwrap().unwrap(), archive);
+        session.rollback(mark).unwrap();
+
+        assert_eq!(session.snapshot(), snapshot);
+        assert_eq!(session.archive().unwrap().unwrap(), archive);
+        // Only what came after the first events, when asked for so.
+        let since = session.archive_since(events - 2).unwrap().unwrap();
+        assert_eq!(since.events, archive.events[events - 2..]);
+    }
+
+    /// A save that fails leaves the World as it was: nothing the change did
+    /// is shown or kept.
+    #[test]
+    fn a_failed_save_leaves_the_world_as_it_was() {
+        let registry = registry();
+        let (root, library) = temp_library("failed-save");
+        let id = world_library::WorldDocumentId::new("maple").unwrap();
+        let mut session = world_library::DurableWorldSession::create(
+            id,
+            POCKET_UNIVERSE_PACK_ID,
+            &registry,
+            &library,
+        )
+        .unwrap();
+        session
+            .handle(
+                ProjectionIntent::InvokeCommand(SEED_1980S_TOWN_COMMAND.into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+        for _ in 0..3 {
+            session
+                .handle(
+                    ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+        }
+        let before = session.snapshot();
+
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::File::create(&root).unwrap();
+        assert!(session
+            .handle(
+                ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()),
+                &registry,
+                &library,
+            )
+            .is_err());
+        assert_eq!(session.snapshot(), before);
+        let _ = std::fs::remove_file(&root);
+    }
+
+    /// Twenty changes saved by going back when need be write the same World
+    /// into its file as twenty saved the old way, each tried on a copy
+    /// opened anew: the same history, checkpoint and description.
+    #[test]
+    fn saving_on_the_live_world_writes_what_the_old_way_wrote() {
+        let files =
+            [("live", registry()), ("reopened", reopening_registry())].map(|(name, registry)| {
+                let (root, library) = temp_library(name);
+                let id = world_library::WorldDocumentId::new("ares").unwrap();
+                let mut session = world_library::DurableWorldSession::create(
+                    id.clone(),
+                    POCKET_UNIVERSE_PACK_ID,
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+                let mut snapshot = session
+                    .handle(
+                        ProjectionIntent::InvokeCommand(SEED_MARS_COLONY_COMMAND.into()),
+                        &registry,
+                        &library,
+                    )
+                    .unwrap();
+                for turn in 0..19 {
+                    snapshot = session
+                        .handle(next_intent(&snapshot, turn), &registry, &library)
+                        .unwrap();
+                }
+                let bytes = std::fs::read(library.path(&id)).unwrap();
+                let _ = std::fs::remove_dir_all(root);
+                (snapshot, bytes)
+            });
+        assert_eq!(files[0].0, files[1].0);
+        let read = |bytes: &[u8]| world_document::WorldDocument::from_bytes(bytes).unwrap();
+        let (live, reopened) = (read(&files[0].1), read(&files[1].1));
+        assert_eq!(live.metadata, reopened.metadata);
+        assert_eq!(live.archive.events, reopened.archive.events);
+        assert_eq!(live.archive.checkpoint, reopened.archive.checkpoint);
+        assert_eq!(live.archive, reopened.archive);
     }
 
     #[test]

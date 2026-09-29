@@ -1,5 +1,5 @@
 use crate::{EntityId, Event, EventId, Relation, RelationId, StateChange, WorldState};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Which recorded events touched each entity and relation, kept up to date
 /// as events are recorded so that asking costs the same however long a
@@ -11,6 +11,15 @@ pub struct HistoryIndex {
     by_entity: BTreeMap<EntityId, Vec<EventId>>,
     by_kind: BTreeMap<String, Vec<EventId>>,
     relations: BTreeMap<RelationId, RelationRecord>,
+    /// What the event being read touched, kept between events so reading a
+    /// long history does not ask for memory for each of them.
+    touched: Touched,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Touched {
+    entities: Vec<EntityId>,
+    relations: Vec<RelationId>,
 }
 
 /// One life of a relation: how it stands now or stood when it ended, and
@@ -45,6 +54,7 @@ impl HistoryIndex {
                     )
                 })
                 .collect(),
+            touched: Touched::default(),
         }
     }
 
@@ -84,22 +94,26 @@ impl HistoryIndex {
                 self.by_kind.insert(event.kind.clone(), vec![event.id]);
             }
         }
-        let mut entities = BTreeSet::new();
-        let mut relations = BTreeSet::new();
+        let Touched {
+            mut entities,
+            mut relations,
+        } = std::mem::take(&mut self.touched);
+        entities.clear();
+        relations.clear();
         for change in &event.changes {
             match change {
                 StateChange::CreateEntity(entity) => {
                     self.by_entity.remove(&entity.id);
-                    entities.insert(entity.id);
+                    entities.push(entity.id);
                 }
                 StateChange::RemoveEntity(entity) => {
-                    entities.insert(*entity);
+                    entities.push(*entity);
                     for (from, to) in self.endpoints.values().copied() {
                         if from == *entity {
-                            entities.insert(to);
+                            entities.push(to);
                         }
                         if to == *entity {
-                            entities.insert(from);
+                            entities.push(from);
                         }
                     }
                     self.endpoints
@@ -109,17 +123,17 @@ impl HistoryIndex {
                             && (record.relation.from == *entity || record.relation.to == *entity)
                         {
                             record.active = false;
-                            relations.insert(*id);
+                            relations.push(*id);
                         }
                     }
                 }
                 StateChange::SetComponent { entity, .. }
                 | StateChange::RemoveComponent { entity, .. } => {
-                    entities.insert(*entity);
+                    entities.push(*entity);
                 }
                 StateChange::CreateRelation(relation) => {
-                    entities.insert(relation.from);
-                    entities.insert(relation.to);
+                    entities.push(relation.from);
+                    entities.push(relation.to);
                     self.endpoints
                         .insert(relation.id, (relation.from, relation.to));
                     self.relations.insert(
@@ -130,17 +144,17 @@ impl HistoryIndex {
                             event_ids: Vec::new(),
                         },
                     );
-                    relations.insert(relation.id);
+                    relations.push(relation.id);
                 }
                 StateChange::RemoveRelation(relation) => {
                     if let Some((from, to)) = self.endpoints.remove(relation) {
-                        entities.insert(from);
-                        entities.insert(to);
+                        entities.push(from);
+                        entities.push(to);
                     }
                     if let Some(record) = self.relations.get_mut(relation) {
                         if record.active {
                             record.active = false;
-                            relations.insert(*relation);
+                            relations.push(*relation);
                         }
                     }
                 }
@@ -150,8 +164,8 @@ impl HistoryIndex {
                     value,
                 } => {
                     if let Some((from, to)) = self.endpoints.get(relation).copied() {
-                        entities.insert(from);
-                        entities.insert(to);
+                        entities.push(from);
+                        entities.push(to);
                     }
                     if let Some(record) = self.relations.get_mut(relation) {
                         if record.active {
@@ -159,31 +173,45 @@ impl HistoryIndex {
                                 .relation
                                 .properties
                                 .insert(key.clone(), value.clone());
-                            relations.insert(*relation);
+                            relations.push(*relation);
                         }
                     }
                 }
                 StateChange::RemoveRelationProperty { relation, key } => {
                     if let Some((from, to)) = self.endpoints.get(relation).copied() {
-                        entities.insert(from);
-                        entities.insert(to);
+                        entities.push(from);
+                        entities.push(to);
                     }
                     if let Some(record) = self.relations.get_mut(relation) {
                         if record.active {
                             record.relation.properties.remove(key);
-                            relations.insert(*relation);
+                            relations.push(*relation);
                         }
                     }
                 }
             }
         }
-        for entity in entities {
-            self.by_entity.entry(entity).or_default().push(event.id);
+        // Each once, in order, as a set of them would give them.
+        entities.sort_unstable();
+        entities.dedup();
+        relations.sort_unstable();
+        relations.dedup();
+        for entity in &entities {
+            match self.by_entity.get_mut(entity) {
+                Some(events) => events.push(event.id),
+                None => {
+                    self.by_entity.insert(*entity, vec![event.id]);
+                }
+            }
         }
-        for relation in relations {
-            if let Some(record) = self.relations.get_mut(&relation) {
+        for relation in &relations {
+            if let Some(record) = self.relations.get_mut(relation) {
                 record.event_ids.push(event.id);
             }
         }
+        self.touched = Touched {
+            entities,
+            relations,
+        };
     }
 }

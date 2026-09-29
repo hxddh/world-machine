@@ -210,6 +210,33 @@ pub const REGARD: &str = "lives.regard";
 pub const GONE: &str = "lives.gone";
 const BOND: &str = "lives.bond";
 const CELEBRATED: &str = "lives.celebrated";
+/// How many times someone has asked for help through a hard time and been
+/// turned away or left unanswered, less the times they were helped.
+pub const UNHELPED: &str = "lives.unhelped";
+/// Whom someone sweet on someone is waiting to ask.
+const COURTING: &str = "lives.courting";
+/// Whether they were told to wait, and so wait to be told otherwise.
+const TOLD_TO_WAIT: &str = "lives.told_to_wait";
+/// When someone last parted from someone they were walking out with.
+const PARTED: &str = "lives.parted";
+/// How long someone who has parted takes before they are sweet on anyone
+/// again.
+const HEALS: i64 = 300;
+
+/// Whether someone parted from someone lately.
+fn heartsore(state: &WorldState, person: EntityId, now: u64) -> bool {
+    integer(state, person, PARTED).is_some_and(|at| (now as i64) - at < HEALS)
+}
+
+/// How fond two people must be of each other for one to ask the other out
+/// with nobody to encourage them.
+const ASKS_ALONE: i64 = 60;
+/// How little one of a couple can think of the other before they hit a
+/// rough patch.
+const ROUGH: i64 = 25;
+/// How many hard times gone unhelped make someone who has not settled
+/// think of leaving.
+pub const LET_DOWN: i64 = 3;
 /// When a door friendship opens was opened with someone, by kind.
 fn door_key(kind: Kind) -> String {
     format!("lives.door.{}", kind.id())
@@ -391,6 +418,11 @@ pub fn gone(state: &WorldState, person: EntityId) -> bool {
 /// Marks a newcomer who has settled for good: they no longer leave.
 pub const SETTLED: &str = "lives.settled";
 
+/// How many of someone's hard times have gone unhelped, less those helped.
+pub fn unhelped(state: &WorldState, person: EntityId) -> i64 {
+    integer(state, person, UNHELPED).unwrap_or(0)
+}
+
 /// Whether someone has settled for good.
 pub fn settled(state: &WorldState, person: EntityId) -> bool {
     matches!(
@@ -481,6 +513,12 @@ impl Moves {
 
     fn regard(&mut self, state: &WorldState, person: EntityId, by: i64) {
         self.add(state, person, REGARD, by, -100, 100);
+    }
+
+    /// One more hard time someone was left to face alone, or (with a
+    /// negative `by`) some help through one.
+    fn unhelped(&mut self, state: &WorldState, person: EntityId, by: i64) {
+        self.add(state, person, UNHELPED, by, 0, 20);
     }
 
     fn set(&mut self, entity: EntityId, key: &str, value: impl Into<Value>) {
@@ -1571,6 +1609,10 @@ impl Kind {
             Kind::Visitor => 0,
             Kind::Party => 60,
             Kind::Warming | Kind::Confide | Kind::Invite | Kind::Favour | Kind::Keepsake => 12,
+            // Two people not speaking are asked about every season or so,
+            // not every month.
+            Kind::Feud => 40,
+            Kind::Learn => 30,
             _ => 24,
         }
     }
@@ -1625,6 +1667,12 @@ impl Candidate {
         };
         Some(Candidate { kind, a, b, topic })
     }
+}
+
+/// Someone's own kind of trouble, whoever else it is about: rested after
+/// they are turned away, so they do not turn straight to someone else.
+fn own_family(kind: Kind, a: EntityId) -> String {
+    format!("{}.{a}", kind.id())
 }
 
 fn open_key(key: &str) -> String {
@@ -1712,7 +1760,12 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                     },
                 ));
             }
-            if ab >= 45 && partner(state, a).is_none() && partner(state, b).is_none() {
+            if ab >= 45
+                && partner(state, a).is_none()
+                && partner(state, b).is_none()
+                && !heartsore(state, a, now)
+                && !heartsore(state, b, now)
+            {
                 found.push((
                     ab,
                     Candidate {
@@ -1723,7 +1776,9 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                     },
                 ));
             }
-            if partner(state, a) == Some(b) && a.0 < b.0 && (ab <= 5 || ba <= 5) {
+            // A couple one of whom has cooled on the other has hit a rough
+            // patch, long before they stop speaking.
+            if partner(state, a) == Some(b) && a.0 < b.0 && (ab <= ROUGH || ba <= ROUGH) {
                 found.push((
                     70,
                     Candidate {
@@ -1838,11 +1893,13 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
             ));
         }
         let worst = Need::ALL.iter().map(|n| lacks(*n)).max().unwrap_or(0);
-        if !(cast.stays)(a)
-            && !settled(state, a)
-            && integer(state, a, REGARD).unwrap_or(0) <= -20
-            && worst >= 70
-        {
+        // Someone at the end of their tether with no goodwill left thinks
+        // of leaving; so does someone who asked for help through hard
+        // times, again and again, and was let down.
+        let at_the_end = integer(state, a, REGARD).unwrap_or(0) <= -20 && worst >= 70;
+        let let_down =
+            unhelped(state, a) >= LET_DOWN && integer(state, a, REGARD).unwrap_or(0) < 15;
+        if !(cast.stays)(a) && !settled(state, a) && (at_the_end || let_down) {
             found.push((
                 90,
                 Candidate {
@@ -1896,9 +1953,13 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                 && integer(state, candidate.a, REGARD).unwrap_or(0) <= GRUDGE)
         })
         .filter(|candidate| {
-            let rested = integer(state, cast.notes, &rest_key(&candidate.family()))
-                .is_none_or(|last| now as i64 - last >= candidate.kind.rests() as i64);
-            rested && open_map(state, cast, &candidate.key()).is_none()
+            let rested = |family: &str| {
+                integer(state, cast.notes, &rest_key(family))
+                    .is_none_or(|last| now as i64 - last >= candidate.kind.rests() as i64)
+            };
+            rested(&candidate.family())
+                && rested(&own_family(candidate.kind, candidate.a))
+                && open_map(state, cast, &candidate.key()).is_none()
         })
         .collect()
 }
@@ -1957,8 +2018,7 @@ fn words_for(
                 let seed = mix(&[b.0, candidate.topic, 17]);
                 words.push((
                     "b",
-                    pick(visitors.names, seed)
-                        .copied()
+                    stranger_name(state, cast, candidate.topic)
                         .unwrap_or("A stranger")
                         .into(),
                 ));
@@ -2159,6 +2219,7 @@ fn script(kind: Kind) -> Script {
             answers: &[
                 ("fund", "Use the fund"),
                 ("friend", "Ask {friend}"),
+                ("jobs", "Find them odd jobs"),
                 ("manage", "They'll manage"),
             ],
         },
@@ -2186,7 +2247,11 @@ fn script(kind: Kind) -> Script {
                 "We'd like a do. {b} insists on dancing.",
             ],
             told: "{a} and {b} wanted to celebrate",
-            answers: &[("party", "Throw a party"), ("quiet", "Keep it small")],
+            answers: &[
+                ("party", "Throw a party"),
+                ("potluck", "Everyone brings a dish"),
+                ("quiet", "Keep it small"),
+            ],
         },
         Kind::Visitor => Script {
             prompts: &[
@@ -2502,7 +2567,11 @@ fn outcome(
                 w("Thank you. Someone sees it."),
             )
         }
+        // Left to themselves, time takes a little of the edge off.
         (Kind::Feud, "leave") => {
+            let b = b.unwrap_or(a);
+            moves.opinion(state, a, b, 5);
+            moves.opinion(state, b, a, 5);
             go(&mut moves, a, quiet);
             (
                 w("{a} and {b} were left to sort it out"),
@@ -2521,14 +2590,11 @@ fn outcome(
         }
         (Kind::Sweet, "ask") => {
             let b = b.unwrap_or(a);
-            let yes = opinion(state, b, a) >= 25 || mix(&[a.0, b.0, 99]).is_multiple_of(3);
+            let free = partner(state, a).is_none() && partner(state, b).is_none();
+            let yes =
+                free && (opinion(state, b, a) >= 15 || mix(&[a.0, b.0, 99]).is_multiple_of(2));
             if yes {
-                moves.set(a, PARTNER, Value::Entity(b));
-                moves.set(b, PARTNER, Value::Entity(a));
-                moves.opinion(state, a, b, 15);
-                moves.opinion(state, b, a, 20);
-                moves.lack(state, a, Need::Company, -40);
-                moves.lack(state, b, Need::Company, -40);
+                walk_out(state, &mut moves, a, b);
                 moves.regard(state, a, 8);
                 go(&mut moves, a, quiet);
                 go(&mut moves, b, quiet);
@@ -2546,17 +2612,81 @@ fn outcome(
                 )
             }
         }
-        (Kind::Sweet, "wait") | (Kind::Sweet, "lapse") => {
-            go(&mut moves, a, gathering);
-            (
-                w("{a} kept it to themselves"),
-                say(&[
-                    "Maybe you're right. Maybe.",
-                    "I'll wait. For now.",
-                    "Best not rush it.",
-                    "Not yet, then.",
-                ]),
-            )
+        // Told to wait, they spend time as friends first; told to wait a
+        // second time, someone who has come to like them back is asked
+        // in their own good time.
+        (Kind::Sweet, "wait") => {
+            let b = b.unwrap_or(a);
+            let waited = entity_of(state, a, COURTING) == Some(b);
+            let free = partner(state, a).is_none() && partner(state, b).is_none();
+            if free && waited && opinion(state, b, a) >= 30 {
+                walk_out(state, &mut moves, a, b);
+                go(&mut moves, a, quiet);
+                go(&mut moves, b, quiet);
+                (
+                    w("{a} took their time, and {a} and {b} started walking out together"),
+                    w("We took it slowly, {b} and me. Worth the wait."),
+                )
+            } else {
+                moves.set(a, COURTING, Value::Entity(b));
+                moves.set(a, TOLD_TO_WAIT, true);
+                moves.opinion(state, a, b, 6);
+                moves.opinion(state, b, a, 6);
+                go(&mut moves, a, gathering);
+                go(&mut moves, b, gathering);
+                (
+                    w("{a} kept it to themselves, and spent more time with {b}"),
+                    say(&[
+                        "Maybe you're right. Maybe.",
+                        "I'll wait. For now.",
+                        "Best not rush it.",
+                        "Not yet, then.",
+                    ]),
+                )
+            }
+        }
+        // Nobody to ask, they work up the courage on their own, the second
+        // time it comes to them: only someone as fond of them as they are
+        // says yes.
+        (Kind::Sweet, "lapse") => {
+            let b = b.unwrap_or(a);
+            let free = partner(state, a).is_none() && partner(state, b).is_none();
+            let waited = entity_of(state, a, COURTING) == Some(b);
+            // Told to wait, they wait to be told otherwise.
+            let told = matches!(
+                state
+                    .entity(a)
+                    .and_then(|entity| entity.component(TOLD_TO_WAIT)),
+                Some(Value::Bool(true))
+            );
+            if free
+                && waited
+                && !told
+                && opinion(state, b, a) >= ASKS_ALONE
+                && opinion(state, a, b) >= ASKS_ALONE
+            {
+                walk_out(state, &mut moves, a, b);
+                go(&mut moves, a, quiet);
+                go(&mut moves, b, quiet);
+                (
+                    w("{a} asked {b} out on their own, and {b} said yes"),
+                    w("I asked {b} myself in the end. Yes, {b} said!"),
+                )
+            } else {
+                moves.set(a, COURTING, Value::Entity(b));
+                moves.opinion(state, a, b, -5);
+                moves.lack(state, a, Need::Company, 10);
+                go(&mut moves, a, gathering);
+                (
+                    w("{a} never quite said anything to {b}"),
+                    say(&[
+                        "Never found the words.",
+                        "I nearly said something. Nearly.",
+                        "Some things stay unsaid.",
+                        "It'll pass. I expect.",
+                    ]),
+                )
+            }
         }
         (Kind::Learn, "teach") => {
             let b = b.unwrap_or(a);
@@ -2566,12 +2696,28 @@ fn outcome(
             moves.lack(state, b, Need::Rest, 15);
             moves.lack(state, b, Need::Purpose, -20);
             moves.regard(state, a, 8);
+            moves.unhelped(state, a, -2);
+            // Learning from one, they do not ask to learn from another for
+            // a while.
+            moves.set(
+                cast.notes,
+                &rest_key(&own_family(Kind::Learn, a)),
+                now_period,
+            );
             go(&mut moves, a, work_of(b));
             (w("{b} began teaching {a}"), w("{b}'s a patient teacher."))
         }
         (Kind::Learn, "not_now") | (Kind::Learn, "lapse") => {
             moves.lack(state, a, Need::Purpose, 10);
             moves.regard(state, a, -5);
+            moves.unhelped(state, a, 1);
+            // Told not now, they do not ask to learn from anyone else for
+            // a while either.
+            moves.set(
+                cast.notes,
+                &rest_key(&own_family(Kind::Learn, a)),
+                now_period,
+            );
             go(&mut moves, a, quiet);
             (
                 w("{a} was told not now"),
@@ -2587,6 +2733,7 @@ fn outcome(
             spend(&mut moves)?;
             moves.lack(state, a, Need::Money, -55);
             moves.regard(state, a, 15);
+            moves.unhelped(state, a, -2);
             go(&mut moves, a, quiet);
             (
                 w("The {settlement} tided {a} over"),
@@ -2600,14 +2747,31 @@ fn outcome(
             moves.lack(state, friend, Need::Money, 15);
             moves.opinion(state, a, friend, 15);
             moves.opinion(state, friend, a, -3);
+            moves.unhelped(state, a, -2);
             go(&mut moves, a, work_of(friend));
             (
                 w("{friend} helped {a} out"),
                 w("{friend} came through for me."),
             )
         }
+        (Kind::Short, "jobs") => {
+            moves.lack(state, a, Need::Money, -30);
+            moves.lack(state, a, Need::Rest, 15);
+            moves.regard(state, a, 4);
+            moves.unhelped(state, a, -1);
+            go(&mut moves, a, gathering);
+            (
+                w("{a} did odd jobs round the {settlement}"),
+                say(&[
+                    "Odd jobs pay. Not much, but they pay.",
+                    "Painted three gates and a shed. It adds up.",
+                    "Tired, but the {unit} is paid for.",
+                ]),
+            )
+        }
         (Kind::Short, "manage") | (Kind::Short, "lapse") => {
             moves.regard(state, a, -8);
+            moves.unhelped(state, a, 1);
             moves.lack(state, a, Need::Money, 5);
             go(&mut moves, a, work_of(a));
             (
@@ -2622,6 +2786,7 @@ fn outcome(
         }
         (Kind::Lonely, "invite") => {
             moves.lack(state, a, Need::Company, -55);
+            moves.unhelped(state, a, -2);
             let met = people
                 .iter()
                 .copied()
@@ -2656,6 +2821,7 @@ fn outcome(
         (Kind::Lonely, "space") | (Kind::Lonely, "lapse") => {
             moves.lack(state, a, Need::Company, 8);
             moves.regard(state, a, -3);
+            moves.unhelped(state, a, 1);
             go(&mut moves, a, quiet);
             (
                 w("{a} kept to themselves"),
@@ -2671,6 +2837,7 @@ fn outcome(
             moves.lack(state, a, Need::Rest, -65);
             moves.lack(state, a, Need::Money, 10);
             moves.regard(state, a, 8);
+            moves.unhelped(state, a, -2);
             go(&mut moves, a, quiet);
             (
                 w("{a} took a day off"),
@@ -2685,6 +2852,7 @@ fn outcome(
             moves.lack(state, a, Need::Rest, 10);
             moves.lack(state, a, Need::Money, -20);
             moves.regard(state, a, -6);
+            moves.unhelped(state, a, 1);
             go(&mut moves, a, work_of(a));
             (
                 w("{a} pushed on"),
@@ -2698,6 +2866,7 @@ fn outcome(
         (Kind::Worn, "lapse") => {
             moves.lack(state, a, Need::Rest, -35);
             moves.regard(state, a, -4);
+            moves.unhelped(state, a, 1);
             go(&mut moves, a, quiet);
             (
                 w("{a} took the day anyway"),
@@ -2724,6 +2893,20 @@ fn outcome(
                 w("Best night in years!"),
             )
         }
+        (Kind::Party, "potluck") => {
+            let b = b.unwrap_or(a);
+            for p in &people {
+                moves.lack(state, *p, Need::Company, -15);
+                moves.opinion(state, *p, a, 2);
+                moves.opinion(state, *p, b, 2);
+                go(&mut moves, *p, gathering);
+            }
+            moves.set(a, CELEBRATED, period(state, cast) as i64);
+            (
+                w("Everyone brought a dish to {a} and {b}'s do at {gathering}"),
+                w("So many dishes, and not one the same!"),
+            )
+        }
         (Kind::Party, "quiet") | (Kind::Party, "lapse") => {
             moves.set(a, CELEBRATED, period(state, cast) as i64);
             go(&mut moves, a, quiet);
@@ -2732,19 +2915,24 @@ fn outcome(
             }
             (w("{a} and {b} kept it small"), w("Just us two. Perfect."))
         }
+        // Nobody answered the door: a stranger stays on only where people
+        // are glad of the place, and moves on from one they are not.
+        (Kind::Visitor, "lapse") if !welcoming(state) => (
+            w("{b} waited a day for an answer, then moved on with {way_out}"),
+            w("Shame. {b} seemed nice."),
+        ),
         (Kind::Visitor, "welcome") | (Kind::Visitor, "lapse") => {
             let visitors = cast
                 .visitors
                 .ok_or_else(|| ActionError::Invalid("nobody comes here".into()))?;
-            let visitor = b.ok_or_else(|| ActionError::Invalid("nobody at the door".into()))?;
-            if state.entity(visitor).is_some() {
-                return Err(ActionError::Invalid("already here".into()));
-            }
+            // Whoever was at the door takes the next room free, should
+            // someone else have come to stay while they waited.
+            let visitor = b
+                .filter(|visitor| state.entity(*visitor).is_none())
+                .or_else(|| next_visitor(state, cast))
+                .ok_or_else(|| ActionError::Invalid("no room for anyone".into()))?;
             let seed = mix(&[visitor.0, candidate.topic, 17]);
-            let visitor_name = next_names(state, cast, 1)
-                .into_iter()
-                .next()
-                .unwrap_or("A stranger");
+            let visitor_name = stranger_name(state, cast, candidate.topic).unwrap_or("A stranger");
             let (_, job) = pick(visitors.trades, seed / 7)
                 .copied()
                 .unwrap_or(("traveller", "traveller"));
@@ -2757,7 +2945,11 @@ fn outcome(
                 .with_component("lives.newcomer", true)
                 .with_component(AT, Value::Entity(gathering));
             moves.changes.push(StateChange::CreateEntity(newcomer));
-            moves.regard(state, a, 5);
+            // Asked to stay, the host is glad of the player for it; a
+            // stranger who stays on unasked owes the player nothing.
+            if answer != "lapse" {
+                moves.regard(state, a, 5);
+            }
             if answer == "lapse" {
                 (
                     w("{b}, a {trade} from {origin}, stayed on, and nobody minded"),
@@ -2776,6 +2968,7 @@ fn outcome(
             for need in Need::ALL {
                 moves.lack(state, a, need, -20);
             }
+            moves.unhelped(state, a, -20);
             go(&mut moves, a, gathering);
             (
                 w("{a} was asked to stay, and did"),
@@ -2786,6 +2979,7 @@ fn outcome(
             moves.set(a, GONE, true);
             if let Some(p) = partner(state, a) {
                 moves.unset(state, p, PARTNER);
+                moves.set(p, PARTED, now_period);
                 moves.lack(state, p, Need::Company, 40);
             }
             moves.unset(state, a, PARTNER);
@@ -2806,6 +3000,8 @@ fn outcome(
             let b = b.unwrap_or(a);
             moves.unset(state, a, PARTNER);
             moves.unset(state, b, PARTNER);
+            moves.set(a, PARTED, now_period);
+            moves.set(b, PARTED, now_period);
             moves.opinion(state, a, b, -10);
             moves.opinion(state, b, a, -10);
             moves.lack(state, a, Need::Company, 30);
@@ -2961,13 +3157,44 @@ fn outcome(
                 w("...Fine. Apology accepted."),
             )
         }
-        (Kind::Cold, "leave") | (Kind::Cold, "lapse") => {
+        // Left be, a grudge cools a little on its own; ignored, it keeps.
+        (Kind::Cold, "leave") => {
+            moves.regard(state, a, 3);
+            go(&mut moves, a, quiet);
+            (w("You left {a} be, and it cooled a little"), w("Suits me."))
+        }
+        (Kind::Cold, "lapse") => {
             go(&mut moves, a, quiet);
             (w("{a} kept their distance from you"), w("Suits me."))
         }
         _ => return Err(ActionError::Invalid(format!("no answer {answer}"))),
     };
     Ok((moves, told, said))
+}
+
+/// Two people start walking out together.
+fn walk_out(state: &WorldState, moves: &mut Moves, a: EntityId, b: EntityId) {
+    moves.set(a, PARTNER, Value::Entity(b));
+    moves.set(b, PARTNER, Value::Entity(a));
+    for who in [a, b] {
+        moves.unset(state, who, COURTING);
+        moves.unset(state, who, TOLD_TO_WAIT);
+    }
+    moves.opinion(state, a, b, 15);
+    moves.opinion(state, b, a, 20);
+    moves.lack(state, a, Need::Company, -40);
+    moves.lack(state, b, Need::Company, -40);
+}
+
+/// Whether people are glad of the place: their goodwill toward it, on
+/// the whole, is more than everyday life gives on its own.
+fn welcoming(state: &WorldState) -> bool {
+    let people = cast_ids(state);
+    let total = people
+        .iter()
+        .map(|person| integer(state, *person, REGARD).unwrap_or(0))
+        .sum::<i64>();
+    total >= 8 * people.len() as i64
 }
 
 fn closing(state: &WorldState, cast: &Cast, candidate: &Candidate, moves: &mut Moves) {
@@ -3097,18 +3324,37 @@ impl Action for Reacts {
                 "A {thing}! Just what {place} needed.",
                 "You built that? Well, look at it.",
                 "A {thing} by {place}. I'll be using that.",
+                "Another {thing}? The {settlement} won't know itself.",
+                "Straight and true, that {thing}. Who taught you?",
+                "I watched you build that {thing}. Not bad at all.",
             ],
             "decorated_by_hand" => &[
                 "{thing} up at {place}! Cheers the place right up.",
                 "Oh, that's pretty. Was that you?",
+                "{thing} all over {place}. Is it someone's birthday?",
+                "You've a good eye. {place} looks like a party.",
             ],
             "planted_by_hand" => &[
                 "You planted that? I'll keep an eye on it.",
                 "Something growing by {place}. About time.",
+                "Water it at dusk, not at noon. Trust me.",
+                "Green by {place}! The bees will find it.",
             ],
             "moved_by_hand" => &[
                 "Better there, I think.",
                 "Oh, you've moved it. It suits there.",
+                "The {thing} by {place} now? Yes, I see it.",
+                "Moved the {thing}? It catches the light there.",
+                "I'd got used to the {thing} where it was. This is better.",
+                "The {thing} looks at home by {place}.",
+                "You'll wear that {thing} out, moving it about.",
+                "Now the {thing}'s by {place}, I'll sit there.",
+                "Round and round goes the {thing}. I like it here.",
+                "The {thing}'s found its spot by {place}, I reckon.",
+                "Someone's fond of moving that {thing}.",
+                "By {place}, the {thing}? Suits it.",
+                "I nearly walked into the {thing}. It's moved!",
+                "The {thing} again? {place} it is, then.",
             ],
             _ => return Err(ActionError::Invalid(format!("nothing to say about {deed}"))),
         };
@@ -3419,6 +3665,19 @@ impl Action for LeavesKeepsake {
                 .extend(quiet::letter_notes(state, &cast, who, request));
             return Ok(draft);
         }
+        // Something of the Pack's own choosing, given in person.
+        if let Ok(what) = arg_text(request, "what") {
+            let mut draft = EventDraft::new("keepsake_left");
+            draft.actor = Some(who);
+            draft.targets = vec![who];
+            draft.payload.insert("keepsake".into(), what.into());
+            draft.payload.insert(
+                "told".into(),
+                format!("{} gave you {what}", first_name(state, who)).into(),
+            );
+            draft.payload.insert("said".into(), why.into());
+            return Ok(draft);
+        }
         // What is left for the player goes round everything there is to
         // leave, so each is found in turn.
         let left = integer(state, cast.notes, LEFT).unwrap_or(0);
@@ -3592,6 +3851,112 @@ pub fn leave_keepsake(
         .actor(who)
         .arg("who", Value::Entity(who))
         .arg("why", why);
+    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+}
+
+/// Two people fond of each other, neither walking out with anyone, get
+/// together at a gathering the player made happen: the fondest such pair.
+struct Matches(fn(&WorldState) -> Cast);
+
+/// How fond of each other two people must be to get together at a
+/// gathering.
+const FOND_AT_A_GATHERING: i64 = 40;
+
+impl Action for Matches {
+    fn name(&self) -> &'static str {
+        "lives_matched"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)(state);
+        let at = arg_text(request, "at")?;
+        let people = cast_ids(state)
+            .into_iter()
+            .filter(|person| enrolled(state, *person) && partner(state, *person).is_none())
+            .filter(|person| !heartsore(state, *person, period(state, &cast)))
+            .collect::<Vec<_>>();
+        let now = period(state, &cast);
+        let (a, b) = people
+            .iter()
+            .flat_map(|a| people.iter().map(move |b| (*a, *b)))
+            .filter(|(a, b)| a.0 < b.0 && !(cast.kept)(*a, *b) && !(cast.kept)(*b, *a))
+            .map(|(a, b)| {
+                let fond = opinion(state, a, b).min(opinion(state, b, a));
+                (fond, mix(&[a.0, b.0, now]), a, b)
+            })
+            .filter(|(fond, ..)| *fond >= FOND_AT_A_GATHERING)
+            .max()
+            .map(|(_, _, a, b)| (a, b))
+            .ok_or_else(|| ActionError::Invalid("nobody to get together".into()))?;
+        let (an, bn) = (first_name(state, a), first_name(state, b));
+        let heard = Heard::of(state, &cast);
+        let said = pick_line(
+            &[
+                format!("Who'd have thought? {bn} and me, after {at}."),
+                format!("{bn} asked me to dance at {at}. I said yes to more than the dance."),
+                format!("It was {at} that did it. {bn} and me."),
+            ],
+            &heard,
+            a,
+        );
+        let mut moves = Moves::default();
+        walk_out(state, &mut moves, a, b);
+        remember_saying(&mut moves, &heard, &said);
+        for (x, y) in [(a, b), (b, a)] {
+            moves.set(x, &bond_key(y), "partners");
+        }
+        let mut draft = EventDraft::new("bond_changed");
+        draft.actor = Some(a);
+        draft.targets = vec![b];
+        draft.payload.insert("bond".into(), "got_together".into());
+        draft.payload.insert(
+            "told".into(),
+            format!("{an} and {bn} got together at {at}").into(),
+        );
+        draft.payload.insert("said".into(), said.into());
+        draft.changes = moves.changes;
+        Ok(draft)
+    }
+}
+
+/// At a gathering the player made happen, the two fondest of each other
+/// who are not yet walking out with anyone may get together: `at` is what
+/// the gathering is called ("the music night").
+pub fn match_at(
+    world: &mut World,
+    actions: &ActionRegistry,
+    at: &str,
+) -> Result<Option<EventId>, WorldError> {
+    let request = ActionRequest::new("lives_matched").arg("at", at);
+    match world.execute(actions, &request) {
+        Ok(event) => Ok(Some(event.id)),
+        Err(WorldError::Action(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Someone gives the player something of the Pack's own choosing to keep,
+/// with a word about it, if the week has room for it.
+pub fn give_keepsake(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    who: EntityId,
+    what: &str,
+    said: &str,
+) -> Result<Option<EventId>, WorldError> {
+    if !room_for_keepsake(world, cast) {
+        return Ok(None);
+    }
+    let request = ActionRequest::new("lives_leaves_keepsake")
+        .actor(who)
+        .arg("who", Value::Entity(who))
+        .arg("why", said)
+        .arg("what", what);
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 
@@ -3997,6 +4362,13 @@ pub fn people_to_meet(world: &World, cast: &Cast) -> Vec<(String, Option<EntityI
     all
 }
 
+/// Who a stranger at the door is: one of the next few names nobody here
+/// or gone has had, as the place's fortunes (in `seed`) have it, so two
+/// places that have gone differently meet different people.
+fn stranger_name(state: &WorldState, cast: &Cast, seed: u64) -> Option<&'static str> {
+    pick(&next_names(state, cast, 3), mix(&[seed, 29])).copied()
+}
+
 /// The names the next `count` newcomers will have: the visitors' names in
 /// order, less any anyone here or gone has had.
 fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str> {
@@ -4116,6 +4488,7 @@ pub fn register_actions(
     registry.register(LeavesKeepsake(cast))?;
     registry.register(Greets(cast))?;
     registry.register(Warms(cast))?;
+    registry.register(Matches(cast))?;
     registry.register(Remembers)?;
     registry.register(suggest::Suggests(cast))?;
     registry.register(host::Hosts(cast))?;

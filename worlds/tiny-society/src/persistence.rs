@@ -49,6 +49,14 @@ impl TinySociety {
         restored_simulation(world)
     }
 
+    /// As [`Self::resume_archive`], taking the archive so its history is
+    /// moved into the World rather than held twice while it opens.
+    pub fn resume_owned_archive(archive: WorldArchive) -> Result<Self, Box<dyn Error>> {
+        let baseline = seed::seed_world()?;
+        let world = archive.into_world(&tiny_society_pack_ref(), baseline)?;
+        restored_simulation(world)
+    }
+
     pub fn resume_json(json: &str) -> Result<Self, Box<dyn Error>> {
         let archive = WorldArchive::from_json(json)?;
         Self::resume_archive(&archive)
@@ -119,7 +127,7 @@ impl TinySocietyBranch {
             schedule_daily_bakery_purchases(&mut self.world, morning_time)?;
             generated_events.extend(advance_branch_checkpoint(
                 &mut self.world,
-                &actions,
+                actions,
                 &behavior_registry,
                 morning_time,
             )?);
@@ -127,23 +135,23 @@ impl TinySocietyBranch {
             schedule_daily_shifts(&mut self.world, end_time)?;
             generated_events.extend(advance_branch_checkpoint(
                 &mut self.world,
-                &actions,
+                actions,
                 &behavior_registry,
                 end_time,
             )?);
 
             // Things people do because of how things stand, rather than in
             // reaction to one Event, are checked once a day.
-            let mut daily = crate::livelihood::seek_work_if_needed(&mut self.world, &actions)?;
+            let mut daily = crate::livelihood::seek_work_if_needed(&mut self.world, actions)?;
             // A question nobody answered is answered by the harbour, at most
             // one per day, so a long absence reads as a sequence rather than
             // resolving in one jump when somebody returns.
-            daily.extend(crate::drift::resolve_overdue(&mut self.world, &actions)?);
+            daily.extend(crate::drift::resolve_overdue(&mut self.world, actions)?);
             for event in daily {
                 generated_events.push(event);
                 let run = BehaviorRuntime::run_from_event(
                     &mut self.world,
-                    &actions,
+                    actions,
                     &behavior_registry,
                     event,
                     32,
@@ -152,7 +160,7 @@ impl TinySocietyBranch {
             }
             // The storyteller has the last word of the day: what lapses,
             // whether the chapter turns, and what comes up next.
-            generated_events.extend(crate::story::tick(&mut self.world, &actions, away)?);
+            generated_events.extend(crate::story::tick(&mut self.world, actions, away)?);
         }
 
         Ok(generated_events)

@@ -447,9 +447,160 @@ pub(crate) fn quiet_days(state: &WorldState) -> QuietDays {
         "penguin-civilization" => (ICE_CORNERS, ICE_SUBJECTS),
         _ => return QuietDays::default(),
     };
+    let (corners, subjects) = match crate::places::Place::of(state) {
+        Some(place) => so_far(state, place, corners, subjects),
+        None => (corners, subjects),
+    };
     QuietDays {
         letters_a_week: Some(LETTERS_A_WEEK),
         corners,
         subjects,
     }
+}
+
+/// What someone says showing the player a work the place finished.
+fn showing(place: crate::places::Place) -> [&'static str; 6] {
+    match place {
+        crate::places::Place::Ares => [
+            "We built this. On Mars. Take a good look.",
+            "Every bolt in it came off a shuttle. Every one.",
+            "It's not pretty, but it'll outlast us all.",
+            "Come in, come in. Mind the dust.",
+            "Took us three windows. Worth every sol.",
+            "Stand here. Now tell me that isn't something.",
+        ],
+        crate::places::Place::Maple => [
+            "We built this. Can you believe it?",
+            "Come look. Every nail in it is ours.",
+            "My name's scratched in the corner. Don't tell anyone.",
+            "Not bad for one little street, huh?",
+            "This used to be nothing. Now look.",
+            "Sit down. Try it. Go on.",
+        ],
+        crate::places::Place::Ice => [
+            "We made this. With flippers! Look!",
+            "Every block of it was carried here by someone.",
+            "Stand here. Feel how solid it is.",
+            "It took all of us. Even the chicks helped.",
+            "The whole colony built this. I did the corners.",
+            "Come see. It's even better up close.",
+        ],
+    }
+}
+
+/// The corners and subjects a place has now. The `lives` System knows
+/// them by their place in each list, so each list only ever grows at its
+/// end: corners are what the place always had, then every work its people
+/// have finished, in the order they finish them; subjects are what it
+/// always had, then what each of its own years brings (let out over the
+/// year, a few weeks apart), the year's corners among them, to be spoken
+/// of.
+fn so_far(
+    state: &WorldState,
+    place: crate::places::Place,
+    corners: &'static [Corner],
+    subjects: &'static [Subject],
+) -> (&'static [Corner], &'static [Subject]) {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+    type Corners = BTreeMap<(crate::places::Place, usize), &'static [Corner]>;
+    type Subjects = BTreeMap<(crate::places::Place, u64, u64), &'static [Subject]>;
+    static CORNERS: OnceLock<Mutex<Corners>> = OnceLock::new();
+    static SUBJECTS: OnceLock<Mutex<Subjects>> = OnceLock::new();
+    let works = crate::story::works_done(state);
+    let corners = if works.is_empty() {
+        corners
+    } else {
+        let mut kept = CORNERS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *kept.entry((place, works.len())).or_insert_with(|| {
+            let lines = showing(place);
+            let mut all = corners.to_vec();
+            for (at, work) in works.iter().enumerate() {
+                all.push(Corner {
+                    place: if at % 2 == 0 { SLOT_A } else { SLOT_C },
+                    name: crate::story::the_work(work),
+                    said: lines[at % lines.len()],
+                });
+            }
+            Box::leak(all.into_boxed_slice())
+        })
+    };
+    let now = crate::places::period(state);
+    let written = crate::eras::eras(place).len() as u64;
+    let year = crate::places::era_at(place, now).min(written);
+    if year == 0 {
+        return (corners, subjects);
+    }
+    // How many of this year's own it has let out so far: one every so
+    // often, spread over the year.
+    let out = if crate::places::era_at(place, now) > written {
+        u64::MAX
+    } else {
+        crate::places::era_began(place, now).map_or(u64::MAX, |began| {
+            let items = crate::eras::era(place, year).map_or(1, |era| {
+                era.corners.len() + era.subjects.len() + era.topics.len()
+            });
+            let every = (year_length(place) / items as u64).max(4);
+            1 + now.saturating_sub(began) / every
+        })
+    };
+    let mut kept = SUBJECTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let subjects = *kept.entry((place, year, out.min(999))).or_insert_with(|| {
+        let mut all = subjects.to_vec();
+        for n in 1..=year {
+            let Some(era) = crate::eras::era(place, n) else {
+                continue;
+            };
+            let shown = if n == year { out } else { u64::MAX };
+            all.extend(era_subjects(era).into_iter().take(shown.min(999) as usize));
+        }
+        Box::leak(all.into_boxed_slice())
+    });
+    (corners, subjects)
+}
+
+/// How long one of a place's own years is, in periods.
+fn year_length(place: crate::places::Place) -> u64 {
+    match place {
+        crate::places::Place::Ares => 156,
+        _ => 120,
+    }
+}
+
+/// What one of a place's own years gives its people to speak of, in the
+/// order it comes out: a corner of the place, something of the year's
+/// own, and two of what the year's people fall out over, in turn.
+fn era_subjects(era: &'static crate::eras::Era) -> Vec<Subject> {
+    let mut all = Vec::new();
+    let mut topics = era.topics.iter();
+    for at in 0..era.corners.len().max(era.subjects.len()) {
+        if let Some(corner) = era.corners.get(at) {
+            all.push(Subject {
+                about: corner.name,
+                said: Box::leak(Box::new([corner.said])),
+            });
+        }
+        if let Some(subject) = era.subjects.get(at) {
+            all.push(*subject);
+        }
+        for topic in topics.by_ref().take(2) {
+            // Nothing of its own to say: spoken of in a few words that fit
+            // anything.
+            all.push(Subject {
+                about: topic,
+                said: &[],
+            });
+        }
+    }
+    all.extend(topics.map(|topic| Subject {
+        about: topic,
+        said: &[],
+    }));
+    all
 }

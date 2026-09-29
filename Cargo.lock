@@ -3927,6 +3927,7 @@ dependencies = [
  "world-document",
  "world-gpui",
  "world-host",
+ "world-i18n",
  "world-library",
  "world-persistence",
  "world-projection",
@@ -6735,6 +6736,7 @@ dependencies = [
  "flate2",
  "serde_json",
  "world-builtins",
+ "world-core",
  "world-document",
  "world-host",
  "world-pack-protocol",
@@ -6744,7 +6746,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "gpui",
  "gpui_platform",

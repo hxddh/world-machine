@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 base64 = "0.23"
-flate2 = "1"
+flate2 = { version = "1", features = ["zlib-rs"] }
 world-document = { path = "../world-document" }
 world-host = { path = "../world-host" }
 world-pack-protocol = { path = "../world-pack-protocol" }
@@ -17,3 +17,4 @@ world-projection = { path = "../world-projection" }
 
 [dev-dependencies]
 world-builtins = { path = "../world-builtins" }
+world-core = { path = "../world-core" }

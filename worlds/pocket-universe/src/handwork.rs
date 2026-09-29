@@ -801,6 +801,196 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
 /// The deed that takes back the latest thing made or moved.
 pub(crate) const UNDO: &str = "undo";
 
+/// What people say using what the player made, in each place's own words
+/// rather than words any place might say: nobody on Mars watches the
+/// gulls. By place, then for a rest, an evening together and a harvest.
+fn enjoyed_lines(place: crate::places::Place) -> [&'static [&'static str]; 3] {
+    match place {
+        crate::places::Place::Ares => [
+            &[
+                "Ten minutes on the {what}. My knees thank you.",
+                "Sat on the {what} and watched the dust settle.",
+                "The {what} faces the ridge. Best view on Ares.",
+                "Took my helmet off by the {what}. Inside, I mean.",
+                "Whoever put the {what} there knew about long shifts.",
+                "Five minutes on the {what}, then back to the filters.",
+                "Logged my rest on the {what}. Nia insists.",
+                "The {what} is warm from the heat pipe. Perfect.",
+                "Watched Phobos rise from the {what}.",
+                "Nodded off on the {what}. Nobody woke me. Kind.",
+                "Sat on the {what} and counted the dust devils. Six.",
+                "The {what} creaks in the cold. So do I.",
+                "Had my ration bar on the {what}. Five-star dining.",
+                "Wrote a letter home sitting on the {what}.",
+                "The {what} is where I go when the alarms stop.",
+                "Sat on the {what} with my eyes shut. Pretended it was a beach.",
+            ],
+            &[
+                "We sat by the {what} and talked about Earth.",
+                "Half the habitat ended up by the {what} after shift.",
+                "{other} and I played chess by the {what}. I lost. Twice.",
+                "The {what} glows like a campfire, if you squint.",
+                "{other} told me about their first sol, by the {what}.",
+                "Stayed by the {what} till the night cycle dimmed.",
+                "{other} brought tea to the {what}. We drank it slowly.",
+                "Someone started singing by the {what}. Then everyone.",
+                "{other} and I planned the next rover trip by the {what}.",
+                "By the {what} you can almost forget it's minus sixty outside.",
+                "{other} and I argued about Earth music by the {what}. Nobody won.",
+                "Someone brought cards to the {what}. We played till the lights dimmed.",
+                "{other} fell asleep by the {what}. We left them a blanket.",
+                "The {what} has become the place to be after a dust storm.",
+                "{other} showed me the stars from beside the {what}.",
+                "We had a quiz by the {what}. Nia won. Nia always wins.",
+            ],
+            &[
+                "First pick from your {what}. Grown on Mars!",
+                "Your {what} did well under the lamps. This is yours.",
+                "Picked this from your {what}. Don't tell the ration log.",
+                "From your {what}. It tastes like home.",
+                "Your {what} keeps giving. The whole mess is jealous.",
+            ],
+        ],
+        crate::places::Place::Maple => [
+            &[
+                "Sat on the {what} and watched the cars go by.",
+                "The {what} is the best seat on Maple Street.",
+                "Ate my lunch on the {what}. Pigeons took the crusts.",
+                "Read a whole comic on the {what}.",
+                "Waited for the night bus on the {what}. It was late. I didn't mind.",
+                "Took my shoes off on the {what}. Don't judge.",
+                "Five minutes on the {what} between shifts. Heaven.",
+                "Listened to my Walkman on the {what} till the tape ran out.",
+                "The {what}'s warm from the sun. Stayed too long.",
+                "Whoever made the {what} deserves a medal.",
+                "Did my homework on the {what}. Some of it.",
+                "Fell asleep on the {what} in the sun. Woke up pink.",
+                "Watched the paper boy miss every porch from the {what}.",
+                "Sat on the {what} and waited for nothing in particular.",
+                "The {what} is my thinking spot now. Don't tell.",
+                "Read the Sunday paper on the {what}. All of it.",
+            ],
+            &[
+                "We hung out by the {what} till someone's mom called.",
+                "{other} brought a boombox to the {what}. Instant party.",
+                "Half the street was out by the {what} last night.",
+                "{other} and I traded baseball cards by the {what}.",
+                "Told ghost stories by the {what}. {other} screamed first.",
+                "The {what} is where Maple Street hangs out now.",
+                "{other} and I split a pizza by the {what}.",
+                "Somebody played guitar by the {what}. Badly. Lovely.",
+                "{other} and I stayed out by the {what} past curfew.",
+                "Fireflies all round the {what}. Like the whole street was glowing.",
+                "{other} and I watched the fireflies by the {what}.",
+                "Somebody's radio by the {what} played K-88 all night.",
+                "{other} taught me a card trick by the {what}.",
+                "The {what} is where you hear all the gossip now.",
+                "{other} and I sat by the {what} and talked about leaving. Then didn't.",
+                "We roasted marshmallows by the {what}. Mostly burned them.",
+            ],
+            &[
+                "From your {what}. Mom made a pie with it.",
+                "Your {what} came up great. Here, take some.",
+                "Picked this from your {what}. The diner wants to buy some.",
+                "First of the season, from your {what}.",
+                "Your {what} beats anything at the supermarket.",
+            ],
+        ],
+        crate::places::Place::Ice => [
+            &[
+                "Sat on the {what} and watched the waves.",
+                "The {what} is out of the wind. Bliss.",
+                "Napped by the {what} with my beak under my wing.",
+                "Warmed my feet by the {what}.",
+                "The chicks climb the {what}. I sat on it anyway.",
+                "Watched the fishers come home from the {what}.",
+                "Five minutes on the {what}. Then back to the ice.",
+                "The {what} is the best spot on the floe. Don't tell anyone.",
+                "Preened my feathers on the {what}. Very smart now.",
+                "Whoever made the {what} has a good heart.",
+                "Stood on one foot by the {what}. Very restful.",
+                "The {what} is warm on the sunny side.",
+                "Watched the seals from the {what}. They watched back.",
+                "Had a long think on the {what}. About fish, mostly.",
+                "Sat on the {what} and let the snow cover me. Cosy.",
+                "The {what} is where I go to be quiet.",
+            ],
+            &[
+                "We huddled by the {what} and sang the old songs.",
+                "{other} and I shared a herring by the {what}.",
+                "Half the colony was by the {what} under the aurora.",
+                "{other} told a fish story by the {what}. It grew.",
+                "By the {what} the long night feels shorter.",
+                "{other} and I counted stars by the {what}.",
+                "The chicks fell asleep round the {what}. So did I.",
+                "{other} taught me a new song by the {what}.",
+                "Stayed by the {what} till the fishers came in.",
+                "The {what} glows on the ice. You can see it from the far floe.",
+                "{other} and I told jokes by the {what}. Mine were better.",
+                "Everyone brought a fish to the {what}. We had a feast.",
+                "{other} danced by the {what}. The chicks copied.",
+                "The {what} is the colony's favourite spot now.",
+                "{other} and I watched the ice glow by the {what}.",
+                "We played pebble games by the {what} till the tide turned.",
+            ],
+            &[
+                "From your {what}. Fresh as the sea.",
+                "Your {what} did well in the cold. This is yours.",
+                "Picked this from your {what}. The chicks wanted it.",
+                "First of the thaw, from your {what}.",
+                "Your {what} keeps giving. The vault's jealous.",
+            ],
+        ],
+    }
+}
+
+/// What someone says using something the player made, in the place's own
+/// words: the next of its lines for that thing, so the same is not said
+/// of it again until every other has been. `None` for anything else, or
+/// when what was used is gone and cannot be named.
+pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(EntityId, String)> {
+    if event.kind != "enjoyed" {
+        return None;
+    }
+    let place = crate::places::Place::of(world.state())?;
+    let state = world.state();
+    let effect = match event.payload.get("effect") {
+        Some(Value::Text(effect)) => effect.as_str(),
+        _ => return None,
+    };
+    let lines = enjoyed_lines(place)[match effect {
+        "rest" => 0,
+        "gather" => 1,
+        "harvest" => 2,
+        _ => return None,
+    }];
+    let thing = *event.targets.first()?;
+    let what = lives::name(state, state.entity(thing).map(|_| thing)?).to_lowercase();
+    let other = event
+        .targets
+        .get(1)
+        .map(|other| lives::first_name(state, *other));
+    let who = event.actor?;
+    // Each thing is used every few periods, so its next use says the next
+    // of its lines.
+    let every = match effect {
+        "rest" => 4,
+        "gather" => 3,
+        _ => 7,
+    };
+    let turn = (event.world_time / crate::BACKGROUND_PERIOD) / every + thing.0 * 7;
+    let fitting = lines
+        .iter()
+        .filter(|line| other.is_some() || !line.contains("{other}"))
+        .collect::<Vec<_>>();
+    let line = fitting.get((turn % fitting.len().max(1) as u64) as usize)?;
+    Some((
+        who,
+        line.replace("{what}", &what)
+            .replace("{other}", other.as_deref().unwrap_or("")),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

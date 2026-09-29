@@ -1,4 +1,6 @@
 mod actions;
+#[cfg(test)]
+mod agency;
 mod almanac;
 mod behaviors;
 mod book;
@@ -77,12 +79,13 @@ pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
 pub const LEAN_REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery-lean";
 pub const REPAIR_BOAT_COMMAND: &str = "tiny-society.repair-sea-finch";
 pub const SELL_BOAT_COMMAND: &str = "tiny-society.sell-sea-finch";
+pub const MEND_BOAT_TOGETHER_COMMAND: &str = "tiny-society.mend-sea-finch-together";
 pub const TAKE_JONAS_ON_COMMAND: &str = "tiny-society.take-jonas-on";
 pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
 pub struct TinySociety {
     world: World,
-    actions: ActionRegistry,
+    actions: &'static ActionRegistry,
     behaviors: BehaviorRegistry,
 }
 
@@ -96,18 +99,23 @@ pub struct TinySocietyBranch {
 /// same way twice, so the mark is what will happen, not a guess.
 pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     let before = snapshot.gauges.clone();
+    // One copy for every choice, each tried and then taken back: going back
+    // to a checkpoint leaves the copy exactly as it was, so each mark is
+    // what that choice alone would do.
+    let mut copy = TinySocietyBranch {
+        world: world.sketch(world_projection::RECENT_EVENTS),
+    };
     for command in &mut snapshot.commands {
         // A deed of the player's own hands is not a choice to weigh.
         if command.hand.is_some() {
             continue;
         }
-        let mut copy = TinySocietyBranch {
-            world: world.sketch(world_projection::RECENT_EVENTS),
-        };
+        let checkpoint = copy.world.checkpoint();
         if copy.invoke_projection_command(&command.id).is_ok() {
             command.moves =
                 world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
         }
+        copy.world.rollback(checkpoint);
     }
     snapshot
 }
@@ -138,7 +146,7 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         Ok(lives::welcome_back(
             &mut self.world,
-            &actions,
+            actions,
             &life::cast(),
             &why,
             &firsts::quiet_days(),
@@ -151,10 +159,10 @@ impl TinySocietyBranch {
     /// first question waits for the player's first deed.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
-        let mut events = story::tick(&mut self.world, &actions, false)?;
+        let mut events = story::tick(&mut self.world, actions, false)?;
         // Someone comes over to say hello, and the first question follows.
-        events.extend(lives::greet(&mut self.world, &actions, &life::cast())?);
-        events.extend(story::first_question(&mut self.world, &actions)?);
+        events.extend(lives::greet(&mut self.world, actions, &life::cast())?);
+        events.extend(story::first_question(&mut self.world, actions)?);
         Ok(events)
     }
 
@@ -179,6 +187,7 @@ impl TinySocietyBranch {
             LEAN_REOPEN_BAKERY_COMMAND => recovery::reopen_lean(self),
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
             SELL_BOAT_COMMAND => self.sell_sea_finch(),
+            MEND_BOAT_TOGETHER_COMMAND => self.mend_sea_finch_together(),
             TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
             story::WAIT_COMMAND => self.pass_days(1, false),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
@@ -200,7 +209,7 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         Ok(vec![lives::host_guest(
             &mut self.world,
-            &actions,
+            actions,
             &life::cast(),
             &guest.name,
             &guest.from,
@@ -214,7 +223,7 @@ impl TinySocietyBranch {
         let idea = command_id.trim_start_matches(life::SUGGEST_COMMAND);
         let actions = build_action_registry()?;
         let request = lives::suggestion_request(idea, life::fair(&self.world));
-        Ok(vec![self.world.execute(&actions, &request)?.id])
+        Ok(vec![self.world.execute(actions, &request)?.id])
     }
 
     /// Answers one of the storyteller's storylets, and lets the town react.
@@ -226,12 +235,15 @@ impl TinySocietyBranch {
         behaviors::register(&mut behaviors)?;
         let event = self
             .world
-            .execute(&actions, &storylets::choose_request(storylet, choice))?
+            .execute(actions, &storylets::choose_request(storylet, choice))?
             .id;
-        let run =
-            BehaviorRuntime::run_from_event(&mut self.world, &actions, &behaviors, event, 32)?;
+        let run = BehaviorRuntime::run_from_event(&mut self.world, actions, &behaviors, event, 32)?;
         let mut events = vec![event];
         events.extend(run.generated_events);
+        // A work just finished leaves something to keep, and a gathering
+        // may bring two people together.
+        events.extend(story::mementos(&mut self.world, actions, &[event])?);
+        events.extend(story::gathered(&mut self.world, actions, event)?);
         Ok(events)
     }
 
@@ -241,7 +253,7 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         let event = self
             .world
-            .execute(&actions, &lives::answer_request(situation, answer))?
+            .execute(actions, &lives::answer_request(situation, answer))?
             .id;
         Ok(vec![event])
     }
@@ -269,9 +281,9 @@ impl TinySocietyBranch {
         let request =
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
         let actions = build_action_registry()?;
-        let event = self.world.execute(&actions, &request)?.id;
+        let event = self.world.execute(actions, &request)?.id;
         let mut events = vec![event];
-        events.extend(story::after_first_deed(&mut self.world, &actions)?);
+        events.extend(story::after_first_deed(&mut self.world, actions)?);
         Ok(events)
     }
 
@@ -281,20 +293,33 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         if deed == handwork::UNDO {
             return Ok(vec![
-                self.world.execute(&actions, &hands::undo_request())?.id,
+                self.world.execute(actions, &hands::undo_request())?.id,
             ]);
         }
-        let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
+        let event = self.world.execute(actions, &hands::do_request(deed))?.id;
         let mut events = vec![event];
         // Someone nearby says what they make of it, and in a new harbour
         // the first question follows.
+        let made = self.world.event(event).is_some_and(|made| {
+            matches!(
+                made.kind.as_str(),
+                "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
+            )
+        });
         events.extend(lives::react_to(
             &mut self.world,
-            &actions,
+            actions,
             &life::cast(),
             event,
         )?);
-        events.extend(story::after_first_deed(&mut self.world, &actions)?);
+        // Making something of their own, the player lends a hand with what
+        // the harbour is making of its own accord.
+        if made {
+            let lent = story::lend_a_hand(&mut self.world, actions)?;
+            events.extend(story::mementos(&mut self.world, actions, &lent)?);
+            events.extend(lent);
+        }
+        events.extend(story::after_first_deed(&mut self.world, actions)?);
         Ok(events)
     }
 
@@ -320,7 +345,7 @@ impl TinySocietyBranch {
         let retained = self
             .world
             .execute(
-                &actions,
+                actions,
                 &ActionRequest::new("retain_worker")
                     .actor(MARA)
                     .caused_by(order_loss),
@@ -339,7 +364,7 @@ impl TinySocietyBranch {
         )?;
 
         let mut events = vec![retained];
-        events.extend(self.world.advance_to(&actions, next_shift)?);
+        events.extend(self.world.advance_to(actions, next_shift)?);
         Ok(events)
     }
 
@@ -356,7 +381,7 @@ impl TinySocietyBranch {
         let reopened = self
             .world
             .execute(
-                &actions,
+                actions,
                 &ActionRequest::new("reopen_bakery")
                     .actor(MARA)
                     .caused_by(closure),
@@ -380,13 +405,36 @@ impl TinySocietyBranch {
         let sold = self
             .world
             .execute(
-                &actions,
+                actions,
                 &ActionRequest::new("sell_sea_finch")
                     .actor(JONAS)
                     .caused_by(withdrawal),
             )?
             .id;
         Ok(vec![sold])
+    }
+
+    /// With Leo's backing gone, everyone mends Sea Finch together.
+    pub fn mend_sea_finch_together(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let withdrawal = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "backing_withdrawn")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("Leo's backing still stands"))?;
+        let actions = build_action_registry()?;
+        let mended = self
+            .world
+            .execute(
+                actions,
+                &ActionRequest::new("mend_sea_finch_together")
+                    .actor(JONAS)
+                    .caused_by(withdrawal),
+            )?
+            .id;
+        Ok(vec![mended])
     }
 
     pub fn take_jonas_on(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -402,7 +450,7 @@ impl TinySocietyBranch {
         let taken_on = self
             .world
             .execute(
-                &actions,
+                actions,
                 &ActionRequest::new("take_jonas_on")
                     .actor(MARA)
                     .caused_by(asked),
@@ -424,7 +472,7 @@ impl TinySocietyBranch {
         let repaired = self
             .world
             .execute(
-                &actions,
+                actions,
                 &ActionRequest::new("repair_jonas_boat")
                     .actor(LEO)
                     .caused_by(support),
@@ -502,7 +550,7 @@ impl TinySociety {
             runtime,
             &perception,
             &mut self.world,
-            &self.actions,
+            self.actions,
             MARA,
             &options,
             &[loan_request],
@@ -568,12 +616,12 @@ impl TinySociety {
     }
 
     fn advance_checkpoint(&mut self, world_time: u64) -> Result<Vec<EventId>, Box<dyn Error>> {
-        let scheduled = self.world.advance_to(&self.actions, world_time)?;
+        let scheduled = self.world.advance_to(self.actions, world_time)?;
         let mut all = scheduled.clone();
         for event in scheduled {
             let run = BehaviorRuntime::run_from_event(
                 &mut self.world,
-                &self.actions,
+                self.actions,
                 &self.behaviors,
                 event,
                 32,
@@ -584,7 +632,19 @@ impl TinySociety {
     }
 }
 
-fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
+/// The harbour's Actions, made once for the life of the program: the rules
+/// never change while it runs, and every choice tried for a preview asks
+/// for them.
+fn build_action_registry() -> Result<&'static ActionRegistry, Box<dyn Error>> {
+    static ACTIONS: std::sync::OnceLock<ActionRegistry> = std::sync::OnceLock::new();
+    if let Some(actions) = ACTIONS.get() {
+        return Ok(actions);
+    }
+    let made = make_action_registry()?;
+    Ok(ACTIONS.get_or_init(|| made))
+}
+
+fn make_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     let mut actions = ActionRegistry::new();
     society_basic::register_actions(&mut actions)?;
     world_agent::register_actions(&mut actions)?;

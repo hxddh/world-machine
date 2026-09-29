@@ -29,6 +29,12 @@ pub struct PackServer {
     descriptor: PackDescriptor,
     pack: WorldPackRef,
     session: Option<Box<dyn WorldSession>>,
+    /// The archive the World was opened from, when the World only read it:
+    /// let go of once the answer to `open` is on its way, since freeing a
+    /// long history takes a while and the host need not wait for it.
+    opened_from: Option<world_persistence::WorldArchive>,
+    /// Where the World stood when the host last asked to mark it.
+    mark: Option<world_host::SessionCheckpoint>,
 }
 
 impl PackServer {
@@ -44,6 +50,8 @@ impl PackServer {
             descriptor,
             pack,
             session: None,
+            opened_from: None,
+            mark: None,
         })
     }
 
@@ -85,6 +93,7 @@ impl PackServer {
     }
 
     fn handle(&mut self, request: PackRequest) -> Result<(PackResponse, bool), PackServerError> {
+        self.let_go();
         match request {
             PackRequest::Describe => Ok((
                 PackResponse::Descriptor {
@@ -104,12 +113,13 @@ impl PackServer {
             }
             PackRequest::Open { archive } => {
                 self.require_uninitialized("open")?;
-                let session = self
+                let (session, lent) = self
                     .registry
-                    .open_archive(&archive)
+                    .open_owned_archive(archive)
                     .map_err(PackServerError::Host)?;
                 let snapshot = ProjectionSnapshotWire::from(&session.snapshot());
                 self.session = Some(session);
+                self.opened_from = lent;
                 Ok((PackResponse::Snapshot { snapshot }, false))
             }
             PackRequest::Snapshot => {
@@ -158,7 +168,34 @@ impl PackServer {
                 Ok((PackResponse::Archive { archive }, false))
             }
             PackRequest::Shutdown => Ok((PackResponse::Ok, true)),
+            PackRequest::Checkpoint => {
+                let session = self.session_mut("checkpoint")?;
+                let mark = session.checkpoint().map_err(PackServerError::Host)?;
+                let kept = mark.is_some();
+                self.mark = mark;
+                Ok((PackResponse::Checkpointed { kept }, false))
+            }
+            PackRequest::Rollback => {
+                let mark = self.mark.take().ok_or_else(|| {
+                    PackServerError::InvalidSequence("cannot roll back: nothing was marked".into())
+                })?;
+                let session = self.session_mut("rollback")?;
+                session.rollback(mark).map_err(PackServerError::Host)?;
+                Ok((PackResponse::Ok, false))
+            }
+            PackRequest::ArchiveSince { events } => {
+                let session = self.session("archive")?;
+                let archive = session
+                    .archive_since(events)
+                    .map_err(PackServerError::Host)?;
+                Ok((PackResponse::Archive { archive }, false))
+            }
         }
+    }
+
+    /// Frees what was kept only until the last answer was sent.
+    pub fn let_go(&mut self) {
+        self.opened_from = None;
     }
 
     fn require_uninitialized(&self, operation: &'static str) -> Result<(), PackServerError> {
@@ -239,6 +276,8 @@ where
                 max_bytes,
             });
         }
+        drop(line);
+        server.let_go();
         if shutdown {
             writer.flush().map_err(PackServerError::Io)?;
             return Ok(());
@@ -453,6 +492,14 @@ mod tests {
                 checkpoint: None,
             }))
         }
+        fn checkpoint(&mut self) -> Result<Option<world_host::SessionCheckpoint>, HostError> {
+            Ok(Some(world_host::SessionCheckpoint::new(self.world_time)))
+        }
+
+        fn rollback(&mut self, checkpoint: world_host::SessionCheckpoint) -> Result<(), HostError> {
+            self.world_time = checkpoint.into_inner()?;
+            Ok(())
+        }
     }
 
     fn registration() -> WorldRegistration {
@@ -483,6 +530,51 @@ mod tests {
             .lines()
             .map(|line| decode_response(line).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn a_world_is_marked_changed_and_gone_back_in_the_same_process() {
+        let increment = || PackRequest::Handle {
+            intent: ProjectionIntentWire::InvokeCommand {
+                command: "increment".into(),
+            },
+        };
+        let input = [
+            request(1, PackRequest::Create),
+            request(2, PackRequest::Checkpoint),
+            request(3, increment()),
+            request(4, PackRequest::Rollback),
+            request(5, PackRequest::Snapshot),
+            request(6, PackRequest::Checkpoint),
+            request(7, increment()),
+            request(8, PackRequest::ArchiveSince { events: 0 }),
+            request(9, PackRequest::Rollback),
+            request(10, PackRequest::Rollback),
+            request(11, PackRequest::Shutdown),
+        ]
+        .concat();
+        let mut output = Vec::new();
+        serve_jsonl(registration(), Cursor::new(input.into_bytes()), &mut output).unwrap();
+        let responses = responses(output);
+        let world_time = |index: usize| match &responses[index].response {
+            PackResponse::Snapshot { snapshot } => snapshot.world_time,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            responses[1].response,
+            PackResponse::Checkpointed { kept: true }
+        );
+        assert_eq!(world_time(2), 1);
+        assert_eq!(responses[3].response, PackResponse::Ok);
+        assert_eq!(world_time(4), 0);
+        assert_eq!(world_time(6), 1);
+        assert!(matches!(
+            &responses[7].response,
+            PackResponse::Archive { archive: Some(archive) } if archive.world_time == 1
+        ));
+        assert_eq!(responses[8].response, PackResponse::Ok);
+        // A mark is gone back to once.
+        assert!(matches!(responses[9].response, PackResponse::Error { .. }));
     }
 
     #[test]

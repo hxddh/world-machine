@@ -2,13 +2,14 @@ use world_pack_protocol::{
     decode_request, decode_response, encode_request, encode_response, PackDescriptor, PackManifest,
     PackRequest, PackRequestEnvelope, PackResponse, PackResponseEnvelope, PACK_PROTOCOL_VERSION,
     PACK_PROTOCOL_VERSION_V1, PACK_PROTOCOL_VERSION_V2, PACK_PROTOCOL_VERSION_V3,
-    PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
+    PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5, PACK_PROTOCOL_VERSION_V6,
 };
 use world_persistence::WorldPackRef;
 
 #[test]
-fn latest_protocol_is_v5_while_v1_to_v4_remain_supported() {
-    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V5);
+fn latest_protocol_is_v6_while_v1_to_v5_remain_supported() {
+    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V6);
+    assert_eq!(PACK_PROTOCOL_VERSION_V6, 6);
     assert_eq!(PACK_PROTOCOL_VERSION_V5, 5);
     assert_eq!(PACK_PROTOCOL_VERSION_V4, 4);
     assert_eq!(PACK_PROTOCOL_VERSION_V3, 3);
@@ -21,7 +22,7 @@ fn latest_protocol_is_v5_while_v1_to_v4_remain_supported() {
         "fixture",
     );
     let latest = PackManifest::process(descriptor, "runtime", Vec::new());
-    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V5);
+    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V6);
     assert!(latest.validate().is_ok());
 
     let mut v1 = latest.clone();
@@ -40,8 +41,12 @@ fn latest_protocol_is_v5_while_v1_to_v4_remain_supported() {
     v4.protocol_version = PACK_PROTOCOL_VERSION_V4;
     assert!(v4.validate().is_ok());
 
+    let mut v5 = latest.clone();
+    v5.protocol_version = PACK_PROTOCOL_VERSION_V5;
+    assert!(v5.validate().is_ok());
+
     let mut unsupported = latest;
-    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V5 + 1;
+    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V6 + 1;
     assert!(unsupported.validate().is_err());
 }
 
@@ -53,6 +58,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         PACK_PROTOCOL_VERSION_V3,
         PACK_PROTOCOL_VERSION_V4,
         PACK_PROTOCOL_VERSION_V5,
+        PACK_PROTOCOL_VERSION_V6,
     ] {
         let request = PackRequestEnvelope::for_version(version, 7, PackRequest::Describe)
             .expect("supported request version");
@@ -69,7 +75,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         assert_eq!(decoded_response.response, PackResponse::Ok);
     }
 
-    let unsupported = PACK_PROTOCOL_VERSION_V5 + 1;
+    let unsupported = PACK_PROTOCOL_VERSION_V6 + 1;
     assert!(PackRequestEnvelope::for_version(unsupported, 1, PackRequest::Describe).is_err());
     assert!(PackResponseEnvelope::for_version(unsupported, 1, PackResponse::Ok).is_err());
 }
@@ -145,4 +151,40 @@ fn opening_from_a_checkpoint_needs_v4() {
     let envelope = PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V4, 1, open).unwrap();
     let decoded = decode_request(&encode_request(&envelope).unwrap()).unwrap();
     assert_eq!(decoded, envelope, "the checkpoint travels with the archive");
+}
+
+/// Marking a World and going back, and asking for only the events a host
+/// has not saved, are v6's: a Pack before it is never asked.
+#[test]
+fn checkpoints_need_v6() {
+    let requests = [
+        PackRequest::Checkpoint,
+        PackRequest::Rollback,
+        PackRequest::ArchiveSince { events: 12 },
+    ];
+    for request in requests {
+        for version in 1..PACK_PROTOCOL_VERSION_V6 {
+            assert!(PackRequestEnvelope::for_version(version, 1, request.clone()).is_err());
+        }
+        let envelope =
+            PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V6, 3, request.clone()).unwrap();
+        assert_eq!(
+            decode_request(&encode_request(&envelope).unwrap())
+                .unwrap()
+                .request,
+            request
+        );
+    }
+    let kept = PackResponseEnvelope::for_version(
+        PACK_PROTOCOL_VERSION_V6,
+        3,
+        PackResponse::Checkpointed { kept: true },
+    )
+    .unwrap();
+    assert_eq!(
+        decode_response(&encode_response(&kept).unwrap())
+            .unwrap()
+            .response,
+        PackResponse::Checkpointed { kept: true }
+    );
 }

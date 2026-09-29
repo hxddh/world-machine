@@ -438,10 +438,22 @@ fn a_year(policy: Policy) {
     // what the harbour can afford builds the pier, lights the lamp and
     // climbs the ladder of works, with one always still under way.
     if matches!(policy, Policy::Generous) {
-        let goals = crate::story::goals(world);
+        // The harbour's own works, started when it is let down, go at
+        // their own pace beside the ladder.
+        let goals = crate::story::goals(world)
+            .into_iter()
+            .filter(|goal| !crate::story::is_own_work(&goal.id))
+            .collect::<Vec<_>>();
         assert!(goals.len() >= 8, "{} goals in a year", goals.len());
         let (done, doing) = goals.split_at(goals.len() - 1);
-        assert!(!doing[0].finished(), "one still under way");
+        assert!(
+            !doing[0].finished(),
+            "one still under way: {:?}",
+            goals
+                .iter()
+                .map(|goal| (goal.id.clone(), goal.done, goal.parts))
+                .collect::<Vec<_>>()
+        );
         for goal in done {
             assert!(
                 goal.finished(),

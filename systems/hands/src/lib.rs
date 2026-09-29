@@ -765,7 +765,7 @@ impl Action for Undoes {
 const USED_A_DAY: usize = 2;
 
 /// What someone says resting on something the player made.
-const REST_LINES: [&str; 10] = [
+const REST_LINES: [&str; 20] = [
     "The {what} by {place}: just what my legs needed.",
     "Best seat by {place}, this {what}.",
     "I could sit on this {what} all day.",
@@ -776,10 +776,28 @@ const REST_LINES: [&str; 10] = [
     "My favourite spot, the {what} by {place}.",
     "Sat on the {what} and watched the gulls. Bliss.",
     "A rest on the {what} and I'm new again.",
+    "Ate my lunch on the {what} by {place}. Lovely.",
+    "The {what}'s warm from the sun this time of day.",
+    "Nodded off on the {what}. Don't tell anyone.",
+    "Somebody left a book on the {what}. I read a chapter.",
+    "Watched the whole of {place} go by from the {what}.",
+    "My knees thank whoever put a {what} by {place}.",
+    "A quiet sit on the {what}. Nobody asked me anything.",
+    "Shared the {what} with a stranger. Nice sort.",
+    "The {what} by {place} has a view I'd pay for.",
+    "Sat on the {what} till my tea went cold.",
 ];
 
 /// What someone says after an evening by something the player made.
-const GATHER_LINES: [&str; 10] = [
+const GATHER_LINES: [&str; 32] = [
+    "Our little crowd by the {what} grows every week.",
+    "{other} taught me a card trick by the {what}. I can't do it.",
+    "Watched the boats' lights from the {what} with {other}.",
+    "Nobody wanted to go home from the {what}.",
+    "{other} and I shared a pie by the {what}. Best supper all week.",
+    "The {what} by {place} is the warmest spot after dark.",
+    "An owl came and sat near the {what}. We all went quiet.",
+    "{other} brought blankets. We stayed by the {what} past midnight.",
     "It's nice by the {what} of an evening.",
     "We lost track of time by the {what}.",
     "The light down by {place} makes you want to stay.",
@@ -790,6 +808,20 @@ const GATHER_LINES: [&str; 10] = [
     "You learn a lot about {other} after dark.",
     "The {what} was the only light down by {place}.",
     "Stayed out by the {what} longer than I meant to.",
+    "{other} sang. Badly. We all joined in.",
+    "Moths round the {what}, and {other} naming every one.",
+    "{other} and I watched the stars come out by the {what}.",
+    "Half of {place} ended up by the {what} last night.",
+    "Somebody brought a flask. The {what} did the rest.",
+    "{other} told me a secret by the {what}. My lips are sealed.",
+    "The {what} by {place} is where the talking happens now.",
+    "We made plans by the {what}. Big ones, for us.",
+    "Played cards by the {what} till the light gave out.",
+    "{other} and I got talking and never stopped.",
+    "The {what} glows like a little moon by {place}.",
+    "Supper out by the {what}. Everything tastes better.",
+    "{other} brought a fiddle. The {what} brought the rest of us.",
+    "I walked home late from the {what}, humming.",
 ];
 
 /// What someone says bringing the player what their garden grew.
@@ -860,21 +892,32 @@ impl Action for Enjoys {
                 .to_string()
         });
         let seed = fixture.0.wrapping_mul(31).wrapping_add(period(state, &kit));
-        // Each use says the next of what can be said about it, so the same
-        // thing is not heard again until every other has been.
-        let uses = match state
+        let uses_of = |fixture: EntityId| match state
             .entity(fixture)
             .and_then(|f| f.component("hands.uses"))
         {
-            Some(Value::Integer(uses)) => *uses,
+            Some(Value::Integer(uses)) => (*uses).max(0),
             _ => 0,
         };
+        let uses = uses_of(fixture);
+        // Each use says the next of what can be said about anything made to
+        // be used the same way, so the same thing is not heard again until
+        // every other has been, whichever bench or lamp it is said by.
+        let used_alike = made(state)
+            .into_iter()
+            .filter(|other| {
+                text(state, *other, "hands.thing")
+                    .and_then(|id| thing(&kit, id))
+                    .is_some_and(|thing| thing.effect == effect)
+            })
+            .map(uses_of)
+            .sum::<i64>();
         let line = |lines: &[&str]| {
             let lines = lines
                 .iter()
                 .filter(|line| other_name.is_some() || !line.contains("{other}"))
                 .collect::<Vec<_>>();
-            let at = (uses.max(0) as u64 + fixture.0) % lines.len().max(1) as u64;
+            let at = used_alike as u64 % lines.len().max(1) as u64;
             lines
                 .get(at as usize)
                 .map(|line| {

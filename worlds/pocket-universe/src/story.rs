@@ -429,12 +429,15 @@ fn wants() -> Vec<Spec> {
                     ),
                 ),
             ],
+            // Let go by, it is left to the keeper, who makes a slow start
+            // on it alone.
             said(
                 "second_forgotten",
-                "Nobody spoke of {second} again",
-                "Maybe it was a silly idea.",
+                "{second} was left to {keeper}",
+                "Then I'll make a start on my own.",
                 bond(0, 1),
-            ),
+            )
+            .and([Effect::Advance("second_home")]),
         ),
     ]
 }
@@ -471,12 +474,14 @@ fn incidents() -> Vec<Spec> {
                     .and([Effect::Advance("survey")]),
                 ),
             ],
+            // Caught out in it, the explorer still maps what they saw.
             said(
                 "weather_caught_them",
                 "{weather} caught them apart",
                 "Where were you?",
                 bond(-1, 2),
-            ),
+            )
+            .and([Effect::Advance("survey")]),
         ),
         spec(
             "failing",
@@ -741,16 +746,17 @@ fn incidents() -> Vec<Spec> {
                         "beacon_left",
                         "{beacon} was left for later",
                         "Later, then.",
-                        bond(0, 0),
+                        bond(0, 1),
                     ),
                 ),
             ],
             said(
                 "beacon_forgotten",
-                "Nobody went back to {beacon}",
-                "Nobody cares about the beacon.",
+                "{beacon} was left to {explorer}",
+                "Bit by bit, then. On my own.",
                 bond(0, 0),
-            ),
+            )
+            .and([Effect::Advance("beacon")]),
         ),
     ]
 }
@@ -904,96 +910,6 @@ fn calendar() -> Vec<Spec> {
     ]
 }
 
-/// A work the place builds towards after its first goals: who wants it,
-/// how many parts it takes, and what they say of it.
-struct Work {
-    id: &'static str,
-    label: &'static str,
-    shape: world_projection::MarkShape,
-    champion: EntityId,
-    parts: i64,
-    told: &'static str,
-    line: &'static str,
-}
-
-const WORKS: &[Work] = {
-    use world_projection::MarkShape as M;
-    &[
-        Work {
-            id: "hall",
-            label: "A meeting hall",
-            shape: M::Dome,
-            champion: SLOT_B,
-            parts: 2,
-            told: "{keeper} wants a hall where everyone can meet",
-            line: "Somewhere we can all fit at once.",
-        },
-        Work {
-            id: "store",
-            label: "A store for the lean months",
-            shape: M::Shop,
-            champion: SLOT_E,
-            parts: 2,
-            told: "{explorer} wants a store for the lean months",
-            line: "Put by now and nobody goes short later.",
-        },
-        Work {
-            id: "lookout",
-            label: "A lookout",
-            shape: M::Tower,
-            champion: SLOT_E,
-            parts: 2,
-            told: "{explorer} wants a lookout over the far side",
-            line: "I want to see what's coming before it comes.",
-        },
-        Work {
-            id: "workshop",
-            label: "A workshop",
-            shape: M::Shop,
-            champion: SLOT_B,
-            parts: 2,
-            told: "{keeper} wants a workshop to mend things in",
-            line: "Everything breaks. Let's have somewhere to fix it.",
-        },
-        Work {
-            id: "schoolroom",
-            label: "A schoolroom",
-            shape: M::Tent,
-            champion: SLOT_B,
-            parts: 3,
-            told: "{keeper} wants a room to teach the young ones in",
-            line: "They should know how this place began.",
-        },
-        Work {
-            id: "long_table",
-            label: "A long table for everyone",
-            shape: M::Bench,
-            champion: SLOT_E,
-            parts: 2,
-            told: "{explorer} wants a table long enough for everyone",
-            line: "One meal, all of us, once a week.",
-        },
-        Work {
-            id: "path_lights",
-            label: "Lights along the path",
-            shape: M::Lamp,
-            champion: SLOT_B,
-            parts: 2,
-            told: "{keeper} wants lights along the path",
-            line: "Nobody should walk home in the dark.",
-        },
-        Work {
-            id: "first_stone",
-            label: "A stone for the first days",
-            shape: M::Statue,
-            champion: SLOT_E,
-            parts: 2,
-            told: "{explorer} wants a stone to mark the first days",
-            line: "So nobody forgets how we started.",
-        },
-    ]
-};
-
 /// Text made up once and kept for the life of the program.
 fn leak(text: String) -> &'static str {
     static KEPT: OnceLock<std::sync::Mutex<std::collections::BTreeSet<&'static str>>> =
@@ -1010,15 +926,30 @@ fn leak(text: String) -> &'static str {
     made
 }
 
-/// One rung of the ladder: a work built, then mended, then decorated.
-struct Rung {
-    id: &'static str,
-    label: &'static str,
-    work: &'static Work,
+/// One rung of a place's ladder: one of its works built, or, once every
+/// one of them stands, one mended.
+pub(crate) struct Rung {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) work: &'static crate::works::Work,
     told: &'static str,
     line: &'static str,
-    parts: i64,
+    progress: &'static str,
 }
+
+/// What is said as a work is mended, one after another.
+const MENDED: [&str; 6] = [
+    "Patched, sealed and good for years.",
+    "Good as new. Better, maybe.",
+    "A new hinge, a lick of paint, done.",
+    "Fixed the bit everyone kept tripping on.",
+    "Tightened every bolt. Twice.",
+    "It'll see us out now.",
+];
+
+/// How many parts a work takes: a day the player gives it is two, a
+/// stretch the people get on with it themselves is one.
+const RUNG_PARTS: i64 = 4;
 
 fn the(label: &str) -> String {
     let rest = label
@@ -1033,82 +964,142 @@ fn the(label: &str) -> String {
     format!("the {lower}")
 }
 
-/// Every rung, in order: every work once, then each mended, then each
-/// decorated, lit up and added on to, so there is always one under way,
-/// three years on.
-fn ladder() -> &'static [Rung] {
-    static LADDER: OnceLock<Vec<Rung>> = OnceLock::new();
-    LADDER.get_or_init(|| {
-        let mut rungs = Vec::new();
-        for round in 0..5 {
-            for work in WORKS {
-                let the = the(work.label);
-                rungs.push(match round {
-                    0 => Rung {
-                        id: work.id,
-                        label: work.label,
-                        work,
-                        told: work.told,
-                        line: work.line,
-                        parts: work.parts,
-                    },
-                    1 => Rung {
-                        id: leak(format!("{}_mended", work.id)),
-                        label: leak(format!("Mend {the}")),
-                        work,
-                        told: leak(format!("It's time to mend {the}")),
-                        line: leak(format!("A few repairs and {the} is good as new.")),
-                        parts: 2,
-                    },
-                    2 => Rung {
-                        id: leak(format!("{}_decorated", work.id)),
-                        label: leak(format!("Decorate {the}")),
-                        work,
-                        told: leak(format!("{the} could do with some colour")),
-                        line: leak(format!("A bit of colour and {the} will feel like ours.")),
-                        parts: 2,
-                    },
-                    3 => Rung {
-                        id: leak(format!("{}_lit", work.id)),
-                        label: leak(format!("Light up {the}")),
-                        work,
-                        told: leak(format!("{the} could do with some light")),
-                        line: leak(format!("A few lamps and {the} will glow all night.")),
-                        parts: 2,
-                    },
-                    _ => Rung {
-                        id: leak(format!("{}_extended", work.id)),
-                        label: leak(format!("Add on to {the}")),
-                        work,
-                        told: leak(format!("{the} is bursting at the seams")),
-                        line: leak(format!("A bit more room and {the} will hold everyone.")),
-                        parts: 2,
-                    },
-                });
+/// A place's rungs, in order: each of its works once, then each mended,
+/// so there is always one under way for years.
+pub(crate) fn ladder(place: crate::places::Place) -> &'static [Rung] {
+    static LADDERS: OnceLock<[Vec<Rung>; 3]> = OnceLock::new();
+    let ladders = LADDERS.get_or_init(|| {
+        use crate::places::Place;
+        [Place::Ares, Place::Maple, Place::Ice].map(|place| {
+            let mut rungs = Vec::new();
+            for round in 0..2 {
+                for work in crate::works::works(place) {
+                    let the = the(work.label);
+                    rungs.push(match round {
+                        0 => Rung {
+                            id: work.id,
+                            label: work.label,
+                            work,
+                            told: work.told,
+                            line: work.line,
+                            progress: work.progress,
+                        },
+                        _ => Rung {
+                            id: leak(format!("{}_mended", work.id)),
+                            label: leak(format!("Mend {the}")),
+                            work,
+                            told: leak(format!("It's time to mend {the}")),
+                            line: leak(format!("A few repairs and {the} is good as new.")),
+                            progress: MENDED[rungs.len() % MENDED.len()],
+                        },
+                    });
+                }
             }
-        }
-        rungs
-    })
+            rungs
+        })
+    });
+    &ladders[place.index()]
 }
 
-/// How many rungs of the ladder of works are finished.
+/// Every place's rungs.
+fn all_rungs() -> impl Iterator<Item = (crate::places::Place, &'static Rung)> {
+    use crate::places::Place;
+    [Place::Ares, Place::Maple, Place::Ice]
+        .into_iter()
+        .flat_map(|place| ladder(place).iter().map(move |rung| (place, rung)))
+}
+
+/// The works of the ladder every place shared before each had its own,
+/// which a World begun then may have finished: counted still, but never
+/// asked for again.
+const OLD_WORKS: [&str; 8] = [
+    "hall",
+    "store",
+    "lookout",
+    "workshop",
+    "schoolroom",
+    "long_table",
+    "path_lights",
+    "first_stone",
+];
+
+/// How many rungs of the place's ladder are finished, with any of the old
+/// shared ladder a World finished before, and the small works its people
+/// finished on their own.
 pub(crate) fn works_finished(state: &world_core::WorldState) -> i64 {
-    let deck = deck();
-    ladder()
-        .iter()
-        .filter(|rung| storylets::finished(state, &deck, rung.id))
-        .count() as i64
+    let deck = deck_ref();
+    // A place's works are finished in order, so they are counted until the
+    // first that is not.
+    let own = crate::places::Place::of(state).map_or(0, |place| {
+        ladder(place)
+            .partition_point(|rung| storylets::progress(state, deck, rung.id) >= RUNG_PARTS)
+    });
+    let old = if storylets::progress(state, deck, OLD_WORKS[0]) > 0 {
+        OLD_WORKS
+            .iter()
+            .flat_map(|work| {
+                ["", "_mended", "_decorated", "_lit", "_extended"]
+                    .map(|round| format!("{work}{round}"))
+            })
+            .filter(|id| storylets::progress(state, deck, id) >= 2)
+            .count()
+    } else {
+        0
+    };
+    (own + old + crate::years::own_works_done(state)) as i64
+}
+
+/// The works of the place's ladder its people have finished, first to
+/// last, each counted once however often it was mended or added on to.
+pub(crate) fn works_done(state: &world_core::WorldState) -> Vec<&'static crate::works::Work> {
+    let deck = deck_ref();
+    let Some(place) = crate::places::Place::of(state) else {
+        return Vec::new();
+    };
+    let works = crate::works::works(place);
+    let ladder = &ladder(place)[..works.len()];
+    let done =
+        ladder.partition_point(|rung| storylets::progress(state, deck, rung.id) >= RUNG_PARTS);
+    ladder[..done].iter().map(|rung| rung.work).collect()
+}
+
+#[cfg(test)]
+/// A place's goals in the order it meets them: its first three, then its
+/// ladder of works.
+pub(crate) fn goal_ids(place: crate::places::Place) -> Vec<&'static str> {
+    ["second_home", "beacon", "survey"]
+        .into_iter()
+        .chain(ladder(place).iter().map(|rung| rung.id))
+        .collect()
+}
+
+/// A work as it is spoken of: "the dust wall round the landing pad".
+pub(crate) fn the_work(work: &crate::works::Work) -> &'static str {
+    leak(the(work.label))
+}
+
+fn seed_of(place: crate::places::Place) -> &'static str {
+    use crate::places::Place;
+    match place {
+        Place::Ares => "mars-colony",
+        Place::Maple => "1980s-town",
+        Place::Ice => "penguin-civilization",
+    }
 }
 
 /// The works as storylets: each asked for once the one before is done,
-/// after the place's first three goals.
+/// after the place's first three goals, and only in its own place. A day
+/// the player gives it builds two parts; left to the people, or let go
+/// by, it still goes on one part at a time, their own way.
 fn works() -> Vec<Spec> {
-    use Condition::{Finished, Unfinished};
-    let ladder = ladder();
-    ladder
-        .iter()
-        .enumerate()
-        .map(|(index, rung)| {
+    use Condition::{Finished, Is, Unfinished};
+    all_rungs()
+        .map(|(place, rung)| {
+            let ladder = ladder(place);
+            let index = ladder
+                .iter()
+                .position(|other| other.id == rung.id)
+                .unwrap_or(0);
             let before = if index == 0 {
                 vec![
                     Finished("second_home"),
@@ -1121,14 +1112,24 @@ fn works() -> Vec<Spec> {
             let shape = Shape {
                 asker: rung.work.champion,
                 want: true,
-                requires: [vec![Unfinished(rung.id)], before].concat(),
+                requires: [
+                    vec![Is(UNIVERSE, SEED, seed_of(place)), Unfinished(rung.id)],
+                    before,
+                ]
+                .concat(),
                 lasts: 3,
-                // A part every few weeks: about a dozen works a year.
-                rests: 26,
+                // The place's first work comes round again quickly, while
+                // it is new to building; after it, at the place's pace.
+                rests: if index == 0 {
+                    12
+                } else {
+                    crate::works::rests(place)
+                },
                 weight: 4,
                 eases: vec![up("trust")],
                 timely: false,
             };
+            let own = crate::works::on_their_own(place);
             spec(
                 leak(format!("work_{}", rung.id)),
                 shape,
@@ -1144,33 +1145,911 @@ fn works() -> Vec<Spec> {
                         said(
                             leak(format!("{}_part_built", rung.id)),
                             leak(format!("Work went on at {}", the(rung.label))),
-                            "Coming along nicely.",
+                            rung.progress,
                             bond(1, 0),
                         )
-                        .and([Effect::Advance(rung.id)])
+                        .and([Effect::Advance(rung.id), Effect::Advance(rung.id)])
                         .remembered("It's coming along, what we're building."),
                     ),
                     no(
-                        "wait",
-                        "It can wait",
-                        "Another day, then.",
+                        "leave",
+                        "Leave it to them",
+                        "They'll get on with it their own way, slower.",
                         said(
-                            leak(format!("{}_put_off", rung.id)),
-                            leak(format!("{} was put off", rung.label)),
-                            "Another time, then.",
+                            leak(format!("{}_left_to_them", rung.id)),
+                            leak(format!("{} went on slowly, their own way", rung.label)),
+                            own[index % 2],
                             bond(0, 1),
-                        ),
+                        )
+                        .and([Effect::Advance(rung.id)]),
                     ),
                 ],
                 said(
-                    leak(format!("{}_waited", rung.id)),
-                    leak(format!("{} waited another while", rung.label)),
-                    "It'll keep.",
+                    leak(format!("{}_went_on", rung.id)),
+                    leak(format!("{} went on without you", rung.label)),
+                    own[2 + index % 2],
                     Vec::new(),
-                ),
+                )
+                .and([Effect::Advance(rung.id)]),
             )
         })
         .collect()
+}
+
+/// What a place's turns ask the player, one at each turn that brings
+/// people and stores: who comes, who goes, and what is put by. The answer
+/// is kept on the universe for the next turn to act on.
+fn turn_questions() -> Vec<Spec> {
+    use Condition::Is;
+    let asked = |value: &'static str| {
+        [
+            Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::ASKED,
+                text: value,
+            },
+            Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            },
+        ]
+    };
+    let shape = |asker: EntityId, seed: &'static str, id: &'static str| Shape {
+        asker,
+        want: false,
+        requires: vec![
+            Is(UNIVERSE, SEED, seed),
+            Is(UNIVERSE, crate::years::QUESTION, id),
+        ],
+        lasts: 5,
+        rests: 1,
+        weight: 5,
+        eases: Vec::new(),
+        timely: true,
+    };
+    vec![
+        spec(
+            "turn_ares_crew",
+            shape(SLOT_B, "mars-colony", "turn_ares_crew"),
+            (
+                "The next shuttle has bunks free",
+                "The next shuttle can bring more crew. Shall I ask for them?",
+            ),
+            vec![
+                yes(
+                    "ask",
+                    "Ask for more crew",
+                    "More hands, more mouths.",
+                    said(
+                        "more_crew_asked",
+                        "{keeper} asked the next shuttle for more crew",
+                        "More bunks to make up, then.",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "enough",
+                    "We're enough",
+                    "Keep Ares small and well fed.",
+                    said(
+                        "crew_declined",
+                        "{keeper} told the shuttle Ares was full",
+                        "Just us, then. More stew each.",
+                        bond(0, 1),
+                    )
+                    .and(asked("fewer")),
+                ),
+            ],
+            said(
+                "crew_unasked",
+                "Nobody answered the shuttle's offer",
+                "I'll take that as a no.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ares_cargo",
+            shape(SLOT_E, "mars-colony", "turn_ares_cargo"),
+            (
+                "{explorer} wants to fill the next cargo hold",
+                "Next window: seed stock, or room for a passenger?",
+            ),
+            vec![
+                yes(
+                    "seed",
+                    "Seed stock",
+                    "Wheat for a year.",
+                    said(
+                        "seed_ordered",
+                        "{explorer} ordered seed stock for the next window",
+                        "Wheat for a year. Good call.",
+                        bond(1, 0),
+                    )
+                    .and(asked("stores")),
+                ),
+                yes(
+                    "passenger",
+                    "Room for a passenger",
+                    "Someone new rather than something new.",
+                    said(
+                        "passenger_ordered",
+                        "{explorer} gave the cargo space to a passenger",
+                        "A new face beats a new drill.",
+                        bond(1, 1),
+                    )
+                    .and(asked("more")),
+                ),
+            ],
+            said(
+                "cargo_unasked",
+                "The cargo hold went out half empty",
+                "Half a hold. Oh well.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ares_homesick",
+            shape(SLOT_B, "mars-colony", "turn_ares_homesick"),
+            (
+                "Some of the crew are thinking of going home",
+                "A few want to go home at the next window. Should we ask them to stay?",
+            ),
+            vec![
+                yes(
+                    "stay",
+                    "Ask them to stay",
+                    "Ares needs them.",
+                    said(
+                        "crew_asked_to_stay",
+                        "{keeper} asked the crew to stay another tour",
+                        "They said they'd think about it. That's a yes.",
+                        bond(1, 0),
+                    )
+                    .and(asked("stay")),
+                ),
+                yes(
+                    "go",
+                    "Let them go",
+                    "Nobody's kept here.",
+                    said(
+                        "crew_let_go",
+                        "{keeper} told the crew they were free to go",
+                        "Fair enough. Ares isn't for everyone.",
+                        bond(0, 1),
+                    )
+                    .and(asked("go")),
+                ),
+            ],
+            said(
+                "homesick_unasked",
+                "Nobody spoke to the homesick crew",
+                "They'll decide for themselves, then.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ares_welcome",
+            shape(SLOT_E, "mars-colony", "turn_ares_welcome"),
+            (
+                "{explorer} wants a welcome for the next shuttle",
+                "Shall we throw a welcome when the shuttle comes?",
+            ),
+            vec![
+                yes(
+                    "party",
+                    "Throw a welcome",
+                    "Streamers made of wire.",
+                    said(
+                        "welcome_planned",
+                        "{explorer} planned a welcome for the next shuttle",
+                        "I'll make a banner!",
+                        bond(1, -1),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "save",
+                    "Save the rations",
+                    "A full larder is a welcome too.",
+                    said(
+                        "welcome_saved",
+                        "The rations were saved for the next window",
+                        "Sensible. Boring, but sensible.",
+                        bond(0, 1),
+                    )
+                    .and(asked("stores")),
+                ),
+            ],
+            said(
+                "welcome_unasked",
+                "The welcome was never planned",
+                "They'll just have to welcome themselves.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ares_report",
+            shape(SLOT_B, "mars-colony", "turn_ares_report"),
+            (
+                "The mission board wants the habitat's report",
+                "The board wants our report. Do we ask for people, or supplies?",
+            ),
+            vec![
+                yes(
+                    "people",
+                    "Ask for people",
+                    "A place grows by its people.",
+                    said(
+                        "report_people",
+                        "{keeper} asked the board for more people",
+                        "People it is. I'll warn the bunk room.",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "supplies",
+                    "Ask for supplies",
+                    "Full shelves first.",
+                    said(
+                        "report_supplies",
+                        "{keeper} asked the board for supplies",
+                        "Supplies it is. The shelves will thank us.",
+                        bond(0, 0),
+                    )
+                    .and(asked("stores")),
+                ),
+            ],
+            said(
+                "report_late",
+                "The habitat's report went in late",
+                "The board will send whatever it likes, then.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ares_rotation",
+            shape(SLOT_B, "mars-colony", "turn_ares_rotation"),
+            (
+                "The mission board wants to rotate the crew",
+                "The board wants to swap half the crew. Do we agree?",
+            ),
+            vec![
+                yes(
+                    "swap",
+                    "Agree to the swap",
+                    "New faces, fresh eyes.",
+                    said(
+                        "rotation_agreed",
+                        "{keeper} agreed to rotate the crew",
+                        "Some goodbyes, some hellos.",
+                        bond(0, 1),
+                    )
+                    .and(asked("go")),
+                ),
+                yes(
+                    "keep",
+                    "Keep the crew we have",
+                    "They know Ares now.",
+                    said(
+                        "rotation_refused",
+                        "{keeper} kept the crew together",
+                        "We know each other now. That counts.",
+                        bond(1, 0),
+                    )
+                    .and(asked("stay")),
+                ),
+            ],
+            said(
+                "rotation_unasked",
+                "The board rotated the crew as it liked",
+                "Nobody asked us. Typical.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_house_for_sale",
+            shape(SLOT_B, "1980s-town", "turn_maple_house_for_sale"),
+            (
+                "The old Henderson place is for sale",
+                "Someone wants to buy the old Henderson place. Put in a good word?",
+            ),
+            vec![
+                yes(
+                    "good_word",
+                    "Put in a good word",
+                    "New neighbours, new faces.",
+                    said(
+                        "good_word_put_in",
+                        "{keeper} put in a good word for the new buyers",
+                        "I told them the street's the best in town. It is.",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "stay_out",
+                    "Stay out of it",
+                    "Not our house, not our business.",
+                    said(
+                        "sale_left_alone",
+                        "{keeper} stayed out of the house sale",
+                        "Let the realtor worry about it.",
+                        bond(0, 1),
+                    )
+                    .and(asked("fewer")),
+                ),
+            ],
+            said(
+                "sale_went_by",
+                "The Henderson place sat empty a while longer",
+                "Still empty. Kids think it's haunted.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_street_fund",
+            shape(SLOT_E, "1980s-town", "turn_maple_street_fund"),
+            (
+                "{explorer} has ideas for the street fund",
+                "The street fund's got money in it. A welcome party, or save it?",
+            ),
+            vec![
+                yes(
+                    "party",
+                    "A welcome party",
+                    "Balloons on every porch.",
+                    said(
+                        "welcome_party_planned",
+                        "{explorer} planned a welcome party for new neighbours",
+                        "Balloons! Cake! A banner!",
+                        bond(1, -1),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "save",
+                    "Save it",
+                    "A rainy day always comes.",
+                    said(
+                        "fund_saved",
+                        "The street fund was saved for a rainy day",
+                        "Sensible. Boring, but sensible.",
+                        bond(0, 1),
+                    )
+                    .and(asked("stores")),
+                ),
+            ],
+            said(
+                "fund_forgotten",
+                "Nobody decided what to do with the street fund",
+                "It'll sit in the tin, then.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_moving_away",
+            shape(SLOT_B, "1980s-town", "turn_maple_moving_away"),
+            (
+                "A family on the street is thinking of moving away",
+                "The folks at the end of the street might move. Should we ask them to stay?",
+            ),
+            vec![
+                yes(
+                    "ask",
+                    "Ask them to stay",
+                    "The street wouldn't be the same.",
+                    said(
+                        "asked_to_stay",
+                        "{keeper} asked the family to stay on Maple Street",
+                        "They're thinking about it. I baked a pie. Pies work.",
+                        bond(1, 0),
+                    )
+                    .and(asked("stay")),
+                ),
+                yes(
+                    "let_go",
+                    "Wish them luck",
+                    "People move on. That's life.",
+                    said(
+                        "wished_luck",
+                        "{keeper} wished the family luck wherever they went",
+                        "We'll throw them a going-away party.",
+                        bond(0, 1),
+                    )
+                    .and(asked("go")),
+                ),
+            ],
+            said(
+                "moving_unasked",
+                "Nobody talked to the family about moving",
+                "They'll make up their own minds.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_empty_lot",
+            shape(SLOT_E, "1980s-town", "turn_maple_empty_lot"),
+            (
+                "A band wants to use the empty lot",
+                "A band wants to rehearse in the empty lot. Let them?",
+            ),
+            vec![
+                yes(
+                    "yes",
+                    "Let them play",
+                    "Music brings people.",
+                    said(
+                        "band_welcomed",
+                        "{explorer} let the band rehearse in the empty lot",
+                        "Loud. Terrible. Wonderful.",
+                        bond(1, 1),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "no",
+                    "Keep it quiet",
+                    "Some people sleep at night.",
+                    said(
+                        "band_turned_away",
+                        "{explorer} asked the band to find somewhere else",
+                        "Quiet nights, then.",
+                        bond(0, 1),
+                    )
+                    .and(asked("fewer")),
+                ),
+            ],
+            said(
+                "band_unanswered",
+                "The band waited, then went elsewhere",
+                "There they go.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_road_widening",
+            shape(SLOT_B, "1980s-town", "turn_maple_road_widening"),
+            (
+                "The city wants to widen the road",
+                "The city will pay the street to widen the road. Take the money?",
+            ),
+            vec![
+                yes(
+                    "take",
+                    "Take the money",
+                    "The street fund could use it.",
+                    said(
+                        "road_money_taken",
+                        "Maple Street took the city's money for the road",
+                        "New road, full fund. Fewer trees.",
+                        bond(0, 1),
+                    )
+                    .and(asked("stores")),
+                ),
+                yes(
+                    "fight",
+                    "Fight it",
+                    "The oaks stay.",
+                    said(
+                        "road_fought",
+                        "{keeper} led the street against the road",
+                        "We signed a petition. Forty names!",
+                        bond(1, 0),
+                    )
+                    .and(asked("stay")),
+                ),
+            ],
+            said(
+                "road_undecided",
+                "The street never made up its mind about the road",
+                "The city will decide for us, then.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_maple_school_board",
+            shape(SLOT_E, "1980s-town", "turn_maple_school_board"),
+            (
+                "The school wants more families on the street",
+                "The school's short of kids. Should we put up a sign for new families?",
+            ),
+            vec![
+                yes(
+                    "sign",
+                    "Put up a sign",
+                    "Families wanted. Good school, great street.",
+                    said(
+                        "sign_put_up",
+                        "{explorer} put up a sign for new families",
+                        "Hand-painted. Only one spelling mistake.",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "no_sign",
+                    "Leave it",
+                    "The street's full enough.",
+                    said(
+                        "no_sign",
+                        "Nobody put up a sign",
+                        "Fair enough. It's cosy as it is.",
+                        bond(0, 1),
+                    )
+                    .and(asked("fewer")),
+                ),
+            ],
+            said(
+                "school_unanswered",
+                "The school's letter went unanswered",
+                "I'll write back. Eventually.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_migrants",
+            shape(SLOT_B, "penguin-civilization", "turn_ice_migrants"),
+            (
+                "Migrants are asking to join the colony",
+                "A few from the migrating flocks want to stay. Let them?",
+            ),
+            vec![
+                yes(
+                    "welcome",
+                    "Let them stay",
+                    "More beaks, more songs.",
+                    said(
+                        "migrants_welcomed",
+                        "{keeper} welcomed the migrants to the colony",
+                        "Make room on the floe!",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "turn_away",
+                    "The floe is full",
+                    "There's only so much ice.",
+                    said(
+                        "migrants_turned_away",
+                        "{keeper} told the migrants the floe was full",
+                        "Sorry. There's only so much ice.",
+                        bond(0, 1),
+                    )
+                    .and(asked("fewer")),
+                ),
+            ],
+            said(
+                "migrants_waited",
+                "The migrants waited, then flew on",
+                "Well. They didn't wait long.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_vault",
+            shape(SLOT_E, "penguin-civilization", "turn_ice_vault"),
+            (
+                "{explorer} is counting the vault for the dark",
+                "The vault could feed newcomers, or keep us fat through the dark. Which?",
+            ),
+            vec![
+                yes(
+                    "share",
+                    "Feed newcomers",
+                    "A full colony is a warm colony.",
+                    said(
+                        "vault_shared",
+                        "{explorer} opened the vault to newcomers",
+                        "Come one, come all. Bring a fish if you can.",
+                        bond(1, 0),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "keep",
+                    "Keep it for us",
+                    "The dark is long.",
+                    said(
+                        "vault_kept",
+                        "{explorer} kept the vault for the long dark",
+                        "Fat and happy through the dark. That's the plan.",
+                        bond(0, 1),
+                    )
+                    .and(asked("stores")),
+                ),
+            ],
+            said(
+                "vault_uncounted",
+                "Nobody decided about the vault",
+                "It'll sort itself out. Probably.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_young_ones",
+            shape(SLOT_B, "penguin-civilization", "turn_ice_young_ones"),
+            (
+                "Some of the young ones want to follow the flocks",
+                "The young ones want to see the world. Ask them to stay?",
+            ),
+            vec![
+                yes(
+                    "stay",
+                    "Ask them to stay",
+                    "The colony needs them.",
+                    said(
+                        "young_asked_to_stay",
+                        "{keeper} asked the young ones to stay",
+                        "They sulked, then stayed. Mostly.",
+                        bond(1, 1),
+                    )
+                    .and(asked("stay")),
+                ),
+                yes(
+                    "go",
+                    "Let them go",
+                    "The sea is theirs too.",
+                    said(
+                        "young_let_go",
+                        "{keeper} told the young ones the sea was theirs",
+                        "Go on, then. Come back fat.",
+                        bond(0, 0),
+                    )
+                    .and(asked("go")),
+                ),
+            ],
+            said(
+                "young_unasked",
+                "Nobody talked to the young ones",
+                "They'll go or they won't.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_naming_feast",
+            shape(SLOT_E, "penguin-civilization", "turn_ice_naming_feast"),
+            (
+                "The council wants a naming feast for the new ones",
+                "A naming feast for the new ones, or save the fish?",
+            ),
+            vec![
+                yes(
+                    "feast",
+                    "Hold the feast",
+                    "Every new one deserves a name and a fish.",
+                    said(
+                        "naming_feast_held",
+                        "{explorer} held a naming feast for the new ones",
+                        "Every name sung, every fish eaten.",
+                        bond(1, -1),
+                    )
+                    .and(asked("more")),
+                ),
+                yes(
+                    "save",
+                    "Save the fish",
+                    "Names are free. Fish aren't.",
+                    said(
+                        "naming_feast_saved",
+                        "The fish for the naming feast were saved",
+                        "A quiet naming, then. Still counts.",
+                        bond(0, 1),
+                    )
+                    .and(asked("stores")),
+                ),
+            ],
+            said(
+                "feast_forgotten",
+                "The naming feast was forgotten",
+                "Nobody remembered. Poor little ones.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_trade",
+            shape(SLOT_B, "penguin-civilization", "turn_ice_trade"),
+            (
+                "A neighbouring colony wants to trade",
+                "The colony across the water wants fish for kelp. Trade?",
+            ),
+            vec![
+                yes(
+                    "trade",
+                    "Make the trade",
+                    "Kelp keeps longer than fish.",
+                    said(
+                        "trade_made",
+                        "{keeper} traded fish for kelp with the colony across the water",
+                        "Good kelp, fair trade.",
+                        bond(0, 0),
+                    )
+                    .and(asked("stores")),
+                ),
+                yes(
+                    "invite",
+                    "Invite them over instead",
+                    "Why trade, when you can share?",
+                    said(
+                        "neighbours_invited",
+                        "{keeper} invited the colony across the water to visit",
+                        "They're coming! Some might stay!",
+                        bond(1, 1),
+                    )
+                    .and(asked("more")),
+                ),
+            ],
+            said(
+                "trade_ignored",
+                "The neighbours' offer went unanswered",
+                "They'll ask someone else.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+        spec(
+            "turn_ice_early_flocks",
+            shape(SLOT_E, "penguin-civilization", "turn_ice_early_flocks"),
+            (
+                "The flocks are leaving early this year",
+                "The flocks are going early. Some of ours want to go with them. Well?",
+            ),
+            vec![
+                yes(
+                    "stay",
+                    "Ask them to stay",
+                    "Home is here.",
+                    said(
+                        "flocks_resisted",
+                        "{explorer} asked the colony to stay together",
+                        "We stay. All of us.",
+                        bond(1, 0),
+                    )
+                    .and(asked("stay")),
+                ),
+                yes(
+                    "go",
+                    "Let them choose",
+                    "Everyone chooses their own ice.",
+                    said(
+                        "flocks_chosen",
+                        "{explorer} let everyone choose their own way",
+                        "Some will go. Some will stay. That's fair.",
+                        bond(0, 1),
+                    )
+                    .and(asked("go")),
+                ),
+            ],
+            said(
+                "flocks_unasked",
+                "The flocks left, and nobody said anything",
+                "Quiet on the ice tonight.",
+                Vec::new(),
+            )
+            .and([Effect::Set {
+                entity: UNIVERSE,
+                key: crate::years::QUESTION,
+                text: "",
+            }]),
+        ),
+    ]
+}
+
+/// The questions each place's turns ask, in the order they come round.
+pub(crate) fn turn_question_ids(place: crate::places::Place) -> &'static [&'static str] {
+    match place {
+        crate::places::Place::Ares => &[
+            "turn_ares_crew",
+            "turn_ares_cargo",
+            "turn_ares_homesick",
+            "turn_ares_welcome",
+            "turn_ares_report",
+            "turn_ares_rotation",
+        ],
+        crate::places::Place::Maple => &[
+            "turn_maple_house_for_sale",
+            "turn_maple_street_fund",
+            "turn_maple_moving_away",
+            "turn_maple_empty_lot",
+            "turn_maple_road_widening",
+            "turn_maple_school_board",
+        ],
+        crate::places::Place::Ice => &[
+            "turn_ice_migrants",
+            "turn_ice_vault",
+            "turn_ice_young_ones",
+            "turn_ice_naming_feast",
+            "turn_ice_trade",
+            "turn_ice_early_flocks",
+        ],
+    }
 }
 
 fn specs() -> &'static [Spec] {
@@ -1183,11 +2062,23 @@ fn specs() -> &'static [Spec] {
         specs.extend(threads());
         specs.extend(climaxes());
         specs.extend(works());
+        specs.extend(turn_questions());
         specs
     })
 }
 
+/// The storyteller's deck, as the `storylets` System asks for it.
 pub(crate) fn deck() -> Deck {
+    deck_ref().clone()
+}
+
+/// The storyteller's deck, made once.
+pub(crate) fn deck_ref() -> &'static Deck {
+    static DECK: OnceLock<Deck> = OnceLock::new();
+    DECK.get_or_init(make_deck)
+}
+
+fn make_deck() -> Deck {
     Deck {
         story: STORY,
         story_name: "The pair's story",
@@ -1208,9 +2099,9 @@ pub(crate) fn deck() -> Deck {
             },
         ]
         .into_iter()
-        .chain(ladder().iter().map(|rung| Goal {
+        .chain(all_rungs().map(|(_, rung)| Goal {
             id: rung.id,
-            parts: rung.parts,
+            parts: RUNG_PARTS,
         }))
         .collect(),
         chapter_periods: CHAPTER_PERIODS,
@@ -1423,7 +2314,7 @@ const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
 
 pub(crate) fn season(world: &World) -> usize {
     storylets::season(
-        storylets::period_index(world.state(), &deck()),
+        storylets::period_index(world.state(), deck_ref()),
         SEASON_PERIODS,
     ) as usize
 }
@@ -1447,8 +2338,8 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
 /// How a chapter ends: how its climax went, and what happened in it that
 /// they will remember.
 fn chapter_ending(world: &World) -> (String, String) {
-    let deck = deck();
-    let (_, started) = storylets::chapter(world.state(), &deck);
+    let deck = deck_ref();
+    let (_, started) = storylets::chapter(world.state(), deck);
     let mut title = None;
     let mut lines = Vec::<String>::new();
     for event in world
@@ -1472,6 +2363,37 @@ fn chapter_ending(world: &World) -> (String, String) {
     }
     let trust = integer(world, RELATIONSHIP, RELATIONSHIP_TRUST);
     let tension = integer(world, RELATIONSHIP, RELATIONSHIP_TENSION);
+    // Without a climax to name it, a chapter is named first for the work
+    // the place last finished in it, if it finished one.
+    let season_name = SEASONS[season(world)];
+    let named_for_work = title.is_none().then(|| {
+        let place = crate::places::Place::of(world.state())?;
+        let last = ladder(place)
+            .iter()
+            .take_while(|rung| storylets::progress(world.state(), deck, rung.id) >= RUNG_PARTS)
+            .last()?;
+        let finished_now = world
+            .events()
+            .iter()
+            .rev()
+            .take_while(|event| event.world_time >= started)
+            .any(|event| event.kind.starts_with(last.id) && event.kind.len() > last.id.len());
+        finished_now.then(|| format!("The {season_name} of {}", the(last.work.label)))
+    });
+    // Or for the work it went on with, if it went on with one.
+    let named_for_work_in_hand = title.is_none().then(|| {
+        let place = crate::places::Place::of(world.state())?;
+        let next = ladder(place)
+            .iter()
+            .find(|rung| storylets::progress(world.state(), deck, rung.id) < RUNG_PARTS)?;
+        let worked = world
+            .events()
+            .iter()
+            .rev()
+            .take_while(|event| event.world_time >= started)
+            .any(|event| event.kind.starts_with(next.id) && event.kind.len() > next.id.len());
+        worked.then(|| format!("The {season_name} they worked on {}", the(next.work.label)))
+    });
     let title = title.unwrap_or_else(|| {
         let feel = if trust >= 7 && tension <= 3 {
             "A close"
@@ -1488,9 +2410,13 @@ fn chapter_ending(world: &World) -> (String, String) {
     });
     // What changed between people this chapter, and a title no chapter
     // has had before.
-    let season_name = SEASONS[season(world)];
     let news = lives::news_since(world, started);
-    let mut candidates = vec![title.clone()];
+    let mut candidates = named_for_work
+        .flatten()
+        .into_iter()
+        .chain(named_for_work_in_hand.flatten())
+        .collect::<Vec<_>>();
+    candidates.push(title.clone());
     if let Some(first) = news.first() {
         candidates.push(format!("The {season_name} {}", lowered_start(first)));
     }
@@ -1522,7 +2448,7 @@ fn chapter_ending(world: &World) -> (String, String) {
         summary.push(format!("{made}."));
     }
     for who in [SLOT_B, SLOT_E] {
-        let (granted, grudges) = storylets::kindness(world.state(), &deck, who);
+        let (granted, grudges) = storylets::kindness(world.state(), deck, who);
         if grudges > granted + 1 {
             let name = noun(world, if who == SLOT_B { "keeper" } else { "explorer" });
             summary.push(format!("{name} hasn't forgotten being let down."));
@@ -1737,7 +2663,7 @@ pub(crate) fn tick(
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
-    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    events.extend(storylets::tick(world, actions, deck_ref(), &reading)?);
     // Each season turning brings a gift, and a year on, someone remembers.
     events.extend(lives::season_turns(world, actions, &cast, SEASON_PERIODS)?);
     events.extend(lives::remember_a_year(world, actions, &cast, YEAR)?);
@@ -1749,16 +2675,16 @@ pub(crate) fn tick(
 /// has neither made, given nor said anything, and its first period has not
 /// passed.
 fn waiting_for_the_player(world: &World) -> bool {
-    let deck = deck();
+    let deck = deck_ref();
     let state = world.state();
-    if storylets::anything_raised(state, &deck) {
+    if storylets::anything_raised(state, deck) {
         return false;
     }
     let acted = state.entity(crate::handwork::kit(state).notes).is_some()
         || world.events().iter().any(conversation::is_talk);
-    let (_, started) = storylets::chapter(state, &deck);
+    let (_, started) = storylets::chapter(state, deck);
     let first_period = state.entity(deck.story).is_none()
-        || storylets::period_index(state, &deck) <= started / deck.period.max(1);
+        || storylets::period_index(state, deck) <= started / deck.period.max(1);
     !acted && first_period
 }
 
@@ -1781,7 +2707,7 @@ pub(crate) fn first_question(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    if seed_id(world) == "unseeded" || storylets::anything_raised(world.state(), &deck()) {
+    if seed_id(world) == "unseeded" || storylets::anything_raised(world.state(), deck_ref()) {
         return Ok(Vec::new());
     }
     let reading = Reading {
@@ -1791,7 +2717,7 @@ pub(crate) fn first_question(
         chapter_ending: Box::new(chapter_ending),
         hold: false,
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    storylets::tick(world, actions, deck_ref(), &reading)
 }
 
 /// How a question is opened when it has come round before: never in last
@@ -1830,14 +2756,14 @@ fn asked(spec: &Spec, times: i64, last: Option<&str>) -> String {
 
 /// What the asker of an open question says as they ask it now.
 fn asking(world: &World, spec: &Spec) -> String {
-    let deck = deck();
+    let deck = deck_ref();
     let id = spec.storylet.id;
     fill(
         world,
         &asked(
             spec,
-            storylets::times_raised(world.state(), &deck, id),
-            storylets::last_outcome(world.state(), &deck, id),
+            storylets::times_raised(world.state(), deck, id),
+            storylets::last_outcome(world.state(), deck, id),
         ),
     )
 }
@@ -1886,8 +2812,8 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
 }
 
 fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
-    let deck = deck();
-    storylets::answers(world.state(), &deck)
+    let deck = deck_ref();
+    storylets::answers(world.state(), deck)
         .into_iter()
         .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
@@ -1915,12 +2841,12 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
 /// What someone would ask for now, if they have a want open, and the answer
 /// that grants it.
 pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<String>)> {
-    let deck = deck();
-    let storylet = storylets::open(world.state(), &deck)
+    let deck = deck_ref();
+    let storylet = storylets::open(world.state(), deck)
         .into_iter()
         .find(|storylet| storylet.want && storylet.asker == who)?;
     let spec = find(storylet.id)?;
-    let grant = storylets::choices(world.state(), &deck)
+    let grant = storylets::choices(world.state(), deck)
         .into_iter()
         .find(|(open, choice)| open.id == storylet.id && !choice.refuses)
         .map(|(open, choice)| command_id(open.id, choice.id));
@@ -1928,7 +2854,7 @@ pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<St
 }
 
 pub(crate) fn kindness(world: &World, who: EntityId) -> (i64, i64) {
-    storylets::kindness(world.state(), &deck(), who)
+    storylets::kindness(world.state(), deck_ref(), who)
 }
 
 fn storylet_of(event: &Event) -> Option<&'static Spec> {
@@ -1989,7 +2915,7 @@ pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
         return calendar::said(event);
     }
     if hands::is_hands(event) {
-        return hands::said(event);
+        return crate::handwork::enjoyed_line(world, event).or_else(|| hands::said(event));
     }
     let spec = storylet_of(event)?;
     let asker = spec.storylet.asker;
@@ -2061,7 +2987,7 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
     if seed_id(world) == "unseeded" {
         return Vec::new();
     }
-    let deck = deck();
+    let deck = deck_ref();
     let (home, beacon) = match seed_id(world) {
         "mars-colony" => (MarkShape::Dome, MarkShape::Tower),
         "1980s-town" => (MarkShape::Shop, MarkShape::Tower),
@@ -2073,7 +2999,7 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
             id: id.into(),
             label,
             shape,
-            done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
+            done: storylets::progress(world.state(), deck, id).clamp(0, parts) as u32,
             parts: parts as u32,
         })
     };
@@ -2087,8 +3013,22 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
     .collect::<Vec<_>>();
     // Then the works done so far and the one in hand; what comes after is
     // not known yet.
-    if goals.iter().all(|goal| goal.done >= goal.parts) {
-        for rung in ladder() {
+    // What the people made on their own, when the player lent a hand.
+    for (at, (label, shape)) in crate::years::own_works_finished(world.state())
+        .into_iter()
+        .enumerate()
+    {
+        goals.push(world_projection::Goal {
+            id: format!("own_{at}"),
+            label,
+            shape,
+            done: 1,
+            parts: 1,
+        });
+    }
+    let place = crate::places::Place::of(world.state());
+    if let Some(place) = place.filter(|_| goals.iter().all(|goal| goal.done >= goal.parts)) {
+        for rung in ladder(place) {
             let Some(next) = goal(rung.id, rung.label.to_string(), rung.work.shape) else {
                 continue;
             };
@@ -4131,8 +5071,8 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
 /// own number falls.
 pub(crate) fn weather(world: &World) -> world_projection::Weather {
     use world_projection::Weather;
-    let deck = deck();
-    let open = storylets::open(world.state(), &deck);
+    let deck = deck_ref();
+    let open = storylets::open(world.state(), deck);
     let rough = open
         .iter()
         .any(|storylet| matches!(storylet.id, "weather" | "long_dark"));
@@ -4161,5 +5101,83 @@ pub(crate) fn weather(world: &World) -> world_projection::Weather {
             _ => Weather::Clear,
         },
         _ => Weather::Clear,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every question the storyteller asks, in every place, has at least
+    /// two answers that change something: none is a question with only one
+    /// real answer.
+    #[test]
+    fn every_question_has_two_answers_that_change_something() {
+        let deck = super::deck();
+        let thin = deck
+            .storylets
+            .iter()
+            .filter(|storylet| {
+                storylet
+                    .choices
+                    .iter()
+                    .filter(|choice| !choice.outcome.effects.is_empty())
+                    .count()
+                    < 2
+            })
+            .map(|storylet| storylet.id)
+            .collect::<Vec<_>>();
+        assert!(thin.is_empty(), "questions with one real answer: {thin:?}");
+    }
+
+    /// Each place asks for its own works, in its own order, at its own
+    /// pace, and a player who leaves them to the people still sees them
+    /// built.
+    #[test]
+    fn every_place_has_a_ladder_of_its_own() {
+        use crate::places::Place;
+        let ladders = [Place::Ares, Place::Maple, Place::Ice].map(|place| {
+            (
+                place,
+                crate::works::works(place)
+                    .iter()
+                    .map(|work| work.label)
+                    .collect::<Vec<_>>(),
+                crate::works::rests(place),
+            )
+        });
+        for (at, (place, works, rests)) in ladders.iter().enumerate() {
+            assert!(works.len() >= 30, "{place:?}: {} works", works.len());
+            for (other, other_works, other_rests) in &ladders[at + 1..] {
+                assert_ne!(works.len(), other_works.len(), "{place:?} and {other:?}");
+                assert_ne!(rests, other_rests, "{place:?} and {other:?}");
+                assert!(
+                    works.iter().all(|work| !other_works.contains(work)),
+                    "{place:?} and {other:?} share a work"
+                );
+            }
+        }
+        let deck = super::deck();
+        for (place, _, _) in &ladders {
+            for rung in super::ladder(*place) {
+                let spec = super::find(&format!("work_{}", rung.id)).unwrap();
+                let building = |choice: &storylets::Choice| {
+                    choice
+                        .outcome
+                        .effects
+                        .iter()
+                        .any(|effect| matches!(effect, storylets::Effect::Advance(goal) if *goal == rung.id))
+                };
+                assert!(spec.storylet.choices.iter().all(building), "{}", rung.id);
+                assert!(
+                    spec.storylet
+                        .lapse
+                        .effects
+                        .iter()
+                        .any(|effect| matches!(effect, storylets::Effect::Advance(_))),
+                    "{} goes nowhere when nobody answers",
+                    rung.id
+                );
+                assert!(deck.goals.iter().any(|goal| goal.id == rung.id));
+            }
+        }
     }
 }

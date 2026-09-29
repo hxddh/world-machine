@@ -408,13 +408,16 @@ fn marriage(state: &WorldState) -> Option<Turning> {
     })
 }
 
-/// A newcomer on their own moves back to the mainland: the one who came
+/// A newcomer on their own moves back to the mainland: the one the
+/// harbour has let down most often in hard times, else the one who came
 /// last.
 fn moving_out(state: &WorldState) -> Option<Turning> {
     let who = newcomers(state)
         .into_iter()
-        .rev()
-        .find(|person| lives::partner(state, *person).is_none() && !married(state, *person))?;
+        .enumerate()
+        .filter(|(_, person)| lives::partner(state, *person).is_none() && !married(state, *person))
+        .max_by_key(|(at, person)| (lives::unhelped(state, *person), *at))
+        .map(|(_, person)| person)?;
     let name = lives::first_name(state, who);
     Some(Turning {
         who,

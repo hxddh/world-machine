@@ -1410,6 +1410,8 @@ pub(crate) fn warm(seed: &str, days: usize) -> (PocketUniverse, Vec<Day>) {
     let mut universe = PocketUniverse::new().unwrap();
     universe.invoke_projection_command(seed).unwrap();
     let deck = story::deck();
+    let place = crate::places::Place::of(universe.world().state()).unwrap();
+    let goals = story::goal_ids(place);
     let mut heard = std::collections::BTreeSet::new();
     let news = |world: &world_core::World| {
         crate::book::book(world)
@@ -1459,10 +1461,9 @@ pub(crate) fn warm(seed: &str, days: usize) -> (PocketUniverse, Vec<Day>) {
         out.push(Day {
             lines,
             new_lines,
-            finished: deck
-                .goals
+            finished: goals
                 .iter()
-                .map(|goal| storylets::finished(world.state(), &deck, goal.id))
+                .map(|goal| storylets::finished(world.state(), &deck, goal))
                 .collect(),
             asked,
             letters,
@@ -1521,10 +1522,10 @@ pub(crate) const THREE_YEARS: usize = 1_080;
 /// finishes at least every 60 days, no rung of the ladder waits more than
 /// 45 days to be asked, at most two letters in any seven days, and at
 /// most four quiet days in any 120.
-fn three_years(seed: &str) {
+fn three_years(seed: &str) -> ThreeYears {
     let (universe, days) = warm(seed, THREE_YEARS);
-    let deck = story::deck();
-    let goals = deck.goals.iter().map(|goal| goal.id).collect::<Vec<_>>();
+    let place = crate::places::Place::of(universe.world().state()).unwrap();
+    let goals = story::goal_ids(place);
 
     // The day each goal and work was finished.
     let finished_on = |goal: usize| days.iter().position(|day| day.finished[goal]);
@@ -1619,19 +1620,278 @@ fn three_years(seed: &str) {
     );
     let world = universe.world();
     assert_eq!(world.replay().unwrap().state(), world.state());
+    let period = |event: &world_core::Event| event.world_time / crate::BACKGROUND_PERIOD;
+    ThreeYears {
+        works: story::works_finished(world.state()),
+        turned_on: world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "year_turned")
+            .map(period)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+        festivals: world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "festival_held")
+            .count(),
+    }
 }
 
-#[test]
-fn three_years_on_mars_keep_moving() {
-    three_years(MARS);
+/// How a place stands after three years of a warm player.
+#[derive(Debug)]
+struct ThreeYears {
+    /// Works finished: its ladder's and its people's own.
+    works: i64,
+    /// The periods its years turned on.
+    turned_on: Vec<u64>,
+    /// Festivals held.
+    festivals: usize,
 }
 
+/// Three years in every place keep moving, and each place in its own
+/// way: none ends with the works, the turns or the festivals of another.
 #[test]
-fn three_years_on_maple_street_keep_moving() {
-    three_years(crate::SEED_1980S_TOWN_COMMAND);
+fn three_years_in_every_place_keep_moving_each_in_its_own_way() {
+    let places = std::thread::scope(|scope| {
+        [
+            MARS,
+            crate::SEED_1980S_TOWN_COMMAND,
+            crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ]
+        .map(|seed| scope.spawn(move || three_years(seed)))
+        .map(|place| place.join().unwrap())
+    });
+    eprintln!("{places:#?}");
+    for (at, one) in places.iter().enumerate() {
+        for other in &places[at + 1..] {
+            assert_ne!(one.works, other.works, "{places:#?}");
+            assert_ne!(one.turned_on, other.turned_on, "{places:#?}");
+            assert_ne!(one.festivals, other.festivals, "{places:#?}");
+        }
+        // Its years keep turning to the end of the three, and people still
+        // come and go through them.
+        assert!(
+            one.turned_on.iter().any(|day| *day >= 960),
+            "years stop turning: {:?}",
+            one.turned_on
+        );
+    }
 }
 
+/// How a scripted player answers, as the review's players do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scripted {
+    /// The first answer on offer, every day.
+    First,
+    /// The last answer of the first question open, often a no.
+    Last,
+    /// Never answers, but makes something every third day.
+    Never,
+    /// Does nothing at all.
+    Absent,
+}
+
+/// How a place stands after a scripted player has kept it.
+#[derive(Clone, Debug, PartialEq)]
+struct Kept {
+    /// Works finished: its ladder's and its people's own.
+    works: i64,
+    /// Who lives there, and how many came and went.
+    people: Vec<String>,
+    arrived: usize,
+    departed: usize,
+    /// What it has put by, and how the pair stand.
+    stores: i64,
+    trust: i64,
+    tension: i64,
+    /// What everyone living there thinks of everyone else, added up, and
+    /// how many couples there are.
+    regard_between: i64,
+    couples: usize,
+}
+
+/// `days` of a scripted player in a place.
+fn kept(seed: &str, policy: Scripted, days: usize) -> Kept {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(seed).unwrap();
+    for day in 1..=days {
+        let world = universe.world();
+        let questions = story::commands(world)
+            .into_iter()
+            .filter(|command| command.question.is_some() && command.unavailable.is_none())
+            .collect::<Vec<_>>();
+        let answer = match policy {
+            Scripted::First => questions.first().map(|command| command.id.clone()),
+            Scripted::Last => questions.first().and_then(|first| {
+                let asked = first.question.as_ref().map(|question| question.id.clone());
+                questions
+                    .iter()
+                    .rfind(|command| command.question.as_ref().map(|q| q.id.clone()) == asked)
+                    .map(|command| command.id.clone())
+            }),
+            Scripted::Never | Scripted::Absent => None,
+        };
+        let deed = (policy != Scripted::Absent && day % 3 == 0)
+            .then(|| {
+                let made = hands::ever_made(world);
+                let kit = crate::handwork::kit(world.state());
+                let unmade = kit
+                    .things
+                    .iter()
+                    .filter(|thing| !made.contains(thing.id))
+                    .map(|thing| thing.name)
+                    .collect::<std::collections::BTreeSet<_>>();
+                let hands = crate::handwork::commands(world)
+                    .into_iter()
+                    .chain(crate::life::suggestions(world))
+                    .filter(|command| command.unavailable.is_none())
+                    .filter(|command| {
+                        command
+                            .hand
+                            .as_ref()
+                            .is_some_and(|hand| hand.verb != "Undo")
+                    })
+                    .collect::<Vec<_>>();
+                hands
+                    .iter()
+                    .find(|command| unmade.contains(command.hand.as_ref().unwrap().thing.as_str()))
+                    .or(hands.first())
+                    .map(|command| command.id.clone())
+            })
+            .flatten();
+        if let Some(answer) = answer {
+            let _ = universe.invoke_projection_command(&answer);
+        }
+        if let Some(deed) = deed {
+            let _ = universe.invoke_projection_command(&deed);
+        }
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    }
+    let world = universe.world();
+    let state = world.state();
+    let living = crate::life::people(world);
+    let everyone = crate::life::newcomers(state);
+    let bond = |key: &str| match state
+        .entity(crate::RELATIONSHIP)
+        .and_then(|bond| bond.component(key))
+    {
+        Some(world_core::Value::Integer(value)) => *value,
+        _ => 0,
+    };
+    Kept {
+        works: story::works_finished(state),
+        people: living
+            .iter()
+            .map(|person| lives::name(state, *person))
+            .collect(),
+        arrived: everyone.len(),
+        departed: everyone
+            .iter()
+            .filter(|person| lives::gone(state, **person))
+            .count(),
+        stores: crate::years::stores(state),
+        trust: bond(crate::RELATIONSHIP_TRUST),
+        tension: bond(crate::RELATIONSHIP_TENSION),
+        regard_between: living
+            .iter()
+            .flat_map(|a| living.iter().map(move |b| (*a, *b)))
+            .filter(|(a, b)| a != b)
+            .map(|(a, b)| lives::opinion(state, a, b))
+            .sum(),
+        couples: living
+            .iter()
+            .filter(|person| lives::partner(state, **person).is_some())
+            .count()
+            / 2,
+    }
+}
+
+/// Every way of keeping a place, side by side.
+fn four_ways(seed: &str, days: usize) -> [(Scripted, Kept); 4] {
+    std::thread::scope(|scope| {
+        [
+            Scripted::First,
+            Scripted::Last,
+            Scripted::Never,
+            Scripted::Absent,
+        ]
+        .map(|policy| (policy, scope.spawn(move || kept(seed, policy, days))))
+        .map(|(policy, kept)| (policy, kept.join().unwrap()))
+    })
+}
+
+/// Four ways of keeping a place for a season already make four places:
+/// no two of them stand the same way.
 #[test]
-fn three_years_on_icebridge_keep_moving() {
-    three_years(crate::SEED_PENGUIN_CIVILIZATION_COMMAND);
+fn four_ways_of_keeping_a_place_part_within_a_season() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let ways = four_ways(seed, 120);
+        eprintln!("{seed}: {ways:#?}");
+        for (at, (one, kept)) in ways.iter().enumerate() {
+            for (other, other_kept) in &ways[at + 1..] {
+                assert_ne!(
+                    kept, other_kept,
+                    "{seed}: {one:?} and {other:?} kept the same place"
+                );
+            }
+        }
+        // Whoever answers first builds; whoever is not there does not
+        // lend a hand, and the people make nothing of their own.
+        let works = |policy| ways.iter().find(|(way, _)| *way == policy).unwrap().1.works;
+        assert!(
+            works(Scripted::First) > works(Scripted::Absent),
+            "{seed}: {ways:#?}"
+        );
+    }
+}
+
+/// The review's bar: after three years, the four ways of keeping a place
+/// differ on its works, its people, what it has put by and how its people
+/// get on, and someone who never says yes still sees works finished, their
+/// own way.
+#[test]
+#[ignore]
+fn four_ways_of_keeping_a_place_make_four_places_in_three_years() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let ways = four_ways(seed, THREE_YEARS);
+        eprintln!("{seed}: {ways:#?}");
+        for (at, (one, kept)) in ways.iter().enumerate() {
+            for (other, other_kept) in &ways[at + 1..] {
+                let why = format!("{seed}: {one:?} and {other:?}: {kept:#?} {other_kept:#?}");
+                assert_ne!(kept.works, other_kept.works, "works: {why}");
+                assert_ne!(
+                    (&kept.people, kept.arrived, kept.departed),
+                    (&other_kept.people, other_kept.arrived, other_kept.departed),
+                    "people: {why}"
+                );
+                assert_ne!(
+                    (kept.stores, kept.trust, kept.tension),
+                    (other_kept.stores, other_kept.trust, other_kept.tension),
+                    "stores: {why}"
+                );
+                assert_ne!(
+                    (kept.regard_between, kept.couples),
+                    (other_kept.regard_between, other_kept.couples),
+                    "friendships: {why}"
+                );
+            }
+            if *one != Scripted::First {
+                assert!(
+                    kept.works >= 10,
+                    "{seed}: {one:?} finished {} works",
+                    kept.works
+                );
+            }
+        }
+    }
 }

@@ -34,7 +34,12 @@ pub const PACK_PROTOCOL_VERSION_V4: u32 = 4;
 /// history of years crosses in a few megabytes, and frames may be up to
 /// [`PACK_FRAME_LIMIT`].
 pub const PACK_PROTOCOL_VERSION_V5: u32 = 5;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V5;
+/// Adds `checkpoint`, `rollback` and `archive_since`: a host that saves after
+/// every change tries it on the World it has open and goes back if the save
+/// fails, and asks for only the events it has not saved, so one Pack
+/// process serves an open World for as long as it is open.
+pub const PACK_PROTOCOL_VERSION_V6: u32 = 6;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V6;
 
 /// The most a frame (one line, with its newline) may hold between a host
 /// and a Pack that speaks v5 or later.
@@ -253,6 +258,14 @@ pub enum PackRequest {
     },
     Archive,
     Shutdown,
+    /// Mark where the World stands, replacing any mark before (v6).
+    Checkpoint,
+    /// Go back to the mark, forgetting everything since (v6).
+    Rollback,
+    /// The archive with only the events after the first `events` (v6).
+    ArchiveSince {
+        events: usize,
+    },
 }
 
 // One response is built per message and serialized at once, so how much
@@ -276,6 +289,10 @@ pub enum PackResponse {
     Hearing {
         prompt: Option<String>,
     },
+    /// Whether the World could mark where it stands (v6).
+    Checkpointed {
+        kept: bool,
+    },
     Ok,
     Error {
         message: String,
@@ -296,6 +313,116 @@ pub fn encode_request(request: &PackRequestEnvelope) -> Result<String, serde_jso
         _ => serde_json::to_string(request),
     }
 }
+
+/// An `open` request as one line of JSON, as [`encode_request`] writes
+/// `PackRequest::Open` with this archive, for a host that keeps the archive
+/// rather than handing over a copy of a long history to be encoded.
+pub fn encode_open_request(
+    protocol_version: u32,
+    request_id: u64,
+    archive: &WorldArchive,
+) -> Result<String, ProtocolEncodeError> {
+    validate_open(protocol_version, archive)?;
+    if protocol_version >= PACK_PROTOCOL_VERSION_V5 {
+        let packed = pack_archive(archive)
+            .map_err(|error| ProtocolEncodeError::Json(serde::ser::Error::custom(error)))?;
+        return open_request_with_packed(protocol_version, request_id, &packed);
+    }
+    serde_json::to_string(&OpenEnvelopeOut {
+        protocol_version,
+        request_id,
+        request: OpenRequestOut::Open { archive },
+    })
+    .map_err(ProtocolEncodeError::Json)
+}
+
+/// [`encode_open_request`] for a Pack on v5 or later, with the archive's
+/// compact JSON already deflated, as a World file keeps it: it is packed as
+/// it is, rather than written and deflated again. The JSON may hold fields
+/// beside the archive's own (a World file's document), which a Pack reading
+/// the archive passes over. The caller vouches that it reads as `archive`.
+pub fn encode_open_request_deflated(
+    protocol_version: u32,
+    request_id: u64,
+    archive: &WorldArchive,
+    deflated: &[u8],
+) -> Result<String, ProtocolEncodeError> {
+    validate_open(protocol_version, archive)?;
+    if protocol_version < PACK_PROTOCOL_VERSION_V5 {
+        return Err(ProtocolEncodeError::Protocol(
+            ProtocolError::RequestNotSupportedInProtocol {
+                protocol_version,
+                request: "open with a packed archive",
+            },
+        ));
+    }
+    let mut packed =
+        String::with_capacity(PACKED_ARCHIVE_PREFIX.len() + deflated.len() * 4 / 3 + 4);
+    packed.push_str(PACKED_ARCHIVE_PREFIX);
+    STANDARD.encode_string(deflated, &mut packed);
+    open_request_with_packed(protocol_version, request_id, &packed)
+}
+
+fn validate_open(protocol_version: u32, archive: &WorldArchive) -> Result<(), ProtocolError> {
+    validate_protocol_version(protocol_version)?;
+    if archive.checkpoint.is_some() && protocol_version < PACK_PROTOCOL_VERSION_V4 {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "open with a checkpoint",
+        });
+    }
+    Ok(())
+}
+
+fn open_request_with_packed(
+    protocol_version: u32,
+    request_id: u64,
+    packed: &str,
+) -> Result<String, ProtocolEncodeError> {
+    serde_json::to_string(&PackedEnvelopeOut {
+        protocol_version,
+        request_id,
+        request: PackedRequestOut::Open { archive: packed },
+    })
+    .map_err(ProtocolEncodeError::Json)
+}
+
+#[derive(Serialize)]
+struct OpenEnvelopeOut<'a> {
+    protocol_version: u32,
+    request_id: u64,
+    request: OpenRequestOut<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OpenRequestOut<'a> {
+    Open { archive: &'a WorldArchive },
+}
+
+/// Why a request could not be written.
+#[derive(Debug)]
+pub enum ProtocolEncodeError {
+    Json(serde_json::Error),
+    Protocol(ProtocolError),
+}
+
+impl From<ProtocolError> for ProtocolEncodeError {
+    fn from(error: ProtocolError) -> Self {
+        Self::Protocol(error)
+    }
+}
+
+impl fmt::Display for ProtocolEncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(error) => error.fmt(f),
+            Self::Protocol(error) => error.fmt(f),
+        }
+    }
+}
+
+impl Error for ProtocolEncodeError {}
 
 pub fn decode_request(json: &str) -> Result<PackRequestEnvelope, ProtocolDecodeError> {
     let request =
@@ -354,8 +481,9 @@ pub fn pack_archive(archive: &WorldArchive) -> Result<String, ArchivePackError> 
     let json = archive
         .to_compact_json(&serde_json::Map::new())
         .map_err(|error| ArchivePackError(error.to_string()))?;
-    // A fast level: most of what a history repeats is found by any, and a
-    // World is saved after every change.
+    // The fastest level: most of what a history repeats is found by any,
+    // the archive only crosses a pipe, and a World is saved after every
+    // change.
     let mut encoder = DeflateEncoder::new(
         Vec::with_capacity(json.len() / 6),
         Compression::new(ARCHIVE_DEFLATE_LEVEL),
@@ -373,7 +501,7 @@ pub fn pack_archive(archive: &WorldArchive) -> Result<String, ArchivePackError> 
     Ok(packed)
 }
 
-const ARCHIVE_DEFLATE_LEVEL: u32 = 2;
+const ARCHIVE_DEFLATE_LEVEL: u32 = 1;
 
 /// Reads an archive [`pack_archive`] wrote.
 pub fn unpack_archive(packed: &str) -> Result<WorldArchive, ArchivePackError> {
@@ -395,9 +523,12 @@ pub fn unpack_archive(packed: &str) -> Result<WorldArchive, ArchivePackError> {
             "packed archive unpacks to more than {MAX_UNPACKED_ARCHIVE_BYTES} bytes"
         )));
     }
-    let value: serde_json::Value = serde_json::from_slice(&json)
-        .map_err(|error| ArchivePackError(format!("packed archive is not JSON: {error}")))?;
-    WorldArchive::from_json_value(&value).map_err(|error| ArchivePackError(error.to_string()))
+    WorldArchive::from_json_slice(&json).map_err(|error| match error {
+        world_persistence::PersistenceError::Json(error) => {
+            ArchivePackError(format!("packed archive is not JSON: {error}"))
+        }
+        error => ArchivePackError(error.to_string()),
+    })
 }
 
 /// Why an archive could not be packed or unpacked.
@@ -425,20 +556,45 @@ fn wire_archive<'de, D>(deserializer: D) -> Result<WorldArchive, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    archive_from_wire(value).map_err(serde::de::Error::custom)
+    wire_optional_archive(deserializer)?
+        .ok_or_else(|| serde::de::Error::custom("an archive is required"))
 }
 
+/// A packed archive is unpacked from the frame's own text, without a copy
+/// of it; an archive written out as an object is read as before.
 fn wire_optional_archive<'de, D>(deserializer: D) -> Result<Option<WorldArchive>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    match serde_json::Value::deserialize(deserializer)? {
-        serde_json::Value::Null => Ok(None),
-        value => archive_from_wire(value)
-            .map(Some)
-            .map_err(serde::de::Error::custom),
+    struct WireVisitor;
+    impl<'de> serde::de::Visitor<'de> for WireVisitor {
+        type Value = Option<WorldArchive>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a packed archive, an archive or null")
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E: serde::de::Error>(self, packed: &str) -> Result<Self::Value, E> {
+            unpack_archive(packed).map(Some).map_err(E::custom)
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+            let value =
+                serde_json::Value::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+            archive_from_wire(value)
+                .map(Some)
+                .map_err(serde::de::Error::custom)
+        }
     }
+    deserializer.deserialize_any(WireVisitor)
 }
 
 pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecodeError> {
@@ -456,6 +612,7 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
             | PACK_PROTOCOL_VERSION_V3
             | PACK_PROTOCOL_VERSION_V4
             | PACK_PROTOCOL_VERSION_V5
+            | PACK_PROTOCOL_VERSION_V6
     ) {
         Ok(())
     } else {
@@ -477,6 +634,16 @@ fn validate_request_for_protocol(
                 request: "open with a checkpoint",
             });
         }
+    }
+    if matches!(
+        request,
+        PackRequest::Checkpoint | PackRequest::Rollback | PackRequest::ArchiveSince { .. }
+    ) && protocol_version < PACK_PROTOCOL_VERSION_V6
+    {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "checkpoint",
+        });
     }
     let needs_v3 = match request {
         PackRequest::Hear { .. } => true,

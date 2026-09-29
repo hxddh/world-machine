@@ -485,10 +485,10 @@ fn canvas(world: &World) -> CanvasProjection {
             })
         })
         .collect();
-    // Strangers who came to stay.
-    let cast = crate::life::cast(world.state());
-    for (index, id) in lives::arrivals(world.state(), &cast)
+    // Strangers who came to stay, and whoever the place's years brought.
+    for (index, id) in crate::life::newcomers(world.state())
         .into_iter()
+        .filter(|id| !lives::gone(world.state(), *id))
         .enumerate()
     {
         let Some(entity) = world.state().entity(id) else {
@@ -499,8 +499,8 @@ fn canvas(world: &World) -> CanvasProjection {
             kind: CanvasItemKind::Actor,
             label: entity_title(entity),
             detail: canvas_detail(entity),
-            x: 0.2 + 0.12 * index as f32,
-            y: 0.55 + 0.08 * (index % 2) as f32,
+            x: 0.2 + 0.12 * (index % 6) as f32 + 0.06 * (index / 6 % 2) as f32,
+            y: 0.55 + 0.08 * (index % 2) as f32 + 0.1 * (index / 6 % 2) as f32,
             changes: Vec::new(),
             shape: None,
             at: whereabouts(world, entity),
@@ -566,7 +566,8 @@ fn canvas_detail(entity: &Entity) -> String {
 
 /// What a Pocket Universe keeps score of: how much the two people trust
 /// each other and how strained they are, which is what the questions they
-/// ask move. Nothing before the World begins.
+/// ask move, and what the place has put by. Nothing before the World
+/// begins.
 pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
     use world_projection::Gauge;
     if seed_id(world) == "unseeded" {
@@ -580,6 +581,7 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
     };
     let trust = out_of_ten(RELATIONSHIP_TRUST);
     let tension = out_of_ten(RELATIONSHIP_TENSION);
+    let stores = crate::years::stores(world.state());
     vec![
         Gauge {
             id: "trust".into(),
@@ -601,6 +603,24 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
                 7.. => Tone::Bad,
                 4..=6 => Tone::Warning,
                 _ => Tone::Neutral,
+            },
+        },
+        // What the place has put by: what its works and its turns bring
+        // in, and its people, parties and hard times take out.
+        Gauge {
+            id: "stores".into(),
+            label: match seed_id(world) {
+                "1980s-town" => "Street fund",
+                "penguin-civilization" => "Fish vault",
+                _ => "Stores",
+            }
+            .into(),
+            value: stores as f32 / 100.0,
+            reading: format!("{stores} of 100"),
+            tone: match stores {
+                50.. => Tone::Good,
+                20..=49 => Tone::Neutral,
+                _ => Tone::Warning,
             },
         },
     ]

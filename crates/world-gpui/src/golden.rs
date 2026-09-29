@@ -753,6 +753,54 @@ fn the_postcard_matches_its_golden_picture() {
     matches_golden("postcard", &image);
 }
 
+/// A gentle pointer under a handle in the top right, and the zoom control
+/// with its own pointer beside it, over the scene: where each sits, its
+/// little arrow, and the accent edge that sets it apart from a card.
+#[test]
+fn the_pointers_and_the_zoom_control_match_their_golden_picture() {
+    use crate::macos::{pointer_hint, zoom_button, Caret};
+    use crate::pointers::Pointer;
+    let snapshot = town();
+    let (width, height) = (720.0, 420.0);
+    let frame = diorama_frame(&snapshot, width, height, Daylight::Day, 13.0);
+    let image = draw(width, height, move || {
+        div()
+            .size_full()
+            .relative()
+            .child(painted(frame.clone()))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(56.0))
+                    .right(px(16.0))
+                    .child(pointer_hint(Pointer::Drawer, Caret::Up, |_, _, _| {})),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(16.0))
+                    .top(px(160.0))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .p_1()
+                            .rounded_full()
+                            .bg(gpui::white())
+                            .child(zoom_button("zoom-in", "+", "Zoom in (+)", false))
+                            .child(zoom_button("zoom-out", "−", "Zoom out (−)", true)),
+                    )
+                    .child(pointer_hint(Pointer::Zoom, Caret::Left, |_, _, _| {})),
+            )
+            .into_any_element()
+    });
+    matches_golden("pointers", &image);
+}
+
 /// The reference rasteriser itself: a red square half over a blue one,
 /// a rounded corner, and a triangle, where they should be.
 #[test]

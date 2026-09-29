@@ -120,7 +120,7 @@ pub(crate) const MARA_VOICE: Voice = Voice {
                 "The sourdough",
                 "The rye",
                 "The cottage loaves",
-                "The seeded batch",
+                "The poppy loaves",
                 "The rolls",
             ],
         ),
