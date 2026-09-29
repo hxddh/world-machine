@@ -29,6 +29,7 @@ members = [
   "systems/conversation",
   "systems/calendar",
   "systems/days",
+  "systems/chronicle",
   "worlds/tiny-society",
   "worlds/pocket-universe",
   "apps/tiny-society-pack",
@@ -52,6 +53,9 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.calendar]
+opt-level = 2
+
+[profile.dev.package.chronicle]
 opt-level = 2
 
 [profile.dev.package.tiny-society]

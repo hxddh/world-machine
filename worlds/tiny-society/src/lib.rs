@@ -2,6 +2,7 @@ mod actions;
 #[cfg(test)]
 mod agency;
 mod almanac;
+mod almanac_page;
 mod behaviors;
 mod book;
 mod drawings;
@@ -12,10 +13,13 @@ mod handwork;
 mod hardship;
 mod host;
 mod interventions;
+mod kin;
+mod legends;
 mod life;
 mod livelihood;
 mod local_economy;
 mod model;
+mod moments;
 mod payroll;
 mod persistence;
 mod projection;
@@ -76,6 +80,7 @@ pub fn people_names() -> Vec<&'static str> {
     ]
     .into_iter()
     .chain(life::VISITOR_NAMES.iter().copied())
+    .chain(kin::CHILD_NAMES.iter().copied())
     .chain(["Tam", "Clark", "Bess", "Pike"])
     .collect()
 }
@@ -143,6 +148,25 @@ impl TinySocietyBranch {
         with_previews(&self.world, projection::snapshot(&self.world))
     }
 
+    /// A story the harbour tells about itself: a legend, a moment or a
+    /// year's almanac. Read from the history alone; changes nothing.
+    pub fn story(
+        &self,
+        request: world_projection::StoryRequest,
+    ) -> Option<world_projection::StoryPage> {
+        use world_projection::{StoryPage, StoryRequest};
+        match request {
+            StoryRequest::Legend(subject) => {
+                legends::legend(&self.world, subject).map(StoryPage::Legend)
+            }
+            StoryRequest::Moment(id) => moments::moment(&self.world, &id).map(StoryPage::Moment),
+            StoryRequest::Almanac(year) => {
+                let moments = moments::moments(&self.world);
+                almanac_page::almanac(&self.world, year, &moments).map(StoryPage::Almanac)
+            }
+        }
+    }
+
     /// On the player's return, someone who thinks well of them leaves them
     /// something, with a line about the latest of what happened since
     /// `since`.
@@ -206,6 +230,7 @@ impl TinySocietyBranch {
             story::WAIT_COMMAND => self.pass_days(1, false),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
+            _ if kin::parse_command(command_id).is_some() => self.place_memorial(command_id),
             _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
             _ if command_id.starts_with(life::SUGGEST_COMMAND) => self.suggest(command_id),
             _ => Err(
@@ -259,6 +284,25 @@ impl TinySocietyBranch {
         events.extend(story::mementos(&mut self.world, actions, &[event])?);
         events.extend(story::gathered(&mut self.world, actions, event)?);
         Ok(events)
+    }
+
+    /// The player puts up a bench for someone the harbour lost, where they
+    /// choose.
+    fn place_memorial(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let (who, spot) = kin::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a memorial: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let mut request = lives::memorial_request(who, true, spot);
+        if let Some(died) = self
+            .world
+            .events_of_kind(&["died"])
+            .into_iter()
+            .rev()
+            .find(|event| event.payload.get("who") == Some(&world_core::Value::Entity(who)))
+        {
+            request = request.caused_by(died.id);
+        }
+        Ok(vec![self.world.execute(actions, &request)?.id])
     }
 
     fn answer_life(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -685,5 +729,7 @@ mod density;
 mod friendship;
 #[cfg(test)]
 mod long_run;
+#[cfg(test)]
+mod stories_tests;
 #[cfg(test)]
 mod tests;

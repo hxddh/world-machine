@@ -17,7 +17,7 @@ const DAYS: usize = 1_080;
 const STRETCH: usize = 120;
 
 /// What each day of the run brought.
-struct Run {
+pub(crate) struct Run {
     /// Lines said each day, and how many of them were never heard before.
     lines: Vec<(usize, usize)>,
     /// Days that brought nothing new: nothing found in the book, nothing
@@ -31,12 +31,16 @@ struct Run {
     /// did not.
     longest_wait: Vec<(&'static str, usize)>,
     /// The World as the run left it.
-    world: world_core::World,
+    pub(crate) world: world_core::World,
     /// How the place stood on days 30, 360 and 1,080, and every festival.
     place: Vec<(usize, crate::town::Bars)>,
+    /// Every moment the snapshots carried as they came, by id, and the
+    /// years whose almanac came on a New Year's day.
+    pub(crate) moments: std::collections::BTreeMap<String, world_projection::Moment>,
+    pub(crate) almanacs: Vec<u32>,
 }
 
-fn run() -> &'static Run {
+pub(crate) fn run() -> &'static Run {
     static RUN: OnceLock<Run> = OnceLock::new();
     RUN.get_or_init(play)
 }
@@ -62,6 +66,8 @@ fn play() -> Run {
         longest_wait: Vec::new(),
         world: world_core::World::new(Default::default()),
         place: Vec::new(),
+        moments: Default::default(),
+        almanacs: Vec::new(),
     };
     // Something new, as the month's test counts it: something found in
     // the book, something to keep, a letter or a chapter's close. The
@@ -148,6 +154,12 @@ fn play() -> Run {
             .invoke_projection_command(story::WAIT_COMMAND)
             .unwrap();
         let after = branch.projection_snapshot();
+        assert!(after.moments.len() <= world_projection::MOST_MOMENTS_IN_SNAPSHOT);
+        for moment in &after.moments {
+            run.moments.insert(moment.id.clone(), moment.clone());
+        }
+        run.almanacs
+            .extend(after.almanac.as_ref().map(|almanac| almanac.year));
         if [30, 360, DAYS].contains(&day) || crate::town::festival_today(branch.world().state()) {
             run.place
                 .push((day, crate::town::bars(branch.world(), &after)));
@@ -332,4 +344,127 @@ fn the_place_grows_and_lives_for_three_years() {
     let (_, last) = run.place.iter().rfind(|(day, _)| *day == DAYS).unwrap();
     assert!(last.standing >= 40, "{last:?}");
     assert!(festivals >= 30, "{festivals} festivals");
+}
+
+/// Three years of lives: at least three children born, one or two of the
+/// old dying gently, two comings of age; fewer, weightier changes between
+/// people (at most 60 in any year of days); no storylet asked under the
+/// same title more than three times; and something new of ten kinds or
+/// more in every 30 days of year three.
+#[test]
+#[ignore]
+fn three_years_of_lives() {
+    let world = &run().world;
+    let count = |kind: &str| world.events_of_kind(&[kind]).len();
+    let (born, died, grown) = (count("born"), count("died"), count("came_of_age"));
+    eprintln!(
+        "born {born}, died {died}, came of age {grown}, retired {}, left home {}, heirlooms {}, memorials {}, anniversaries {}",
+        count("retired"),
+        count("left_home"),
+        count("heirloom_passed"),
+        count("memorial_placed"),
+        count("anniversary_kept"),
+    );
+    for event in world.events_of_kind(&[
+        "born",
+        "came_of_age",
+        "died",
+        "retired",
+        "left_home",
+        "heirloom_passed",
+        "memorial_placed",
+    ]) {
+        eprintln!(
+            "  day {}: {}",
+            event.world_time / crate::persistence::WORLD_DAY_TICKS,
+            lives::told(event).unwrap_or_default()
+        );
+    }
+    let cast = crate::life::cast();
+    for person in story::people(world)
+        .into_iter()
+        .chain(lives::children(world.state(), &cast))
+    {
+        eprintln!(
+            "  {} {} {:?}",
+            lives::name(world.state(), person),
+            lives::age_of(world.state(), &cast, &crate::kin::KIN, person),
+            lives::partner(world.state(), person).map(|p| lives::name(world.state(), p))
+        );
+    }
+    let day = |event: &world_core::Event| {
+        (event.world_time / crate::persistence::WORLD_DAY_TICKS) as usize
+    };
+    let bonds = world
+        .events_of_kind(&["bond_changed"])
+        .into_iter()
+        .map(day)
+        .collect::<Vec<_>>();
+    let most_bonds = (0..=DAYS.saturating_sub(360))
+        .map(|start| {
+            bonds
+                .iter()
+                .filter(|at| (start..start + 360).contains(*at))
+                .count()
+        })
+        .max()
+        .unwrap_or(0);
+    // What each storylet was asked as, the times it came up.
+    let mut titles = std::collections::BTreeMap::<String, usize>::new();
+    for event in world.events_of_kind(&["situation_arose"]) {
+        if let Some(told) = story::told(world, event) {
+            *titles.entry(told).or_default() += 1;
+        }
+    }
+    let mut repeated = titles
+        .iter()
+        .filter(|(_, times)| **times > 3)
+        .collect::<Vec<_>>();
+    repeated.sort_by_key(|(_, times)| std::cmp::Reverse(**times));
+    // Never-seen kinds of thing: an event kind, a storylet or a situation's
+    // kind, a festival.
+    let mut seen = BTreeSet::new();
+    let mut fresh = vec![0_usize; DAYS / 30 + 1];
+    for event in world.events() {
+        let mut keys = vec![event.kind.clone()];
+        for key in ["storylet", "festival", "beat", "bond", "activity"] {
+            if let Some(world_core::Value::Text(text)) = event.payload.get(key) {
+                keys.push(format!("{key}:{text}"));
+            }
+        }
+        // A question told as it came round (again, once more), and each
+        // beat of a life.
+        if event.kind == "situation_arose" || lives::is_news(event) {
+            if let Some(told) = story::told(world, event) {
+                keys.push(format!("told:{told}"));
+            }
+        }
+        if let Some(world_core::Value::Text(situation)) = event.payload.get("situation") {
+            keys.push(format!(
+                "situation:{}",
+                situation.split('.').next().unwrap_or_default()
+            ));
+        }
+        for key in keys {
+            if seen.insert(key) {
+                fresh[(day(event).min(DAYS - 1)) / 30] += 1;
+            }
+        }
+    }
+    let year_three = &fresh[24..36];
+    eprintln!(
+        "bond changes {} in all, at most {most_bonds} in 360 days; titles over 3: {} {:?}; new kinds per 30 days in year three {year_three:?}",
+        bonds.len(),
+        repeated.len(),
+        repeated.iter().take(8).collect::<Vec<_>>()
+    );
+    assert!(born >= 3, "{born} born");
+    assert!((1..=2).contains(&died), "{died} died");
+    assert!(grown >= 2, "{grown} came of age");
+    assert!(
+        most_bonds <= 60,
+        "{most_bonds} changes between people in a year"
+    );
+    assert!(repeated.is_empty(), "{repeated:?}");
+    assert!(year_three.iter().all(|new| *new >= 10), "{year_three:?}");
 }

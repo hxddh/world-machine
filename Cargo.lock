@@ -831,6 +831,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chronicle"
+version = "0.1.0"
+dependencies = [
+ "lives",
+ "world-core",
+ "world-projection",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4133,6 +4142,7 @@ name = "pocket-universe"
 version = "0.30.0"
 dependencies = [
  "calendar",
+ "chronicle",
  "conversation",
  "days",
  "hands",
@@ -5653,6 +5663,7 @@ name = "tiny-society"
 version = "0.13.0"
 dependencies = [
  "calendar",
+ "chronicle",
  "conversation",
  "days",
  "hands",
@@ -6982,7 +6993,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.20.0"
+version = "0.22.0"
 dependencies = [
  "cpal",
  "gpui",

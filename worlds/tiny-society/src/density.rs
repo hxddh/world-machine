@@ -530,17 +530,24 @@ fn a_year(policy: Policy) {
         .filter(|event| event.kind == "bond_changed")
         .map(|event| day(event) - first)
         .collect::<Vec<_>>();
-    for start in 90..335 {
+    // Fewer, weightier changes between people (v0.22): something changes
+    // every season, but at most once in six days: 61 in the year.
+    for start in 90..305 {
         let count = changes
             .iter()
-            .filter(|at| (start..start + 30).contains(*at))
+            .filter(|at| (start..start + 60).contains(*at))
             .count();
         assert!(
-            count >= 3,
-            "{policy:?}: only {count} changes between people in days {start}-{}",
-            start + 30
+            count >= 1,
+            "{policy:?}: no change between people in days {start}-{}",
+            start + 60
         );
     }
+    assert!(
+        changes.len() <= 61,
+        "{policy:?}: {} changes between people in a year",
+        changes.len()
+    );
 
     let titles = projection::snapshot(world)
         .chapters

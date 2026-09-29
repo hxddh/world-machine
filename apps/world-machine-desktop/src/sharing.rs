@@ -53,6 +53,11 @@ impl world_gpui::ProjectionController for VisitController {
     fn cue(&mut self, cue: world_gpui::Cue) {
         ambience::player::cue(cue);
     }
+
+    fn story(&mut self, request: world_gpui::StoryRequest) -> Option<world_gpui::StoryPage> {
+        let page = self.visit.borrow().story(request).ok()??;
+        Some(world_gpui::i18n::localize_story(page))
+    }
 }
 
 /// The name a World's code is offered to be saved under.

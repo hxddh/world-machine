@@ -1,3 +1,4 @@
+pub mod age;
 pub mod art;
 pub mod brush;
 pub mod diorama;
@@ -6,6 +7,7 @@ mod golden;
 pub mod i18n;
 mod macos;
 pub mod painter;
+pub mod panels;
 pub mod pointers;
 pub mod postcard;
 pub mod scene;
@@ -17,7 +19,9 @@ pub use macos::{
     is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,
 };
 pub use world_i18n::{set_language, Language};
-pub use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
+pub use world_projection::{
+    Ears, ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+};
 
 static TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
 
@@ -75,6 +79,13 @@ pub trait ProjectionController {
     /// A small sound for something that just happened on screen, if the
     /// app plays any. Presentation only.
     fn cue(&mut self, _cue: Cue) {}
+
+    /// A story the World tells when asked: someone's legend, a moment the
+    /// book keeps, a year's almanac. `None` when the World has none to
+    /// tell, or cannot be asked. Read only: asking changes nothing.
+    fn story(&mut self, _request: StoryRequest) -> Option<StoryPage> {
+        None
+    }
 }
 
 /// The small sounds a World window can ask for.

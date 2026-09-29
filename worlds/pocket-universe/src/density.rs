@@ -528,11 +528,14 @@ fn a_year(seed: &str, policy: Policy) {
     // people stand with each other keeps changing. Left alone, with nobody
     // asking or answering, it changes more slowly (a month can be quiet),
     // but it still changes.
-    let (fewest, span) = if matches!(policy, Policy::Absent) {
-        (2, 45)
-    } else {
-        (3, 30)
-    };
+    // Fewer, weightier changes (v0.22): at least one a season, at most
+    // one in six periods.
+    let (fewest, span) = (1, 60);
+    assert!(
+        changes.len() <= 61,
+        "{seed} {policy:?}: {} changes between people in a year",
+        changes.len()
+    );
     for start in 90..365 - span {
         let count = changes
             .iter()
@@ -1893,5 +1896,74 @@ fn four_ways_of_keeping_a_place_make_four_places_in_three_years() {
                 );
             }
         }
+    }
+}
+
+/// Three years of lives in each place, kept warmly: at least two born in
+/// each, as the place has them (a baby under the dome, a baby on Maple
+/// Street, chicks in Icebridge's thaw); fewer, weightier changes between
+/// people; and no storylet asked under one title more than three times.
+#[test]
+#[ignore]
+fn three_years_of_lives_in_every_place() {
+    let places = std::thread::scope(|scope| {
+        [
+            MARS,
+            crate::SEED_1980S_TOWN_COMMAND,
+            crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ]
+        .map(|seed| {
+            scope.spawn(move || {
+                let (universe, _) = warm(seed, THREE_YEARS);
+                (seed, universe.world().clone())
+            })
+        })
+        .map(|place| place.join().unwrap())
+    });
+    for (seed, world) in &places {
+        let count = |kind: &str| world.events_of_kind(&[kind]).len();
+        let born = count("born");
+        let bonds = world
+            .events_of_kind(&["bond_changed"])
+            .into_iter()
+            .map(|event| (event.world_time / crate::BACKGROUND_PERIOD) as usize)
+            .collect::<Vec<_>>();
+        let most_bonds = (0..=THREE_YEARS - 360)
+            .map(|start| {
+                bonds
+                    .iter()
+                    .filter(|at| (start..start + 360).contains(*at))
+                    .count()
+            })
+            .max()
+            .unwrap_or(0);
+        let mut titles = std::collections::BTreeMap::<String, usize>::new();
+        for event in world.events_of_kind(&["situation_arose"]) {
+            if let Some(told) = story::told(world, event) {
+                *titles.entry(told).or_default() += 1;
+            }
+        }
+        let repeated = titles
+            .into_iter()
+            .filter(|(_, times)| *times > 3)
+            .collect::<Vec<_>>();
+        eprintln!(
+            "{seed}: born {born}, died {}, came of age {}, retired {}, memorials {}; at most {most_bonds} changes between people in 360 days; titles over 3: {repeated:?}",
+            count("died"),
+            count("came_of_age"),
+            count("retired"),
+            count("memorial_placed"),
+        );
+        for event in world.events_of_kind(&["born", "died", "came_of_age"]) {
+            eprintln!(
+                "  {}: {}",
+                event.world_time / crate::BACKGROUND_PERIOD,
+                lives::told(event).unwrap_or_default()
+            );
+        }
+        assert!(born >= 2, "{seed}: {born} born");
+        assert!(most_bonds <= 61, "{seed}: {most_bonds}");
+        assert!(repeated.is_empty(), "{seed}: {repeated:?}");
+        assert_eq!(world.replay().unwrap().state(), world.state());
     }
 }

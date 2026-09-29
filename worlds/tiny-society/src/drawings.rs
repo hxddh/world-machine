@@ -42,6 +42,7 @@ pub(crate) fn drawings() -> &'static [Drawing] {
         ] {
             drawings.push(base.with(id, parts));
         }
+        drawings.extend(crate::kin::drawings());
         drawings
     })
 }
@@ -79,7 +80,20 @@ fn folk(id: EntityId) -> String {
 /// nobody shares a silhouette until more people have lived here than there
 /// are looks.
 pub(crate) fn variant_of(world: &World, id: EntityId) -> u32 {
-    let rank = lives::joined_rank(world.state(), id).unwrap_or(id.0 as usize) as u32;
+    // A child of the harbour, not yet in its everyday life, comes after
+    // everyone who is.
+    let state = world.state();
+    let rank = lives::joined_rank(state, id)
+        .or_else(|| {
+            let children = lives::children(state, &crate::life::cast());
+            let at = children.iter().position(|child| *child == id)?;
+            let joined = state
+                .entities()
+                .filter(|entity| !lives::traits(state, entity.id).is_empty())
+                .count();
+            Some(joined + at)
+        })
+        .unwrap_or(id.0 as usize) as u32;
     // Spread through the looks, so neighbours in joining differ a lot.
     (rank.wrapping_mul(7)) % world_projection::SILHOUETTES
 }
@@ -89,7 +103,8 @@ pub(crate) fn variant_of(world: &World, id: EntityId) -> u32 {
 pub(crate) fn drawings_for(world: &World) -> Vec<Drawing> {
     let mut all = drawings().to_vec();
     let base = person_base(PERSON);
-    for id in crate::story::people(world) {
+    let children = lives::children(world.state(), &crate::life::cast());
+    for id in crate::story::people(world).into_iter().chain(children) {
         if let Some(name) = drawing_of(id, true).filter(|name| name.starts_with(PERSON)) {
             all.push(world_projection::person(name, variant_of(world, id), &base));
         }

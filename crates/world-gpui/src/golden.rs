@@ -1003,16 +1003,36 @@ fn on_cpu() -> std::time::Duration {
     std::time::Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
 }
 
-/// A view of a scene whose frame the test can change between frames.
-struct LiveScene(std::rc::Rc<std::cell::RefCell<diorama::Frame>>);
+/// A moment strip over a scene: the snapshot it is drawn from, and the
+/// moment.
+type StripOver = Option<(ProjectionSnapshot, world_projection::Moment)>;
+
+/// A view of a scene whose frame the test can change between frames, with
+/// a moment's strip over it when the test puts one there.
+struct LiveScene(
+    std::rc::Rc<std::cell::RefCell<diorama::Frame>>,
+    std::rc::Rc<std::cell::RefCell<StripOver>>,
+);
 
 impl gpui::Render for LiveScene {
     fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         let frame = self.0.borrow().clone();
+        let (width, height) = (frame.width_of_view(), frame.height_of_view());
+        let started = std::time::Instant::now();
+        let strip = self.1.borrow().as_ref().map(|(snapshot, moment)| {
+            let layout = crate::macos::strip_layout(width, height);
+            div()
+                .absolute()
+                .left(px(layout.x))
+                .top(px(layout.y))
+                .child(crate::macos::moment_strip(snapshot, moment, layout))
+        });
+        crate::painter::note_frame(started.elapsed());
         div()
             .size_full()
             .relative()
             .child(diorama::scene(frame, window))
+            .children(strip)
     }
 }
 
@@ -1045,6 +1065,8 @@ fn a_three_year_world_never_waits_for_painting() {
         .at_hour(hour)
     };
     let shared = std::rc::Rc::new(std::cell::RefCell::new(make(12.0, 0.0, Daylight::Day)));
+    let over = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let strip = over.clone();
     let mut cx =
         HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
             Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
@@ -1053,7 +1075,7 @@ fn a_three_year_world_never_waits_for_painting() {
     let started = on_cpu();
     let window = cx
         .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
-            cx.new(|_| LiveScene(view.clone()))
+            cx.new(|_| LiveScene(view.clone(), strip.clone()))
         })
         .expect("a window");
     let opening = on_cpu().saturating_sub(started);
@@ -1088,13 +1110,60 @@ fn a_three_year_world_never_waits_for_painting() {
             quiet = if crate::painter::idle() { quiet + 1 } else { 0 };
         }
     };
-    settle(&mut cx, &mut worst, &mut frames);
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "opening: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
     // The hour turns to dusk: every still layer is painted again.
     *shared.borrow_mut() = make(19.5, 0.0, Daylight::Dusk);
-    settle(&mut cx, &mut worst, &mut frames);
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "dusk: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
     // The view pans a window and a half along, into tiles not painted.
     *shared.borrow_mut() = make(19.5, width * 1.5, Daylight::Dusk);
-    settle(&mut cx, &mut worst, &mut frames);
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "panned: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
+    // A moment comes: its three panels are painted off the window's thread
+    // and fade in over the scene.
+    use world_projection::MomentKind;
+    *over.borrow_mut() = Some((
+        snapshot.clone(),
+        moment_of(
+            MomentKind::Wedding,
+            "A wedding",
+            [&[1, 2], &[1, 2, 3], &[1, 2, 3, 4]],
+        ),
+    ));
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "wedding strip: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
+    *over.borrow_mut() = Some((
+        snapshot.clone(),
+        moment_of(MomentKind::Birth, "A birth", [&[5, 6], &[5, 6], &[5, 6, 7]]),
+    ));
+    let mut phase = Duration::ZERO;
+    settle(&mut cx, &mut phase, &mut frames);
+    eprintln!(
+        "birth strip: the longest frame {:.2} ms",
+        phase.as_secs_f64() * 1000.0
+    );
+    worst = worst.max(phase);
     crate::painter::paint_elsewhere(false);
     eprintln!("{:?}", crate::painter::profile().lock().unwrap());
     eprintln!(
@@ -1240,4 +1309,179 @@ fn the_reference_rasteriser_draws_quads_and_paths_in_order() {
     assert_eq!(at(14, 4), [255, 0, 0, 255], "red laid over blue");
     assert_eq!(at(60, 20)[3], 255, "the circle's middle is filled");
     assert_eq!(at(41, 1)[3], 0, "its corner is round, and empty");
+}
+
+/// A look at someone's age.
+fn aged(age: world_projection::AgeStage) -> world_projection::Look {
+    world_projection::Look {
+        age: Some(age),
+        grey: age == world_projection::AgeStage::Elder,
+        stoop: age == world_projection::AgeStage::Elder,
+        ..Default::default()
+    }
+}
+
+/// The harbour with people of every age: an elder with a cane, a child
+/// and a teenager, a baby carried by their mother, and a baby asleep in a
+/// pram by the lighthouse with nobody of theirs near.
+fn generations() -> ProjectionSnapshot {
+    use world_projection::AgeStage;
+    let mut snapshot = harbour();
+    let home = id(101);
+    for (n, age) in [
+        (1, AgeStage::Adult),
+        (2, AgeStage::Elder),
+        (3, AgeStage::Child),
+        (4, AgeStage::Teen),
+    ] {
+        if let Some(person) = snapshot
+            .canvas
+            .items
+            .iter_mut()
+            .find(|item| item.id == id(n))
+        {
+            person.look = Some(aged(age));
+            person.home = Some(home);
+            person.day.clear();
+        }
+    }
+    // Two of them in drawings of their own, as a Pack draws its people.
+    let base = world_projection::person_base("golden-folk");
+    for (n, variant) in [(1_u64, 7_u32), (4, 30)] {
+        let name = format!("golden-folk-{n}");
+        snapshot
+            .drawings
+            .push(world_projection::person(name.clone(), variant, &base));
+        if let Some(person) = snapshot
+            .canvas
+            .items
+            .iter_mut()
+            .find(|item| item.id == id(n))
+        {
+            person.drawing = Some(name);
+        }
+    }
+    let mut baby = item(5, CanvasItemKind::Actor, "Pip Quinn", 0.0, Some(100));
+    baby.look = Some(aged(AgeStage::Baby));
+    baby.home = Some(home);
+    snapshot.canvas.items.push(baby);
+    let mut sleeping = item(6, CanvasItemKind::Actor, "Wren Moss", 0.9, Some(103));
+    sleeping.look = Some(aged(AgeStage::Baby));
+    sleeping.home = Some(id(102));
+    snapshot.canvas.items.push(sleeping);
+    snapshot
+}
+
+#[test]
+fn people_of_every_age_match_their_golden_picture() {
+    let snapshot = generations();
+    let frame = diorama_frame(&snapshot, 640.0, 360.0, Daylight::Day, 13.0);
+    // The baby at the harbour is in their mother's arms, not on the ground;
+    // the one by the lighthouse sleeps in a pram.
+    let carried = frame
+        .people
+        .iter()
+        .filter(|person| person.carrying.is_some())
+        .count();
+    assert_eq!(carried, 1);
+    let babies_standing = frame
+        .people
+        .iter()
+        .filter(|person| person.figure.age == crate::age::Age::Baby)
+        .count();
+    assert_eq!(babies_standing, 1, "one baby in a pram");
+    let child = frame
+        .people
+        .iter()
+        .find(|person| person.figure.age == crate::age::Age::Child)
+        .unwrap();
+    let grown = frame
+        .people
+        .iter()
+        .find(|person| person.figure.age == crate::age::Age::Adult)
+        .unwrap();
+    assert!(child.height < grown.height * 0.7);
+    let image = draw(640.0, 360.0, move || painted(frame.clone()));
+    matches_golden("ages", &image);
+}
+
+/// A moment of `kind` in the town: its three panels at the bakery.
+fn moment_of(
+    kind: world_projection::MomentKind,
+    title: &str,
+    cast: [&[u64]; 3],
+) -> world_projection::Moment {
+    use world_projection::{Panel, PanelBeat};
+    let panel = |beat: PanelBeat, cast: &[u64], caption: &str| Panel {
+        caption: caption.into(),
+        cast: cast.iter().map(|n| id(*n)).collect(),
+        place: Some(id(101)),
+        mood: None,
+        beat,
+    };
+    world_projection::Moment {
+        id: format!("{kind:?}-12"),
+        day: 12,
+        kind,
+        title: title.into(),
+        panels: [
+            panel(PanelBeat::Before, cast[0], "Before"),
+            panel(PanelBeat::Moment, cast[1], "The moment"),
+            panel(PanelBeat::After, cast[2], "After"),
+        ],
+        event: None,
+    }
+}
+
+/// A wedding, a birth and a farewell, each as three panels in the town's
+/// own look: the bakery behind, the people posed for each beat.
+#[test]
+fn a_wedding_a_birth_and_a_farewell_match_their_golden_pictures() {
+    use world_projection::MomentKind;
+    let snapshot = generations();
+    for (name, moment) in [
+        (
+            "moment-wedding",
+            moment_of(
+                MomentKind::Wedding,
+                "Mara and Leo marry",
+                [&[1, 3], &[1, 3], &[1, 3, 4]],
+            ),
+        ),
+        (
+            "moment-birth",
+            moment_of(
+                MomentKind::Birth,
+                "Pip is born",
+                [&[1, 3], &[1, 5, 3], &[1, 5, 3]],
+            ),
+        ),
+        (
+            "moment-farewell",
+            moment_of(
+                MomentKind::Farewell,
+                "Leo says goodbye",
+                [&[2, 1], &[2, 1, 4], &[1, 4]],
+            ),
+        ),
+    ] {
+        let (width, height) = (900.0, 480.0);
+        let layout = crate::macos::strip_layout(width, height);
+        let strip_snapshot = snapshot.clone();
+        let image = draw(width, height, move || {
+            div()
+                .size_full()
+                .bg(gpui::rgb(0x6f7a70))
+                .relative()
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(layout.x))
+                        .top(px(layout.y))
+                        .child(crate::macos::moment_strip(&strip_snapshot, &moment, layout)),
+                )
+                .into_any_element()
+        });
+        matches_golden(name, &image);
+    }
 }

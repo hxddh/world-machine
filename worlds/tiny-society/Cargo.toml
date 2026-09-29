@@ -12,6 +12,7 @@ lives = { path = "../../systems/lives" }
 hands = { path = "../../systems/hands" }
 conversation = { path = "../../systems/conversation" }
 calendar = { path = "../../systems/calendar" }
+chronicle = { path = "../../systems/chronicle" }
 days = { path = "../../systems/days" }
 world-core = { path = "../../crates/world-core" }
 world-agent = { path = "../../crates/world-agent" }

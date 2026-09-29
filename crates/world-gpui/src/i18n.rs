@@ -3,7 +3,7 @@
 //! and everything it records keep their own words.
 
 use world_i18n::{language, tr_owned, Language};
-use world_projection::ProjectionSnapshot;
+use world_projection::{Almanac, Moment, ProjectionSnapshot, StoryPage};
 
 /// The app's own words in Simplified Chinese.
 pub const APP_ZH_HANS: &str = include_str!("../locales/zh-Hans.tsv");
@@ -94,5 +94,56 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
         put(&mut entry.name);
         put(&mut entry.hint);
     }
+    for moment in &mut snapshot.moments {
+        put_moment(moment);
+    }
+    if let Some(almanac) = &mut snapshot.almanac {
+        put_almanac(almanac);
+    }
     snapshot
+}
+
+fn put_moment(moment: &mut Moment) {
+    put(&mut moment.title);
+    for panel in &mut moment.panels {
+        put(&mut panel.caption);
+    }
+}
+
+fn put_almanac(almanac: &mut Almanac) {
+    put(&mut almanac.title);
+    for list in [
+        &mut almanac.arrived,
+        &mut almanac.left,
+        &mut almanac.born,
+        &mut almanac.died,
+        &mut almanac.built,
+    ] {
+        for name in list {
+            put(name);
+        }
+    }
+    for named in &mut almanac.cast {
+        put(&mut named.name);
+    }
+}
+
+/// A story the World told, with every word the player reads in the app's
+/// language.
+pub fn localize_story(mut page: StoryPage) -> StoryPage {
+    if language() == Language::English {
+        return page;
+    }
+    match &mut page {
+        StoryPage::Legend(legend) => {
+            put(&mut legend.title);
+            for line in &mut legend.lines {
+                put(&mut line.text);
+                put_option(&mut line.because);
+            }
+        }
+        StoryPage::Moment(moment) => put_moment(moment),
+        StoryPage::Almanac(almanac) => put_almanac(almanac),
+    }
+    page
 }

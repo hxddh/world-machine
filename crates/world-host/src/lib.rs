@@ -3,7 +3,9 @@ use std::error::Error;
 use std::fmt;
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{WorldArchive, WorldPackRef};
-use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
+use world_projection::{
+    ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+};
 
 pub trait WorldSession {
     fn pack(&self) -> WorldPackRef;
@@ -16,6 +18,14 @@ pub trait WorldSession {
     /// nobody can talk to.
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
         let _ = (to, words);
+        Ok(None)
+    }
+
+    /// A story the World tells about itself when asked: the legend of a
+    /// person, place or work, one of its moments, or a year's almanac.
+    /// Changes nothing; `None` for a World without that story.
+    fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {
+        let _ = request;
         Ok(None)
     }
 
@@ -109,6 +119,10 @@ impl WorldSession for IntegrityCheckedSession {
 
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
         self.inner.hearing(to, words)
+    }
+
+    fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {
+        self.inner.story(request)
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {

@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 /// How tall the bar a World window puts above this view is.
-const CHROME: f32 = 52.0;
+pub(crate) const CHROME: f32 = 52.0;
 /// How wide the card and the drawer are.
 const CARD_WIDTH: f32 = 560.0;
 const DRAWER_WIDTH: f32 = 360.0;
@@ -422,6 +422,17 @@ pub(crate) fn question_waits(snapshot: &ProjectionSnapshot) -> f32 {
     }
 }
 
+/// How long the greeting as a World opens lasts: the first thing said,
+/// every page of it, and never less than a question waits.
+pub(crate) fn greeting_seconds(snapshot: &ProjectionSnapshot) -> f32 {
+    voices_now(snapshot)
+        .first()
+        .map_or(0.0, |voice| {
+            LINE_SECONDS * speech_pages(&voice.line).len() as f32
+        })
+        .max(question_waits(snapshot))
+}
+
 /// What was said at the latest moment, the story before the everyday.
 pub(crate) fn voices_now(snapshot: &ProjectionSnapshot) -> Vec<&world_projection::Voice> {
     let time_of = |moment: SelectionId| {
@@ -822,7 +833,7 @@ impl ProjectionView {
         ));
     }
 
-    fn cue(&mut self, cue: crate::Cue) {
+    pub(crate) fn cue(&mut self, cue: crate::Cue) {
         if let Some(controller) = self.controller.as_mut() {
             controller.cue(cue);
         }
@@ -1094,12 +1105,37 @@ impl ProjectionView {
             }
             return;
         }
+        if self.page_key(event, window, cx) {
+            return;
+        }
         match key {
             "i" if command => self.toggle_drawer(cx),
             "z" if command => self.undo(cx),
             "h" if !command && self.retelling.is_none() => self.toggle_hands(cx),
             "p" if !command && self.retelling.is_none() => self.take_photo(window, cx),
             "c" if !command && self.retelling.is_none() => self.take_postcard(window, cx),
+            // The stories: whoever is being talked to (or chosen), the
+            // newest moment, and the year's almanac.
+            "l" if !command && self.retelling.is_none() => {
+                if let Some(who) = self
+                    .looking
+                    .asking
+                    .or(self.selected)
+                    .filter(|who| matches!(who, SelectionId::Entity(_)))
+                {
+                    self.open_legend(who, cx);
+                }
+            }
+            "m" if !command && self.retelling.is_none() => {
+                if let Some(id) = self.snapshot.moments.last().map(|moment| moment.id.clone()) {
+                    self.open_moment(&id, cx);
+                }
+            }
+            "y" if !command && self.retelling.is_none() => {
+                if let Some(year) = self.snapshot.almanac.as_ref().map(|almanac| almanac.year) {
+                    self.open_almanac(year, cx);
+                }
+            }
             "escape" => {
                 if self.looking.hands.is_some() {
                     self.looking.hands = None;
@@ -1701,6 +1737,7 @@ impl ProjectionView {
             }
         }
         let camera = self.camera(&stage);
+        self.notice_moments();
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
@@ -2224,7 +2261,9 @@ impl ProjectionView {
                 } else {
                     0.0
                 };
-            let card = if self.retelling.is_some() {
+            let card = if self.moment_up() || self.reading.page.is_some() {
+                None
+            } else if self.retelling.is_some() {
                 self.render_retelling(cx)
             } else if let Some(chapter) = self.render_chapter_end(cx) {
                 Some(chapter)
@@ -2261,6 +2300,12 @@ impl ProjectionView {
         }
         if self.looking.drawer {
             root = root.child(self.render_drawer(cx));
+        }
+        if let Some(strip) = self.render_moment_up(width, height, cx) {
+            root = root.child(strip);
+        }
+        if let Some(page) = self.render_page(width, height, cx) {
+            root = root.child(page);
         }
         if let Some(status) = self.render_status() {
             root = root.child(
@@ -3164,7 +3209,10 @@ impl ProjectionView {
     /// The book of everything to find: a shelf each for keepsakes, people,
     /// things made and festival days, what has been found drawn in colour
     /// and what is still to come as a silhouette with a hint.
-    pub(crate) fn render_book(&self) -> Option<Stateful<Div>> {
+    pub(crate) fn render_book(
+        &self,
+        open: Option<gpui::WeakEntity<Self>>,
+    ) -> Option<Stateful<Div>> {
         let book = &self.snapshot.book;
         if book.is_empty() {
             return None;
@@ -3194,7 +3242,38 @@ impl ProjectionView {
                     .found
                     .then(|| book_look(&self.snapshot, entry))
                     .flatten();
-                grid = grid.child(book_tile(entry, index, look));
+                let look = match (&entry.moment, entry.found) {
+                    (Some(id), true) => self
+                        .snapshot
+                        .moments
+                        .iter()
+                        .find(|moment| &moment.id == id)
+                        .and_then(|moment| {
+                            let scene = super::stories::panel_scenes(&self.snapshot, moment)
+                                .into_iter()
+                                .nth(1)?;
+                            Some(BookLook::Moment(moment.id.clone(), Box::new(scene)))
+                        })
+                        .or(look),
+                    _ => look,
+                };
+                let mut tile = book_tile(entry, index, look);
+                // A moment opens in its panels; someone, somewhere or
+                // something opens their story.
+                if let (Some(open), true) = (open.clone(), entry.found) {
+                    let moment = entry.moment.clone();
+                    let subject = entry.cast.first().copied();
+                    if moment.is_some() || subject.is_some() {
+                        tile = tile.cursor_pointer().on_click(move |_, _, cx| {
+                            let _ = open.update(cx, |this, cx| match (&moment, subject) {
+                                (Some(moment), _) => this.open_moment(moment, cx),
+                                (None, Some(subject)) => this.open_legend(subject, cx),
+                                _ => {}
+                            });
+                        });
+                    }
+                }
+                grid = grid.child(tile);
             }
             let heading = format!("{shelf} · {found} of {}", shelf_len(book, shelf));
             section = section.child(
@@ -3264,6 +3343,14 @@ impl ProjectionView {
                             .child(ui::row_title(name.clone()))
                             .child(ui::caption(detail)),
                     )
+                    .when(self.controller.is_some(), |row| {
+                        row.child(
+                            ui::button("asking-story", "Their story", ButtonKind::Secondary)
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.open_legend(who, cx)),
+                                ),
+                        )
+                    })
                     .child(arrow_button(
                         "asking-close",
                         "×",
@@ -3506,9 +3593,12 @@ impl ProjectionView {
         // chapters it has closed.
         for part in [
             self.render_chapters().map(IntoElement::into_any_element),
+            self.render_almanac_letter(cx)
+                .map(IntoElement::into_any_element),
             self.render_letters().map(IntoElement::into_any_element),
             self.render_keepsakes().map(IntoElement::into_any_element),
-            self.render_book().map(IntoElement::into_any_element),
+            self.render_book(Some(cx.entity().downgrade()))
+                .map(IntoElement::into_any_element),
             self.render_closer_look(cx)
                 .map(IntoElement::into_any_element),
             self.render_story(cx).map(IntoElement::into_any_element),
@@ -4012,7 +4102,7 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
 /// `<name>.png`, with the time after the name when `stamped` (a photo) or
 /// only when a picture of that name is already there (a postcard, which is
 /// named after its day).
-fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) -> bool {
+pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) -> bool {
     let Some(home) = std::env::var_os("HOME") else {
         return false;
     };
@@ -4132,6 +4222,8 @@ fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
 #[derive(Clone)]
 pub(crate) enum BookLook {
     Someone(Likeness),
+    /// A moment kept in the book: its middle panel, as painted.
+    Moment(String, Box<crate::panels::PanelScene>),
     Something {
         drawing: Option<world_projection::Drawing>,
         palette: art::Palette,
@@ -4186,6 +4278,40 @@ fn book_tile(
             let w = f32::from(bounds.size.width) * 0.62;
             let shadow: Hsla = gpui::black().opacity(0.28);
             match (&look, shape, found) {
+                (Some(BookLook::Moment(id, scene)), _, true) => {
+                    let (w, h) = (60.0_f32, 45.0_f32);
+                    let dpr = window.scale_factor().max(1.0);
+                    let mut key = crate::painter::Key::new("book-moment");
+                    key.add(id).float(dpr);
+                    let key = key.finish();
+                    let at = gpui::Bounds::new(
+                        gpui::point(px(x - w / 2.0), px(base - h)),
+                        gpui::size(px(w), px(h)),
+                    );
+                    match crate::painter::ready(key) {
+                        Some(crate::painter::Ready::Image(image, _)) => {
+                            let _ = window.paint_image(
+                                at,
+                                at,
+                                gpui::Corners::all(px(3.0)),
+                                image,
+                                0,
+                                false,
+                            );
+                        }
+                        Some(crate::painter::Ready::Empty) => {}
+                        None => {
+                            let scene = (**scene).clone();
+                            crate::painter::want(
+                                window,
+                                key,
+                                crate::painter::synchronous(),
+                                Box::new(move || crate::panels::paint_panel(&scene, w, h, dpr)),
+                            );
+                            window.request_animation_frame();
+                        }
+                    }
+                }
                 (Some(BookLook::Someone(likeness)), _, true) => {
                     let side = f32::from(bounds.size.height);
                     art::paint_likeness(
@@ -4418,6 +4544,7 @@ mod tests {
                     found: true,
                     shape: None,
                     hint: String::new(),
+                    ..Default::default()
                 },
                 BookEntry {
                     shelf: "Keepsakes".into(),
@@ -4425,6 +4552,7 @@ mod tests {
                     found: false,
                     shape: None,
                     hint: "Someone by the sea".into(),
+                    ..Default::default()
                 },
             ],
             ..ProjectionSnapshot::default()
@@ -4471,7 +4599,7 @@ mod tests {
             (Some(Role::List), Some("Keepsakes · 1".into()))
         );
         assert_eq!(
-            named(view.render_book()),
+            named(view.render_book(None)),
             (Some(Role::Group), Some("Book · 1 of 2".into()))
         );
         assert_eq!(

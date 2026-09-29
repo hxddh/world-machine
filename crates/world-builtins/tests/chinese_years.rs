@@ -94,12 +94,66 @@ fn read(snapshot: &ProjectionSnapshot, shown: &mut BTreeSet<String>, names: &mut
     if let Some(briefing) = &snapshot.briefing {
         texts.extend(briefing.items.iter().map(|item| item.title.clone()));
     }
+    for moment in &snapshot.moments {
+        texts.push(moment.title.clone());
+        texts.extend(moment.panels.iter().map(|panel| panel.caption.clone()));
+    }
+    if let Some(almanac) = &snapshot.almanac {
+        texts.push(almanac.title.clone());
+        texts.extend(almanac.built.iter().cloned());
+    }
     shown.extend(texts.into_iter().filter(|text| !text.trim().is_empty()));
+}
+
+/// What a place showed, the names in it, and the stories it told.
+type Shown = (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>);
+
+/// Every story the World tells at the end: the legend of everyone and
+/// everything in the scene, every moment in the book and every year's
+/// almanac, as a player reads them.
+fn stories(session: &dyn world_host::WorldSession) -> BTreeSet<String> {
+    use world_projection::{StoryPage, StoryRequest};
+    let snapshot = session.snapshot();
+    let mut texts = Vec::new();
+    let mut ask = |request| match session.story(request).unwrap() {
+        Some(StoryPage::Legend(legend)) => {
+            for line in legend.lines {
+                texts.push(line.text);
+                texts.extend(line.because);
+            }
+        }
+        Some(StoryPage::Moment(moment)) => {
+            texts.push(moment.title);
+            texts.extend(moment.panels.map(|panel| panel.caption));
+        }
+        Some(StoryPage::Almanac(almanac)) => {
+            texts.push(almanac.title);
+            texts.extend(almanac.built);
+        }
+        None => {}
+    };
+    for item in &snapshot.canvas.items {
+        ask(StoryRequest::Legend(item.id));
+    }
+    for moment in snapshot
+        .book
+        .iter()
+        .filter_map(|entry| entry.moment.clone())
+    {
+        ask(StoryRequest::Moment(moment));
+    }
+    for year in 1..=12 {
+        ask(StoryRequest::Almanac(year));
+    }
+    texts
+        .into_iter()
+        .filter(|text| !text.trim().is_empty())
+        .collect()
 }
 
 /// Three years of Tiny Society, played warmly: the first question each
 /// day answered, something built every week.
-fn tiny_society(days: usize) -> (BTreeSet<String>, BTreeSet<String>) {
+fn tiny_society(days: usize) -> Shown {
     let registry = world_builtins::registry().unwrap();
     let mut session = registry.create(tiny_society::TINY_SOCIETY_PACK_ID).unwrap();
     let (mut shown, mut names) = (BTreeSet::new(), names());
@@ -131,11 +185,13 @@ fn tiny_society(days: usize) -> (BTreeSet<String>, BTreeSet<String>) {
             .handle(InvokeCommand("tiny-society.let-day-pass".into()))
             .unwrap();
     }
-    (shown, names)
+    let told = stories(session.as_ref());
+    shown.extend(told.iter().cloned());
+    (shown, names, told)
 }
 
 /// Three years of one of Pocket Universe's places.
-fn pocket_universe(seed: &str, periods: usize) -> (BTreeSet<String>, BTreeSet<String>) {
+fn pocket_universe(seed: &str, periods: usize) -> Shown {
     let mut registry = world_host::WorldRegistry::new();
     registry
         .register(pocket_universe::pocket_universe_registration())
@@ -174,7 +230,9 @@ fn pocket_universe(seed: &str, periods: usize) -> (BTreeSet<String>, BTreeSet<St
             .handle(InvokeCommand(pocket_universe::NUDGE_COMMAND.into()))
             .unwrap();
     }
-    (shown, names)
+    let told = stories(session.as_ref());
+    shown.extend(told.iter().cloned());
+    (shown, names, told)
 }
 
 fn english(names: &BTreeSet<String>, text: &str) -> bool {
@@ -237,7 +295,25 @@ fn three_years_of_both_packs_are_shown_in_chinese() {
     });
     let mut report = String::new();
     let mut short = Vec::new();
-    for (place, (shown, names)) in &places {
+    for (place, (shown, names, told)) in &places {
+        // The stories alone keep to the same bar.
+        let untold = left(&catalog, told, names);
+        let told_share = 1.0 - untold.len() as f64 / told.len().max(1) as f64;
+        eprintln!(
+            "{place}: {} of {} story texts partly English",
+            untold.len(),
+            told.len()
+        );
+        for (text, translated) in untold.iter().take(30) {
+            eprintln!("  story: {text}  =>  {translated}");
+        }
+        assert!(told.len() > 20, "{place} told only {} stories", told.len());
+        if told_share < BAR {
+            short.push(format!(
+                "{place} stories {:.2}%",
+                (1.0 - told_share) * 100.0
+            ));
+        }
         let left = left(&catalog, shown, names);
         let share = 1.0 - left.len() as f64 / shown.len() as f64;
         eprintln!(

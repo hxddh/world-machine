@@ -19,6 +19,12 @@ use world_projection::{
 };
 use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
 
+mod stories;
+pub use stories::{
+    AlmanacWire, LegendLineWire, LegendWire, MomentWire, NamedWire, PanelWire, StoryPageWire,
+    StoryRequestWire, MOST_ALMANAC_NAMES, MOST_LEGEND_LINES, MOST_PANEL_CAST,
+};
+
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;
@@ -39,7 +45,11 @@ pub const PACK_PROTOCOL_VERSION_V5: u32 = 5;
 /// fails, and asks for only the events it has not saved, so one Pack
 /// process serves an open World for as long as it is open.
 pub const PACK_PROTOCOL_VERSION_V6: u32 = 6;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V6;
+/// Adds `story`: a World asked for a legend, a moment or an almanac, and
+/// the snapshot's latest moments and New Year's almanac (which, like every
+/// presentation hint, an older app passes over).
+pub const PACK_PROTOCOL_VERSION_V7: u32 = 7;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V7;
 
 /// The most a frame (one line, with its newline) may hold between a host
 /// and a Pack that speaks v5 or later.
@@ -266,6 +276,10 @@ pub enum PackRequest {
     ArchiveSince {
         events: usize,
     },
+    /// A legend, a moment or an almanac: nothing changes (v7).
+    Story {
+        request: StoryRequestWire,
+    },
 }
 
 // One response is built per message and serialized at once, so how much
@@ -292,6 +306,11 @@ pub enum PackResponse {
     /// Whether the World could mark where it stands (v6).
     Checkpointed {
         kept: bool,
+    },
+    /// What the World told, if it has that story (v7).
+    Story {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<StoryPageWire>,
     },
     Ok,
     Error {
@@ -613,6 +632,7 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
             | PACK_PROTOCOL_VERSION_V4
             | PACK_PROTOCOL_VERSION_V5
             | PACK_PROTOCOL_VERSION_V6
+            | PACK_PROTOCOL_VERSION_V7
     ) {
         Ok(())
     } else {
@@ -643,6 +663,12 @@ fn validate_request_for_protocol(
         return Err(ProtocolError::RequestNotSupportedInProtocol {
             protocol_version,
             request: "checkpoint",
+        });
+    }
+    if matches!(request, PackRequest::Story { .. }) && protocol_version < PACK_PROTOCOL_VERSION_V7 {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "story",
         });
     }
     let needs_v3 = match request {
@@ -888,6 +914,13 @@ pub struct ProjectionSnapshotWire {
     /// sends none, and the drawer shows no book.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub book: Vec<BookEntryWire>,
+    /// Optional both ways: the latest moments, at most
+    /// [`world_projection::MOST_MOMENTS_IN_SNAPSHOT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moments: Vec<MomentWire>,
+    /// Optional both ways: the year in review, on New Year's day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub almanac: Option<AlmanacWire>,
 }
 
 /// One entry in a World's book, as it crosses the boundary.
@@ -901,10 +934,16 @@ pub struct BookEntryWire {
     pub shape: Option<MarkShapeWire>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub hint: String,
+    /// The moment it keeps, by id (v7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moment: Option<String>,
+    /// Who or what it shows (v7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cast: Vec<SelectionIdWire>,
 }
 
 /// The most entries one book carries.
-pub const MOST_BOOK_ENTRIES: usize = 400;
+pub const MOST_BOOK_ENTRIES: usize = 4_000;
 
 /// Something someone gave the player to keep.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1193,6 +1232,54 @@ pub struct LookWire {
     pub carries: Option<CarryWire>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bird: bool,
+    /// How far through life someone is; one this build does not know is
+    /// drawn grown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age: Option<AgeStageWire>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grey: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stoop: bool,
+}
+
+/// How far through life someone is, on the wire.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgeStageWire {
+    Baby,
+    Child,
+    Teen,
+    Adult,
+    Elder,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<world_projection::AgeStage> for AgeStageWire {
+    fn from(age: world_projection::AgeStage) -> Self {
+        use world_projection::AgeStage;
+        match age {
+            AgeStage::Baby => Self::Baby,
+            AgeStage::Child => Self::Child,
+            AgeStage::Teen => Self::Teen,
+            AgeStage::Adult => Self::Adult,
+            AgeStage::Elder => Self::Elder,
+        }
+    }
+}
+
+impl AgeStageWire {
+    fn stage(self) -> Option<world_projection::AgeStage> {
+        use world_projection::AgeStage;
+        Some(match self {
+            Self::Baby => AgeStage::Baby,
+            Self::Child => AgeStage::Child,
+            Self::Teen => AgeStage::Teen,
+            Self::Adult => AgeStage::Adult,
+            Self::Elder => AgeStage::Elder,
+            Self::Unknown => return None,
+        })
+    }
 }
 
 /// What someone carries. Something a newer Pack names and this build does
@@ -1253,6 +1340,9 @@ impl From<world_projection::Look> for LookWire {
             skin: look.skin,
             carries: look.carries.map(Into::into),
             bird: look.bird,
+            age: look.age.map(Into::into),
+            grey: look.grey,
+            stoop: look.stoop,
         }
     }
 }
@@ -1266,6 +1356,9 @@ impl From<LookWire> for world_projection::Look {
             skin: colour(look.skin),
             carries: look.carries.and_then(CarryWire::carried),
             bird: look.bird,
+            age: look.age.and_then(AgeStageWire::stage),
+            grey: look.grey,
+            stoop: look.stoop,
         }
     }
 }
@@ -1303,6 +1396,9 @@ pub struct CalendarWire {
     /// Optional both ways: whether today is a festival day.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub festival_today: bool,
+    /// Optional both ways: how many of `unit` make the World's year (v7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year: Option<u64>,
 }
 
 /// How a World looks from a distance, as `0xRRGGBB` colours.
@@ -1413,6 +1509,15 @@ impl ProjectionSnapshotWire {
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
+        let moments = self.moments.iter().flat_map(MomentWire::selections);
+        let almanac = self.almanac.iter().flat_map(AlmanacWire::selections);
+        let book = self
+            .book
+            .iter()
+            .flat_map(|entry| entry.cast.iter().copied());
+        for selection in moments.chain(almanac).chain(book) {
+            validate_selection_for_protocol(protocol_version, selection)?;
+        }
         Ok(())
     }
 }
@@ -1437,6 +1542,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 season: calendar.season.clone(),
                 coming: calendar.coming.clone(),
                 festival_today: calendar.festival_today,
+                year: calendar.year,
             }),
             gauges: snapshot
                 .gauges
@@ -1530,8 +1636,15 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     found: entry.found,
                     shape: entry.shape.map(Into::into),
                     hint: entry.hint.clone(),
+                    moment: entry.moment.clone(),
+                    cast: entry.cast.iter().copied().map(Into::into).collect(),
                 })
                 .collect(),
+            moments: world_projection::latest_moments(&snapshot.moments)
+                .iter()
+                .map(Into::into)
+                .collect(),
+            almanac: snapshot.almanac.as_ref().map(Into::into),
         }
     }
 }
@@ -1586,6 +1699,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     season: calendar.season.filter(|season| !season.trim().is_empty()),
                     coming: calendar.coming.filter(|coming| !coming.trim().is_empty()),
                     festival_today: calendar.festival_today,
+                    year: calendar.year.filter(|year| *year > 0),
                 }),
             gauges: snapshot
                 .gauges
@@ -1713,8 +1827,20 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     found: entry.found,
                     shape: entry.shape.map(Into::into),
                     hint: entry.hint,
+                    moment: entry.moment.filter(|moment| !moment.trim().is_empty()),
+                    cast: entry.cast.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
+            // The latest few moments, each with its three panels.
+            moments: {
+                let moments = snapshot
+                    .moments
+                    .into_iter()
+                    .filter_map(MomentWire::into_moment)
+                    .collect::<Vec<_>>();
+                world_projection::latest_moments(&moments)
+            },
+            almanac: snapshot.almanac.map(Into::into),
         })
     }
 }
@@ -3201,6 +3327,8 @@ mod tests {
             keepsakes: Vec::new(),
             letters: Vec::new(),
             book: Vec::new(),
+            moments: Vec::new(),
+            almanac: None,
         }
     }
 

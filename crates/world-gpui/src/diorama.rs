@@ -16,6 +16,7 @@
 //! the size changes. Whatever moves (people, boats, smoke, clouds, rain) is
 //! drawn live over them every frame.
 
+use crate::age::{self, Age};
 use crate::art::{self, Figure, Inks, Palette, Pose};
 use crate::brush::{Brush, Shape, Xform};
 use crate::painter::{self, Canvas, Key};
@@ -426,7 +427,8 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         let (Some(to_x), Some(from_x)) = (slot_x.get(&to), slot_x.get(&from)) else {
             continue;
         };
-        let walk = (to_x - from_x).abs() / (figure_h * STROLL);
+        let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
+        let walk = (to_x - from_x).abs() / (figure_h * STROLL * pace);
         let walking = before.at != now.at && clock.into_hour < walk;
         if walking {
             leaving.insert(index, (from, clock.into_hour));
@@ -679,10 +681,11 @@ pub fn living(
     // Walking from `from` to `to`, `since` seconds of `length` in: planted
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
-    let walk = |from: f32, to: f32, since: f32, length: f32| {
+    let walk = |from: f32, to: f32, since: f32, length: f32, pace: f32| {
         let t = since / length.max(0.01);
         let facing = (to - from).signum();
-        let phase = (since * 1.7).rem_euclid(1.0);
+        // Shorter, slower steps for someone who takes their time.
+        let phase = (since * 1.7 * pace.sqrt()).rem_euclid(1.0);
         let start = 1.0 - settle(since);
         let lean = facing * (0.05 * start + 0.018 * (phase * std::f32::consts::TAU * 2.0).sin());
         Living {
@@ -714,13 +717,14 @@ pub fn living(
             let seed = art::seed_of(&key);
             let home = spot.x;
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
+            let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
             // Walking over to where a turn put them.
             if let Some((old_stage, old_snapshot, progress)) = before {
                 if let Some(old) = old_stage.person(item.id, old_snapshot) {
                     if (old.x - home).abs() > 2.0 {
                         let since = progress * WALK_SECONDS;
                         if progress < 1.0 {
-                            return walk(old.x, home, since, WALK_SECONDS);
+                            return walk(old.x, home, since, WALK_SECONDS, pace);
                         }
                         if since < WALK_SECONDS + 1.5 {
                             let still = Living {
@@ -735,9 +739,9 @@ pub fn living(
             }
             // On the way to where their day has them this hour.
             if let Some((from, since)) = stage.routes.get(&spot.index) {
-                let length = (home - from).abs() / (figure_h * STROLL);
+                let length = (home - from).abs() / (figure_h * STROLL * pace);
                 if *since < length {
-                    return walk(*from, home, *since, length);
+                    return walk(*from, home, *since, length, pace);
                 }
             }
             let still = Living {
@@ -774,9 +778,11 @@ pub fn living(
             // Along a panorama, only as far as the next few places.
             let away = stops[pick] + ((seed % 5) as f32 - 2.0) * stage.figure_h * 0.25;
             let away = away.clamp(home - stage.view_w * 0.45, home + stage.view_w * 0.45);
+            // In the same while, someone slower gets less far.
+            let away = home + (away - home) * pace.min(1.0);
             let leg = period * 0.08;
             match phase {
-                p if (0.60..0.68).contains(&p) => walk(home, away, into - period * 0.60, leg),
+                p if (0.60..0.68).contains(&p) => walk(home, away, into - period * 0.60, leg, pace),
                 p if (0.68..0.80).contains(&p) => arrived(
                     Living {
                         x: away,
@@ -786,7 +792,7 @@ pub fn living(
                     into - period * 0.68,
                     (away - home).signum(),
                 ),
-                p if (0.80..0.88).contains(&p) => walk(away, home, into - period * 0.80, leg),
+                p if (0.80..0.88).contains(&p) => walk(away, home, into - period * 0.80, leg, pace),
                 p if (0.88..0.93).contains(&p) => {
                     arrived(still, into - period * 0.88, (home - away).signum())
                 }
@@ -969,6 +975,8 @@ pub struct PersonPaint {
     pub stance: Stance,
     /// How they feel, for their face.
     pub mood: world_projection::Mood,
+    /// A baby they carry in their arms.
+    pub carrying: Option<Figure>,
 }
 
 /// A building as painted, in stage pixels at zoom 1.
@@ -1075,6 +1083,17 @@ impl Frame {
     pub(crate) fn at_hour(mut self, hour: f32) -> Self {
         self.hour = hour;
         self
+    }
+
+    /// How wide and tall the window onto the stage is.
+    #[cfg(test)]
+    pub(crate) fn width_of_view(&self) -> f32 {
+        self.view_w
+    }
+
+    #[cfg(test)]
+    pub(crate) fn height_of_view(&self) -> f32 {
+        self.height
     }
 
     /// With everything held still, as Reduce Motion asks.
@@ -1361,12 +1380,13 @@ pub fn frame(
             let (x, y) = at(life.x, spot.y);
             // Nearer is a little bigger.
             let near = 1.0 + (spot.y - stage.feet) / stage.figure_h * 0.35;
+            let figure = Figure::of(&item.id.stable_key(), item.look);
             PersonPaint {
                 index: spot.index,
                 x,
                 y,
-                height: stage.figure_h * z * near,
-                figure: Figure::of(&item.id.stable_key(), item.look),
+                height: stage.figure_h * z * near * figure.age.height(),
+                figure,
                 pose: Pose {
                     bob: life.pose.bob * z,
                     ..life.pose
@@ -1384,9 +1404,11 @@ pub fn frame(
                     _ => Stance::Standing,
                 },
                 mood: item.mood.unwrap_or_default(),
+                carrying: None,
             }
         })
         .collect::<Vec<_>>();
+    carry_babies(&mut people, items, stage.figure_h * z);
     people.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.index.cmp(&b.index)));
 
     // A pair standing together wear their bond between them, just above
@@ -1459,6 +1481,52 @@ pub fn frame(
     }
 }
 
+/// A baby out and about is carried: in the arms of a grown-up from their
+/// home standing near them, who holds them at the chest, or, with nobody
+/// of theirs close by, asleep in a pram where they are.
+fn carry_babies(people: &mut Vec<PersonPaint>, items: &[CanvasItem], figure_h: f32) {
+    let babies = people
+        .iter()
+        .enumerate()
+        .filter(|(_, person)| person.figure.age == Age::Baby && !person.figure.bird)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let mut carried = BTreeSet::new();
+    for baby in babies {
+        let home = items[people[baby].index].home;
+        let x = people[baby].x;
+        let carrier = people
+            .iter()
+            .enumerate()
+            .filter(|(_, person)| {
+                matches!(person.figure.age, Age::Adult | Age::Elder)
+                    && !person.figure.bird
+                    && person.carrying.is_none()
+                    && home.is_some()
+                    && items[person.index].home == home
+                    && (person.x - x).abs() < figure_h * 2.2
+            })
+            .min_by(|a, b| (a.1.x - x).abs().total_cmp(&(b.1.x - x).abs()))
+            .map(|(position, _)| position);
+        if let Some(carrier) = carrier {
+            let figure = people[baby].figure;
+            let holder = &mut people[carrier];
+            holder.carrying = Some(figure);
+            // Both arms round the baby, unless they are walking.
+            if holder.stance != Stance::Walking {
+                holder.stance = Stance::Working;
+            }
+            carried.insert(baby);
+        }
+    }
+    let mut position = 0;
+    people.retain(|_| {
+        let keep = !carried.contains(&position);
+        position += 1;
+        keep
+    });
+}
+
 /// How many of what the World works towards stand on the ridge.
 const GOALS_SHOWN: usize = 5;
 
@@ -1491,7 +1559,7 @@ const ANCHORS: [(f32, Daylight); 7] = [
 
 /// Which two parts of the day an hour lies between, and how far from the
 /// first to the second (eased).
-fn between(hour: f32) -> (Daylight, Daylight, f32) {
+pub(crate) fn between(hour: f32) -> (Daylight, Daylight, f32) {
     let hour = hour.rem_euclid(24.0);
     let next = ANCHORS
         .iter()
@@ -1597,7 +1665,7 @@ const HILLS: f32 = 0.3;
 const LAMPLIGHT: (u8, u8, u8) = (0xff, 0xd2, 0x7a);
 
 /// A colour between `a` and `b`, `t` of the way, mixed as light is.
-fn mix(a: Hsla, b: Hsla, share: f32) -> Hsla {
+pub(crate) fn mix(a: Hsla, b: Hsla, share: f32) -> Hsla {
     let (a, b): (gpui::Rgba, gpui::Rgba) = (a.into(), b.into());
     let share = share.clamp(0.0, 1.0);
     gpui::Rgba {
@@ -2382,7 +2450,7 @@ fn sky_colours(frame: &Frame) -> (Hsla, Hsla) {
 
 /// What the weather lays over the sky: grey under rain, slate in a storm,
 /// pale before snow, rust in a dust storm.
-fn overcast(weather: Weather) -> Option<(u32, f32)> {
+pub(crate) fn overcast(weather: Weather) -> Option<(u32, f32)> {
     match weather {
         Weather::Clear => None,
         Weather::Cloudy => Some((0x9aa4ad, 0.22)),
@@ -3922,27 +3990,29 @@ fn paint_live(
             contact.opacity(contact.a * (1.0 - lift)),
         );
         let mut tinted = Tint::new(window, light);
-        match &person.drawing {
-            Some(drawing) => art::paint_drawing_posed(
+        age::paint_person(
+            &mut tinted,
+            x,
+            y,
+            person.height,
+            &person.figure,
+            person.drawing.as_ref(),
+            person.stance,
+            person.mood,
+            person.pose,
+        );
+        if let Some(baby) = &person.carrying {
+            let grown = person.height / person.figure.age.height().max(0.1);
+            age::paint_bundle(
                 &mut tinted,
                 x,
                 y,
-                person.height * drawing.aspect,
-                person.height,
-                drawing,
-                &Inks::of_person(&person.figure),
-                person.stance,
-                person.mood,
-                person.pose,
-            ),
-            None => art::paint_figure(
-                &mut tinted,
-                x,
-                y,
-                person.height,
+                grown,
+                person.pose.facing,
+                person.pose.bob,
+                baby,
                 &person.figure,
-                person.pose,
-            ),
+            );
         }
     }
     for (x, y, r, tone) in &frame.bonds {
@@ -5142,5 +5212,66 @@ pub(crate) mod tests {
             "the ink under an eave",
             middles(&bare, &inked, 30..70, 0..160),
         );
+    }
+}
+
+#[cfg(test)]
+mod outdoors {
+    use world_projection::{CanvasItemKind, ProjectionSnapshot};
+
+    /// A real harbour on its 358th day, as its Pack sends it (only what
+    /// the scene draws), for the painter's tests.
+    pub(crate) fn lived_harbour() -> ProjectionSnapshot {
+        let json = include_str!("../tests/fixtures/harbour-day-358.json");
+        let wire: world_pack_protocol::ProjectionSnapshotWire =
+            serde_json::from_str(json).expect("a wire snapshot");
+        ProjectionSnapshot::try_from(wire).expect("a snapshot")
+    }
+
+    /// The painter draws everyone the World's day puts outdoors: at noon
+    /// most of the harbour is out and about, at eleven at night hardly
+    /// anyone is.
+    #[test]
+    fn a_lived_harbour_is_out_by_day_and_in_by_night() {
+        let snapshot = lived_harbour();
+        let residents = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+            .count();
+        assert!(residents >= 10, "{residents}");
+        let outdoors = |hour: u8| {
+            let stage = super::stage_at(&snapshot, 1100.0, 848.0, super::Clock::at(hour));
+            let living = super::living(
+                &stage,
+                &snapshot,
+                0.0,
+                crate::scene::daylight_at(hour as u32),
+                &Default::default(),
+                None,
+            );
+            let frame = super::frame(
+                &snapshot,
+                &stage,
+                &living,
+                super::Camera::whole(&stage),
+                0.0,
+                crate::scene::daylight_at(hour as u32),
+                &Default::default(),
+                1.0,
+            );
+            // A baby carried counts as out, in someone's arms.
+            let drawn = frame.people.len()
+                + frame
+                    .people
+                    .iter()
+                    .filter(|person| person.carrying.is_some())
+                    .count();
+            drawn as f32 / residents as f32
+        };
+        assert!(outdoors(12) >= 0.6, "{} out at noon", outdoors(12));
+        assert!(outdoors(10) >= 0.6);
+        assert!(outdoors(23) <= 0.3, "{} out at night", outdoors(23));
     }
 }

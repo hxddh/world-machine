@@ -505,6 +505,7 @@ pub(crate) fn cast() -> Cast {
         most_people: 14,
         most_open: 1,
         voice: crate::voices::voice,
+        kin: Some(&crate::kin::KIN),
     }
 }
 
@@ -726,6 +727,7 @@ pub(crate) fn parse_command(command_id: &str) -> Option<(&str, &str)> {
 /// A card for each answer to each situation open now.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let cast = cast();
+    let memorials = crate::kin::commands(world);
     lives::situations(world, &cast)
         .into_iter()
         .flat_map(|situation| {
@@ -750,6 +752,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     preview: None,
                 })
         })
+        .chain(memorials)
         .collect()
 }
 

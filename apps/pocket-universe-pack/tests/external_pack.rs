@@ -74,6 +74,27 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
         ))
         .unwrap();
     assert_eq!(seeded.title, "Ares Pocket Colony");
+    // Its stories are asked for across the boundary too (v7).
+    let person = seeded
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.kind == world_projection::CanvasItemKind::Actor)
+        .unwrap()
+        .id;
+    match session
+        .story(world_projection::StoryRequest::Legend(person))
+        .unwrap()
+    {
+        Some(world_projection::StoryPage::Legend(legend)) => assert!(!legend.title.is_empty()),
+        other => panic!("no legend: {other:?}"),
+    }
+    assert_eq!(
+        session
+            .story(world_projection::StoryRequest::Almanac(1))
+            .unwrap(),
+        None
+    );
     // What it keeps score of, and how its choices move it, cross the
     // process boundary too.
     assert_eq!(

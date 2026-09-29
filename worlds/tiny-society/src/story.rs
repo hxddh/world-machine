@@ -319,16 +319,18 @@ fn spec(
     // Turning down a want, or letting it lapse, is remembered: a harbour
     // let down often enough starts things of its own.
     let want = shape.want;
-    let outcome = |said: &Said, let_down: bool| Outcome {
+    let outcome = |said: &Said, let_down: i64| Outcome {
         event: said.event,
         effects: said
             .effects
             .iter()
             .cloned()
             .chain(leaves_behind(said.behind.unwrap_or(said.event)))
-            .chain(let_down.then(|| initiative(1)))
+            .chain((let_down > 0).then(|| initiative(let_down)))
             .collect(),
     };
+    let refused = |refuses: bool| i64::from(want && refuses);
+    let unanswered = i64::from(want);
     // Every question has at least two answers that change something and
     // cost nothing, so being short of money never leaves only one.
     let free_and_changing =
@@ -337,7 +339,7 @@ fn spec(
             .filter(|answer| {
                 !answer.requires.iter().any(
                     |condition| matches!(condition, Condition::AtLeast(_, key, _) if *key == CASH),
-                ) && !outcome(&answer.said, want && answer.refuses)
+                ) && !outcome(&answer.said, refused(answer.refuses))
                     .effects
                     .is_empty()
             })
@@ -370,11 +372,11 @@ fn spec(
                 .map(|answer| Choice {
                     id: answer.id,
                     requires: answer.requires.clone(),
-                    outcome: outcome(&answer.said, want && answer.refuses),
+                    outcome: outcome(&answer.said, refused(answer.refuses)),
                     refuses: answer.refuses,
                 })
                 .collect(),
-            lapse: outcome(&lapse, want),
+            lapse: outcome(&lapse, unanswered),
             lasts: shape.lasts,
             rests: shape.rests,
             weight: shape.weight,
@@ -3129,6 +3131,7 @@ fn made_deck() -> Deck {
             to: 0,
         }],
         most_open: 3,
+        rarer: 60,
     }
 }
 
@@ -3607,6 +3610,21 @@ fn climaxes() -> Vec<Spec> {
                     .chapter("When the great storm came, the harbour boarded up and held.")
                     .titled("The storm we boarded up against"),
                 ),
+                // Only a harbour that weathered one before knows the drill.
+                yes(
+                    "ready",
+                    "We know the drill",
+                    "Everyone did this last time. Nothing spent.",
+                    vec![Condition::RaisedBefore("great_storm")],
+                    said(
+                        "great_storm_weathered_again",
+                        "The harbour knew what to do, having weathered a great storm before",
+                        "Same as last time. Boats up, shutters down.",
+                        [mood(2)],
+                    )
+                    .chapter("The harbour met the great storm like old hands.")
+                    .titled("The storm we were ready for"),
+                ),
             ],
             said(
                 "great_storm_caught_us",
@@ -3902,6 +3920,13 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
     let deck = deck();
     storylets::answers(world.state(), deck)
         .into_iter()
+        // An answer only a harbour that remembers the last time can give is
+        // not shown the first time.
+        .filter(|(_, _, unmet)| {
+            !unmet
+                .iter()
+                .any(|condition| matches!(condition, Condition::RaisedBefore(_)))
+        })
         .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
             let answer = spec.answers.iter().find(|answer| answer.id == choice.id)?;
@@ -3962,6 +3987,46 @@ fn storylet_of(event: &Event) -> Option<&'static Spec> {
     }
 }
 
+/// How one of the storyteller's questions was settled, when `event`
+/// settles one: the words of the answer the player chose, or `None` inside
+/// when nobody answered in time. For legends: "because you said …".
+pub(crate) fn answer_words(event: &Event) -> Option<Option<&'static str>> {
+    let (spec, said) = outcome_of(event)?;
+    if std::ptr::eq(said, &spec.lapse) {
+        return Some(None);
+    }
+    let answer = spec
+        .answers
+        .iter()
+        .find(|answer| std::ptr::eq(&answer.said, said))?;
+    Some(Some(answer.title))
+}
+
+/// Whether `event` is an answer that turned the asker down.
+pub(crate) fn answer_refuses(event: &Event) -> bool {
+    let Some(spec) = storylet_of(event) else {
+        return false;
+    };
+    spec.answers
+        .iter()
+        .any(|answer| answer.refuses && answer.said.event == event.kind)
+}
+
+/// The ids of these storylets' outcomes: the Events their answers and
+/// lapses are recorded as.
+pub(crate) fn outcome_kinds(storylets: &[&str]) -> Vec<&'static str> {
+    specs()
+        .iter()
+        .filter(|spec| storylets.contains(&spec.storylet.id))
+        .flat_map(|spec| {
+            spec.answers
+                .iter()
+                .map(|answer| answer.said.event)
+                .chain([spec.lapse.event])
+        })
+        .collect()
+}
+
 fn outcome_of(event: &Event) -> Option<(&'static Spec, &'static Said)> {
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
@@ -4015,7 +4080,14 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
     if event.kind == "situation_arose" {
-        return Some(named(world, spec.told, who));
+        // Told against the times it came before: a storm again, and once
+        // more after that.
+        let told = named(world, spec.told, who);
+        return Some(match event.payload.get("times") {
+            Some(Value::Integer(2)) => format!("{told} again"),
+            Some(Value::Integer(times)) if *times > 2 => format!("{told} once more"),
+            _ => told,
+        });
     }
     let (_, said) = outcome_of(event)?;
     Some(named(world, said.told, who))
@@ -4194,7 +4266,7 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
 }
 
 /// What a goal is called, if it is one of the harbour's.
-fn goal_label(goal: &str) -> Option<&'static str> {
+pub(crate) fn goal_label(goal: &str) -> Option<&'static str> {
     match goal {
         "pier" => Some("The new pier"),
         "lamp" => Some("A lamp on the point"),
@@ -6121,10 +6193,12 @@ pub(crate) fn people_in(state: &world_core::WorldState) -> Vec<EntityId> {
         .map(|storylet| storylet.asker)
         .collect::<Vec<_>>();
     let arrivals = lives::arrivals(state, &crate::life::cast());
+    let grown_here = lives::grown_here(state, &crate::life::cast());
     crate::talk::RESIDENTS
         .into_iter()
         .chain([ADA, IVO])
         .chain(arrivals)
+        .chain(grown_here)
         .filter(|id| {
             state.entity(*id).is_some()
                 && !lives::gone(state, *id)
@@ -6159,6 +6233,7 @@ pub(crate) fn fixture_shape(shape: &str) -> world_projection::MarkShape {
         "planter" => MarkShape::Planter,
         "statue" => MarkShape::Statue,
         "postbox" => MarkShape::Postbox,
+        "stone" => MarkShape::Statue,
         _ => MarkShape::Parcel,
     }
 }
@@ -6189,7 +6264,11 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 shape: Some(shape),
                 at,
                 look: None,
-                drawing: crate::drawings::fixture_drawing(named),
+                drawing: if fixture.component(lives::generations::MEMORIAL_OF).is_some() {
+                    Some(format!("harbour-memorial-{named}"))
+                } else {
+                    crate::drawings::fixture_drawing(named)
+                },
                 stance: None,
                 standing: None,
                 mood: None,
@@ -6200,7 +6279,10 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 px: None,
                 home: None,
                 day: Vec::new(),
-                built: None,
+                built: match fixture.component("built") {
+                    Some(Value::Integer(day)) => Some((*day).max(0) as u32),
+                    _ => None,
+                },
             }
         })
         .collect()

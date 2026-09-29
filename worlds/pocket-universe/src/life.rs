@@ -810,10 +810,20 @@ pub(crate) fn people(world: &World) -> Vec<EntityId> {
 
 /// Everyone living there now, read straight from the state.
 pub(crate) fn people_in(state: &WorldState) -> Vec<EntityId> {
+    let grown_here = crate::places::Place::of(state)
+        .map(|place| {
+            (crate::kin::FIRST_CHILD..crate::kin::FIRST_CHILD + crate::kin::of(place).room)
+                .map(EntityId::new)
+                .take_while(|id| state.entity(*id).is_some())
+                .filter(|id| lives::generations::of_age(state, *id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     [SLOT_B, SLOT_E, NEWCOMER]
         .into_iter()
         .filter(|id| state.entity(*id).is_some())
         .chain(newcomers(state))
+        .chain(grown_here)
         .filter(|id| !lives::gone(state, *id))
         .collect()
 }
@@ -1142,6 +1152,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             "penguin-civilization" => crate::voices::ice,
             _ => crate::voices::mars,
         },
+        kin: crate::places::Place::of(state).map(crate::kin::of),
     }
 }
 
@@ -1313,6 +1324,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
         return Vec::new();
     }
     let cast = cast(world.state());
+    let memorials = crate::kin::commands(world);
     lives::situations(world, &cast)
         .into_iter()
         .flat_map(|situation| {
@@ -1337,6 +1349,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     preview: None,
                 })
         })
+        .chain(memorials)
         .collect()
 }
 
@@ -1549,6 +1562,7 @@ pub fn people_names() -> Vec<&'static str> {
     .chain(MARS_NAMES.iter().copied())
     .chain(TOWN_NAMES.iter().copied())
     .chain(ICE_NAMES.iter().copied())
+    .chain(crate::kin::child_names())
     .chain(["Uko", "Gus", "Dunn", "Henderson", "Kowalski"])
     .collect()
 }

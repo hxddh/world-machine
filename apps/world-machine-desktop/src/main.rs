@@ -290,6 +290,17 @@ impl world_gpui::ProjectionController for HostProjectionController {
         ambience::player::cue(cue);
     }
 
+    fn story(&mut self, request: world_gpui::StoryRequest) -> Option<world_gpui::StoryPage> {
+        let page = self.document.borrow().session.story(request);
+        match page {
+            Ok(page) => page.map(world_gpui::i18n::localize_story),
+            Err(error) => {
+                diagnostics::error(format!("story: {error}"));
+                None
+            }
+        }
+    }
+
     /// With the World voice on, the model is asked here rather than inside
     /// the Pack, so the window can wait for it without freezing: the World
     /// gives the prompt, the model is asked off the window's thread, and
@@ -3988,6 +3999,7 @@ mod file_type_tests {
             season: None,
             coming: None,
             festival_today: false,
+            year: None,
         };
         assert_eq!(
             world_card_meta("Ares Pocket Colony", "Pocket Universe", 50, Some(&sols)),

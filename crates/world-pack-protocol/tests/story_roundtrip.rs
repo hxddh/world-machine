@@ -112,6 +112,7 @@ fn a_book_and_where_things_stand_cross_the_wire_and_an_older_pack_sends_neither(
                 found: true,
                 shape: Some(MarkShape::Well),
                 hint: String::new(),
+                ..BookEntry::default()
             },
             BookEntry {
                 shelf: "People".into(),
@@ -119,6 +120,7 @@ fn a_book_and_where_things_stand_cross_the_wire_and_an_older_pack_sends_neither(
                 found: false,
                 shape: None,
                 hint: "Might come to stay".into(),
+                ..BookEntry::default()
             },
         ],
         canvas: world_projection::CanvasProjection {

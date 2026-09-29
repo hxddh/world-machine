@@ -268,7 +268,7 @@ fn every_return_brings_a_keepsake_or_a_letter() {
         let last = beats.last().cloned().unwrap_or_default();
         assert!(
             last.contains(" left you ") || last.contains(" wrote to you"),
-            "a return of {periods} ended on {last:?}"
+            "a return of {periods} ended on {last:?}: {beats:?}"
         );
     }
 }

@@ -61,6 +61,7 @@ pub(crate) fn drawings() -> &'static [Drawing] {
                 cloth: 0x7fb8d9,
             },
         ))
+        .chain(crate::kin::drawings())
         .collect()
     })
 }
@@ -76,6 +77,17 @@ pub(crate) fn fixture_drawing(world: &World, shape: &str) -> Option<String> {
     };
     matches!(shape, "flag" | "bunting" | "lantern" | "stall" | "tent")
         .then(|| format!("{prefix}-{shape}"))
+}
+
+/// Which drawing a memorial is drawn with, in this World's seed.
+pub(crate) fn memorial_drawing(world: &World, shape: &str) -> Option<String> {
+    let prefix = match crate::seed_id(world) {
+        "mars-colony" => "mars",
+        "1980s-town" => "town",
+        "penguin-civilization" => "ice",
+        _ => return None,
+    };
+    Some(format!("{prefix}-memorial-{shape}"))
 }
 
 /// Which drawing someone or somewhere is drawn with, in this World's seed.
@@ -114,7 +126,11 @@ fn variant_of(world: &World, id: EntityId, looks: u32) -> u32 {
 /// everyone living there without one.
 pub(crate) fn drawings_for(world: &World) -> Vec<Drawing> {
     let mut all = drawings().to_vec();
-    for id in crate::life::people(world) {
+    let cast = crate::life::cast(world.state());
+    for id in crate::life::people(world)
+        .into_iter()
+        .chain(lives::children(world.state(), &cast))
+    {
         let Some(name) = drawing_of(world, id, true) else {
             continue;
         };

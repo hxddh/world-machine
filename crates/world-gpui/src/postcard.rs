@@ -67,6 +67,23 @@ impl Postcard {
     }
 }
 
+/// The name a moment's panels are saved under, like a postcard's: the
+/// World, the moment and its day.
+pub fn moment_file_stem(world: &str, title: &str, day: u32) -> String {
+    let raw = format!("{} {} day {day}", world.trim(), title.trim());
+    let cleaned = raw
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The postcard of `moment` (a timeline item) in `snapshot`, or of the
 /// scene now when there is no moment or it is not in the World's history.
 ///
@@ -223,6 +240,7 @@ mod tests {
                 season: None,
                 coming: None,
                 festival_today: false,
+                year: None,
             }),
             timeline: TimelineProjection {
                 items: vec![

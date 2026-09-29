@@ -361,6 +361,18 @@ impl Catalog {
         if depth > 2 {
             return None;
         }
+        // A line the catalog knows only without its closing full stop
+        // ("Leo retired to the quay."), as a caption closes it: that line,
+        // closed the translation's way. Only a whole line, never what
+        // fills a slot, so the stop stays at the end.
+        if depth == 0 {
+            if let Some(bare) = text.strip_suffix('.').filter(|bare| !bare.ends_with('.')) {
+                if let Some(found) = self.whole(bare, depth + 1) {
+                    let found = found.trim_end_matches(['。', '.']);
+                    return Some(format!("{found}。"));
+                }
+            }
+        }
         // A sentence with a word tacked on the end (", mind.", ", love.")
         // is the sentence, then that word. Tried before the templates when
         // the catalog knows the ending by itself, so a template's last slot
@@ -880,6 +892,19 @@ id_like_this\tSKIP
         );
         assert_eq!(catalog.translate("id_like_this"), None);
         assert_eq!(catalog.translate("Something nobody wrote"), None);
+    }
+
+    #[test]
+    fn a_line_closed_with_a_full_stop_is_the_line_it_closes() {
+        let catalog = Catalog::parse(CATALOG);
+        assert_eq!(
+            catalog
+                .translate("You built a bench by Harbor Bakery.")
+                .as_deref(),
+            Some("你在港口面包房旁边造了一个长椅。")
+        );
+        assert_eq!(catalog.translate("Thank you.").as_deref(), Some("谢谢。"));
+        assert_eq!(catalog.translate("Something nobody wrote."), None);
     }
 
     #[test]

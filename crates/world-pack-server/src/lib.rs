@@ -7,7 +7,7 @@ use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, W
 use world_pack_bundle::{write_program_bundle, PackBundleHeader};
 use world_pack_protocol::{
     decode_request, encode_response, pack_frame_limit, PackDescriptor, PackManifest, PackRequest,
-    PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionSnapshotWire,
+    PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionSnapshotWire, StoryPageWire,
     PACK_FRAME_LIMIT,
 };
 use world_persistence::WorldPackRef;
@@ -149,6 +149,18 @@ impl PackServer {
                     .hearing(to.into(), &words)
                     .map_err(PackServerError::Host)?;
                 Ok((PackResponse::Hearing { prompt }, false))
+            }
+            PackRequest::Story { request } => {
+                let session = self.session("story")?;
+                let page = session
+                    .story(request.into())
+                    .map_err(PackServerError::Host)?;
+                Ok((
+                    PackResponse::Story {
+                        page: page.as_ref().map(StoryPageWire::from),
+                    },
+                    false,
+                ))
             }
             PackRequest::Advance { periods } => {
                 let session = self.session_mut("advance")?;

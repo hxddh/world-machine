@@ -1,4 +1,5 @@
 mod almanac;
+mod almanac_page;
 mod book;
 #[cfg(test)]
 mod density;
@@ -6,11 +7,16 @@ mod drawings;
 mod eras;
 mod firsts;
 mod handwork;
+mod kin;
+mod legends;
 mod life;
+mod moments;
 pub mod narrator;
 mod places;
 mod projection;
 mod speech;
+#[cfg(test)]
+mod stories_tests;
 mod story;
 mod talk;
 mod town;
@@ -130,6 +136,25 @@ impl PocketUniverse {
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    /// A story the place tells about itself: a legend, a moment or a
+    /// year's almanac. Read from the history alone; changes nothing.
+    pub fn story(
+        &self,
+        request: world_projection::StoryRequest,
+    ) -> Option<world_projection::StoryPage> {
+        use world_projection::{StoryPage, StoryRequest};
+        match request {
+            StoryRequest::Legend(subject) => {
+                legends::legend(&self.world, subject).map(StoryPage::Legend)
+            }
+            StoryRequest::Moment(id) => moments::moment(&self.world, &id).map(StoryPage::Moment),
+            StoryRequest::Almanac(year) => {
+                let moments = moments::moments(&self.world);
+                almanac_page::almanac(&self.world, year, &moments).map(StoryPage::Almanac)
+            }
+        }
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
@@ -292,6 +317,20 @@ impl PocketUniverse {
 
         if let Some(idea) = command_id.strip_prefix(life::SUGGEST_COMMAND) {
             let request = lives::suggestion_request(idea, life::fair(&self.world));
+            return Ok(self.world.execute(&self.actions, &request)?.id);
+        }
+
+        if let Some((who, spot)) = kin::parse_command(command_id) {
+            let mut request = lives::memorial_request(who, true, spot);
+            if let Some(died) = self
+                .world
+                .events_of_kind(&["died"])
+                .into_iter()
+                .rev()
+                .find(|event| event.payload.get("who") == Some(&Value::Entity(who)))
+            {
+                request = request.caused_by(died.id);
+            }
             return Ok(self.world.execute(&self.actions, &request)?.id);
         }
 
@@ -518,6 +557,13 @@ impl WorldSession for PocketUniverseSession {
         }
         self.return_since_event_count = None;
         Ok(self.snapshot())
+    }
+
+    fn story(
+        &self,
+        request: world_projection::StoryRequest,
+    ) -> Result<Option<world_projection::StoryPage>, HostError> {
+        Ok(self.world.story(request))
     }
 
     fn hearing(

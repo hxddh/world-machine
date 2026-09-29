@@ -2,6 +2,41 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.22.0 (2026-09-29)
+
+**Worlds from `v0.21` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Everyone in an older World is given an age worked out from who they are and when the World began, so nothing is rewritten and its history replays exactly. From here on, births, comings of age and deaths are recorded as they happen.
+
+The [v0.20 review](docs/REVIEW_v0.20.md) found people who never aged, relationships that changed about 400 times a year, the same storylet told 17 or 18 times in three years, and a history kept only as a list. This release is the second of three, and it is about lives: people are born, grow up, grow old and die, and the World can tell their story and show its moments.
+
+- **Lives with a whole arc.** Measured over three years of Tiny Society with a warm player:
+  - **Births:** 4 babies, born to two couples (there were none). A child takes a trait and colouring from each parent, lives with a parent and goes to school by day.
+  - **Coming of age:** 2 residents came of age, took up a trade and in time moved out of their parent's home.
+  - **Retirement and death:** 5 residents retired, and 2 died, both at 76 and in their sleep. The core residents grow old but do not die.
+  - **Mourning:** after a death, an heirloom passes to someone close and a memorial bench or stone is placed. You place it with **Build**, and the town puts one up itself after five days if you don't. Anniversaries are kept, and people remember the dead in what they say.
+  - **Pocket Universe:** babies are born under the dome on Ares and on Maple Street, and chicks hatch in the Icebridge thaw.
+- **Ages you can see.**
+  - Children are small and teenagers lanky.
+  - Elders are grey, stooped, walk more slowly and carry a cane.
+  - A baby is carried by someone from its home, or sleeps in a pram.
+  - Portraits show the current age.
+- **Fewer, weightier changes between people.**
+  - At most 53 relationship changes in any year, down from about 400. A friendship or a feud now lasts, and each change says why it happened.
+  - A storylet rests longer each time it has been told, and is told as "… again" and then "… once more". The second great storm remembers the first.
+  - No storylet title is told more than 3 times in three years (was 17–18).
+- **Legends.**
+  - Every person has a page of their life, opened from their card ("Their story"), from the book, or with L.
+  - It shows at most 20 lines: when they came, where they worked, whom they loved and fell out with, what they built and what happened to them.
+  - Each line shows its cause softly underneath: "because you said “Go for it”", or "after the storm".
+- **Moments as panels.**
+  - Weddings, births, comings of age, farewells, deaths, storms weathered, works opened and festivals are drawn as a three-panel strip in the scene's own look: before, the moment, after.
+  - Each strip is captioned by the World with its people, place and season.
+  - A new moment shows once and can be dismissed. The book keeps every moment (M opens the newest), and a strip can be saved as a picture.
+  - Tiny Society has 13–37 moments a year, never more than one a day. Building them adds about 1 ms to a snapshot.
+- **The almanac.** Each New Year the World writes a page: who came, who moved away, who was born and who died, what was built, and the year's best moment. It sits at the top of the drawer; Y opens it.
+- **Pack protocol v7:** a new `story` request asks a World for a legend, a moment or an almanac, and changes nothing. A snapshot may also carry ages, its latest three moments, the almanac and how many days a year has. All of it is optional; an older Pack is never asked.
+- **Chinese:** every new line is in both catalogs as a whole sentence. Over three years at most 0.02% of the lines a player sees are partly English.
+- **World codes stay small:** a three-year code is 47,845 characters, under the 50,000 bar, with ages and families included.
+
 ## v0.21.0 (2026-09-29)
 
 **Worlds from `v0.20` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Homes, routines, where works stand and the seasons are all worked out from what a World already holds, so nothing new is recorded and an older World looks new at once.

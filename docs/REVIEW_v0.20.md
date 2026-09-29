@@ -314,6 +314,31 @@ Still open from leaps 1 and 4:
 
 Leaps 2 and 3 are next, as v0.22.
 
+## What v0.22.0 did
+
+The second stage, "lives": leaps 2 (lives with a whole arc) and 3 (stories you retell).
+
+| Bar | v0.22.0 |
+|---|---|
+| At least 3 births in three years of Tiny Society | 4 |
+| 1–2 deaths | 2 |
+| At least 2 people coming of age | 2 |
+| At most 60 relationship changes a year [about 400] | at most 53 |
+| No storylet title more than 3 times [17–18] | none over 3 |
+| Every long-arc beat, birth, death and work gets a panel | weddings, births, comings of age, farewells, deaths, storms, works opened and festivals do; at most one a day, 13–37 a year |
+| Every biography line links to its cause | not met: about half the lines have a real, earlier cause (184 of 390 at three years), and lines without one show none rather than an invented one |
+| Panels regenerate identically on replay | yes, tested over three years in both Packs |
+
+Still open from leaps 2 and 3:
+- the core residents do not die;
+- nothing new has been seen on a Mac.
+
+![A moment strip](review/v22-moment.png)
+![A legend](review/v22-legend.png)
+![Every age](review/v22-ages.png)
+
+Leaps 5 and 6 are next, as v0.23.
+
 ## Sources
 - Animal Crossing: New Horizons sales and features: https://en.wikipedia.org/wiki/Animal_Crossing:_New_Horizons
 - Townscaper's grid, WFC and clipboard sharing: https://x.com/osksta/status/1176569884924416001

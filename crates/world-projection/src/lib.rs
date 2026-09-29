@@ -1,6 +1,7 @@
 mod causal;
 mod drawing;
 mod influence;
+mod stories;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use world_core::{
@@ -14,6 +15,11 @@ pub use drawing::{
     DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
 pub use influence::effect_headline;
+pub use stories::{
+    cause_in_words, day_of, latest_before, latest_moments, life_events, lowered, one_a_day,
+    Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat, StoryPage,
+    StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
+};
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 /// The row of an event's context naming who did it.
@@ -499,11 +505,18 @@ pub struct ProjectionSnapshot {
     /// Everything there is to find in this World, found or not: the book
     /// the drawer keeps, with a silhouette for what is still to come.
     pub book: Vec<BookEntry>,
+    /// The latest key beats of the World's history, told in three panels,
+    /// oldest first: at most [`MOST_MOMENTS_IN_SNAPSHOT`]. The book keeps
+    /// every one, and any can be asked for by its id.
+    pub moments: Vec<Moment>,
+    /// The year just ended in review, on the first day of a new year: the
+    /// almanac page, delivered like a letter. Any year's can be asked for.
+    pub almanac: Option<Almanac>,
 }
 
 /// One entry in a World's book of everything to find: a keepsake, a person
 /// met, something made, a festival day.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BookEntry {
     /// Which shelf it sits on: "Keepsakes", "People", "Made", "Days".
     pub shelf: String,
@@ -513,6 +526,11 @@ pub struct BookEntry {
     pub shape: Option<MarkShape>,
     /// A word on how it might be found, for what is still to come.
     pub hint: String,
+    /// The moment it keeps, by the moment's id, when it is one.
+    pub moment: Option<String>,
+    /// Who or what it shows, the one it is about first, so it can be drawn
+    /// with their faces.
+    pub cast: Vec<SelectionId>,
 }
 
 /// Something someone gave the player to keep, in the Pack's words: who
@@ -616,6 +634,25 @@ pub struct Look {
     pub carries: Option<Carry>,
     /// Drawn as a bird (a penguin, say) rather than a person.
     pub bird: bool,
+    /// How far through life they are, when the World keeps ages: a baby
+    /// carried, a child, a lanky teen, a grown-up, or an elder. `None`
+    /// draws a grown-up.
+    pub age: Option<AgeStage>,
+    /// Grey or white hair, whatever colour it was.
+    pub grey: bool,
+    /// Stooped with age, and walking with a stick.
+    pub stoop: bool,
+}
+
+/// How far through life someone is, for how they are drawn.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum AgeStage {
+    Baby,
+    Child,
+    Teen,
+    #[default]
+    Adult,
+    Elder,
 }
 
 /// What someone carries, which says what they do.
@@ -633,7 +670,7 @@ pub enum Carry {
 
 /// A World's own unit of time: a Mars colony counts sols, a town counts
 /// nights. `length` is how much world time one of them is.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Calendar {
     pub unit: String,
     pub length: u64,
@@ -643,6 +680,9 @@ pub struct Calendar {
     pub coming: Option<String>,
     /// Whether today is a festival day, for music and the like to mark it.
     pub festival_today: bool,
+    /// How many of `unit` make the World's year, if it counts years: for
+    /// "three years in the harbour".
+    pub year: Option<u64>,
 }
 
 /// Words that describe the machinery rather than the World. A player never
@@ -2490,6 +2530,7 @@ mod tests {
             coming: None,
             season: None,
             festival_today: false,
+            year: None,
         });
         assert_eq!(snapshot.moment_label(0), "The beginning");
         assert_eq!(snapshot.moment_label(10), "Sol 1");

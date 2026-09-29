@@ -91,6 +91,7 @@ pub(crate) fn snapshot_since(
                 season: Some(calendar::season_name(world.state(), &almanac).into()),
                 coming: calendar::coming_up(world.state(), &almanac, 7),
                 festival_today: calendar::festival_today(world.state(), &almanac),
+                year: Some(crate::almanac::YEAR_DAYS),
             }
         }),
         gauges: gauges(world),
@@ -104,7 +105,14 @@ pub(crate) fn snapshot_since(
         keepsakes: crate::life::keepsakes(world),
         letters: crate::life::letters(world),
         book: crate::book::book(world),
+        moments: Vec::new(),
+        almanac: None,
     };
+    // The harbour's moments: the latest few, and every one in the book.
+    let moments = crate::moments::moments(world);
+    snapshot.almanac = crate::almanac_page::new_year(world, &moments);
+    snapshot.book.extend(crate::moments::book_entries(&moments));
+    snapshot.moments = world_projection::latest_moments(&moments);
     snapshot.tell_events_as_history_does();
     snapshot.keep_voices_in_view();
     snapshot
@@ -1140,7 +1148,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                         _ => None,
                     })
                     .map(SelectionId::Entity),
-                look: crate::talk::look(id),
+                look: crate::kin::look(world.state(), id),
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, workplace(world, id)),
                 standing: crate::speech::standing_of(world, id),
@@ -1155,11 +1163,14 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
     }
 
     // Strangers who came to stay, where they spend their days.
+    let children = lives::children(world.state(), &crate::life::cast());
     for (index, id) in lives::arrivals(world.state(), &crate::life::cast())
         .into_iter()
+        .chain(lives::grown_here(world.state(), &crate::life::cast()))
+        .chain(children.iter().copied())
         .enumerate()
     {
-        if !living.contains(&id) {
+        if !living.contains(&id) && !children.contains(&id) {
             continue;
         }
         if let Some(entity) = world.state().entity(id) {
@@ -1177,7 +1188,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 at: lives::at(world.state(), id)
                     .or_else(|| crate::life::work(world.state(), id))
                     .map(SelectionId::Entity),
-                look: crate::talk::look(id),
+                look: crate::kin::look(world.state(), id),
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
                 standing: crate::speech::standing_of(world, id),
