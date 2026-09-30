@@ -86,7 +86,7 @@ esac
 UNIVERSAL_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 if [[ "${WORLD_MACHINE_UNIVERSAL:-0}" == "1" ]]; then
     for target in "${UNIVERSAL_TARGETS[@]}"; do
-        cargo build "${PACKAGES[@]}" --target "$target" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+        cargo build --locked "${PACKAGES[@]}" --target "$target" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
     done
     BIN_DIR="$TARGET_DIR/universal/$PROFILE_DIR"
     rm -rf "$BIN_DIR"
@@ -100,7 +100,7 @@ if [[ "${WORLD_MACHINE_UNIVERSAL:-0}" == "1" ]]; then
         echo "universal $binary: $(lipo -archs "$BIN_DIR/$binary")"
     done
 else
-    cargo build "${PACKAGES[@]}" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+    cargo build --locked "${PACKAGES[@]}" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
     BIN_DIR="$TARGET_DIR/$PROFILE_DIR"
 fi
 
@@ -180,7 +180,7 @@ for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
         echo "included World Pack is missing or empty: $bundle" >&2
         exit 1
     fi
-    cargo run -p world-pack-catalog --bin world-pack-check -- \
+    cargo run --locked -p world-pack-catalog --bin world-pack-check -- \
         --inspect-only "$bundle"
 done
 

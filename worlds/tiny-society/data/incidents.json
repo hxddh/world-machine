@@ -1,0 +1,402 @@
+[
+  {"spec": [
+    "storm_warning",
+    {"incident": ["@JONAS", [{"down": ["spirits"]}, {"down": ["money"]}]]},
+    {"()": ["A storm is coming", "Sky's turning black out west."]},
+    [
+      {"yes": [
+        "haul_up",
+        "Haul the boats up",
+        "Everyone lends a hand. Noah pays 20 for rope.",
+        [{"has": ["@NOAH", 20]}],
+        {".remembered": [
+          {"said": [
+            "boats_hauled_up",
+            "The harbour hauled its boats up before the storm",
+            "All hands, heave!",
+            {".chain": [{"spend": ["@NOAH", 20]}, [{"mood": [1]}]]}
+          ]},
+          "Not a boat lost in that storm."
+        ]}
+      ]},
+      {"other": [
+        "ride_out",
+        "Let it come",
+        "Nothing spent now. Evan will have work after.",
+        {"said": [
+          "storm_ridden_out",
+          "The storm battered the harbour",
+          "Hold on to something!",
+          {".chain": [{"pay": ["@NOAH", "@EVAN", 30]}, [{"mood": [-2]}]]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "storm_caught_the_harbour",
+      "The storm caught the harbour unready",
+      "Nobody was ready!",
+      {".chain": [{"spend": ["@NOAH", 40]}, [{"mood": [-2]}]]}
+    ]}
+  ]},
+  {"spec": [
+    "traveller",
+    {"incident": ["@SOFIA", [{"up": ["money"]}, {"up": ["spirits"]}]]},
+    {"()": ["A traveller needs a room", "There's a traveller asking for a bed."]},
+    [
+      {"other": [
+        "room",
+        "Give her a room",
+        "The traveller pays Leo 40 and tells stories all night.",
+        {".remembered": [
+          {"said": [
+            "traveller_stayed",
+            "A traveller stayed at the Anchor Pub",
+            "Came from the far side of the world, she says.",
+            {".chain": [{"earn": ["@LEO", 40]}, [{"mood": [1]}]]}
+          ]},
+          "Still thinking about that traveller's stories."
+        ]}
+      ]},
+      {"other": [
+        "send_on",
+        "Send her on",
+        "The pub stays quiet.",
+        {"said": ["traveller_sent_on", "The traveller was sent on", "Sorry, we're full.", []]}
+      ]}
+    ],
+    {"said": ["traveller_left", "The traveller moved on", "Gone on the morning ferry.", []]}
+  ]},
+  {"spec": [
+    "fever",
+    {"incident": ["@EMMA", [{"down": ["money"]}]]},
+    {"()": ["Mia has a fever", "Mia's burning up. Should we send for the doctor?"]},
+    [
+      {"yes": [
+        "doctor",
+        "Send for the doctor",
+        "Emma pays 35 for the doctor's crossing.",
+        [{"has": ["@EMMA", 35]}],
+        {".remembered": [
+          {"said": [
+            "doctor_came",
+            "The mainland doctor came for Mia",
+            "Rest and broth, the doctor says.",
+            {".chain": [{"spend": ["@EMMA", 35]}, [{"mood": [1]}]]}
+          ]},
+          "Mia's back on her feet."
+        ]}
+      ]},
+      {"other": [
+        "rest",
+        "Let her sleep",
+        "Nothing spent. A worried few days.",
+        {"said": [
+          "fever_slept_off",
+          "Mia slept off her fever",
+          "She'll be right in a few days.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "fever_lingered",
+      "Mia's fever lingered",
+      "Still no better.",
+      {".chain": [{"spend": ["@EMMA", 20]}, [{"mood": [-1]}]]}
+    ]}
+  ]},
+  {"spec": [
+    "hotel_order",
+    {".requires": [
+      {"incident": ["@MARA", [{"up": ["money"]}]]},
+      [{"Condition::Is": ["@BAKERY", "@OPERATING_STATUS", "open"]}]
+    ]},
+    {"()": ["A mainland hotel wants bread", "A hotel wants bread for a week. Can we manage?"]},
+    [
+      {"other": [
+        "take",
+        "Take the order",
+        "The hotel pays Mara 90. The ovens run all night.",
+        {".remembered": [
+          {"said": [
+            "hotel_order_baked",
+            "Mara baked for a mainland hotel",
+            "Flour to my elbows, but paid!",
+            {"earn": ["@MARA", 90]}
+          ]},
+          "That hotel wants more already."
+        ]}
+      ]},
+      {"other": [
+        "decline",
+        "Turn it down",
+        "The harbour's own bread comes first.",
+        {"said": [
+          "hotel_order_declined",
+          "Mara turned the hotel down",
+          "Our own come first.",
+          [{"mood": [1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "hotel_went_elsewhere",
+      "The hotel took its order elsewhere",
+      "They've gone to the mainland baker.",
+      []
+    ]}
+  ]},
+  {"spec": [
+    "quarrel",
+    {".requires": [{"incident": ["@LEO", [{"down": ["spirits"]}]]}, [{"has": ["@EVAN", 20]}]]},
+    {"()": ["Leo and Evan are quarrelling", "Evan's owed me for months, and he knows it."]},
+    [
+      {"other": [
+        "leo",
+        "Side with Leo",
+        "Evan pays Leo the 20 he owes.",
+        {"said": [
+          "quarrel_settled_for_leo",
+          "Evan paid Leo what he owed",
+          "About time.",
+          {".chain": [{"pay": ["@EVAN", "@LEO", 20]}, [{"mood": [-1]}]]}
+        ]}
+      ]},
+      {"other": [
+        "evan",
+        "Side with Evan",
+        "Leo lets the debt go.",
+        {"said": [
+          "quarrel_settled_for_evan",
+          "Leo let Evan's debt go",
+          "Fine. Keep it.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "quarrel_festered",
+      "Leo and Evan stopped speaking",
+      "I've nothing to say to him.",
+      [{"mood": [-2]}]
+    ]}
+  ]},
+  {"spec": [
+    "harbour_fete",
+    {"incident": ["@NOAH", [{"up": ["spirits"]}, {"down": ["money"]}]]},
+    {"()": ["Noah wants to hold a harbour fête", "Bunting, a band, a tug-of-war. Shall we?"]},
+    [
+      {"yes": [
+        "hold",
+        "Hold the fête",
+        "Noah pays 60 for bunting and a band.",
+        [{"has": ["@NOAH", 60]}],
+        {".remembered": [
+          {"said": [
+            "fete_held",
+            "The harbour held a fête",
+            "What a day!",
+            {".chain": [{"spend": ["@NOAH", 60]}, [{"mood": [2]}]]}
+          ]},
+          "Best fête in years."
+        ]}
+      ]},
+      {"other": [
+        "skip",
+        "Skip it",
+        "Nothing spent. A dull week.",
+        {"said": ["fete_skipped", "The fête was skipped", "Maybe next year.", [{"mood": [-1]}]]}
+      ]}
+    ],
+    {"said": [
+      "fete_forgotten",
+      "The fête never happened",
+      "Nobody got round to it.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "pier_piles",
+    {".requires": [
+      {"incident": ["@EVAN", [{"down": ["money"]}]]},
+      [{"Condition::Unfinished": ["pier"]}]
+    ]},
+    {"()": [
+      "The new pier needs its piles driven",
+      "The piles need driving before the tide turns."
+    ]},
+    [
+      {"yes": [
+        "drive",
+        "Drive the piles",
+        "The harbour fund pays 50, and 20 of it is Evan's wage.",
+        [{"has": ["@HARBOR", 50]}],
+        {"said": [
+          "pier_piles_driven",
+          "The new pier's piles were driven",
+          "She'll stand a hundred years.",
+          {".chain": [
+            [{"pay": ["@HARBOR", "@EVAN", 20]}, {"spend": ["@HARBOR", 30]}],
+            [{"Effect::Advance": ["pier"]}]
+          ]}
+        ]}
+      ]},
+      {"other": [
+        "leave",
+        "Leave them",
+        "Nothing spent. The pier waits.",
+        {"said": ["pier_piles_left", "The pier work stalled", "Tide's turned. Missed it.", []]}
+      ]}
+    ],
+    {"said": [
+      "pier_piles_washed_out",
+      "The tide washed out the pier work",
+      "All that work, gone with the tide.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "lamp_glass",
+    {".requires": [
+      {"incident": ["@NOAH", [{"down": ["money"]}]]},
+      [{"Condition::Unfinished": ["lamp"]}]
+    ]},
+    {"()": ["The lamp's glass has come in", "The glass is at the mainland dock. Fetch it?"]},
+    [
+      {"yes": [
+        "fetch",
+        "Ship it over",
+        "The harbour fund pays 40 for the crossing.",
+        [{"has": ["@HARBOR", 40]}],
+        {"said": [
+          "lamp_glass_fetched",
+          "The lamp's glass came over from the mainland",
+          "Careful with that!",
+          {".chain": [{"spend": ["@HARBOR", 40]}, [{"Effect::Advance": ["lamp"]}]]}
+        ]}
+      ]},
+      {"other": [
+        "leave",
+        "Leave it there",
+        "Nothing spent. It will keep, probably.",
+        {"said": ["lamp_glass_left", "The lamp's glass waited at the dock", "It'll keep.", []]}
+      ]}
+    ],
+    {"said": [
+      "lamp_glass_lost",
+      "The lamp's glass went astray",
+      "Lost! How do you lose a lamp?",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "mackerel",
+    {".requires": [
+      {"incident": ["@JONAS", [{"up": ["money"]}, {"up": ["spirits"]}]]},
+      [{"Condition::Is": ["@JONAS", "@JOB", "fisher"]}]
+    ]},
+    {"()": ["The bay is full of mackerel", "The bay's full of mackerel! Take the lot?"]},
+    [
+      {"other": [
+        "sell",
+        "Sell the lot",
+        "Jonas makes 50.",
+        {"said": [
+          "mackerel_sold",
+          "Jonas sold a glut of mackerel",
+          "Silver all the way to the mainland!",
+          {"earn": ["@JONAS", 50]}
+        ]}
+      ]},
+      {"other": [
+        "share",
+        "Share them round",
+        "Nothing earned. Everyone eats well.",
+        {".remembered": [
+          {"said": [
+            "mackerel_shared",
+            "Jonas shared his mackerel round the harbour",
+            "Mackerel for everyone!",
+            [{"mood": [2]}]
+          ]},
+          "Still smells of grilled mackerel round here."
+        ]}
+      ]}
+    ],
+    {"said": ["mackerel_moved_on", "The mackerel moved on", "Gone as fast as they came.", []]}
+  ]},
+  {"spec": [
+    "chimney_fire",
+    {"incident": ["@LEO", [{"down": ["spirits"]}, {"down": ["money"]}]]},
+    {"()": ["The pub chimney caught fire", "Chimney's caught! Get Evan!"]},
+    [
+      {"yes": [
+        "rebuild",
+        "Pay Evan to rebuild",
+        "Leo pays Evan 30.",
+        [{"has": ["@LEO", 30]}],
+        {"said": [
+          "chimney_rebuilt",
+          "Evan rebuilt the pub chimney",
+          "Draws like a dream now.",
+          {"pay": ["@LEO", "@EVAN", 30]}
+        ]}
+      ]},
+      {"other": [
+        "patch",
+        "Patch it and hope",
+        "Nothing spent. Smoky evenings.",
+        {"said": [
+          "chimney_patched",
+          "Leo patched his chimney",
+          "It'll do. Probably.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "chimney_burned_out",
+      "The pub chimney burned out",
+      "Smoke everywhere!",
+      {".chain": [{"spend": ["@LEO", 50]}, [{"mood": [-1]}]]}
+    ]}
+  ]},
+  {"spec": [
+    "mainland_work",
+    {"incident": ["@EVAN", [{"up": ["money"]}, {"down": ["spirits"]}]]},
+    {"()": [
+      "There's mainland work for Evan",
+      "A week's carpentry on the mainland. Should I go?"
+    ]},
+    [
+      {"other": [
+        "go",
+        "Go",
+        "Evan earns 60. The harbour misses its carpenter.",
+        {"said": [
+          "evan_worked_away",
+          "Evan took a week's work on the mainland",
+          "Back soon, with money in my pocket.",
+          {".chain": [{"earn": ["@EVAN", 60]}, [{"mood": [-1]}]]}
+        ]}
+      ]},
+      {"other": [
+        "stay",
+        "Stay",
+        "Nothing earned. The harbour keeps its carpenter.",
+        {"said": [
+          "evan_stayed_home",
+          "Evan stayed home",
+          "Plenty to mend here anyway.",
+          [{"mood": [1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "mainland_work_went",
+      "Evan's mainland work went to someone else",
+      "Too slow. Someone else took it.",
+      []
+    ]}
+  ]}
+]

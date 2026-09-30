@@ -69,6 +69,7 @@ impl PlatformAtlas for Atlas {
         let Some((size, bytes)) = build()? else {
             return Ok(None);
         };
+        let bytes = bytes.into_owned();
         let mut state = self.0.lock().unwrap();
         state.next += 1;
         let id = state.next;
@@ -82,7 +83,7 @@ impl PlatformAtlas for Atlas {
             bounds: Bounds::new(point(DevicePixels(0), DevicePixels(0)), size),
         };
         state.tiles.insert(key.clone(), tile);
-        state.pixels.insert(id, (size, bytes.into_owned()));
+        state.pixels.insert(id, (size, bytes));
         Ok(Some(tile))
     }
 
@@ -961,6 +962,9 @@ fn the_scene_draws_at_once_and_its_still_layers_arrive_and_fade_in() {
     cx.run_until_parked();
     let first = cx.capture_screenshot(window.into()).expect("a picture");
     let bare = first.pixels().filter(|pixel| pixel.0[3] < 255).count();
+    if let Some(path) = std::env::var_os("WORLD_GPUI_FIRST_FRAME") {
+        let _ = first.save(path);
+    }
     assert_eq!(bare, 0, "the first frame is whole, with stand-ins");
     let _ = started;
     // The still layers arrive, then fade in over a third of a second.
@@ -972,6 +976,14 @@ fn the_scene_draws_at_once_and_its_still_layers_arrive_and_fade_in() {
             .expect("a window");
         cx.run_until_parked();
         if crate::painter::idle() {
+            // The pictures are handed to the display a frame's share at a
+            // time: a few dozen frames more, then the fades.
+            for _ in 0..60 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                cx.update_window(window.into(), |_, window, _| window.refresh())
+                    .expect("a window");
+                cx.run_until_parked();
+            }
             std::thread::sleep(std::time::Duration::from_millis(450));
             cx.update_window(window.into(), |_, window, _| window.refresh())
                 .expect("a window");
@@ -1037,11 +1049,14 @@ impl gpui::Render for LiveScene {
     }
 }
 
-/// The v0.21 bar for hitches: at 1440 by 900 at twice the pixels, a
-/// three-year World's window never spends more than 16 ms on a frame
-/// because of painting, whether it is opening, the hour turning or the
+/// The v0.21 bar for hitches, tightened in v0.25: at 1440 by 900 at
+/// twice the pixels, a three-year World's window never spends 8 ms of its
+/// own CPU time on a frame, whether it is opening, the hour turning or the
 /// view panning into places not yet painted: all of that is painted off
-/// the window's thread and faded in. Timed in a release build.
+/// the window's thread and faded in, and the pictures are handed to the
+/// display a frame's share at a time (copying them in is the window
+/// thread's own work), the next ones ahead of being seen. Timed in a
+/// release build.
 #[test]
 #[ignore = "a benchmark: cargo test --release -p world-gpui -- --ignored never_waits"]
 fn a_three_year_world_never_waits_for_painting() {
@@ -1090,21 +1105,57 @@ fn a_three_year_world_never_waits_for_painting() {
             std::thread::sleep(Duration::from_millis(8));
             let ours = || {
                 let profile = crate::painter::profile().lock().unwrap();
-                ["main: plan", "main: draw still"]
-                    .map(|part| profile.get(part).copied().unwrap_or_default())
+                [
+                    "main: plan",
+                    "main: draw still",
+                    "cpu: plan",
+                    "cpu: draw still",
+                    "cpu: live",
+                    "cpu: pictures",
+                    "cpu: image",
+                ]
+                .map(|part| profile.get(part).copied().unwrap_or_default())
             };
             let before = ours();
+            let usage = || {
+                let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+                // SAFETY: `usage` is a valid rusage for getrusage to fill in.
+                unsafe { libc::getrusage(libc::RUSAGE_THREAD, &mut usage) };
+                (
+                    usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 / 1e3,
+                    usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 / 1e3,
+                    usage.ru_minflt,
+                )
+            };
+            let used = usage();
+            let handed = crate::painter::HANDED.with(|handed| handed.get());
             let (started, cpu) = (Instant::now(), on_cpu());
             cx.update_window(window.into(), |_, window, _| window.refresh())
                 .expect("a window");
             let (wall, took) = (started.elapsed(), on_cpu().saturating_sub(cpu));
             let after = ours();
-            if took > Duration::from_millis(16) || wall > Duration::from_millis(16) {
+            if took > Duration::from_millis(4) || wall > Duration::from_millis(16) {
+                let part = |index: usize| after[index] - before[index];
                 eprintln!(
                     "a slow frame, {took:?} on the CPU ({wall:?} by the clock): planning {:?}, \
-                     drawing the still layers {:?}",
-                    after[0] - before[0],
-                    after[1] - before[1]
+                     drawing the still layers {:?}; on the CPU planning {:?}, still {:?}, \
+                     live {:?}, pictures {:?}, the rest {:?}; images {:?}, {} new bytes",
+                    part(0),
+                    part(1),
+                    part(2),
+                    part(3),
+                    part(4),
+                    part(5),
+                    took.saturating_sub(part(2) + part(3) + part(4) + part(5)),
+                    part(6),
+                    crate::painter::HANDED.with(|now| now.get()) - handed,
+                );
+                let now = usage();
+                eprintln!(
+                    "  user {:.2} ms, system {:.2} ms, {} page faults",
+                    now.0 - used.0,
+                    now.1 - used.1,
+                    now.2 - used.2,
                 );
             }
             *worst = (*worst).max(took);
@@ -1137,6 +1188,21 @@ fn a_three_year_world_never_waits_for_painting() {
         phase.as_secs_f64() * 1000.0
     );
     worst = worst.max(phase);
+    // The still things boil: each of the other two drawings of the
+    // buildings is painted, handed over ahead and cut to at once.
+    for boil in 1..crate::hand::BOILS {
+        let seconds = (boil as f32 + 0.5) / crate::hand::BOIL_RATE;
+        let frame = make(19.5, width * 1.5, Daylight::Dusk).at_seconds(seconds);
+        assert_eq!(frame.boil(), boil);
+        *shared.borrow_mut() = frame;
+        let mut phase = Duration::ZERO;
+        settle(&mut cx, &mut phase, &mut frames);
+        eprintln!(
+            "boiled to drawing {boil}: the longest frame {:.2} ms",
+            phase.as_secs_f64() * 1000.0
+        );
+        worst = worst.max(phase);
+    }
     // A moment comes: its three panels are painted off the window's thread
     // and fade in over the scene.
     use world_projection::MomentKind;
@@ -1212,7 +1278,7 @@ fn a_three_year_world_never_waits_for_painting() {
         opening.as_secs_f64() * 1000.0
     );
     if !cfg!(debug_assertions) {
-        assert!(worst < Duration::from_millis(16), "{worst:?}");
+        assert!(worst < Duration::from_millis(8), "{worst:?}");
     }
 }
 
@@ -1782,6 +1848,10 @@ fn the_whole_town_is_a_postcard_that_fills_the_window() {
             a.0.iter().zip(b.0).all(|(x, y)| x.abs_diff(y) <= 3)
         };
         let bare = image.pixels().filter(|pixel| near(pixel, &paper)).count();
+        if bare * 1000 >= image.pixels().len() {
+            let _ =
+                image.save(std::env::temp_dir().join(format!("world-gpui-postcard-{hour}.png")));
+        }
         assert!(bare * 1000 < image.pixels().len(), "{bare} bare pixels");
         let band = image.height() * 15 / 100;
         let sky = image
@@ -1859,4 +1929,105 @@ fn each_pocket_universe_place_matches_its_golden_picture() {
             }
         }
     }
+}
+
+/// A World that stays as it is, whatever is asked of it.
+struct Fixed(ProjectionSnapshot);
+
+impl crate::ProjectionController for Fixed {
+    fn snapshot(&self) -> ProjectionSnapshot {
+        self.0.clone()
+    }
+
+    fn handle(
+        &mut self,
+        _: world_projection::ProjectionIntent,
+    ) -> Result<ProjectionSnapshot, String> {
+        Ok(self.0.clone())
+    }
+}
+
+/// The whole World window over `snapshot`, `width` by `height`, drawn
+/// through GPUI and the reference rasteriser, with its controls or, as a
+/// photo is taken, without.
+fn world_window(
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+    controls: bool,
+) -> RgbaImage {
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let snapshot = snapshot.clone();
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| {
+                let mut view = crate::macos::ProjectionView::controlled(Fixed(snapshot.clone()))
+                    .with_strip(|_, _| {});
+                view.looking.opening = None;
+                view.looking.photographing = !controls;
+                view
+            })
+        })
+        .expect("a window");
+    cx.run_until_parked();
+    cx.capture_screenshot(window.into()).expect("a picture")
+}
+
+/// How bright a pixel is, as the eye has it (0 to 255).
+fn luma(pixel: &image::Rgba<u8>) -> f32 {
+    let [r, g, b, _] = pixel.0;
+    0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
+}
+
+/// The v0.25 bar for the night: after dark nothing the World window lays
+/// over its scene (the card, the gauges and handles, the zoom control, the
+/// pills) is brighter than the scene's own sky. The window is drawn with
+/// its controls and without (as a photo is taken); whatever differs is
+/// the interface, and it may be no brighter than the brightest of the sky
+/// (its stars and moon aside). The words on it are not drawn here, and may
+/// be: they are light on the night's dark cards.
+#[test]
+fn at_night_nothing_over_the_scene_is_brighter_than_its_sky() {
+    crate::scene::pin_hour(Some(23));
+    let snapshot = crate::diorama::tests::harbour_1082();
+    let (width, height) = (1100.0, 760.0);
+    let with = world_window(&snapshot, (width, height), true);
+    let without = world_window(&snapshot, (width, height), false);
+    crate::scene::pin_hour(None);
+    world_theme::set_dark(false);
+    // The sky: the top of the scene, under the handles' row and over the
+    // hills. Its brightest, but for the few brightest points in it.
+    let mut sky = without
+        .enumerate_pixels()
+        .filter(|(_, y, _)| (80..(height as u32) * 30 / 100).contains(y))
+        .map(|(_, _, pixel)| luma(pixel))
+        .collect::<Vec<_>>();
+    sky.sort_by(f32::total_cmp);
+    let brightest = sky[sky.len() * 995 / 1000];
+    let interface = with
+        .pixels()
+        .zip(without.pixels())
+        .filter(|(a, b)| a.0.iter().zip(b.0).any(|(x, y)| x.abs_diff(y) > 8))
+        .map(|(pixel, _)| luma(pixel))
+        .collect::<Vec<_>>();
+    assert!(
+        interface.len() > 5_000,
+        "the interface is drawn: {} pixels",
+        interface.len()
+    );
+    let glaring = interface
+        .iter()
+        .filter(|luma| **luma > brightest + 2.0)
+        .count();
+    if glaring * 100 > interface.len() {
+        let _ = with.save(std::env::temp_dir().join("world-gpui-night-interface.png"));
+        let _ = without.save(std::env::temp_dir().join("world-gpui-night-scene.png"));
+    }
+    assert!(
+        glaring * 100 <= interface.len(),
+        "{glaring} of {} interface pixels are brighter than the sky's brightest ({brightest:.0})",
+        interface.len()
+    );
 }

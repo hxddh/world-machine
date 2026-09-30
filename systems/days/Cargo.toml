@@ -6,3 +6,5 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+world-core = { path = "../../crates/world-core" }
+world-projection = { path = "../../crates/world-projection" }

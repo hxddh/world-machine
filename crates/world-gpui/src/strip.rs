@@ -535,7 +535,15 @@ type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// full World; the envelope, when there is a letter, opens it to read.
 pub struct StripView {
     snapshot: ProjectionSnapshot,
-    started: Instant,
+    /// When the strip first drew. Every time the strip reads comes from
+    /// GPUI's executor clock, never `Instant::now()`: the executor's clock
+    /// is the one its timers (the strip's wake-ups) run on, and in a test
+    /// window it is the fake clock `advance_clock` moves. Reading the wall
+    /// clock instead left the letter still falling in a release build,
+    /// where almost no real time passes between frames.
+    started: Option<Instant>,
+    /// The strip's clock at the last thing it saw: a frame or a click.
+    now: Option<Instant>,
     /// How many letters the strip has seen arrive.
     letters_seen: usize,
     /// When the latest letter arrived in the strip.
@@ -580,7 +588,8 @@ impl StripView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
         Self {
             snapshot,
-            started: Instant::now(),
+            started: None,
+            now: None,
             letters_seen: 0,
             letter_at: None,
             reading: false,
@@ -621,13 +630,19 @@ impl StripView {
             .retain(|_, at| now.duration_since(*at).as_secs_f32() < SAYING_SECONDS);
         self.poked.insert(who, now);
         self.saying = Some((who, line_for(&self.snapshot, who), now));
+        self.now = Some(self.now.map_or(now, |seen| seen.max(now)));
     }
 
     /// What is being said on the strip now, by whom.
     pub fn saying(&self) -> Option<(SelectionId, &str)> {
         self.saying
             .as_ref()
-            .filter(|(_, _, at)| at.elapsed().as_secs_f32() < SAYING_SECONDS)
+            .filter(|(_, _, at)| {
+                self.now
+                    .map_or(Duration::ZERO, |now| now.duration_since(*at))
+                    .as_secs_f32()
+                    < SAYING_SECONDS
+            })
             .map(|(who, line, _)| (*who, line.as_str()))
     }
 
@@ -1037,8 +1052,11 @@ fn paint_envelope(bounds: Bounds<Pixels>, window: &mut Window) {
 impl Render for StripView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.drawn += 1;
-        let now = Instant::now();
-        let seconds = now.duration_since(self.started).as_secs_f32();
+        let now = cx.background_executor().now();
+        self.now = Some(now);
+        let seconds = now
+            .duration_since(*self.started.get_or_insert(now))
+            .as_secs_f32();
         // The day's letter arrives in the strip when it opens and whenever
         // another comes.
         if self.snapshot.letters.len() > self.letters_seen {
@@ -1165,7 +1183,7 @@ impl Render for StripView {
                 });
                 if let Some(who) = hit.and_then(|index| this.snapshot.canvas.items.get(index)) {
                     let who = who.id;
-                    this.poke(who, Instant::now());
+                    this.poke(who, cx.background_executor().now());
                     cx.notify();
                 }
             }))

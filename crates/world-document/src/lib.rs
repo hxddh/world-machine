@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
 use std::io::{Read, Write};
+use std::sync::OnceLock;
 use world_persistence::{
     ArchiveHead, ArchivedCheckpoint, CheckpointFit, CompactHistory, PersistenceError, WorldArchive,
     WorldPackRef,
@@ -22,6 +23,84 @@ pub const CHECKPOINT_FALLBACK_SPAN: u64 = 30;
 /// fill memory: far more than years of any World's history.
 pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// The schema of the World files this World Machine writes: what a file
+/// may hold beyond what its Pack version says. Written in every file's
+/// summary beside the app that wrote it; a file without one is schema 0,
+/// as every file before v0.25 was.
+///
+/// It goes up whenever a newer app writes something an older one would
+/// misread or lose. An app that finds a file of a newer schema than its
+/// own opens it to look at only, and never saves over it (see
+/// [`FileWriter::is_newer`]).
+///
+/// - 1: v0.25. The writer and schema themselves.
+pub const WORLD_FILE_SCHEMA: u32 = 1;
+
+static WRITING_APP: OnceLock<String> = OnceLock::new();
+
+/// Names the app that writes World files from now on (such as
+/// `World Machine 0.25.0`), for every file's summary. Set once, as the app
+/// starts; later calls are ignored.
+pub fn set_writing_app(app: impl Into<String>) {
+    let _ = WRITING_APP.set(app.into());
+}
+
+/// The app World files are written by: what [`set_writing_app`] named, or
+/// this library, for a program that never named itself.
+pub fn writing_app() -> &'static str {
+    WRITING_APP
+        .get()
+        .map(String::as_str)
+        .unwrap_or(concat!("world-document ", env!("CARGO_PKG_VERSION")))
+}
+
+/// Who wrote a World file, and in which schema.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FileWriter {
+    /// [`WORLD_FILE_SCHEMA`] as the writer had it; 0 for a file from
+    /// before files said.
+    pub schema: u32,
+    /// The app that wrote it, if the file says.
+    pub app: Option<String>,
+}
+
+impl FileWriter {
+    /// What this app writes.
+    pub fn current() -> Self {
+        Self {
+            schema: WORLD_FILE_SCHEMA,
+            app: Some(writing_app().to_string()),
+        }
+    }
+
+    /// Whether the file was written by a newer World Machine than this
+    /// one: it may hold what this one would misread or lose, so it is
+    /// opened to look at only, and never saved over.
+    pub fn is_newer(&self) -> bool {
+        self.schema > WORLD_FILE_SCHEMA
+    }
+
+    /// A sentence for the player saying why a newer file is only looked
+    /// at.
+    pub fn newer_message(&self) -> String {
+        let by = self
+            .app
+            .as_deref()
+            .map(|app| {
+                world_core::text::clean_text(app)
+                    .chars()
+                    .take(80)
+                    .collect::<String>()
+            })
+            .filter(|app| !app.is_empty())
+            .map(|app| format!(" ({app})"))
+            .unwrap_or_default();
+        format!(
+            "This World was saved by a newer World Machine{by}. It is open to look at, but nothing is saved to it: update World Machine to play it on"
+        )
+    }
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldDocumentMetadata {
@@ -226,6 +305,8 @@ impl WorldDocument {
             pack: &self.archive.pack,
             world_time: self.archive.world_time,
             event_count: self.archive.events.len(),
+            schema: WORLD_FILE_SCHEMA,
+            written_by: Some(writing_app().to_string()),
         };
         gzipped(&file_json(&summary, &self.metadata, &json)?)
     }
@@ -248,6 +329,8 @@ impl WorldDocument {
             pack: head.pack,
             world_time: head.world_time,
             event_count: history.len(),
+            schema: WORLD_FILE_SCHEMA,
+            written_by: Some(writing_app().to_string()),
         };
         let before = file_json(&summary, metadata, &archive_before)?;
         deflated.cover(history.written_text());
@@ -255,9 +338,48 @@ impl WorldDocument {
         let mut file = Vec::with_capacity(deflated.deflated_len() + before.len() / 4 + 64);
         file.extend_from_slice(&GZIP_HEADER);
         let mut crc = flate2::Crc::new();
-        let head_part = deflate(&before, flate2::FlushCompress::Full)?;
-        file.extend_from_slice(&head_part);
-        crc.update(&before);
+        // Deflated in parts, each on its own, as the history's pieces are:
+        // what changes with every save (the summary, the description but
+        // its drawings, the World's clock and schedule), and the larger
+        // parts that seldom do, which are deflated again only when they
+        // did. Wherever the parts are cut, they join to the same text.
+        let archive_at = before.len() + 1 - archive_before.len();
+        let drawings = find(&before[..archive_at], b",\"display_drawings\":")
+            .unwrap_or(archive_at - 1)
+            .min(archive_at - 1);
+        let checkpoint = find(&before[archive_at..], b",\"checkpoint\":")
+            .map_or(before.len(), |at| archive_at + at);
+        for (part, kept) in [
+            (&before[..drawings], None),
+            (&before[drawings..archive_at - 1], Some(0)),
+            (&before[archive_at - 1..checkpoint], None),
+            (&before[checkpoint..], Some(1)),
+        ] {
+            if part.is_empty() {
+                continue;
+            }
+            match kept {
+                Some(slot) => {
+                    let head = &mut deflated.head[slot];
+                    if head.as_ref().is_none_or(|head| head.text != part) {
+                        let mut part_crc = flate2::Crc::new();
+                        part_crc.update(part);
+                        *head = Some(HeadPiece {
+                            text: part.to_vec(),
+                            deflated: deflate(part, flate2::FlushCompress::Full)?,
+                            crc: part_crc,
+                        });
+                    }
+                    let head = head.as_ref().expect("just kept");
+                    file.extend_from_slice(&head.deflated);
+                    crc.combine(&head.crc);
+                }
+                None => {
+                    file.extend_from_slice(&deflate(part, flate2::FlushCompress::Full)?);
+                    crc.update(part);
+                }
+            }
+        }
         for piece in &deflated.pieces {
             file.extend_from_slice(&piece.deflated);
             crc.combine(&piece.crc);
@@ -286,6 +408,8 @@ impl WorldDocument {
             pack: head.pack,
             world_time: head.world_time,
             event_count: history.len(),
+            schema: WORLD_FILE_SCHEMA,
+            written_by: Some(writing_app().to_string()),
         };
         gzipped(&file_json(&summary, metadata, &json)?)
     }
@@ -374,6 +498,15 @@ impl WorldDocument {
         }
     }
 
+    /// Who wrote a World file, read from the summary at its start without
+    /// unpacking its history. A file with no summary, or none that says,
+    /// was written before files said: schema 0.
+    pub fn writer_from_bytes(bytes: &[u8]) -> Result<FileWriter, DocumentError> {
+        Ok(Self::summary_from_bytes(bytes)?
+            .map(|summary| summary.writer)
+            .unwrap_or_default())
+    }
+
     fn from_json_bytes(json: &[u8]) -> Result<Self, DocumentError> {
         // Read straight into the archive, without a tree of JSON values in
         // between. The persistence layer ignores document-only fields, so
@@ -430,6 +563,13 @@ const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff];
 
 /// `data` deflated on its own, at the level World files use: `Full` leaves
 /// the stream open at a byte boundary for more to follow, `Finish` ends it.
+/// Where `needle` first is in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
 fn deflate(data: &[u8], flush: flate2::FlushCompress) -> Result<Vec<u8>, DocumentError> {
     let mut compress = flate2::Compress::new(Compression::new(2), false);
     let mut out = Vec::with_capacity(data.len() / 3 + 64);
@@ -459,6 +599,18 @@ pub struct DeflatedHistory {
     pieces: Vec<Piece>,
     /// How much of the history's text the pieces hold.
     covered: usize,
+    /// The larger parts of the file before its events, as last written
+    /// and deflated (the description's drawings; the checkpoint), so a
+    /// save that writes one the same does not deflate it again. They
+    /// change seldom: when the cast is drawn anew, once a season.
+    head: [Option<HeadPiece>; 2],
+}
+
+#[derive(Debug)]
+struct HeadPiece {
+    text: Vec<u8>,
+    deflated: Vec<u8>,
+    crc: flate2::Crc,
 }
 
 #[derive(Debug)]
@@ -565,6 +717,8 @@ pub struct DocumentSummary {
     pub world_time: u64,
     pub event_count: usize,
     pub metadata: WorldDocumentMetadata,
+    /// Who wrote the file, and in which schema.
+    pub writer: FileWriter,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -572,6 +726,16 @@ struct FileSummary<P> {
     pack: P,
     world_time: u64,
     event_count: usize,
+    /// [`WORLD_FILE_SCHEMA`] as the writer had it; absent (0) before v0.25.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    schema: u32,
+    /// The app that wrote the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    written_by: Option<String>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// A World file's JSON: its summary and the document's own fields first,
@@ -694,6 +858,10 @@ fn summary_prefix(json: &[u8]) -> Prefix {
             world_time: summary.world_time,
             event_count: summary.event_count,
             metadata,
+            writer: FileWriter {
+                schema: summary.schema,
+                app: summary.written_by,
+            },
         })
     };
     Prefix::Whole(Box::new(read()))
@@ -943,6 +1111,7 @@ mod tests {
                 world_time: document.archive.world_time,
                 event_count: document.archive.events.len(),
                 metadata: document.metadata.clone(),
+                writer: FileWriter::current(),
             }
         );
         let mut read = WorldDocument::from_bytes(&file).unwrap();

@@ -1,205 +1,56 @@
 //! Does each place keep having a story? Sixty periods, played three ways,
-//! held to the bar the v0.10 plan set.
+//! held to the bar the v0.10 plan set (`world_pack_testkit::density`).
 
 use crate::{projection, story, talk, PocketUniverse, NUDGE_COMMAND};
+use world_pack_testkit::density::{self, Policy, StoryWorld};
 use world_projection::SelectionId;
 
-#[derive(Clone, Copy, Debug)]
-enum Policy {
-    /// Always says yes, to the first thing on offer.
-    Generous,
-    /// Always takes the last answer on offer, which is often a no.
-    Contrary,
-    /// Never answers anything; lets every day pass.
-    Absent,
-}
-
-struct Played {
-    /// Days that offered something more than letting the day pass.
-    days_with_a_choice: Vec<bool>,
-    /// What was said on each day.
-    lines: Vec<Vec<String>>,
-    /// Each day's money and spirits gauges.
-    gauges: Vec<Vec<(String, f32)>>,
-    /// The day the first chapter closed.
-    first_chapter: Option<usize>,
-    /// Questions answered, and how many of those answers changed what is
-    /// on the scene.
-    answered: usize,
-    answers_seen: usize,
-    universe: PocketUniverse,
-}
+type Played = density::Played<PocketUniverse>;
 
 /// What the scene shows: everything on it, by name and where it stands.
 fn scene(world: &world_core::World) -> std::collections::BTreeSet<String> {
-    projection::snapshot(world)
-        .canvas
-        .items
-        .iter()
-        .map(|item| format!("{} @ {:?}", item.label, item.at))
-        .collect()
+    density::scene(&projection::snapshot(world))
 }
 
-fn said_today(universe: &PocketUniverse) -> Vec<String> {
-    let world = universe.world();
-    let now = world.world_time();
-    talk::voices(world)
-        .into_iter()
-        .filter(|voice| {
-            let SelectionId::Event(id) = voice.moment else {
-                return false;
-            };
-            world
-                .events()
-                .iter()
-                .any(|event| event.id == id && event.world_time == now)
-        })
-        .map(|voice| voice.line)
-        .collect()
+impl StoryWorld for PocketUniverse {
+    fn world(&self) -> &world_core::World {
+        PocketUniverse::world(self)
+    }
+    fn story_snapshot(&self) -> world_projection::ProjectionSnapshot {
+        projection::snapshot(PocketUniverse::world(self))
+    }
+    fn invoke(&mut self, command: &str) -> Result<(), String> {
+        self.invoke_projection_command(command)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    fn pass_command(&self) -> &'static str {
+        NUDGE_COMMAND
+    }
+    fn gauges(&self) -> [&'static str; 2] {
+        ["trust", "tension"]
+    }
+    fn said_today(&self) -> Vec<String> {
+        let world = PocketUniverse::world(self);
+        density::said_today(world, talk::voices(world))
+    }
+}
+
+/// A place begun from `seed`, its first period passed before anything is
+/// counted.
+fn begun_and_passed(seed: &str) -> PocketUniverse {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(seed).unwrap();
+    universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    universe
 }
 
 fn play(seed: &str, policy: Policy, days: usize) -> Played {
-    let mut universe = PocketUniverse::new().unwrap();
-    universe.invoke_projection_command(seed).unwrap();
-    // The first period passes before anything is counted.
-    universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
-    let mut played = Played {
-        days_with_a_choice: Vec::new(),
-        lines: Vec::new(),
-        gauges: Vec::new(),
-        first_chapter: None,
-        answered: 0,
-        answers_seen: 0,
-        universe: PocketUniverse::new().unwrap(),
-    };
-    for day in 0..days {
-        let snapshot = projection::snapshot(universe.world());
-        let choices = snapshot
-            .commands
-            .iter()
-            .filter(|command| {
-                command.id != NUDGE_COMMAND
-                    && command.unavailable.is_none()
-                    && command.hand.is_none()
-            })
-            .map(|command| command.id.clone())
-            .collect::<Vec<_>>();
-        played.days_with_a_choice.push(!choices.is_empty());
-        played.lines.push(said_today(&universe));
-        played.gauges.push(
-            snapshot
-                .gauges
-                .iter()
-                .filter(|gauge| gauge.id == "trust" || gauge.id == "tension")
-                .map(|gauge| (gauge.id.clone(), gauge.value))
-                .collect(),
-        );
-        if played.first_chapter.is_none()
-            && universe
-                .world()
-                .events()
-                .iter()
-                .any(|event| event.kind == "chapter_ended")
-        {
-            played.first_chapter = Some(day);
-        }
-        let pick = match policy {
-            Policy::Generous => choices.first(),
-            Policy::Contrary => choices.last(),
-            Policy::Absent => None,
-        };
-        if let Some(command) = pick {
-            let before = scene(universe.world());
-            if let Err(error) = universe.invoke_projection_command(command) {
-                panic!("{policy:?} period {day}: {command} was offered but failed: {error}");
-            }
-            if snapshot
-                .command(command)
-                .is_some_and(|command| command.question.is_some())
-            {
-                played.answered += 1;
-                if scene(universe.world()) != before {
-                    played.answers_seen += 1;
-                }
-            }
-        }
-        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
-    }
-    played.universe = universe;
-    played
+    density::play(begun_and_passed(seed), policy, days)
 }
 
 fn check(seed: &str, policy: Policy) {
-    let played = play(seed, policy, 60);
-    let empty = played
-        .days_with_a_choice
-        .iter()
-        .enumerate()
-        .filter(|(_, choice)| !**choice)
-        .map(|(day, _)| day)
-        .collect::<Vec<_>>();
-    assert!(
-        empty.is_empty(),
-        "{policy:?}: days with nothing to decide: {empty:?}"
-    );
-
-    for window in played.lines.windows(10) {
-        let mut counts = std::collections::BTreeMap::<&str, usize>::new();
-        for line in window.iter().flatten() {
-            *counts.entry(line).or_default() += 1;
-        }
-        let worst = counts.into_iter().max_by_key(|(_, count)| *count);
-        if let Some((line, count)) = worst {
-            assert!(
-                count <= 3,
-                "{policy:?}: {line:?} said {count} times in ten days"
-            );
-        }
-    }
-
-    for gauge in ["trust", "tension"] {
-        let mut run = 0;
-        let mut worst = 0;
-        for day in &played.gauges {
-            let value = day
-                .iter()
-                .find(|(id, _)| id == gauge)
-                .map(|(_, value)| *value)
-                .unwrap();
-            if !(0.05..=0.95).contains(&value) {
-                run += 1;
-            } else {
-                run = 0;
-            }
-            worst = worst.max(run);
-        }
-        assert!(
-            worst <= 5,
-            "{policy:?}: {gauge} pinned at an end for {worst} days"
-        );
-    }
-
-    assert!(
-        played.first_chapter.is_some_and(|day| day <= 30),
-        "{policy:?}: first chapter closed on {:?}",
-        played.first_chapter
-    );
-
-    // Everything the storyteller did is history: the World replays to the
-    // same place without it.
-    let world = played.universe.world();
-    let replayed = world.replay().unwrap();
-    assert_eq!(replayed.state(), world.state());
-
-    // The chapters that ended are in the book, each in the World's words,
-    // and the goals stand on the horizon.
-    let snapshot = projection::snapshot(world);
-    assert!(!snapshot.chapters.is_empty());
-    assert!(snapshot
-        .chapters
-        .iter()
-        .all(|chapter| !chapter.title.is_empty() && !chapter.summary.is_empty()));
-    assert!(!snapshot.goals.is_empty());
+    density::check(begun_and_passed(seed), policy);
 }
 
 const MARS: &str = crate::SEED_MARS_COLONY_COMMAND;
@@ -238,8 +89,8 @@ fn show_sixty_periods() {
                 played.days_with_a_choice[day], gauges, played.lines[day]
             );
         }
-        for event in played.universe.world().events() {
-            if let Some(title) = story::told(played.universe.world(), event) {
+        for event in played.world.world().events() {
+            if let Some(title) = story::told(played.world.world(), event) {
                 println!("  t={} {title}", event.world_time);
             }
         }
@@ -280,7 +131,7 @@ fn choices_change_and_come_back(seed: &str) -> (usize, usize) {
     // an earlier answer; neither way of playing falls far below that.
     let mut followed = (0, 0);
     for (policy, played) in [("yes", &generous), ("last answer", &contrary)] {
-        let world = played.universe.world();
+        let world = played.world.world();
         eprintln!(
             "{policy}: {} of {} answers changed the scene",
             played.answers_seen, played.answered
@@ -333,7 +184,7 @@ fn choices_change_and_come_back(seed: &str) -> (usize, usize) {
         "fewer than half of all answers changed the scene"
     );
     let names = |played: &Played| {
-        let world = played.universe.world();
+        let world = played.world.world();
         projection::snapshot(world)
             .canvas
             .items
@@ -436,7 +287,7 @@ fn a_week_away_lapses_at_most_three_questions() {
 /// title of its own, and everyone lives every period without being asked.
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
-    let world = played.universe.world();
+    let world = played.world.world();
     // A player who says yes finishes the place's goals and climbs its
     // ladder of works, with only the latest still under way.
     if matches!(policy, Policy::Generous) {
@@ -727,7 +578,7 @@ fn branches_become_different_colonies() {
 #[ignore]
 fn time_a_year_old_world() {
     let played = play(MARS, Policy::Generous, 365);
-    let world = played.universe.world();
+    let world = played.world.world();
     world.history_index();
     for _ in 0..3 {
         let started = std::time::Instant::now();
@@ -740,7 +591,7 @@ fn time_a_year_old_world() {
         );
     }
     let started = std::time::Instant::now();
-    played.universe.projection_snapshot();
+    played.world.projection_snapshot();
     eprintln!("session snapshot {:?}", started.elapsed());
     let time = |label: &str, f: &dyn Fn()| {
         let started = std::time::Instant::now();
@@ -1063,7 +914,7 @@ fn someone_sees_what_you_made_and_remembers_it_in_every_place() {
 fn everyone_on_the_scene_has_an_outline_of_their_own_in_every_place() {
     for seed in SEEDS {
         let played = play(seed, Policy::Generous, 120);
-        let snapshot = projection::snapshot(played.universe.world());
+        let snapshot = projection::snapshot(played.world.world());
         assert!(
             snapshot.drawings.len() <= 64,
             "{seed}: {}",
@@ -1242,8 +1093,11 @@ fn every_card_fits_in_two_lines_in_every_place() {
 }
 
 /// The goals on the horizon can be finished: a player who says yes builds
-/// every one within a year, in every place. Three years of play, so run
-/// by hand; Mars is checked on every run by its year-long test.
+/// every standing goal within a year, in every place, and climbs the
+/// ladder of works past eight rungs. Since v0.18 the horizon always ends
+/// on the rung in hand (see `story::goals`), so that one, and only that
+/// one, may still be under way. Three years of play, so run nightly; Mars
+/// is checked on every run by its year-long test.
 #[test]
 #[ignore]
 fn a_careful_player_finishes_every_goal_in_a_year() {
@@ -1253,14 +1107,40 @@ fn a_careful_player_finishes_every_goal_in_a_year() {
         crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
     ] {
         let played = play(seed, Policy::Generous, 365);
-        let goals = crate::story::goals(played.universe.world());
-        assert!(!goals.is_empty(), "{seed}");
-        let unfinished = goals
+        let goals = crate::story::goals(played.world.world());
+        let Some((in_hand, before)) = goals.split_last() else {
+            panic!("{seed}: no goals");
+        };
+        let unfinished = before
             .iter()
             .filter(|goal| !goal.finished())
             .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
             .collect::<Vec<_>>();
         assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+        for standing in ["second_home", "beacon", "survey"] {
+            assert!(
+                goals
+                    .iter()
+                    .any(|goal| goal.id == standing && goal.finished()),
+                "{seed}: {standing} unfinished in a year: {goals:?}"
+            );
+        }
+        let rungs = crate::places::Place::of(played.world.world().state())
+            .map(crate::story::ladder)
+            .unwrap_or_default();
+        assert!(
+            in_hand.finished() || rungs.iter().any(|rung| rung.id == in_hand.id),
+            "{seed}: only a rung of the ladder may be in hand: {in_hand:?}"
+        );
+        let climbed = rungs
+            .iter()
+            .filter(|rung| {
+                goals
+                    .iter()
+                    .any(|goal| goal.id == rung.id && goal.finished())
+            })
+            .count();
+        assert!(climbed >= 8, "{seed}: {climbed} rungs climbed in a year");
     }
 }
 

@@ -593,8 +593,11 @@ enum Target {
 /// creation, and a value set again, or on something removed or created
 /// anew, is left out. Something both created and removed along the way is
 /// left out altogether, with everything folded into it, since a World keeps
-/// no trace of what it removed. Every other creation and removal is kept, so
-/// every change kept meets the same World it met in the full run.
+/// no trace of what it removed; so is a relation made along the way on
+/// something removed along the way, which went with it. Every
+/// other creation and removal is kept, so every change kept meets the same
+/// World it met in the full run (proven over random lists of changes by
+/// `settling_any_changes_comes_to_the_same_world`).
 fn settle(changes: impl Iterator<Item = ArchivedStateChange>) -> Vec<ArchivedStateChange> {
     let mut out: Vec<Option<ArchivedStateChange>> = Vec::new();
     // Where the live creation of each thing is, while nothing has removed it.
@@ -620,6 +623,28 @@ fn settle(changes: impl Iterator<Item = ArchivedStateChange>) -> Vec<ArchivedSta
             ArchivedStateChange::RemoveEntity { entity } => {
                 let target = Target::Entity(*entity);
                 forget(&mut out, &mut written, target);
+                // Removing a thing removes every relation on it, unrecorded.
+                // A relation made along the way on it is made and gone
+                // again, so it is not kept: kept, it could name something
+                // else made along the way and left out.
+                let on_it = created
+                    .iter()
+                    .filter(|(target, at)| {
+                        matches!(target, Target::Relation(_))
+                            && matches!(
+                                &out[**at],
+                                Some(ArchivedStateChange::CreateRelation { relation })
+                                    if relation.from == *entity || relation.to == *entity
+                            )
+                    })
+                    .map(|(target, _)| *target)
+                    .collect::<Vec<_>>();
+                for relation in on_it {
+                    forget(&mut out, &mut written, relation);
+                    if let Some(at) = created.remove(&relation) {
+                        out[at] = None;
+                    }
+                }
                 match created.remove(&target) {
                     // Made and gone again along the way: neither is kept.
                     Some(at) => out[at] = None,
@@ -1832,5 +1857,199 @@ mod tests {
             .restore(&WorldPackRef::new("test.counter", "1"), start.clone())
             .unwrap();
         assert_eq!(restored.state(), world.state());
+    }
+
+    /// A small seeded generator (xorshift), so the property test below
+    /// needs no dependency and every failure can be run again by its seed.
+    struct Seeded(u64);
+
+    impl Seeded {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n.max(1)
+        }
+
+        fn pick<T: Copy>(&mut self, items: &[T]) -> Option<T> {
+            (!items.is_empty()).then(|| items[self.below(items.len() as u64) as usize])
+        }
+    }
+
+    /// A World to start from: four things, two relations between them.
+    fn property_start() -> WorldState {
+        let mut state = WorldState::default();
+        for id in 1..=4 {
+            state
+                .seed_entity(
+                    world_core::Entity::new(EntityId::new(id), "thing")
+                        .with_component("a", id as i64),
+                )
+                .unwrap();
+        }
+        for (id, from, to) in [(1, 1, 2), (2, 3, 4)] {
+            state
+                .seed_relation(
+                    world_core::Relation::new(
+                        RelationId::new(id),
+                        "near",
+                        EntityId::new(from),
+                        EntityId::new(to),
+                    )
+                    .with_property("p", 1_i64),
+                )
+                .unwrap();
+        }
+        state
+    }
+
+    /// A random list of changes that all apply, one after another, to
+    /// [`property_start`]: things and relations made, changed and removed,
+    /// made again under the same id, and removed with relations still on
+    /// them.
+    fn random_changes(random: &mut Seeded, len: usize) -> Vec<StateChange> {
+        use std::collections::{BTreeMap, BTreeSet};
+        let mut things = (1..=4).collect::<BTreeSet<u64>>();
+        let mut relations = BTreeMap::from([(1_u64, (1_u64, 2_u64)), (2, (3, 4))]);
+        let keys = ["a", "b", "c"];
+        let mut changes = Vec::new();
+        while changes.len() < len {
+            let live = things.iter().copied().collect::<Vec<_>>();
+            let linked = relations.keys().copied().collect::<Vec<_>>();
+            let value = world_core::Value::Integer(random.below(5) as i64);
+            let key = keys[random.below(3) as usize].to_string();
+            let change = match random.below(8) {
+                0 => {
+                    let id = 1 + random.below(8);
+                    if things.contains(&id) {
+                        continue;
+                    }
+                    let mut entity = world_core::Entity::new(EntityId::new(id), "thing");
+                    for _ in 0..random.below(3) {
+                        entity =
+                            entity.with_component(keys[random.below(3) as usize], value.clone());
+                    }
+                    things.insert(id);
+                    StateChange::CreateEntity(entity)
+                }
+                1 => {
+                    let Some(id) = random.pick(&live) else {
+                        continue;
+                    };
+                    things.remove(&id);
+                    relations.retain(|_, (from, to)| *from != id && *to != id);
+                    StateChange::RemoveEntity(EntityId::new(id))
+                }
+                2 => {
+                    let Some(id) = random.pick(&live) else {
+                        continue;
+                    };
+                    StateChange::SetComponent {
+                        entity: EntityId::new(id),
+                        key,
+                        value,
+                    }
+                }
+                3 => {
+                    let Some(id) = random.pick(&live) else {
+                        continue;
+                    };
+                    StateChange::RemoveComponent {
+                        entity: EntityId::new(id),
+                        key,
+                    }
+                }
+                4 => {
+                    let id = 1 + random.below(6);
+                    let (Some(from), Some(to)) = (random.pick(&live), random.pick(&live)) else {
+                        continue;
+                    };
+                    if relations.contains_key(&id) {
+                        continue;
+                    }
+                    relations.insert(id, (from, to));
+                    let mut relation = world_core::Relation::new(
+                        RelationId::new(id),
+                        "near",
+                        EntityId::new(from),
+                        EntityId::new(to),
+                    );
+                    if random.below(2) == 0 {
+                        relation = relation.with_property(key, value);
+                    }
+                    StateChange::CreateRelation(relation)
+                }
+                5 => {
+                    let Some(id) = random.pick(&linked) else {
+                        continue;
+                    };
+                    relations.remove(&id);
+                    StateChange::RemoveRelation(RelationId::new(id))
+                }
+                6 => {
+                    let Some(id) = random.pick(&linked) else {
+                        continue;
+                    };
+                    StateChange::SetRelationProperty {
+                        relation: RelationId::new(id),
+                        key,
+                        value,
+                    }
+                }
+                _ => {
+                    let Some(id) = random.pick(&linked) else {
+                        continue;
+                    };
+                    StateChange::RemoveRelationProperty {
+                        relation: RelationId::new(id),
+                        key,
+                    }
+                }
+            };
+            changes.push(change);
+        }
+        changes
+    }
+
+    fn applied(changes: &[StateChange]) -> Result<WorldState, WorldError> {
+        World::resume(property_start(), changes, 0, 1, Vec::new(), 0)
+            .map(|world| world.state().clone())
+    }
+
+    fn settled(changes: &[StateChange]) -> Vec<StateChange> {
+        settle(changes.iter().map(ArchivedStateChange::from))
+            .iter()
+            .map(StateChange::from)
+            .collect()
+    }
+
+    /// `settle` of any list of changes, applied to the World they started
+    /// from, leaves it exactly as the whole list applied in order does; is
+    /// never longer; and settles no further when settled again.
+    #[test]
+    fn settling_any_changes_comes_to_the_same_world() {
+        for seed in 1..=3000_u64 {
+            let mut random = Seeded(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let len = random.below(48) as usize;
+            let changes = random_changes(&mut random, len);
+            let whole = applied(&changes).unwrap_or_else(|error| {
+                panic!("seed {seed}: the generator made changes that do not apply: {error}")
+            });
+            let once = settled(&changes);
+            assert!(once.len() <= changes.len(), "seed {seed}");
+            let state = applied(&once).unwrap_or_else(|error| {
+                panic!(
+                    "seed {seed}: settled changes do not apply: {error}\n{changes:#?}\n{once:#?}"
+                )
+            });
+            assert_eq!(state, whole, "seed {seed}\n{changes:#?}\n{once:#?}");
+            let twice = settled(&once);
+            assert_eq!(applied(&twice).unwrap(), whole, "seed {seed}");
+            assert_eq!(twice.len(), once.len(), "seed {seed}");
+        }
     }
 }

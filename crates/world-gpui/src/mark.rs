@@ -922,7 +922,10 @@ mod tests {
         assert!(valid_name("Lark"));
         assert!(valid_name("小燕"));
         assert!(!valid_name("   "));
-        assert!(!valid_name("Bad\u{7}name"));
+        // Hidden characters are taken out of a name rather than refused; a
+        // name made of nothing else is no name at all.
+        assert!(valid_name("Bad\u{7}name"));
+        assert!(!valid_name("\u{7}\u{202e}"));
         assert!(!valid_name(&"a".repeat(33)));
         let item = CanvasItem {
             naming: Some(world_projection::Naming {

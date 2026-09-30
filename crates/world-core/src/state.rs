@@ -1,4 +1,4 @@
-use crate::{Entity, EntityId, Relation, RelationId, StateChange, Value};
+use crate::{Entity, EntityId, IdBlock, IdError, Relation, RelationId, StateChange, Value};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -66,6 +66,38 @@ impl WorldState {
 
     pub fn relations(&self) -> impl Iterator<Item = &Relation> {
         self.relations.values()
+    }
+
+    /// The lowest id in `block` that no entity holds, read from the state
+    /// alone: the same World always gives out the same id, so an Action can
+    /// choose it and replay only applies what was recorded. A full block is
+    /// an error to be seen, never an id from somewhere else.
+    pub fn free_id_in(&self, block: IdBlock) -> Result<EntityId, IdError> {
+        let mut next = block.first;
+        for id in self
+            .entities
+            .range(EntityId::new(block.first)..EntityId::new(block.end()))
+            .map(|(id, _)| id.0)
+        {
+            if id != next {
+                break;
+            }
+            next += 1;
+        }
+        if next < block.end() {
+            Ok(EntityId::new(next))
+        } else {
+            Err(IdError::Full(block))
+        }
+    }
+
+    /// How many ids in `block` no entity holds.
+    pub fn room_left_in(&self, block: IdBlock) -> u64 {
+        let taken = self
+            .entities
+            .range(EntityId::new(block.first)..EntityId::new(block.end()))
+            .count() as u64;
+        block.room - taken.min(block.room)
     }
 
     pub fn seed_entity(&mut self, entity: Entity) -> Result<(), WorldStateError> {

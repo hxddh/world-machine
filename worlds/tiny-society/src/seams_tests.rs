@@ -4,11 +4,10 @@
 //! name, no "Harbor", no clause told twice, no sentence glued on with a
 //! colon, and no letter whose writer speaks of themselves by name.
 
-use crate::first_minutes::readable;
 use crate::TinySocietyBranch;
 use std::collections::BTreeSet;
 use world_core::EntityId;
-use world_projection::{seams_in, speaks_of_self, SelectionId, StoryPage, StoryRequest};
+use world_pack_testkit::seams::{self, readable};
 
 /// Days each player plays: a year of the harbour's and a season more.
 const DAYS: u64 = crate::almanac::YEAR_DAYS + 30;
@@ -26,7 +25,6 @@ enum Player {
 /// Everything a harbour can tell now: what a player reads, and every
 /// legend, moment and almanac it keeps.
 fn told(branch: &TinySocietyBranch) -> Vec<String> {
-    let mut lines = readable(&branch.projection_snapshot());
     let world = branch.world();
     let subjects: Vec<EntityId> = world
         .state()
@@ -34,45 +32,13 @@ fn told(branch: &TinySocietyBranch) -> Vec<String> {
         .filter(|entity| matches!(entity.kind.as_str(), "resident" | "fixture" | "location"))
         .map(|entity| entity.id)
         .collect();
-    for subject in subjects {
-        if let Some(StoryPage::Legend(legend)) =
-            branch.story(StoryRequest::Legend(SelectionId::Entity(subject)))
-        {
-            lines.push(legend.title);
-            for line in legend.lines {
-                lines.push(line.text);
-                lines.extend(line.because);
-            }
-        }
-    }
-    for moment in crate::moments::moments(world) {
-        lines.push(moment.title);
-        lines.extend(moment.panels.into_iter().map(|panel| panel.caption));
-    }
-    for year in crate::almanac_page::years(world) {
-        if let Some(StoryPage::Almanac(almanac)) = branch.story(StoryRequest::Almanac(year)) {
-            lines.push(almanac.title);
-            lines.extend(almanac.built);
-        }
-    }
-    lines
-}
-
-/// Letters whose writer speaks of themselves by name.
-fn self_told(branch: &TinySocietyBranch) -> Vec<String> {
-    let state = branch.world().state();
-    branch
-        .projection_snapshot()
-        .letters
-        .into_iter()
-        .filter_map(|letter| {
-            let SelectionId::Entity(writer) = letter.from else {
-                return None;
-            };
-            let name = lives::first_name(state, writer);
-            speaks_of_self(&name, &letter.note).then(|| format!("{name} wrote {:?}", letter.note))
-        })
-        .collect()
+    seams::told(
+        readable(&branch.projection_snapshot(), true),
+        subjects,
+        crate::moments::moments(world),
+        crate::almanac_page::years(world),
+        |request| branch.story(request),
+    )
 }
 
 fn play(player: Player, found: &mut BTreeSet<String>) {
@@ -115,16 +81,10 @@ fn play(player: Player, found: &mut BTreeSet<String>) {
         let lines = if day % 10 == 9 || day + 1 == DAYS {
             told(&branch)
         } else {
-            readable(&branch.projection_snapshot())
+            readable(&branch.projection_snapshot(), true)
         };
-        for line in lines {
-            if seen.insert(line.clone()) {
-                for seam in seams_in(&line) {
-                    found.insert(format!("{player:?}: {seam:?} in {line:?}"));
-                }
-            }
-        }
-        for letter in self_told(&branch) {
+        seams::note_seams(&format!("{player:?}"), lines, &mut seen, found);
+        for letter in seams::self_told(branch.world(), &branch.projection_snapshot()) {
             found.insert(format!("{player:?}: {letter}"));
         }
         branch
@@ -133,26 +93,20 @@ fn play(player: Player, found: &mut BTreeSet<String>) {
     }
     // Anyone who has lived here a year has a life of five lines or more.
     let today = crate::arrival::today(branch.world().state()) as u32;
-    for entity in branch.world().state().entities() {
-        if entity.kind != "resident" {
-            continue;
-        }
-        let Some(StoryPage::Legend(legend)) =
-            branch.story(StoryRequest::Legend(SelectionId::Entity(entity.id)))
-        else {
-            continue;
-        };
-        let since = legend.lines.first().map_or(today, |line| line.day);
-        if u64::from(today.saturating_sub(since)) >= crate::almanac::YEAR_DAYS
-            && legend.lines.len() < chronicle::FEWEST_LIFE_LINES
-        {
-            found.insert(format!(
-                "{player:?}: {} has lived a year in {} lines",
-                legend.title,
-                legend.lines.len()
-            ));
-        }
-    }
+    let residents = branch
+        .world()
+        .state()
+        .entities()
+        .filter(|entity| entity.kind == "resident")
+        .map(|entity| entity.id)
+        .collect::<Vec<_>>();
+    found.extend(seams::short_lives(
+        &format!("{player:?}"),
+        residents,
+        today,
+        crate::almanac::YEAR_DAYS,
+        |request| branch.story(request),
+    ));
     for moment in crate::moments::moments(branch.world()) {
         if let Some(missing) = unshown(&moment) {
             found.insert(format!("{player:?}: {:?} shows no {missing}", moment.title));
@@ -171,17 +125,13 @@ fn unshown(moment: &world_projection::Moment) -> Option<&'static str> {
         }
     }
     let shown = &moment.panels[1].props;
-    let needs = match moment.kind {
-        MomentKind::Farewell if moment.title.ends_with("farewell") => Prop::Ferry,
-        MomentKind::Wedding => Prop::Bunting,
-        MomentKind::Birth => Prop::Cradle,
-        MomentKind::Death => Prop::Wreath,
-        MomentKind::Storm => Prop::Rain,
-        MomentKind::WorkOpened => Prop::Ribbon,
-        MomentKind::Festival => Prop::Bunting,
-        _ => return None,
-    };
-    (!shown.contains(&needs)).then_some(needs.id())
+    if moment.kind == MomentKind::Farewell
+        && moment.title.ends_with("farewell")
+        && !shown.contains(&Prop::Ferry)
+    {
+        return Some(Prop::Ferry.id());
+    }
+    seams::unshown(moment)
 }
 
 #[test]
@@ -195,24 +145,9 @@ fn every_line_the_harbour_says_reads_without_seams() {
         .into_iter()
         .filter_map(crate::voices::voice)
     {
-        let scenes = voice
-            .scenes
-            .iter()
-            .flat_map(|scene| std::iter::once(scene.prompt).chain(scene.replies))
-            // A scene's gift is filled in as it is given.
-            .map(|line| line.replace("{keepsake}", voice.keepsake));
-        for line in lives::own_lines(voice).into_iter().chain(scenes) {
-            for seam in seams_in(&line) {
-                found.insert(format!("voice: {seam:?} in {line:?}"));
-            }
-        }
+        found.extend(seams::voice_seams(voice));
     }
-    assert!(
-        found.is_empty(),
-        "{} seams:\n{}",
-        found.len(),
-        found.into_iter().collect::<Vec<_>>().join("\n")
-    );
+    seams::assert_no_seams(found);
 }
 
 /// A legend counts its years as the harbour does: the year the calendar,

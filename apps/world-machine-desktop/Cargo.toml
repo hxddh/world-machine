@@ -1,6 +1,6 @@
 [package]
 name = "world-machine-desktop"
-version = "0.24.0"
+version = "0.25.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -10,12 +10,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 world-builtins = { path = "../../crates/world-builtins" }
 world-host = { path = "../../crates/world-host" }
+world-document = { path = "../../crates/world-document" }
 world-library = { path = "../../crates/world-library" }
 world-observer = { path = "../../crates/world-observer" }
 world-gpui = { path = "../../crates/world-gpui" }
 world-i18n = { path = "../../crates/world-i18n" }
 world-sound = { path = "../../crates/world-sound" }
 world-theme = { path = "../../crates/world-theme" }
+world-voice = { path = "../../crates/world-voice" }
 
 [dev-dependencies]
 world-persistence = { path = "../../crates/world-persistence" }
@@ -33,4 +35,3 @@ world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-pack-process = { path = "../../crates/world-pack-process" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
-world-voice = { path = "../../crates/world-voice" }

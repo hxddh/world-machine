@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 world-core = { path = "../../crates/world-core" }
+world-projection = { path = "../../crates/world-projection" }
 
 [features]
 # The old full-history scans, as a reference for Packs' tests.

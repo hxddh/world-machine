@@ -31,7 +31,7 @@ pub fn enabled() -> bool {
 /// Blocking; run it on the background executor. `None` means "nothing newer
 /// or could not tell", which the caller treats the same way.
 pub fn check() -> Option<AvailableUpdate> {
-    let output = Command::new("curl")
+    let output = Command::new("/usr/bin/curl")
         .args([
             "-fsSL",
             "--max-time",

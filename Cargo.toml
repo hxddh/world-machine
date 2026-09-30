@@ -22,6 +22,7 @@ members = [
   "crates/world-voice",
   "crates/world-i18n",
   "crates/world-sound",
+  "crates/world-pack-testkit",
   "systems/society-basic",
   "systems/storylets",
   "systems/lives",

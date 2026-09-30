@@ -55,7 +55,7 @@ pub struct ProjectionView {
     /// a time, before the page hands over to the player's turn.
     retelling: Option<usize>,
     /// What the player is looking at: presentation only.
-    looking: world_window::Looking,
+    pub(crate) looking: world_window::Looking,
     /// Counts every time the World changed under this view (a turn, a
     /// branch, something said), so work that finishes later can tell
     /// whether the World it started in is still the one on screen.
@@ -1246,10 +1246,16 @@ impl ProjectionView {
 
 impl Render for ProjectionView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        world_theme::set_dark(matches!(
-            window.appearance(),
-            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-        ));
+        // After dark the World's cards and buttons are the night's own,
+        // dark as the dark appearance, so nothing over the scene is
+        // brighter than its sky.
+        world_theme::set_dark_or_night(
+            matches!(
+                window.appearance(),
+                gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+            ),
+            scene::daylight_now() == scene::Daylight::Night,
+        );
         // Text as large as the player asked for, everywhere in the window.
         window.set_rem_size(px(crate::rem_size()));
         let world = self.render_world(window, cx);

@@ -39,6 +39,9 @@ impl DurableWorldSession {
         if periods == 0 {
             return Ok(None);
         }
+        // A World a newer World Machine saved does not move on here: that
+        // would save over its file.
+        self.refuse_if_newer()?;
 
         self.target.verify_revision(self.revision, library)?;
 
@@ -252,6 +255,7 @@ mod tests {
             saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
+            writer: Default::default(),
         }
     }
 

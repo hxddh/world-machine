@@ -719,6 +719,39 @@ impl Setting {
         self == Setting::Harbour
     }
 
+    /// The place's inks: the few colours everything painted there leans
+    /// toward (see [`crate::hand`]), so its buildings, whatever drawing
+    /// each comes from, read as one limited palette. Its own walls, roofs
+    /// and trim, a deep shade to draw with, and a colour or two of the
+    /// place itself.
+    pub fn inks(self) -> &'static [u32] {
+        match self {
+            // White, cream and whitewash, brick, harbour blue, sea green,
+            // ochre, umber, and a blue-black ink.
+            Setting::Harbour => &[
+                0xfbf9f4, 0xefe3cf, 0xdcd3c6, 0xb5523b, 0x3f6a8a, 0x4a7a4f, 0x8a6a3a, 0x6b4a33,
+                0x2f3a45, 0xd9b45a,
+            ],
+            // White, panel white, rust, slate, teal, ochre, oxide, graphite
+            // and the pink of the dust.
+            Setting::Mars => &[
+                0xfaf8f4, 0xece6da, 0xc8643a, 0x5d6470, 0x3f8f8a, 0xd9a441, 0x8a4a35, 0x4a4f5a,
+                0xe2b39a,
+            ],
+            // White, brick, cream, clapboard, the awnings' teal, pink,
+            // mustard, blue and green, and a violet-black.
+            Setting::Street => &[
+                0xfbf9f4, 0xa8553f, 0xe8dcc4, 0xc9b79a, 0x7f9aa0, 0x2bb3b1, 0xe0457b, 0xf2c14e,
+                0x3a6ea5, 0x2f6b4f, 0x2c2a3a,
+            ],
+            // Snow, pale ice, ice blue, slate, kelp, a warm orange and a
+            // berry red.
+            Setting::Ice => &[
+                0xf4f8fb, 0xdcebf3, 0x7fb8d9, 0x2d3a4a, 0x5b8a8f, 0xe8963a, 0xb03a48, 0x8a9aa8,
+            ],
+        }
+    }
+
     /// The few paints its buildings take their walls and roofs from, and
     /// the colour of their trim: a limited palette per place.
     pub fn paints(self) -> (&'static [u32], &'static [u32], u32) {

@@ -2,6 +2,58 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.25.0 (2026-09-30)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Worlds saved by v0.20, v0.21, v0.22, v0.23 and v0.24 are kept as fixtures for both Packs; each replays event for event and plays on, including through the app's own file-opening path.
+
+This is the second of the three releases from the [v0.23 review](docs/REVIEW_v0.23.md): crafted and trusted.
+
+- **A hand-made look.**
+  - Outlines wobble a little, fills sit slightly off their ink line, and fill edges are a touch darker.
+  - Each place leans toward its own limited palette.
+  - Still things "boil" gently, 2.5 times a second; Reduce Motion stills it.
+  - All of it is seeded, so it looks the same every time.
+- **After dark the whole window goes dark.** Cards, buttons, bubbles and gauges are never brighter than the night sky (tested).
+- **Opening a World** shows a soft wash of the place's own sky and ground, faded into the painted scene, instead of bare paper.
+- **Speech bubbles** never cover each other, the zoom control, the gauges, a card or the drawer, and never stop in the middle of a sentence.
+- **Faster:**
+  - A three-year snapshot takes 3.9–6.3 ms; it took 26 ms, against a 15 ms bar.
+  - A turn with its save is about 18% faster.
+  - The window's longest frame is 3.3–5.2 ms, down from 7–11.6 ms (bar 8 ms). Pictures are now handed to the display within a per-frame budget, and ahead of when they are needed.
+  - A builder's three-year World code is 49,951 characters, back under 50,000.
+- **Safe to share:**
+  - A pasted World code may be at most 1 MiB, and at most 16 MiB unpacked; a code that grows past that while unpacking is stopped.
+  - Opening a code happens off the window's thread, with a 20-second limit.
+  - A friend's resident's drawing is limited in size and checked.
+  - Hidden and direction-changing characters are removed from names wherever a name comes in.
+- **Safe to keep:**
+  - Every World file records its format and which app wrote it. A file written by a newer app opens read-only with a note saying why, and is never saved over.
+  - The previous save is kept as `<name>.world.bak`.
+  - A checkpoint bug was found and fixed by a new randomised test: a relation to something later removed could survive a checkpoint and stop it loading.
+- **The model key stays in the app.** No Pack is ever handed it, secret-looking settings are stripped from Pack processes, and `curl` is run from `/usr/bin`.
+- **Pack protocol v8:**
+  - Packs say what they can do (plots, designs, names, stories).
+  - Designs and names can travel as their own intents.
+  - An unknown value from a newer Pack no longer breaks a whole snapshot.
+  - v7 Packs still work.
+- **Ids:**
+  - The kernel hands out free ids from declared blocks.
+  - Home and work ids have documented ranges that no longer collide for founders numbered from 10,000,000.
+  - Births that run out of room fail loudly in tests instead of stopping silently.
+- **Under the hood:**
+  - The two Packs share about 2,300 fewer duplicated lines: moments, the almanac and book, town layout, plots and test harnesses now live in shared Systems and a `world-pack-testkit` crate.
+  - Story tables are data files.
+  - Both Packs' fixtures replay identically.
+  - Snapshots are byte-identical to v0.24's.
+- **CI:**
+  - A nightly job runs every long test and benchmark.
+  - Clippy runs over the whole workspace on Linux.
+  - Every action is pinned by commit, and builds are `--locked`.
+  - Publishing is a separate job with the only write permission.
+  - A stable release can be required to be signed once signing is set up.
+  - Pocket Universe's careful-player year, which failed since v0.21, was an outdated test and now passes.
+  - The strip's clock bug (release builds only) is fixed.
+
 ## v0.24.0 (2026-09-30)
 
 **Worlds from `v0.23` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Saved Worlds from v0.22 and v0.23 are kept as test fixtures in both Packs; they replay event for event and play on. A World begun before this release keeps the old pace and keeps all its plots open.

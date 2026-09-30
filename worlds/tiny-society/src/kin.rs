@@ -280,42 +280,22 @@ const MEMORIAL_COMMAND: &str = "tiny-society.memorial.";
 
 /// The person a memorial command is for, and the spot the player chose.
 pub(crate) fn parse_command(command_id: &str) -> Option<(EntityId, Option<u8>)> {
-    let rest = command_id.strip_prefix(MEMORIAL_COMMAND)?;
-    let (who, spot) = match rest.split_once('@') {
-        Some((who, spot)) => (who, Some(spot.parse::<u8>().ok()?.min(100))),
-        None => (rest, None),
-    };
-    Some((EntityId::new(who.parse().ok()?), spot))
+    lives::shown::memorial_target(MEMORIAL_COMMAND, command_id)
 }
 
 /// A card to put up a bench for each person the harbour lost and has not
 /// yet remembered: the player places it where they like.
 pub(crate) fn commands(world: &world_core::World) -> Vec<world_projection::ProjectionCommand> {
-    let state = world.state();
-    lives::awaiting_memorial(state)
-        .into_iter()
-        .map(|who| {
-            let named = lives::generations::memorial_name(state, &KIN, who, 0);
-            world_projection::ProjectionCommand {
-                id: format!("{MEMORIAL_COMMAND}{}", who.0),
-                title: format!("A bench for {}", lives::first_name(state, who)),
-                detail: "Put it wherever they'd have liked to sit".into(),
-                effects: Vec::new(),
-                scenery: None,
-                asker: None,
-                moves: Vec::new(),
-                question: None,
-                unavailable: None,
-                hand: Some(world_projection::Hand {
-                    verb: "Build".into(),
-                    thing: named,
-                    at: Some(world_projection::SelectionId::Entity(HARBOR)),
-                    cost: None,
-                }),
-                preview: None,
-            }
-        })
-        .collect()
+    lives::shown::memorial_commands(
+        world,
+        &KIN,
+        &lives::shown::MemorialWords {
+            prefix: MEMORIAL_COMMAND,
+            what: "bench",
+            detail: "Put it wherever they'd have liked to sit",
+            at: HARBOR,
+        },
+    )
 }
 
 /// The drawings of a memorial bench and stone.

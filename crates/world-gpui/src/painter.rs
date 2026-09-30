@@ -732,6 +732,13 @@ struct Cache {
     /// How long painting has taken, for a look at the frame time.
     painted: Duration,
     paints: u32,
+    /// Bytes of pictures new to the display handed over this frame, and
+    /// how long drawing the still layers has taken in it.
+    fresh: usize,
+    drawing: Duration,
+    /// What handing a new picture to the display costs on this machine,
+    /// in nanoseconds a byte, as measured over the last frames (none yet).
+    cost: Option<f32>,
 }
 
 thread_local! {
@@ -1476,18 +1483,50 @@ pub(crate) fn profile(
     PROFILE.get_or_init(Default::default)
 }
 
+/// How long this thread has been running on a CPU: in tests, to tell the
+/// window thread's own work from time it spent waiting for a core.
+#[cfg(test)]
+pub(crate) fn thread_cpu() -> Duration {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `now` is a valid timespec for clock_gettime to fill in.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    if status != 0 {
+        return Duration::ZERO;
+    }
+    Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+}
+
+/// The profile's name for the CPU time of a part of the window's frame.
+#[cfg(test)]
+pub(crate) fn cpu_name(part: &str) -> &'static str {
+    static NAMES: OnceLock<std::sync::Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+    let mut names = NAMES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    names
+        .entry(part.to_owned())
+        .or_insert_with(|| Box::leak(format!("cpu: {part}").into_boxed_str()))
+}
+
 /// Runs `work`, and in tests adds how long it took to the part `name`.
 pub(crate) fn timed<T>(name: &'static str, work: impl FnOnce() -> T) -> T {
     #[cfg(test)]
     {
-        let started = Instant::now();
+        let (started, cpu) = (Instant::now(), thread_cpu());
         let out = work();
         let took = started.elapsed();
-        *profile()
+        let mut profile = profile()
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry(name)
-            .or_default() += took;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *profile.entry(name).or_default() += took;
+        if let Some(part) = name.strip_prefix("main: ") {
+            let cpu = thread_cpu().saturating_sub(cpu);
+            *profile.entry(cpu_name(part)).or_default() += cpu;
+        }
         out
     }
     #[cfg(not(test))]
@@ -1633,16 +1672,59 @@ fn pick_up() {
 }
 
 /// How many bytes of new pictures one frame hands to the display at most:
-/// about six tiles, a millisecond or two of copying on any machine.
+/// about six tiles.
 const BUDGET_PER_FRAME: usize = 3 << 19;
+/// And at least: half a tile (and always one picture, however big).
+const LEAST_PER_FRAME: usize = 1 << 17;
+/// How long a frame may spend handing new pictures to the display: the
+/// copy into the display's memory is the window thread's own work, so it
+/// is budgeted in time, measured on this machine, not in bytes.
+const HANDOFF: Duration = Duration::from_micros(2500);
+/// What handing over a byte is taken to cost before it is measured, in
+/// nanoseconds: a slow machine's.
+const FIRST_COST: f32 = 4.0;
 
 /// Begins a frame of a window that paints off its thread: new pictures are
-/// handed to the display a frame's share at a time. `limit` false (painting
-/// right here) hands over everything at once.
+/// handed to the display a frame's share at a time, as many as it can
+/// copy in [`HANDOFF`] by what the frames before measured. `limit` false
+/// (painting right here) hands over everything at once.
 pub fn begin_frame(limit: bool) {
     CACHE.with(|cache| {
-        cache.borrow_mut().budget = limit.then_some(BUDGET_PER_FRAME);
+        let mut cache = cache.borrow_mut();
+        // What the last frame's new pictures cost, if it had enough of
+        // them to tell.
+        if cache.fresh >= 1 << 17 && limit {
+            let sample = cache.drawing.as_nanos() as f32 / cache.fresh as f32;
+            // Quick to learn a machine is slow, slow to trust it is fast:
+            // one frame over its budget is a hitch, one under it only
+            // shows a tile a frame later.
+            let cost = match cache.cost {
+                Some(cost) if sample > cost => sample,
+                Some(cost) => cost * 0.9 + sample * 0.1,
+                None => sample.max(FIRST_COST),
+            };
+            cache.cost = Some(cost.clamp(0.05, 100.0));
+        }
+        cache.fresh = 0;
+        cache.drawing = Duration::ZERO;
+        let cost = cache.cost.unwrap_or(FIRST_COST);
+        cache.budget = limit.then(|| {
+            ((HANDOFF.as_nanos() as f32 / cost) as usize).clamp(LEAST_PER_FRAME, BUDGET_PER_FRAME)
+        });
     });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, how many bytes of new pictures this thread has handed to
+    /// the display in all.
+    pub(crate) static HANDED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Adds to how long drawing the still layers took this frame: what new
+/// pictures cost to hand over is measured from it.
+pub fn note_drawing(took: Duration) {
+    CACHE.with(|cache| cache.borrow_mut().drawing += took);
 }
 
 /// What is known of a picture: painted (an image, or nothing to show), and
@@ -1666,11 +1748,15 @@ pub fn ready(key: u64) -> Option<Ready> {
             // arriving at once are shown over a few frames, never all in one.
             if !cache.handed.contains(&key) {
                 if let Some(left) = cache.budget.as_mut() {
-                    if *left < entry.bytes && *left < BUDGET_PER_FRAME {
+                    // The first new picture of a frame goes however big.
+                    if *left < entry.bytes && cache.fresh > 0 {
                         return None;
                     }
                     *left = left.saturating_sub(entry.bytes);
                 }
+                cache.fresh += entry.bytes;
+                #[cfg(test)]
+                HANDED.with(|handed| handed.set(handed.get() + entry.bytes));
                 cache.handed.insert(key);
             }
             entry.used = now;
@@ -1683,6 +1769,36 @@ pub fn ready(key: u64) -> Option<Ready> {
     })
 }
 
+/// Whether the picture for `key` is painted (or came out empty), without
+/// handing it to the display: whether a layer is complete, or a tile just
+/// out of view is ready for a pan. It is kept as if it were shown.
+pub fn painted(key: u64) -> bool {
+    pick_up();
+    let now = Instant::now();
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(entry) = cache.entries.get_mut(&key) {
+            entry.used = now;
+            return true;
+        }
+        cache
+            .empty
+            .get_mut(&key)
+            .map(|asked| *asked = now)
+            .is_some()
+    })
+}
+
+/// Whether the picture for `key` has been handed to the display (or came
+/// out empty and has nothing to hand), so drawing it costs this frame
+/// nothing new.
+pub fn handed(key: u64) -> bool {
+    CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.handed.contains(&key) || cache.empty.contains_key(&key)
+    })
+}
+
 /// Asks for the picture for `key` to be painted by `paint` off the
 /// window's thread, unless it is painted or under way already; or, when
 /// `now` is set, paints it right here.
@@ -1692,7 +1808,7 @@ pub fn want(
     now: bool,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 ) {
-    if ready(key).is_some() {
+    if painted(key) {
         return;
     }
     let id = window_id(window);

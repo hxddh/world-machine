@@ -35,12 +35,24 @@ pub struct Guest {
 /// What a guest says when their World gave them nothing to say.
 pub const GUEST_GREETING: &str = "Thought I'd come and see how you're all getting on.";
 
-/// The most parts a guest's drawing brings; the most points a shape does.
-pub const MOST_GUEST_PARTS: usize = 256;
+/// The most parts a guest's drawing brings; the most points a shape does,
+/// and all its shapes together. A resident as either Pack draws them has
+/// about seventy parts.
+pub const MOST_GUEST_PARTS: usize = 128;
 pub const MOST_GUEST_POINTS: usize = 32;
+pub const MOST_GUEST_ALL_POINTS: usize = 1024;
+/// The most fixed colours a guest's drawing uses; the rest are the roles
+/// (clothes, hair, skin…) the World paints in its own colours.
+pub const MOST_GUEST_COLOURS: usize = 32;
+/// How far from its middle any point of a guest's drawing may reach, in
+/// its own height: a figure stays about its own size (residents reach
+/// just under one).
+pub const GUEST_DRAWING_REACH: f32 = 2.0;
 
-/// The longest drawing code a visit records.
-pub const MOST_DRAWING_CODE: usize = 32 * 1024;
+/// The longest drawing code a visit records. A resident's is about 4 KB;
+/// it is kept with the visit and travels on in the World's own code, so it
+/// is kept small.
+pub const MOST_DRAWING_CODE: usize = 8 * 1024;
 
 impl Guest {
     /// Someone from the World a snapshot shows, read and never written:
@@ -112,10 +124,12 @@ impl Guest {
         drawing_from_code(&self.drawing.as_ref()?.id, &code)
     }
 
-    /// The guest's drawing as a short text a visit can record.
+    /// The guest's drawing as a short text a visit can record: only a
+    /// drawing within a guest's bounds (see [`guest_drawing_is_sound`]).
     pub fn drawing_code(&self) -> Option<String> {
         self.drawing
             .as_ref()
+            .filter(|drawing| guest_drawing_is_sound(drawing))
             .map(drawing_code)
             .filter(|code| code.len() <= MOST_DRAWING_CODE)
     }
@@ -352,7 +366,14 @@ fn read_part(clause: &str) -> Option<DrawPart> {
     };
     for (mark, value) in marks {
         match mark {
-            ' ' => part.ink = Ink::from_id(value.trim())?,
+            ' ' => {
+                // A fixed colour is exactly `#rrggbb`.
+                let ink = value.trim();
+                if ink.starts_with('#') && ink.len() != 7 {
+                    return None;
+                }
+                part.ink = Ink::from_id(ink)?
+            }
             '~' => part.tone = read_number(&value)?.clamp(-1.0, 1.0),
             '!' => part.stances = value.split(',').filter_map(Stance::from_id).collect(),
             '?' => part.moods = value.split(',').filter_map(Mood::from_id).collect(),
@@ -364,18 +385,65 @@ fn read_part(clause: &str) -> Option<DrawPart> {
 }
 
 /// A drawing read back from its code, named `id`; `None` if the code is
-/// not one. A part it cannot read is left out.
+/// not one, or not a drawing a guest may bring (see
+/// [`guest_drawing_is_sound`]). A part it cannot read is left out.
 pub fn drawing_from_code(id: &str, code: &str) -> Option<Drawing> {
     if code.len() > MOST_DRAWING_CODE {
         return None;
     }
     let mut clauses = code.split(';');
     let aspect = read_number(clauses.next()?)?.clamp(0.05, 8.0);
+    let clauses = clauses.collect::<Vec<_>>();
+    if clauses.len() > MOST_GUEST_PARTS {
+        return None;
+    }
     let parts = clauses
-        .take(MOST_GUEST_PARTS)
+        .into_iter()
         .filter_map(read_part)
         .collect::<Vec<_>>();
-    (!parts.is_empty()).then(|| Drawing::new(id, aspect, parts))
+    let drawing = Drawing::new(id, aspect, parts);
+    guest_drawing_is_sound(&drawing).then_some(drawing)
+}
+
+/// Whether a drawing is one a guest may bring: some parts and no more than
+/// [`MOST_GUEST_PARTS`], no shape of more than [`MOST_GUEST_POINTS`]
+/// points nor more than [`MOST_GUEST_ALL_POINTS`] in all, every number
+/// finite and every point within [`GUEST_DRAWING_REACH`], and no more than
+/// [`MOST_GUEST_COLOURS`] fixed colours, each a colour (`0xRRGGBB`).
+pub fn guest_drawing_is_sound(drawing: &Drawing) -> bool {
+    let within = |value: f32| value.is_finite() && value.abs() <= GUEST_DRAWING_REACH;
+    let mut points = 0;
+    let mut colours = std::collections::BTreeSet::new();
+    if drawing.parts.is_empty()
+        || drawing.parts.len() > MOST_GUEST_PARTS
+        || !drawing.aspect.is_finite()
+    {
+        return false;
+    }
+    for part in &drawing.parts {
+        let numbers: Vec<f32> = match &part.shape {
+            DrawShape::Rect { x, y, w, h, round } => vec![*x, *y, *w, *h, *round],
+            DrawShape::Ellipse { x, y, rx, ry } => vec![*x, *y, *rx, *ry],
+            DrawShape::Polygon { points: shape } => {
+                if shape.len() > MOST_GUEST_POINTS {
+                    return false;
+                }
+                points += shape.len();
+                shape.iter().flat_map(|(x, y)| [*x, *y]).collect()
+            }
+            DrawShape::Line { from, to, width } => vec![from.0, from.1, to.0, to.1, *width],
+        };
+        if !numbers.into_iter().all(within) || !part.tone.is_finite() || !part.swing.is_finite() {
+            return false;
+        }
+        if let Ink::Colour(colour) = part.ink {
+            if colour > 0xff_ffff {
+                return false;
+            }
+            colours.insert(colour);
+        }
+    }
+    points <= MOST_GUEST_ALL_POINTS && colours.len() <= MOST_GUEST_COLOURS
 }
 
 // ---- A guest on the canvas.
@@ -522,5 +590,64 @@ mod tests {
         // A guest from a snapshot is read as their World shows them, and
         // a guest standing here is nobody's resident to send on.
         assert!(Guest::residents(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn a_hostile_drawing_code_is_refused_whole() {
+        let sound = drawing_code(&drawing());
+        assert!(drawing_from_code("guest-1", &sound).is_some());
+        let part = "E 0,0.5 0.1,0.1@skin";
+        let far = "E 0,90 0.1,0.1@skin";
+        let polygon = |points: usize| {
+            let points = vec!["0.1,0.1"; points].join(" ");
+            format!("P {points}@clothes")
+        };
+        let hostile = [
+            // Too long a code, too many parts, a point far away, a shape
+            // of too many points, too many points in all.
+            format!("0.5;{}", vec![part; 2000].join(";")),
+            format!("0.5;{}", vec![part; MOST_GUEST_PARTS + 1].join(";")),
+            format!("0.5;{far}"),
+            format!("0.5;{}", polygon(MOST_GUEST_POINTS + 1)),
+            format!("0.5;{}", vec![polygon(MOST_GUEST_POINTS); 40].join(";")),
+            // A colour that is not one, too many colours.
+            "0.5;E 0,0.5 0.1,0.1@#ffffffff".to_string(),
+            "0.5;E 0,0.5 0.1,0.1@#fff".to_string(),
+            format!(
+                "0.5;{}",
+                (0..MOST_GUEST_COLOURS + 1)
+                    .map(|colour| format!("E 0,0.5 0.1,0.1@#{colour:06x}"))
+                    .collect::<Vec<_>>()
+                    .join(";")
+            ),
+            // Numbers that are not.
+            "0.5;E NaN,0.5 0.1,0.1@skin".to_string(),
+            "0.5;E inf,0.5 0.1,0.1@skin".to_string(),
+            "nothing".to_string(),
+            "0.5".to_string(),
+        ];
+        for code in hostile {
+            assert!(
+                drawing_from_code("guest-1", &code).is_none(),
+                "{}",
+                &code[..code.len().min(80)]
+            );
+        }
+    }
+
+    #[test]
+    fn a_guest_brings_only_a_sound_drawing() {
+        let mut guest = Guest {
+            name: "Ann".into(),
+            drawing: Some(drawing()),
+            ..Guest::default()
+        };
+        assert!(guest.drawing_code().is_some());
+        guest.drawing = Some(Drawing::new(
+            "giant",
+            0.5,
+            vec![DrawPart::rect(-50.0, 0.0, 100.0, 100.0, Ink::Clothes)],
+        ));
+        assert_eq!(guest.drawing_code(), None);
     }
 }

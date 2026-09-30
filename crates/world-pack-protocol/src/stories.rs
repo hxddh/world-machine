@@ -58,9 +58,18 @@ impl From<StoryRequestWire> for StoryRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StoryPageWire {
-    Legend { legend: LegendWire },
-    Moment { moment: MomentWire },
-    Almanac { almanac: AlmanacWire },
+    Legend {
+        legend: LegendWire,
+    },
+    Moment {
+        moment: MomentWire,
+    },
+    Almanac {
+        almanac: AlmanacWire,
+    },
+    /// A kind of page from a newer Pack (v8): no page.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<&StoryPage> for StoryPageWire {
@@ -86,6 +95,7 @@ impl StoryPageWire {
             Self::Legend { legend } => StoryPage::Legend(legend.into()),
             Self::Moment { moment } => StoryPage::Moment(moment.into_moment()?),
             Self::Almanac { almanac } => StoryPage::Almanac(almanac.into()),
+            Self::Unknown => return None,
         })
     }
 }

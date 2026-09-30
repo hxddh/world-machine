@@ -19,6 +19,9 @@ impl DurableWorldSession {
         &mut self,
         destination: PathBuf,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        // Written anew by this app, a newer World's file would lose what
+        // this app does not know.
+        self.refuse_if_newer()?;
         let mut archive = required_archive(self.session.as_ref())?;
         archive.checkpoint = self.checkpoint.clone();
         let document = WorldDocument {
@@ -189,6 +192,7 @@ mod tests {
             saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
+            writer: Default::default(),
         }
     }
 

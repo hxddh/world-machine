@@ -55,7 +55,23 @@ pub const PACK_PROTOCOL_VERSION_V6: u32 = 6;
 /// the snapshot's latest moments and New Year's almanac (which, like every
 /// presentation hint, an older app passes over).
 pub const PACK_PROTOCOL_VERSION_V7: u32 = 7;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V7;
+/// Adds what a Pack can do, said in its descriptor (`capabilities`:
+/// [`CAPABILITY_PLOTS`], [`CAPABILITY_DESIGNS`], [`CAPABILITY_NAMES`],
+/// [`CAPABILITY_STORY`]); typed `design` and `name` intents in place of a
+/// command with `=<argument>` after it; and wire words a newer Pack may
+/// send that this build does not know (a tone, a shape, a kind of page),
+/// read as `unknown` and passed over rather than failing the snapshot.
+///
+/// A host still sends a Pack on v7 a design or a name as the command it
+/// offered with `=<argument>` (see [`ProjectionIntent::as_command`]), and
+/// a Pack still reads that form, as older apps send it.
+pub const PACK_PROTOCOL_VERSION_V8: u32 = 8;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V8;
+
+pub use world_projection::capability::{
+    DESIGNS as CAPABILITY_DESIGNS, NAMES as CAPABILITY_NAMES, PLOTS as CAPABILITY_PLOTS,
+    STORY as CAPABILITY_STORY,
+};
 
 /// The most a frame (one line, with its newline) may hold between a host
 /// and a Pack that speaks v5 or later.
@@ -140,6 +156,11 @@ pub struct PackDescriptor {
     pub pack: WorldPackRef,
     pub title: String,
     pub description: String,
+    /// What the Pack can do beyond the protocol's core (v8), such as
+    /// [`CAPABILITY_DESIGNS`]. Words this build does not know are kept and
+    /// passed over, so a newer Pack's capabilities never fail a handshake.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
 }
 
 impl PackDescriptor {
@@ -152,7 +173,33 @@ impl PackDescriptor {
             pack,
             title: title.into(),
             description: description.into(),
+            capabilities: Vec::new(),
         }
+    }
+
+    /// The descriptor saying it can do `capabilities`.
+    pub fn with_capabilities<I, S>(mut self, capabilities: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.capabilities = capabilities.into_iter().map(Into::into).collect();
+        self.capabilities.sort();
+        self.capabilities.dedup();
+        self
+    }
+
+    /// Whether the Pack says it can do `capability`.
+    pub fn can(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|known| known == capability)
+    }
+
+    /// The same Pack, whatever it says it can do: what a host compares a
+    /// running Pack's own descriptor against its manifest by.
+    pub fn same_pack(&self, other: &PackDescriptor) -> bool {
+        self.pack == other.pack
+            && self.title == other.title
+            && self.description == other.description
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -639,6 +686,7 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
             | PACK_PROTOCOL_VERSION_V5
             | PACK_PROTOCOL_VERSION_V6
             | PACK_PROTOCOL_VERSION_V7
+            | PACK_PROTOCOL_VERSION_V8
     ) {
         Ok(())
     } else {
@@ -669,6 +717,18 @@ fn validate_request_for_protocol(
         return Err(ProtocolError::RequestNotSupportedInProtocol {
             protocol_version,
             request: "checkpoint",
+        });
+    }
+    if matches!(
+        request,
+        PackRequest::Handle {
+            intent: ProjectionIntentWire::Design { .. } | ProjectionIntentWire::Name { .. }
+        }
+    ) && protocol_version < PACK_PROTOCOL_VERSION_V8
+    {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "design or name",
         });
     }
     if matches!(request, PackRequest::Story { .. }) && protocol_version < PACK_PROTOCOL_VERSION_V7 {
@@ -749,6 +809,17 @@ pub enum ProjectionIntentWire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         line: Option<String>,
     },
+    /// A design painted on what the World offered as `target` (v8):
+    /// `<cells>:<colours>`, as [`world_projection::Design::text`] writes it.
+    Design {
+        target: String,
+        pattern: String,
+    },
+    /// A name given to what the World offered as `target` (v8).
+    Name {
+        target: String,
+        name: String,
+    },
 }
 
 /// The longest a guest's name, home, letter or gift is read: anything
@@ -820,6 +891,11 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
                 letter: guest.letter,
                 gift: guest.gift,
             },
+            ProjectionIntent::Design { target, pattern } => Self::Design {
+                target,
+                pattern: pattern.text(),
+            },
+            ProjectionIntent::Name { target, name } => Self::Name { target, name },
         }
     }
 }
@@ -850,12 +926,25 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 letter: guest_text(letter),
                 gift: guest_text(gift),
                 look: look.map(world_projection::Look::from),
-                // A drawing too big to be anyone's is not read at all.
+                // A drawing too big to be anyone's is not read at all, and
+                // one read is kept only within a guest's bounds.
                 drawing: drawing
                     .filter(|drawing| drawing.parts.len() <= world_projection::MOST_GUEST_PARTS)
-                    .map(Drawing::from),
+                    .map(Drawing::from)
+                    .filter(world_projection::guest_drawing_is_sound),
                 line: line.map(guest_text).filter(|line| !line.trim().is_empty()),
             }),
+            // A design that is not one goes to the World as the old form
+            // would, which refuses it in its own words.
+            ProjectionIntentWire::Design { target, pattern } => {
+                match world_projection::Design::parse(&pattern) {
+                    Ok(pattern) => Self::Design { target, pattern },
+                    Err(_) => {
+                        Self::InvokeCommand(world_projection::command_with(&target, &pattern))
+                    }
+                }
+            }
+            ProjectionIntentWire::Name { target, name } => Self::Name { target, name },
         }
     }
 }
@@ -1054,6 +1143,9 @@ pub enum DrawShapeWire {
         to: (f32, f32),
         width: f32,
     },
+    /// A shape from a newer Pack (v8): the part is left out.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<&Drawing> for DrawingWire {
@@ -1115,32 +1207,35 @@ impl From<DrawingWire> for Drawing {
             parts: drawing
                 .parts
                 .into_iter()
-                .map(|part| DrawPart {
-                    shape: match part.shape {
-                        DrawShapeWire::Rect { x, y, w, h, round } => {
-                            DrawShape::Rect { x, y, w, h, round }
-                        }
-                        DrawShapeWire::Ellipse { x, y, rx, ry } => {
-                            DrawShape::Ellipse { x, y, rx, ry }
-                        }
-                        DrawShapeWire::Polygon { points } => DrawShape::Polygon { points },
-                        DrawShapeWire::Line { from, to, width } => {
-                            DrawShape::Line { from, to, width }
-                        }
-                    },
-                    ink: Ink::from_id(&part.ink).unwrap_or(Ink::Wall),
-                    tone: part.tone,
-                    stances: part
-                        .stances
-                        .iter()
-                        .filter_map(|stance| Stance::from_id(stance))
-                        .collect(),
-                    moods: part
-                        .moods
-                        .iter()
-                        .filter_map(|mood| world_projection::Mood::from_id(mood))
-                        .collect(),
-                    swing: part.swing,
+                .filter_map(|part| {
+                    Some(DrawPart {
+                        shape: match part.shape {
+                            DrawShapeWire::Rect { x, y, w, h, round } => {
+                                DrawShape::Rect { x, y, w, h, round }
+                            }
+                            DrawShapeWire::Ellipse { x, y, rx, ry } => {
+                                DrawShape::Ellipse { x, y, rx, ry }
+                            }
+                            DrawShapeWire::Polygon { points } => DrawShape::Polygon { points },
+                            DrawShapeWire::Line { from, to, width } => {
+                                DrawShape::Line { from, to, width }
+                            }
+                            DrawShapeWire::Unknown => return None,
+                        },
+                        ink: Ink::from_id(&part.ink).unwrap_or(Ink::Wall),
+                        tone: part.tone,
+                        stances: part
+                            .stances
+                            .iter()
+                            .filter_map(|stance| Stance::from_id(stance))
+                            .collect(),
+                        moods: part
+                            .moods
+                            .iter()
+                            .filter_map(|mood| world_projection::Mood::from_id(mood))
+                            .collect(),
+                        swing: part.swing,
+                    })
                 })
                 .collect(),
         }
@@ -1985,6 +2080,9 @@ pub enum ToneWire {
     Good,
     Warning,
     Bad,
+    /// A tone from a newer Pack (v8): read as neutral.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<Tone> for ToneWire {
@@ -2001,7 +2099,7 @@ impl From<Tone> for ToneWire {
 impl From<ToneWire> for Tone {
     fn from(tone: ToneWire) -> Self {
         match tone {
-            ToneWire::Neutral => Self::Neutral,
+            ToneWire::Neutral | ToneWire::Unknown => Self::Neutral,
             ToneWire::Good => Self::Good,
             ToneWire::Warning => Self::Warning,
             ToneWire::Bad => Self::Bad,
@@ -2015,6 +2113,9 @@ pub enum EffectChangeWire {
     Up,
     Down,
     To(String),
+    /// A change from a newer Pack (v8): the effect is left out.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -2051,6 +2152,8 @@ impl From<CommandEffectWire> for CommandEffect {
                 EffectChangeWire::Up => EffectChange::Up,
                 EffectChangeWire::Down => EffectChange::Down,
                 EffectChangeWire::To(value) => EffectChange::To(value),
+                // Left out of a command's effects before it gets here.
+                EffectChangeWire::Unknown => EffectChange::To(String::new()),
             },
             tone: effect.tone.into(),
         }
@@ -2099,7 +2202,12 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             id: command.id,
             title: command.title,
             detail: command.detail,
-            effects: command.effects.into_iter().map(Into::into).collect(),
+            effects: command
+                .effects
+                .into_iter()
+                .filter(|effect| effect.change != EffectChangeWire::Unknown)
+                .map(Into::into)
+                .collect(),
             scenery: command.scenery.map(Into::into),
             asker: command.asker.map(Into::into),
             // A question with no id or nothing asked is no question: the
@@ -2205,6 +2313,9 @@ pub enum BriefingItemKindWire {
     #[default]
     Beat,
     Status,
+    /// A kind from a newer Pack (v8): read as a beat.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<BriefingItemKind> for BriefingItemKindWire {
@@ -2219,7 +2330,7 @@ impl From<BriefingItemKind> for BriefingItemKindWire {
 impl From<BriefingItemKindWire> for BriefingItemKind {
     fn from(kind: BriefingItemKindWire) -> Self {
         match kind {
-            BriefingItemKindWire::Beat => Self::Beat,
+            BriefingItemKindWire::Beat | BriefingItemKindWire::Unknown => Self::Beat,
             BriefingItemKindWire::Status => Self::Status,
         }
     }
@@ -2698,6 +2809,9 @@ pub enum CanvasLinkToneWire {
     Neutral,
     Warm,
     Strained,
+    /// A tone from a newer Pack (v8): read as neutral.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<CanvasLinkTone> for CanvasLinkToneWire {
@@ -2713,7 +2827,7 @@ impl From<CanvasLinkTone> for CanvasLinkToneWire {
 impl From<CanvasLinkToneWire> for CanvasLinkTone {
     fn from(tone: CanvasLinkToneWire) -> Self {
         match tone {
-            CanvasLinkToneWire::Neutral => Self::Neutral,
+            CanvasLinkToneWire::Neutral | CanvasLinkToneWire::Unknown => Self::Neutral,
             CanvasLinkToneWire::Warm => Self::Warm,
             CanvasLinkToneWire::Strained => Self::Strained,
         }
@@ -2766,6 +2880,9 @@ pub enum CanvasItemKindWire {
     Place,
     Actor,
     Object,
+    /// A kind from a newer Pack (v8): drawn as a thing.
+    #[serde(other)]
+    Unknown,
 }
 
 impl From<CanvasItemKind> for CanvasItemKindWire {
@@ -2783,7 +2900,7 @@ impl From<CanvasItemKindWire> for CanvasItemKind {
         match kind {
             CanvasItemKindWire::Place => Self::Place,
             CanvasItemKindWire::Actor => Self::Actor,
-            CanvasItemKindWire::Object => Self::Object,
+            CanvasItemKindWire::Object | CanvasItemKindWire::Unknown => Self::Object,
         }
     }
 }
@@ -3720,5 +3837,131 @@ mod tests {
         assert_eq!(snapshot.commands[0].moves[0].by, 1000);
         let again = ProjectionSnapshot::try_from(ProjectionSnapshotWire::from(&snapshot)).unwrap();
         assert_eq!(again.gauges, snapshot.gauges);
+    }
+
+    /// Replaces, anywhere in `value`, a string under `key` with `word`.
+    fn rename_all(value: &mut serde_json::Value, key: &str, word: &str) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (name, inner) in map.iter_mut() {
+                    if name == key && inner.is_string() {
+                        *inner = serde_json::Value::String(word.into());
+                    } else {
+                        rename_all(inner, key, word);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    rename_all(item, key, word);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn words_from_a_newer_pack_no_longer_fail_a_snapshot() {
+        let mut snapshot = sample_snapshot();
+        snapshot.drawings = vec![Drawing::new(
+            "resident",
+            0.5,
+            vec![
+                DrawPart::rect(0.0, 0.0, 1.0, 1.0, Ink::Clothes),
+                DrawPart::ellipse(0.0, 0.5, 0.1, 0.1, Ink::Skin),
+            ],
+        )];
+        let mut json = serde_json::to_value(ProjectionSnapshotWire::from(&snapshot)).unwrap();
+        // A tone, a kind of item and a kind of briefing this build has
+        // never heard of, a change it cannot show and a shape it cannot
+        // draw.
+        rename_all(&mut json, "tone", "iridescent");
+        rename_all(&mut json, "kind", "omen");
+        let commands = json["commands"].as_array_mut().unwrap();
+        commands[0]["effects"][0]["change"] = serde_json::json!({"type": "sideways"});
+        json["drawings"][0]["parts"][0]["shape"] = serde_json::json!({"type": "star", "arms": 5});
+        let wire: ProjectionSnapshotWire = serde_json::from_value(json).unwrap();
+        wire.validate_for_protocol(PACK_PROTOCOL_VERSION).unwrap();
+        let read = ProjectionSnapshot::try_from(wire).unwrap();
+        assert_eq!(read.title, snapshot.title);
+        // What could not be read is read as the plainest thing it could
+        // be, or left out.
+        assert_eq!(read.briefing.unwrap().items[0].kind, BriefingItemKind::Beat);
+        assert!(read
+            .canvas
+            .items
+            .iter()
+            .all(|item| item.kind == CanvasItemKind::Object));
+        assert!(read
+            .canvas
+            .links
+            .iter()
+            .all(|link| link.tone == CanvasLinkTone::Neutral));
+        assert_eq!(
+            read.commands[0].effects.len(),
+            snapshot.commands[0].effects.len() - 1
+        );
+        assert_eq!(read.drawings[0].parts.len(), 1);
+        // A story page of a kind this build does not know is no page.
+        let page: stories::StoryPageWire =
+            serde_json::from_str(r#"{"type":"ballad","verses":[]}"#).unwrap();
+        assert_eq!(page.into_page(), None);
+    }
+
+    #[test]
+    fn a_design_or_a_name_is_not_sent_typed_to_a_pack_before_v8() {
+        let design = PackRequest::Handle {
+            intent: ProjectionIntentWire::Name {
+                target: "pack.mark.name.7".into(),
+                name: "Ann".into(),
+            },
+        };
+        assert!(
+            PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V7, 1, design.clone()).is_err()
+        );
+        assert!(PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V8, 1, design).is_ok());
+    }
+
+    #[test]
+    fn typed_intents_cross_and_a_bad_design_goes_as_the_old_form() {
+        let pattern = world_projection::Design::parse(&format!("{}:2f", "01".repeat(128))).unwrap();
+        for intent in [
+            ProjectionIntent::Design {
+                target: "pack.mark.design.7".into(),
+                pattern,
+            },
+            ProjectionIntent::Name {
+                target: "pack.mark.name.7".into(),
+                name: "Ann = Bea".into(),
+            },
+        ] {
+            let json = serde_json::to_string(&ProjectionIntentWire::from(intent.clone())).unwrap();
+            let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+            assert_eq!(ProjectionIntent::from(back), intent);
+        }
+        let bad: ProjectionIntentWire = serde_json::from_str(
+            r#"{"type":"design","target":"pack.mark.design.7","pattern":"no"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            ProjectionIntent::from(bad),
+            ProjectionIntent::InvokeCommand("pack.mark.design.7=no".into())
+        );
+    }
+
+    #[test]
+    fn a_descriptor_says_what_a_pack_can_do_and_an_older_host_reads_it() {
+        let descriptor =
+            descriptor().with_capabilities([CAPABILITY_STORY, CAPABILITY_PLOTS, "telepathy"]);
+        assert!(descriptor.can(CAPABILITY_PLOTS));
+        assert!(!descriptor.can(CAPABILITY_NAMES));
+        let json = serde_json::to_string(&descriptor).unwrap();
+        let back: PackDescriptor = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, descriptor);
+        assert!(back.same_pack(&self::descriptor()));
+        // Without capabilities, a descriptor is written as before.
+        assert!(!serde_json::to_string(&self::descriptor())
+            .unwrap()
+            .contains("capabilities"));
     }
 }

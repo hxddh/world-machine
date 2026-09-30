@@ -15,20 +15,49 @@ on:
       - 'v*-pre.*'
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
-permissions:
-  contents: write
+# Nothing by default. The build job, which runs the repository's code and
+# holds the signing certificate, can only read; the publish job, which runs
+# none of the repository's code, is the only one that can write.
+permissions: {}
 
 concurrency:
   group: prerelease-package-${{ github.ref }}
   cancel-in-progress: false
 
+# Signing: explicit, and a switch for stable tags.
+#
+# - With no signing secrets, every package is built **ad-hoc signed and not
+#   notarized**. The run says so in a warning and in its summary, the
+#   manifest records `"signing": "ad-hoc"`, and the release notes carry the
+#   Gatekeeper warning. That is how every release through v0.24 shipped.
+# - Once the signing secrets exist (APPLE_CERTIFICATE_P12 and the notary
+#   secrets below), every package is Developer ID signed and notarized, and
+#   a stable tag (v<version>, not -pre.N) is refused unless its package
+#   validates as signed.
+# - The switch: set the repository variable
+#   WORLD_MACHINE_REQUIRE_SIGNED_RELEASES to `true` (Settings -> Secrets and
+#   variables -> Actions -> Variables) once signing is set up. From then on
+#   a stable tag is refused before anything is built if the certificate
+#   secret is missing (expired, rotated away, or a fork), rather than
+#   quietly falling back to ad-hoc. Pre-release tags stay allowed ad-hoc.
+#   See docs/RELEASE_SIGNING.md.
+
 jobs:
   macos-release:
     runs-on: macos-15
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      publish: ${{ steps.release.outputs.publish }}
+      create_tag: ${{ steps.release.outputs.create_tag }}
+      signing: ${{ steps.policy.outputs.signing }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: release-macos
 
@@ -56,7 +85,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c '
+          VERSION="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c '
           import json, sys
           metadata = json.load(sys.stdin)
           for package in metadata["packages"]:
@@ -78,12 +107,53 @@ jobs:
               )
           PY
 
+      - name: Decide signing
+        id: policy
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          PUBLISH: ${{ steps.release.outputs.publish }}
+          # Only whether the certificate exists; the secret itself is read by
+          # the import step alone.
+          HAS_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+          REQUIRE_SIGNED_RELEASES: ${{ vars.WORLD_MACHINE_REQUIRE_SIGNED_RELEASES }}
+        run: |
+          stable=false
+          if [[ "$PUBLISH" == "true" && "$RELEASE_TAG" != *-pre.* ]]; then
+              stable=true
+          fi
+          if [[ "$HAS_CERTIFICATE" == "true" ]]; then
+              signing=developer-id
+              label="Developer ID signed and notarized"
+          elif [[ "$stable" == "true" && "$REQUIRE_SIGNED_RELEASES" == "true" ]]; then
+              echo "::error title=Unsigned stable release refused::$RELEASE_TAG is a stable tag and WORLD_MACHINE_REQUIRE_SIGNED_RELEASES is true, but APPLE_CERTIFICATE_P12 is not set. Restore the signing secrets or cut a -pre.N tag. See docs/RELEASE_SIGNING.md."
+              exit 1
+          else
+              signing=ad-hoc
+              label="ad-hoc signed, NOT notarized (no signing secrets configured)"
+              echo "::warning title=Ad-hoc signed package::This package is ad-hoc signed and not notarized; macOS Gatekeeper will interrupt its first launch. Add the signing secrets in docs/RELEASE_SIGNING.md to sign it."
+          fi
+          # A stable tag must validate as signed once signing is configured,
+          # or once the switch says it must be.
+          require_signed=false
+          if [[ "$stable" == "true" && ( "$HAS_CERTIFICATE" == "true" || "$REQUIRE_SIGNED_RELEASES" == "true" ) ]]; then
+              require_signed=true
+          fi
+          echo "signing=$signing" >> "$GITHUB_OUTPUT"
+          echo "require_signed=$require_signed" >> "$GITHUB_OUTPUT"
+          {
+              echo "### Signing"
+              echo ""
+              echo "- Package: **$label**"
+              echo "- Tag: \`${RELEASE_TAG:-none (dry run)}\`, stable: $stable"
+              echo "- Signed package required to publish: $require_signed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Test release-critical macOS paths
         run: |
-          cargo test -p world-library
-          cargo test -p pocket-universe-pack
-          cargo test -p tiny-society-pack
-          cargo test -p world-machine-desktop
+          cargo test --locked -p world-library
+          cargo test --locked -p pocket-universe-pack
+          cargo test --locked -p tiny-society-pack
+          cargo test --locked -p world-machine-desktop
 
       - name: Install universal build targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -165,22 +235,63 @@ jobs:
 
       - name: Validate publishable tag package
         if: steps.release.outputs.publish == 'true'
-        run: python3 scripts/validate_release_package.py --publishing target/release-package
+        env:
+          REQUIRE_SIGNED: ${{ steps.policy.outputs.require_signed }}
+        run: |
+          args=(--publishing)
+          if [[ "$REQUIRE_SIGNED" == "true" ]]; then
+              args+=(--require-signed)
+          fi
+          python3 scripts/validate_release_package.py "${args[@]}" target/release-package
 
       - name: Render release notes
         if: steps.release.outputs.publish == 'true'
         run: |
+          mkdir -p target/release-notes
           python3 scripts/render_release_notes.py \
             target/release-package/release-manifest.json \
             --repository "$GITHUB_REPOSITORY" \
-            > target/RELEASE_NOTES.md
+            > target/release-notes/RELEASE_NOTES.md
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: world-machine-release-package
+          path: target/release-package/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.release.outputs.publish == 'true'
+        with:
+          name: world-machine-release-notes
+          path: target/release-notes/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: macos-release
+    if: needs.macos-release.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # Creates the tag (on a dispatch) and the release.
+      contents: write
+    steps:
+      # No checkout: this job runs nothing from the repository. It publishes
+      # exactly the package the build job validated.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: world-machine-release-package
+          path: target/release-package
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: world-machine-release-notes
+          path: target
 
       - name: Publish GitHub release
-        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          CREATE_TAG: ${{ steps.release.outputs.create_tag }}
+          RELEASE_TAG: ${{ needs.macos-release.outputs.tag }}
+          CREATE_TAG: ${{ needs.macos-release.outputs.create_tag }}
         run: |
           # A tag push releases the pushed tag and refuses to invent one.
           # A dispatch with release_tag creates that tag at the dispatched
@@ -208,10 +319,3 @@ jobs:
             target/release-package/*.zip \
             target/release-package/*.zip.sha256 \
             target/release-package/release-manifest.json
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: world-machine-release-package
-          path: target/release-package/*
-          if-no-files-found: error
-          retention-days: 14

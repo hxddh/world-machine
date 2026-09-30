@@ -39,7 +39,8 @@ pub struct PackServer {
 
 impl PackServer {
     pub fn new(registration: WorldRegistration) -> Result<Self, PackServerError> {
-        let descriptor = protocol_descriptor(&registration.descriptor);
+        let descriptor = protocol_descriptor(&registration.descriptor)
+            .with_capabilities(registration.capabilities().iter().cloned());
         let pack = registration.descriptor.pack.clone();
         let mut registry = WorldRegistry::new();
         registry

@@ -20,6 +20,7 @@ world-projection = { path = "../../crates/world-projection" }
 
 
 [dev-dependencies]
+world-pack-testkit = { path = "../../crates/world-pack-testkit" }
 # The old full-history scans, to test what the index finds against.
 lives = { path = "../../systems/lives", features = ["scan-reference"] }
 world-compare = { path = "../../crates/world-compare" }

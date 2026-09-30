@@ -13,6 +13,8 @@
 //! situations and life beats, `storylets`' questions, `calendar`'s
 //! festivals, `hands`' deeds); a Pack says the rest through [`Teller`].
 
+pub mod kit;
+
 use std::collections::BTreeSet;
 use world_core::{EntityId, Event, EventId, StateChange, Value, World};
 use world_projection::{
@@ -86,11 +88,24 @@ pub fn entity(event: &Event, key: &str) -> Option<EntityId> {
 
 /// `template` with each `{slot}` filled.
 pub fn fill(template: &str, slots: &[(&str, &str)]) -> String {
-    slots
-        .iter()
-        .fold(template.to_string(), |text, (slot, value)| {
-            text.replace(&format!("{{{slot}}}"), value)
-        })
+    // Each slot in turn, as replacing them one after another would: a slot
+    // not in the text (and none can be once no brace is left) leaves it as
+    // it is, so it is not copied.
+    let mut text = template.to_string();
+    let mut pattern = String::new();
+    for (slot, value) in slots {
+        if !text.contains('{') {
+            break;
+        }
+        pattern.clear();
+        pattern.push('{');
+        pattern.push_str(slot);
+        pattern.push('}');
+        if text.contains(pattern.as_str()) {
+            text = text.replace(pattern.as_str(), value);
+        }
+    }
+    text
 }
 
 /// The season a moment falls in, lower case ("spring"), for a World whose
@@ -692,6 +707,81 @@ pub fn named_in(
         }
         if !cast.contains(&person) && words.contains(lives::first_name(state, person).as_str()) {
             cast.push(person);
+        }
+    }
+    cast.truncate(most);
+    cast
+}
+
+/// The people a caption may name, each with their first name, worked out
+/// once for all of a history's beats (see [`named_among`]).
+pub struct Folk {
+    people: Vec<(EntityId, String)>,
+    by_name: std::collections::BTreeMap<String, Vec<usize>>,
+    /// The first bytes names start with, so most words are passed over
+    /// without being looked up.
+    starts: [bool; 256],
+}
+
+impl Folk {
+    pub fn new(world: &World, people: impl IntoIterator<Item = EntityId>) -> Self {
+        let state = world.state();
+        let people = people
+            .into_iter()
+            .map(|person| (person, lives::first_name(state, person)))
+            .collect::<Vec<_>>();
+        let mut by_name = std::collections::BTreeMap::<String, Vec<usize>>::new();
+        for (at, (_, name)) in people.iter().enumerate() {
+            by_name.entry(name.clone()).or_default().push(at);
+        }
+        let mut starts = [false; 256];
+        for name in by_name.keys() {
+            if let Some(first) = name.bytes().next() {
+                starts[usize::from(first)] = true;
+            }
+        }
+        Self {
+            people,
+            by_name,
+            starts,
+        }
+    }
+}
+
+/// [`named_in`], with the people and their names found once: `cast`, and
+/// then whoever of `folk` the captions name, up to `most`.
+pub fn named_among(
+    folk: &Folk,
+    captions: &[String],
+    mut cast: Vec<EntityId>,
+    most: usize,
+) -> Vec<EntityId> {
+    let mut named = vec![false; folk.people.len()];
+    for word in captions
+        .iter()
+        .flat_map(|caption| caption.split(|c: char| !c.is_alphanumeric()))
+    {
+        // A word no name starts as is no name (the empty word is looked up,
+        // for someone with no name at all).
+        if word
+            .bytes()
+            .next()
+            .is_some_and(|first| !folk.starts[usize::from(first)])
+        {
+            continue;
+        }
+        if let Some(people) = folk.by_name.get(word) {
+            for at in people {
+                named[*at] = true;
+            }
+        }
+    }
+    for (at, (person, _)) in folk.people.iter().enumerate() {
+        if cast.len() >= most {
+            break;
+        }
+        if named[at] && !cast.contains(person) {
+            cast.push(*person);
         }
     }
     cast.truncate(most);

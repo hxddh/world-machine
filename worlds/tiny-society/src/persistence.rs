@@ -88,10 +88,7 @@ impl TinySocietyBranch {
     }
 
     pub fn projection_snapshot_since(&self, cursor: VisitCursor) -> ProjectionSnapshot {
-        crate::with_previews(
-            &self.world,
-            projection::snapshot_since(&self.world, Some(cursor.event_count)),
-        )
+        crate::shown(&self.world, Some(cursor.event_count))
     }
 
     /// Days passing while nobody is watching.

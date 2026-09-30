@@ -894,8 +894,8 @@ fn ages_come_from_who_people_are_and_go_up_with_the_year() {
     assert_eq!(age_of(state, &cast, &TEST_KIN, EntityId::new(6)), six + 1);
 }
 
-#[test]
-fn a_fond_couple_may_have_a_child_who_takes_after_both() {
+/// Cat and Dan, together and fond of each other, in a World of kin.
+fn fond_couple() -> (WorldState, ActionRegistry, EntityId, EntityId) {
     let (mut world, registry) = kin_world();
     let (cat, dan) = (EntityId::new(3), EntityId::new(4));
     kin_pass(&mut world, &registry);
@@ -933,6 +933,31 @@ fn a_fond_couple_may_have_a_child_who_takes_after_both() {
             state = next;
         }
     }
+    (state, registry, cat, dan)
+}
+
+/// Births never stop silently: with every id for a child taken, the next
+/// birth fails loudly (in a build with debug assertions, as every test
+/// is) rather than quietly never happening.
+#[test]
+#[should_panic(expected = "no room for another child")]
+fn a_full_block_of_children_fails_loudly() {
+    let (mut state, registry, _, _) = fond_couple();
+    for id in TEST_KIN.children().ids() {
+        state
+            .seed_entity(world_core::Entity::new(id, "stone"))
+            .unwrap();
+    }
+    assert_eq!(state.room_left_in(TEST_KIN.children()), 0);
+    let mut world = World::new(state);
+    for _ in 0..200 {
+        kin_pass(&mut world, &registry);
+    }
+}
+
+#[test]
+fn a_fond_couple_may_have_a_child_who_takes_after_both() {
+    let (state, registry, cat, dan) = fond_couple();
     let mut world = World::new(state);
     let mut born = None;
     for _ in 0..200 {

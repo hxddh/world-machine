@@ -178,6 +178,10 @@ pub struct WorldDescriptor {
 
 pub struct WorldRegistration {
     pub descriptor: WorldDescriptor,
+    /// What the Pack can do beyond the core, in the words of
+    /// [`world_projection::capability`]; a Pack in a process of its own says
+    /// them in its descriptor.
+    capabilities: Vec<String>,
     factory: SessionFactory,
     opener: Option<ArchiveOpener>,
     owned_opener: Option<OwnedArchiveOpener>,
@@ -191,11 +195,28 @@ impl WorldRegistration {
     ) -> Self {
         Self {
             descriptor,
+            capabilities: Vec::new(),
             factory: Box::new(factory),
             opener: None,
             owned_opener: None,
             deflated_opener: None,
         }
+    }
+
+    /// The Pack says it can do `capabilities` (see
+    /// [`world_projection::capability`]).
+    pub fn with_capabilities<I, S>(mut self, capabilities: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.capabilities = capabilities.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// What the Pack says it can do.
+    pub fn capabilities(&self) -> &[String] {
+        &self.capabilities
     }
 
     pub fn with_archive_opener(

@@ -3,9 +3,12 @@
 //! newborns.
 //!
 //! All of it is presentation of what a World records, and the words an app
-//! sends back: a design and a name travel as the argument of an ordinary
-//! command (`<command>=<argument>`), which the World checks like any other
-//! and records as an Event. Nothing here decides anything.
+//! sends back: a design and a name travel as typed intents
+//! ([`crate::ProjectionIntent::Design`] and [`crate::ProjectionIntent::Name`],
+//! protocol v8), which the World checks like any other and records as an
+//! Event. Before v8 they travelled as the argument of an ordinary command
+//! (`<command>=<argument>`); that form is still read, from Packs on v7 and
+//! from what older apps sent. Nothing here decides anything.
 
 use crate::MarkShape;
 
@@ -215,13 +218,18 @@ impl Design {
 /// A name the player gives, made tidy: trimmed, and refused if it is
 /// empty, longer than 24 characters, or holds a line break or any other
 /// control character.
+///
+/// Characters that change how a name reads without being seen (control,
+/// bidirectional and invisible format characters) are taken out first, so a
+/// name can never show as something other than what it is; a line break
+/// reads as a space.
 pub fn clean_name(name: &str) -> Result<String, MarkError> {
-    let name = name.trim();
+    let name = world_core::text::clean_text(name);
     let length = name.chars().count();
-    if length == 0 || length > 24 || name.chars().any(char::is_control) {
+    if length == 0 || length > 24 {
         return Err(MarkError::Name);
     }
-    Ok(name.to_string())
+    Ok(name)
 }
 
 /// A command with its argument: `<command>=<argument>`. A design command
@@ -349,8 +357,12 @@ mod tests {
         assert_eq!(clean_name("小海燕").unwrap(), "小海燕");
         assert!(clean_name("").is_err());
         assert!(clean_name("   ").is_err());
-        assert!(clean_name("two\nlines").is_err());
-        assert!(clean_name("tab\there").is_err());
+        // A line break or a tab reads as a space; characters that change
+        // how a name reads without being seen are taken out.
+        assert_eq!(clean_name("two\nlines").unwrap(), "two lines");
+        assert_eq!(clean_name("tab\there").unwrap(), "tab here");
+        assert_eq!(clean_name("\u{202E}Ann\u{2066}\u{200B}").unwrap(), "Ann");
+        assert!(clean_name("\u{202E}\u{202C}").is_err());
         assert!(clean_name(&"x".repeat(25)).is_err());
         assert!(clean_name(&"é".repeat(24)).is_ok());
         let (command, name) = command_argument("pack.name.7=Ann = Bea");

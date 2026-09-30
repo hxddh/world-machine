@@ -40,6 +40,32 @@ pub struct Voice {
 /// Every line a voice's templates make, in a fixed order: each template
 /// with its slots filled in every combination.
 pub fn own_lines(voice: &Voice) -> Vec<String> {
+    // Made once for each voice: its templates and words are the program's
+    // own, never freed, so where they lie names them.
+    type Made = std::collections::BTreeMap<(usize, usize, usize, usize), Vec<String>>;
+    static MADE: std::sync::OnceLock<std::sync::Mutex<Made>> = std::sync::OnceLock::new();
+    let key = (
+        voice.lines.as_ptr() as usize,
+        voice.lines.len(),
+        voice.slots.as_ptr() as usize,
+        voice.slots.len(),
+    );
+    let made = MADE.get_or_init(Default::default);
+    if let Some(lines) = made
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get(&key)
+    {
+        return lines.clone();
+    }
+    let lines = make_own_lines(voice);
+    made.lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .insert(key, lines.clone());
+    lines
+}
+
+fn make_own_lines(voice: &Voice) -> Vec<String> {
     let mut lines = Vec::new();
     for template in voice.lines {
         let mut made = vec![template.to_string()];

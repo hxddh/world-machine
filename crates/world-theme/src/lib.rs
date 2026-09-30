@@ -9,9 +9,15 @@
 
 pub mod tokens;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
 
-static DARK: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    /// The appearance windows render in, on the thread that renders them
+    /// (GPUI's main thread): each window's root sets it before it renders.
+    /// Kept per thread so that tests drawing windows side by side, one of
+    /// them dark, never see each other's.
+    static DARK: Cell<bool> = const { Cell::new(false) };
+}
 
 /// Records whether windows currently render in the dark appearance.
 ///
@@ -19,7 +25,14 @@ static DARK: AtomicBool = AtomicBool::new(false);
 /// reports, so either appearance can be checked on a machine that only
 /// offers one (the Linux preview under Xvfb reports light, always).
 pub fn set_dark(dark: bool) {
-    DARK.store(forced_appearance().unwrap_or(dark), Ordering::Relaxed);
+    DARK.with(|dark_now| dark_now.set(forced_appearance().unwrap_or(dark)));
+}
+
+/// Records the appearance of a window that also goes dark at night (a
+/// World's, over its night sky): dark if the system is (or is forced to
+/// be), and at `night` whatever it is.
+pub fn set_dark_or_night(dark: bool, night: bool) {
+    DARK.with(|dark_now| dark_now.set(night || forced_appearance().unwrap_or(dark)));
 }
 
 fn forced_appearance() -> Option<bool> {
@@ -34,7 +47,7 @@ fn forced_appearance() -> Option<bool> {
 }
 
 pub fn is_dark() -> bool {
-    DARK.load(Ordering::Relaxed)
+    DARK.with(Cell::get)
 }
 
 /// The colour to draw for a light-palette `0xRRGGBB` in the current mode.

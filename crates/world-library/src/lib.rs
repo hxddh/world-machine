@@ -12,7 +12,9 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use world_document::{DocumentError, DocumentSummary, WorldDocument, WorldDocumentMetadata};
+use world_document::{
+    DocumentError, DocumentSummary, FileWriter, WorldDocument, WorldDocumentMetadata,
+};
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{
     ArchivedCheckpoint, CompactHistory, PersistenceError, WorldArchive, WorldPackRef,
@@ -20,9 +22,10 @@ use world_persistence::{
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub use world_code::{
-    decode_world_code, encode_world_code, looks_like_world_code, read_world_code_file,
-    world_code_for_archive, write_world_code_file, WorldCodeError, WorldVisit, WORLD_CODE_PREFIX,
-    WORLD_CODE_SUFFIX,
+    decode_world_code, encode_world_code, looks_like_world_code, prepare_visit,
+    read_world_code_file, world_code_for_archive, write_world_code_file, VisitSource,
+    WorldCodeError, WorldVisit, MAX_CODE_NAME, MAX_CODE_TEXT, MAX_UNPACKED_BYTES, VISIT_TIMEOUT,
+    WORLD_CODE_PREFIX, WORLD_CODE_SUFFIX,
 };
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
@@ -30,6 +33,10 @@ pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
 /// Removed Worlds are kept in this folder inside the Worlds folder rather
 /// than deleted, so a removal stays reversible in the Finder.
 pub const REMOVED_DIRECTORY: &str = "Removed";
+/// What a World file's backup adds to its name: before each save, the file
+/// as it was is kept beside it as `<name>.world.bak`, so the save before
+/// the last is always there to go back to.
+pub const BACKUP_SUFFIX: &str = ".bak";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
@@ -163,6 +170,7 @@ impl WorldLibrary {
         id: &WorldDocumentId,
         document: &WorldDocument,
     ) -> Result<DocumentRevision, LibraryError> {
+        refuse_newer_file_at(&self.path(id))?;
         let revision = write_document_file(&self.path(id), document)?;
         let _ = fs::remove_file(self.legacy_path(id));
         Ok(revision)
@@ -208,6 +216,7 @@ impl WorldLibrary {
                 world_time: document.archive.world_time,
                 event_count: document.archive.events.len(),
                 metadata: document.metadata,
+                writer: FileWriter::default(),
             }));
         }
         Ok(None)
@@ -352,10 +361,11 @@ impl WorldLibrary {
         let mut document = self
             .load_document(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
+        // A name typed by a player: cleaned of control and bidirectional
+        // characters, which could make it read as something else.
         document.metadata.display_title = title
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_owned);
+            .map(world_core::text::clean_text)
+            .filter(|title| !title.is_empty());
         self.save_document(id, &document)?;
         Ok(summary(id.clone(), &document))
     }
@@ -387,6 +397,12 @@ impl WorldLibrary {
         if sources.is_empty() {
             return Err(LibraryError::UnknownDocument(id.clone()));
         }
+        // Its backup goes with it, so it is not left behind on its own.
+        let backup = backup_path(&self.path(id));
+        let sources = sources
+            .into_iter()
+            .chain(backup.is_file().then_some(backup))
+            .collect::<Vec<_>>();
 
         let removed_root = self.removed_root();
         fs::create_dir_all(&removed_root)?;
@@ -417,7 +433,7 @@ impl WorldLibrary {
         if self.contains(&id)? {
             return Err(LibraryError::DocumentAlreadyExists(id));
         }
-        let document = read_document_file(source)?;
+        let document = read_older_document_file(source)?;
         self.save_document(&id, &document)?;
         Ok(summary(id, &document))
     }
@@ -432,10 +448,13 @@ impl WorldLibrary {
                 destination.to_path_buf(),
             ));
         }
-        let document = self
-            .load_document(id)?
+        let file = self
+            .load_file(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
-        write_document_file(destination, &document)?;
+        if file.writer.is_newer() {
+            return Err(LibraryError::NewerFile(file.writer));
+        }
+        write_document_file(destination, &file.document)?;
         Ok(())
     }
 }
@@ -475,13 +494,14 @@ impl WorldDocumentTarget {
     fn load_with_revision(
         &self,
         library: &WorldLibrary,
-    ) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
-        match self {
+    ) -> Result<(WorldDocument, DocumentRevision, FileWriter), LibraryError> {
+        let file = match self {
             Self::Library(id) => library
-                .load_document_with_revision(id)?
-                .ok_or_else(|| LibraryError::UnknownDocument(id.clone())),
-            Self::File(path) => read_document_file_with_revision(path),
-        }
+                .load_file(id)?
+                .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?,
+            Self::File(path) => read_file(path)?,
+        };
+        Ok((file.document, file.revision, file.writer))
     }
 
     fn current_revision(
@@ -559,6 +579,9 @@ pub struct DurableWorldSession {
     /// from the caller, since freeing years of it takes about as long as
     /// opening them.
     opened_from: RefCell<Option<WorldArchive>>,
+    /// Who wrote the file the World was opened from. A file from a newer
+    /// World Machine is only looked at: nothing is saved over it.
+    writer: FileWriter,
 }
 
 impl DurableWorldSession {
@@ -588,6 +611,7 @@ impl DurableWorldSession {
             saved: None,
             own_title: RefCell::new(None),
             opened_from: RefCell::new(None),
+            writer: FileWriter::current(),
         })
     }
 
@@ -617,6 +641,7 @@ impl DurableWorldSession {
             revision,
             document: WorldDocument { archive, metadata },
             history,
+            writer,
         } = file;
         let checkpoint = archive.checkpoint.clone();
         let saved = history.and_then(|history| Saved::kept(&archive, history));
@@ -631,6 +656,7 @@ impl DurableWorldSession {
             saved,
             own_title: RefCell::new(None),
             opened_from: RefCell::new(lent),
+            writer,
         })
     }
 
@@ -654,6 +680,7 @@ impl DurableWorldSession {
             saved: None,
             own_title: RefCell::new(None),
             opened_from: RefCell::new(Some(archive)),
+            writer: FileWriter::current(),
         }
     }
 
@@ -679,7 +706,7 @@ impl DurableWorldSession {
         if library.contains(&document_id)? {
             return Err(LibraryError::DocumentAlreadyExists(document_id));
         }
-        let mut document = read_document_file(source)?;
+        let mut document = read_older_document_file(source)?;
         let session = open_document(registry, &document)?;
         document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
@@ -751,12 +778,32 @@ impl DurableWorldSession {
         &self.metadata
     }
 
+    /// Who wrote the file this World was opened from.
+    pub fn writer(&self) -> &FileWriter {
+        &self.writer
+    }
+
+    /// Why this World is only looked at, if it is: its file was saved by a
+    /// newer World Machine, so nothing is saved over it. `None` for a World
+    /// that plays on as usual.
+    pub fn read_only_reason(&self) -> Option<String> {
+        self.writer.is_newer().then(|| self.writer.newer_message())
+    }
+
+    /// Refuses to change a World whose file a newer World Machine wrote.
+    pub(crate) fn refuse_if_newer(&self) -> Result<(), LibraryError> {
+        if self.writer.is_newer() {
+            return Err(LibraryError::NewerFile(self.writer.clone()));
+        }
+        Ok(())
+    }
+
     pub fn reload(
         &mut self,
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
-        let (document, revision) = self.target.load_with_revision(library)?;
+        let (document, revision, writer) = self.target.load_with_revision(library)?;
         let replacement = open_document(registry, &document)?;
         let snapshot = replacement.snapshot();
 
@@ -769,6 +816,7 @@ impl DurableWorldSession {
             metadata.display_summary = saved_summary;
         }
         self.revision = revision;
+        self.writer = writer;
         self.metadata = metadata;
         self.checkpoint = document.archive.checkpoint.clone();
         self.session = replacement;
@@ -789,6 +837,7 @@ impl DurableWorldSession {
         // Still held if the World was never looked at: let go of here, as
         // freeing it beside the work below would slow that more.
         drop(self.opened_from.take());
+        self.refuse_if_newer()?;
         self.target.verify_revision(self.revision, library)?;
 
         let changed = self.change(|session| session.handle(intent.clone()), false, library)?;
@@ -861,6 +910,15 @@ pub fn describe_from_snapshot(
     metadata: &mut world_document::WorldDocumentMetadata,
     snapshot: &ProjectionSnapshot,
 ) {
+    describe_all_but_drawings(metadata, snapshot);
+    metadata.display_drawings = drawing_values(&drawn_in(snapshot));
+}
+
+/// [`describe_from_snapshot`], all but the drawings.
+pub(crate) fn describe_all_but_drawings(
+    metadata: &mut world_document::WorldDocumentMetadata,
+    snapshot: &ProjectionSnapshot,
+) {
     metadata.display_scenery = snapshot_display_scenery(snapshot);
     metadata.display_summary = snapshot_display_summary(snapshot);
     metadata.display_calendar =
@@ -905,21 +963,32 @@ pub fn describe_from_snapshot(
             }
         })
         .collect();
-    // Only the drawings the cast is drawn with, each once.
+}
+
+/// The drawings a World's file keeps for its cover: only those the cast
+/// is drawn with, each once, in the snapshot's order.
+pub(crate) fn drawn_in(snapshot: &ProjectionSnapshot) -> Vec<&world_projection::Drawing> {
     let used = snapshot
         .canvas
         .items
         .iter()
         .filter_map(|item| item.drawing.as_deref())
         .collect::<std::collections::BTreeSet<_>>();
-    metadata.display_drawings = snapshot
+    snapshot
         .drawings
         .iter()
         .filter(|drawing| used.contains(drawing.id.as_str()))
+        .collect()
+}
+
+/// The drawings as a World's file writes them.
+pub(crate) fn drawing_values(drawings: &[&world_projection::Drawing]) -> Vec<serde_json::Value> {
+    drawings
+        .iter()
         .filter_map(|drawing| {
-            serde_json::to_value(world_pack_protocol::DrawingWire::from(drawing)).ok()
+            serde_json::to_value(world_pack_protocol::DrawingWire::from(*drawing)).ok()
         })
-        .collect();
+        .collect()
 }
 
 /// The drawings a World's file keeps for its cover, leaving out any the
@@ -1166,6 +1235,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             world_time: document.archive.world_time,
             event_count: document.archive.events.len(),
             metadata: document.metadata.clone(),
+            writer: FileWriter::current(),
         },
     )
 }
@@ -1209,15 +1279,9 @@ fn summary_of(id: WorldDocumentId, document: &DocumentSummary) -> WorldDocumentS
     }
 }
 
+#[cfg(test)]
 fn read_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
-    Ok(read_document_file_with_revision(path)?.0)
-}
-
-fn read_document_file_with_revision(
-    path: &Path,
-) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
-    let file = read_file(path)?;
-    Ok((file.document, file.revision))
+    Ok(read_file(path)?.document)
 }
 
 /// A World file as read: its bytes, which revision of it they are, and the
@@ -1228,18 +1292,85 @@ struct ReadFile {
     document: WorldDocument,
     /// Its history as the file writes it, when World Machine wrote it.
     history: Option<CompactHistory>,
+    /// Who wrote it, and in which schema.
+    writer: FileWriter,
 }
 
 fn read_file(path: &Path) -> Result<ReadFile, LibraryError> {
     let bytes = fs::read(path)?;
     let revision = DocumentRevision::from_bytes(&bytes);
     let (document, history) = WorldDocument::from_bytes_kept(&bytes)?;
+    let writer = WorldDocument::writer_from_bytes(&bytes)?;
     Ok(ReadFile {
         bytes,
         revision,
         document,
         history,
+        writer,
     })
+}
+
+/// A World file's document, refused if a newer World Machine wrote it:
+/// for bringing a file in, which writes it anew as this app's own.
+fn read_older_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
+    let file = read_file(path)?;
+    if file.writer.is_newer() {
+        return Err(LibraryError::NewerFile(file.writer));
+    }
+    Ok(file.document)
+}
+
+/// Refuses to write over the World file at `path` when a newer World
+/// Machine wrote it. Nothing there, or a file this app can read whole,
+/// may be written.
+fn refuse_newer_file_at(path: &Path) -> Result<(), LibraryError> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(LibraryError::Io(error)),
+    };
+    // A file whose summary cannot be read is not known to be newer; its
+    // save goes on as it always did.
+    match WorldDocument::writer_from_bytes(&bytes) {
+        Ok(writer) if writer.is_newer() => Err(LibraryError::NewerFile(writer)),
+        _ => Ok(()),
+    }
+}
+
+/// Where the backup of the World file at `path` is kept.
+pub fn backup_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_default();
+    name.push(BACKUP_SUFFIX);
+    path.with_file_name(name)
+}
+
+/// Keeps the World file at `path`, as it is, as its backup (see
+/// [`backup_path`]), replacing the one before. A link where the folder
+/// allows one (nothing is copied, and the save that follows replaces the
+/// file rather than changing it), else a copy. Nothing to keep is not an
+/// error.
+fn keep_backup(path: &Path) -> io::Result<()> {
+    let backup = backup_path(path);
+    let file_name = backup
+        .file_name()
+        .ok_or_else(|| io::Error::other("world document path has no file name"))?
+        .to_string_lossy()
+        .into_owned();
+    let temp = backup.with_file_name(format!(".{file_name}.tmp"));
+    let _ = fs::remove_file(&temp);
+    match fs::hard_link(path, &temp) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => match fs::copy(path, &temp) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        },
+    }
+    fs::rename(&temp, &backup)
 }
 
 /// Lets go of something large, such as a long World's history, on a
@@ -1348,6 +1479,11 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
+    // The file as it was is kept before it is replaced.
+    if let Err(error) = keep_backup(path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
     fs::rename(temp_path, path)?;
     Ok(())
 }
@@ -1364,6 +1500,9 @@ pub enum LibraryError {
     Document(DocumentError),
     Persistence(PersistenceError),
     Host(HostError),
+    /// The World's file was saved by a newer World Machine, so this one
+    /// only looks at it, and saves nothing over it.
+    NewerFile(FileWriter),
 }
 
 impl fmt::Display for LibraryError {
@@ -1387,6 +1526,7 @@ impl fmt::Display for LibraryError {
             Self::Document(error) => error.fmt(f),
             Self::Persistence(error) => error.fmt(f),
             Self::Host(error) => error.fmt(f),
+            Self::NewerFile(writer) => f.write_str(&writer.newer_message()),
         }
     }
 }
@@ -1403,7 +1543,8 @@ impl Error for LibraryError {
             | Self::DocumentAlreadyExists(_)
             | Self::ExportDestinationExists(_)
             | Self::DocumentChanged(_)
-            | Self::ArchiveUnsupported(_) => None,
+            | Self::ArchiveUnsupported(_)
+            | Self::NewerFile(_) => None,
         }
     }
 }
@@ -2594,6 +2735,159 @@ mod tests {
 
         assert_eq!(library.list().unwrap(), Vec::new());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A World file's bytes as a newer World Machine would write them: the
+    /// same World, in the next schema.
+    fn from_a_newer_app(file: &[u8]) -> Vec<u8> {
+        use std::io::Read;
+        let mut json = String::new();
+        flate2::read::GzDecoder::new(file)
+            .read_to_string(&mut json)
+            .unwrap();
+        let current = format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA);
+        assert!(json.contains(&current), "{}", &json[..200]);
+        let newer = json.replacen(
+            &current,
+            &format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA + 1),
+            1,
+        );
+        let newer = newer.replacen(world_document::writing_app(), "World Machine 9.0.0", 1);
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(newer.as_bytes()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn every_file_says_which_app_and_schema_wrote_it() {
+        let root = temp_root("writer");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("written").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
+        session
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+        let file = fs::read(library.path(&id)).unwrap();
+        let writer = WorldDocument::writer_from_bytes(&file).unwrap();
+        assert_eq!(writer, FileWriter::current());
+        assert_eq!(writer.schema, world_document::WORLD_FILE_SCHEMA);
+        assert!(!writer.is_newer());
+        assert_eq!(session.read_only_reason(), None);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_file_from_a_newer_app_opens_to_look_at_and_is_never_saved_over() {
+        let root = temp_root("newer");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("newer").unwrap();
+        library.save(&id, &mock_archive(3)).unwrap();
+        let newer = from_a_newer_app(&fs::read(library.path(&id)).unwrap());
+        fs::write(library.path(&id), &newer).unwrap();
+
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        assert_eq!(session.snapshot().world_time, 3);
+        let reason = session.read_only_reason().expect("read only");
+        assert!(
+            reason.contains("newer World Machine (World Machine 9.0.0)"),
+            "{reason}"
+        );
+        let refused = session
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap_err();
+        assert!(matches!(refused, LibraryError::NewerFile(_)), "{refused:?}");
+        assert_eq!(refused.to_string(), reason);
+        assert!(matches!(
+            session.save_as_file(root.join("copy.world")),
+            Err(LibraryError::NewerFile(_))
+        ));
+        // Nor through the library: renamed, described, imported or exported.
+        assert!(matches!(
+            library.set_display_title(&id, Some("Mine now")),
+            Err(LibraryError::NewerFile(_))
+        ));
+        assert!(matches!(
+            library.save(&id, &mock_archive(4)),
+            Err(LibraryError::NewerFile(_))
+        ));
+        assert!(matches!(
+            library.export_file(&id, &root.join("out.world")),
+            Err(LibraryError::NewerFile(_))
+        ));
+        let elsewhere = root.join("elsewhere.world");
+        fs::write(&elsewhere, &newer).unwrap();
+        assert!(matches!(
+            library.import_file(WorldDocumentId::new("imported").unwrap(), &elsewhere),
+            Err(LibraryError::NewerFile(_))
+        ));
+        // The file is exactly as the newer app left it, with no backup.
+        assert_eq!(fs::read(library.path(&id)).unwrap(), newer);
+        assert!(!backup_path(&library.path(&id)).exists());
+        // A file with no writer, as every file before v0.25, is not newer.
+        assert!(!WorldDocument::writer_from_bytes(b"{}").unwrap().is_newer());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn each_save_keeps_the_one_before_as_a_backup() {
+        let root = temp_root("backup");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("kept").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
+        let path = library.path(&id);
+        let backup = backup_path(&path);
+        assert_eq!(backup.file_name().unwrap(), "kept.world.bak");
+        // The first save has nothing before it.
+        assert!(!backup.exists());
+        for _ in 0..3 {
+            let before = fs::read(&path).unwrap();
+            session
+                .handle(
+                    ProjectionIntent::InvokeCommand("mock.advance".into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+            assert_eq!(fs::read(&backup).unwrap(), before);
+            assert_ne!(fs::read(&path).unwrap(), before);
+            // The backup is a World file in its own right.
+            WorldDocument::from_bytes(&fs::read(&backup).unwrap()).unwrap();
+        }
+        // It is not listed as a World of its own, and goes with its World
+        // when that is removed.
+        assert_eq!(library.list().unwrap().len(), 1);
+        library.remove(&id).unwrap();
+        assert!(!backup.exists());
+        assert!(library.removed_root().join("kept.world.bak").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_name_typed_for_a_world_is_cleaned_of_hidden_controls() {
+        let root = temp_root("clean-title");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("named").unwrap();
+        library.save(&id, &mock_archive(1)).unwrap();
+        let named = library
+            .set_display_title(&id, Some("\u{202E}Harbor\u{2066}\nTown"))
+            .unwrap();
+        assert_eq!(named.display_title.as_deref(), Some("Harbor Town"));
+        let cleared = library.set_display_title(&id, Some("\u{202E}")).unwrap();
+        assert_eq!(cleared.display_title, None);
         let _ = fs::remove_dir_all(root);
     }
 }

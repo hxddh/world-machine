@@ -7,3 +7,5 @@ publish = false
 
 [dependencies]
 world-core = { path = "../../crates/world-core" }
+serde_json = "1"
+world-projection = { path = "../../crates/world-projection" }

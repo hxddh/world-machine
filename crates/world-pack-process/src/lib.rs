@@ -21,6 +21,7 @@ use world_pack_protocol::{
     PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProtocolEncodeError, StoryPageWire,
     StoryRequestWire, PACK_FRAME_LIMIT, PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4,
     PACK_PROTOCOL_VERSION_V5, PACK_PROTOCOL_VERSION_V6, PACK_PROTOCOL_VERSION_V7,
+    PACK_PROTOCOL_VERSION_V8,
 };
 use world_persistence::{CheckpointFit, WorldArchive, WorldPackRef};
 use world_projection::{
@@ -89,6 +90,24 @@ pub struct ProcessPack {
 /// `DYLD_*`, and everything else a Pack inherits stay out of reach.
 pub const PACK_SETTING_PREFIX: &str = "WORLD_MACHINE_";
 
+/// Whether an environment variable's name says it holds a secret: an API
+/// key, a token, a password. A Pack is never given one, neither as a
+/// setting nor from the host's own environment; a model is asked by the
+/// app itself, never by a Pack with the player's key.
+pub fn is_secret_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    [
+        "API_KEY",
+        "APIKEY",
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "CREDENTIAL",
+    ]
+    .iter()
+    .any(|word| name.contains(word))
+}
+
 impl ProcessPack {
     pub fn load(manifest_path: impl AsRef<Path>) -> Result<Self, HostError> {
         let requested_manifest_path = manifest_path.as_ref();
@@ -156,6 +175,11 @@ impl ProcessPack {
                 if !name.starts_with(PACK_SETTING_PREFIX) {
                     return Err(HostError::pack_source(format!(
                         "a Pack setting has to be named {PACK_SETTING_PREFIX}…, not {name}"
+                    )));
+                }
+                if is_secret_name(&name) {
+                    return Err(HostError::pack_source(format!(
+                        "a Pack is never given a secret, such as {name}"
                     )));
                 }
                 Ok((name, value.into()))
@@ -421,7 +445,7 @@ fn write_launch_image(
 ) -> Result<PathBuf, HostError> {
     let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
     if nonce == 0 {
-        sweep_stale_launch_images();
+        sweep_stale_launch_images(&env::temp_dir());
     }
     let extension = source
         .extension()
@@ -469,10 +493,12 @@ const STALE_LAUNCH_IMAGE: std::time::Duration = std::time::Duration::from_secs(1
 /// Removes launch images an earlier run left behind: a process that ends
 /// without dropping its Pack (a crash, a forced quit) leaves its copy of
 /// the Pack's program in the temporary folder. Only images from other
-/// processes, untouched for half a day, are removed.
-fn sweep_stale_launch_images() {
+/// processes, untouched for half a day, are removed. `temp_dir` is the
+/// folder launch images are written to (`env::temp_dir()` in the app; a
+/// scratch folder in tests).
+fn sweep_stale_launch_images(temp_dir: &Path) {
     let own = format!("world-machine-pack-launch-{}-", process::id());
-    let Ok(entries) = fs::read_dir(env::temp_dir()) else {
+    let Ok(entries) = fs::read_dir(temp_dir) else {
         return;
     };
     for entry in entries.flatten() {
@@ -549,6 +575,8 @@ pub struct ProcessWorldSession {
     pack: WorldPackRef,
     client: RefCell<ProcessClient>,
     snapshot: ProjectionSnapshot,
+    /// What the running Pack said it can do (v8); nothing for an older one.
+    capabilities: Vec<String>,
 }
 
 impl ProcessWorldSession {
@@ -609,7 +637,9 @@ impl ProcessWorldSession {
             PackResponse::Descriptor { descriptor } => descriptor,
             response => return Err(unexpected_response("describe", &response)),
         };
-        if described != pack.descriptor {
+        // What the running Pack says it can do is what counts; a manifest
+        // written before capabilities were said has none.
+        if !described.same_pack(&pack.descriptor) {
             return Err(HostError::session(format!(
                 "external Pack descriptor mismatch: manifest is {}@{}, process described {}@{}",
                 pack.descriptor.pack.id,
@@ -628,7 +658,14 @@ impl ProcessWorldSession {
             pack: pack.descriptor.pack,
             client: RefCell::new(client),
             snapshot,
+            capabilities: described.capabilities,
         })
+    }
+
+    /// Whether the running Pack speaks v8 and says it can do `capability`.
+    fn can(&self, capability: &str) -> bool {
+        self.client.borrow().protocol_version >= PACK_PROTOCOL_VERSION_V8
+            && self.capabilities.iter().any(|known| known == capability)
     }
 
     /// Whether the Pack speaks a protocol with `hear` and `ears`.
@@ -656,6 +693,15 @@ impl WorldSession for ProcessWorldSession {
     }
 
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+        // A design or a name goes typed only to a Pack that says it takes
+        // them; any other hears it as the command it offered, with the
+        // argument after `=`, as every Pack before v8 did.
+        let typed = match &intent {
+            ProjectionIntent::Design { .. } => self.can(world_projection::capability::DESIGNS),
+            ProjectionIntent::Name { .. } => self.can(world_projection::capability::NAMES),
+            _ => true,
+        };
+        let intent = if typed { intent } else { intent.as_command() };
         let mut intent = ProjectionIntentWire::from(intent);
         // A Pack on an older protocol hears everything in its own way.
         if let ProjectionIntentWire::Say { ears, .. } = &mut intent {
@@ -913,6 +959,12 @@ impl ProcessClient {
         let mut command = Command::new(&program);
         if pack.pin.is_none() {
             command.args(&pack.args);
+        }
+        // Nothing secret the host was started with reaches a Pack.
+        for (name, _) in env::vars_os() {
+            if is_secret_name(&name.to_string_lossy()) {
+                command.env_remove(name);
+            }
         }
         for (name, value) in &pack.settings {
             command.env(name, value);
@@ -1297,6 +1349,51 @@ mod tests {
         path
     }
 
+    /// A crashed run's launch image, half a day old, is swept; this
+    /// process's own images, fresh ones, folders and anything not named
+    /// as a launch image are left alone.
+    #[test]
+    fn stale_launch_images_from_other_runs_are_swept() {
+        let dir = temp_dir("sweep");
+        let other = "world-machine-pack-launch-4294967295";
+        let own = format!("world-machine-pack-launch-{}", process::id());
+        let aged = |name: &str, age: Duration| {
+            let path = dir.join(name);
+            let file = File::create(&path).unwrap();
+            file.set_modified(SystemTime::now() - age).unwrap();
+            path
+        };
+        let day = Duration::from_secs(24 * 60 * 60);
+        let crashed = aged(&format!("{other}-0.worldpack"), day);
+        let crashed_bare = aged(
+            &format!("{other}-3"),
+            STALE_LAUNCH_IMAGE + Duration::from_secs(60),
+        );
+        let running = aged(&format!("{other}-1"), Duration::from_secs(60));
+        let just_under = aged(
+            &format!("{other}-2"),
+            STALE_LAUNCH_IMAGE - Duration::from_secs(60),
+        );
+        let mine = aged(&format!("{own}-0"), day);
+        let unrelated = aged("someone-elses-file", day);
+        let folder = dir.join(format!("{other}-folder"));
+        fs::create_dir(&folder).unwrap();
+        // Aged too where the platform allows it; swept or not, a folder stays.
+        let _ = File::open(&folder).and_then(|folder| folder.set_modified(SystemTime::now() - day));
+
+        sweep_stale_launch_images(&dir);
+
+        assert!(!crashed.exists(), "a day-old image from a crashed run");
+        assert!(!crashed_bare.exists(), "one with no extension");
+        assert!(running.exists(), "another run's image in use");
+        assert!(just_under.exists(), "younger than half a day");
+        assert!(mine.exists(), "this process's own image");
+        assert!(unrelated.exists(), "not a launch image");
+        assert!(folder.is_dir(), "folders are never swept");
+        sweep_stale_launch_images(&dir.join("missing"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     fn descriptor() -> PackDescriptor {
         PackDescriptor::new(
             WorldPackRef::new("fixture.external", "1"),
@@ -1469,6 +1566,14 @@ mod tests {
             "printf '%s' \"$WORLD_MACHINE_TEST_VOICE\" > {}\n",
             shell_quote(observed.to_str().unwrap())
         ));
+        let secret = root.join("secret");
+        script.push_str(&format!(
+            "printf '%s' \"$WORLD_MACHINE_TEST_SECRET_API_KEY\" > {}\n",
+            shell_quote(secret.to_str().unwrap())
+        ));
+        // A secret in the host's own environment, as a key exported in a
+        // shell would be.
+        std::env::set_var("WORLD_MACHINE_TEST_SECRET_API_KEY", "sk-test");
         for response in &responses {
             script.push_str("IFS= read -r _line || exit 1\n");
             script.push_str("printf '%s\\n' ");
@@ -1499,6 +1604,17 @@ mod tests {
             "pi",
             "the Pack process was not given the setting the host configured"
         );
+        assert_eq!(
+            fs::read_to_string(&secret).unwrap(),
+            "",
+            "a secret in the host's environment reached the Pack"
+        );
+        assert!(ProcessPack::load(root.join("fixture.world-pack.json"))
+            .unwrap()
+            .with_settings([("WORLD_MACHINE_ANY_API_KEY", "sk-test")])
+            .is_err());
+        assert!(is_secret_name("world_machine_voice_token"));
+        assert!(!is_secret_name("WORLD_MACHINE_POCKET_UNIVERSE_VOICE"));
 
         let _ = fs::remove_dir_all(root);
     }

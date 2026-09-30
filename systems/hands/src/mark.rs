@@ -272,10 +272,16 @@ pub fn design_parts(text: &str) -> Option<(&str, &str)> {
 
 /// A name as the player gave it, tidied, if it is one: one to twenty-four
 /// characters on one line.
+///
+/// Characters that change how a name reads without being seen (control,
+/// bidirectional and invisible format characters, see
+/// [`world_core::text::clean_text`]) are taken out first, so a name kept in
+/// the World, and shared in its code, always reads as what it is. Only a
+/// new name is tidied: what a World recorded is replayed as it was.
 pub fn tidy_name(name: &str) -> Option<String> {
-    let name = name.trim();
+    let name = world_core::text::clean_text(name);
     let length = name.chars().count();
-    (length > 0 && length <= 24 && !name.chars().any(char::is_control)).then(|| name.to_string())
+    (length > 0 && length <= 24).then_some(name)
 }
 
 /// The design painted on something, if any.

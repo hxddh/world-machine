@@ -18,6 +18,8 @@ impl DurableWorldSession {
         label: Option<String>,
         library: &WorldLibrary,
     ) -> Result<WorldDocumentSummary, LibraryError> {
+        // A copy written by this app would lose what a newer one wrote.
+        self.refuse_if_newer()?;
         self.target.verify_revision(self.revision, library)?;
 
         let archive = required_archive(self.session.as_ref())?;

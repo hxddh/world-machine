@@ -9,3 +9,5 @@ publish = false
 world-core = { path = "../../crates/world-core" }
 world-projection = { path = "../../crates/world-projection" }
 lives = { path = "../lives" }
+hands = { path = "../hands" }
+calendar = { path = "../calendar" }

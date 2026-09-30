@@ -21,6 +21,23 @@ pub use fm::{FmCompletion, FmStatus};
 pub const VOICE_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
 pub const PI_PROGRAM_ENV: &str = "WORLD_MACHINE_PI_PROGRAM";
 pub const API_KEY_ENV: &str = "WORLD_MACHINE_ANTHROPIC_API_KEY";
+/// `curl`, run by its full path, so no program of that name earlier on
+/// `PATH` is handed a key.
+pub const CURL: &str = "/usr/bin/curl";
+/// The longest an API key is believed to be.
+pub const MOST_API_KEY: usize = 256;
+
+/// Whether `key` could be an API key: one to [`MOST_API_KEY`] letters,
+/// digits, `-` and `_`, and nothing else. Anything else (a space, a quote,
+/// a line break that could end a line of `curl`'s configuration and start
+/// another) is refused before it is stored or used.
+pub fn is_plausible_api_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MOST_API_KEY
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
 /// Which model answers, if not the default.
 pub const MODEL_ENV: &str = "WORLD_MACHINE_VOICE_MODEL";
 
@@ -64,7 +81,7 @@ impl Voice {
             "fm" => Ok(Voice::Fm(fm::PROGRAM.to_string())),
             "api" => key
                 .map(str::trim)
-                .filter(|key| !key.is_empty())
+                .filter(|key| is_plausible_api_key(key))
                 .map(|key| Voice::Api(key.to_string()))
                 .ok_or_else(|| format!("{VOICE_ENV}=api needs a key in {API_KEY_ENV}")),
             other => Err(format!(
@@ -169,8 +186,16 @@ pub struct ApiRequest {
     pub args: Vec<String>,
 }
 
+/// A value for a double-quoted line of `curl`'s configuration: its quotes
+/// and backslashes escaped, and any line break or other control character
+/// left out, so it can never end its line and start another.
 fn escape_config(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    value
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
 }
 
 /// The model to ask: the one the environment names, or the default.
@@ -278,7 +303,10 @@ impl Completion for ApiCompletion {
     fn complete(&mut self, prompt: &str) -> Option<String> {
         let body = BodyFile::write(&self.model, prompt, &self.key)?;
         let request = api_request_for(&self.model, prompt, &self.key, body.path.to_str()?);
-        let mut child = Command::new("curl")
+        if !is_plausible_api_key(&self.key) {
+            return None;
+        }
+        let mut child = Command::new(CURL)
             .args(&request.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -460,5 +488,36 @@ mod tests {
             .unwrap();
         assert_eq!(heard.answer, "Morning, love!");
         assert!(ModelListener(Canned("no")).listen(&hearing).is_none());
+    }
+
+    #[test]
+    fn only_a_plausible_key_is_used_and_it_cannot_reach_another_line() {
+        assert!(is_plausible_api_key("sk-ant-api03-abc_DEF-123"));
+        for bad in [
+            "",
+            "sk ant",
+            "sk-ant\nurl = \"https://evil.example\"",
+            "sk\"ant",
+            "sk\\ant",
+            "sk-ant\u{202E}",
+            &"k".repeat(MOST_API_KEY + 1),
+        ] {
+            assert!(!is_plausible_api_key(bad), "{bad:?}");
+            assert!(
+                Voice::from_env(Some("api"), None, Some(bad)).is_err(),
+                "{bad:?}"
+            );
+        }
+        // Even if one were used, its line of configuration stays one line.
+        let request = api_request_for("claude", "hi", "k\nurl = \"x\"", "/tmp/body");
+        assert_eq!(
+            request
+                .config
+                .lines()
+                .filter(|l| l.starts_with("url"))
+                .count(),
+            1
+        );
+        assert_eq!(CURL, "/usr/bin/curl");
     }
 }

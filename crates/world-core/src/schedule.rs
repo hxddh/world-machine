@@ -55,6 +55,12 @@ impl Scheduler {
         id
     }
 
+    /// What changes whenever the schedule does: the ids given out, and
+    /// how many actions wait.
+    pub(crate) fn stamp(&self) -> (u64, usize) {
+        (self.next_id, self.queue.len())
+    }
+
     pub fn pending(&self) -> impl Iterator<Item = &ScheduledAction> {
         self.queue.values()
     }

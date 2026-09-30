@@ -18,7 +18,19 @@ A normal macOS app is one you download, open, and use. On macOS that is only pos
 | `APPLE_TEAM_ID` | the Team ID |
 | `APPLE_APP_PASSWORD` | the app-specific password |
 
-The next release dispatch signs every executable with the hardened runtime, submits the app and the DMG to Apple's notary service, staples the tickets, and publishes. The manifest reads `"signing": "developer-id", "notarized": true`, the release notes drop the warning, and the `Read Me First.txt` is no longer included. Without the secrets the pipeline builds the ad-hoc pre-alpha package exactly as before.
+The next release dispatch signs every executable with the hardened runtime, submits the app and the DMG to Apple's notary service, staples the tickets, and publishes. The manifest reads `"signing": "developer-id", "notarized": true`, the release notes drop the warning, and the `Read Me First.txt` is no longer included. Without the secrets the pipeline builds the ad-hoc pre-alpha package exactly as before, and says so: the run shows an "Ad-hoc signed package" warning, and its summary labels the package "ad-hoc signed, NOT notarized".
+
+6. Then turn on the switch: add the repository **variable** (not a secret) `WORLD_MACHINE_REQUIRE_SIGNED_RELEASES` with the value `true`, under Settings → Secrets and variables → Actions → Variables.
+
+## Stable tags and the switch
+
+| Certificate secret | `WORLD_MACHINE_REQUIRE_SIGNED_RELEASES` | Stable tag `v<version>` | Pre-release `v<version>-pre.N` |
+| --- | --- | --- | --- |
+| absent | unset | published **ad-hoc**, with a warning | published ad-hoc, with a warning |
+| present | either | published only if it validates as Developer ID signed and notarized | signed and notarized |
+| absent | `true` | **refused** before anything is built | published ad-hoc, with a warning |
+
+While the certificate secret exists, a stable tag is validated with `validate_release_package.py --require-signed`, which rejects an ad-hoc package. The switch keeps that promise if the secret later goes missing (expired, rotated away, or a fork's run), so a stable release never quietly falls back to ad-hoc. To publish an unsigned build while signing is broken, cut a `-pre.N` tag, or unset the variable deliberately.
 
 ## What the pipeline does with them
 

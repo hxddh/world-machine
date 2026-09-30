@@ -11,12 +11,13 @@
 
 use crate::places::Place;
 use crate::{SLOT_A, SLOT_B, SLOT_C, SLOT_D, SLOT_E};
-use days::{Plan, Row, Street, Stretch};
+use days::town::{CatalogWork, Town, BACK, FRONT};
+use days::{Plan, Stretch};
 use std::collections::BTreeMap;
 use world_core::{EntityId, Value, World, WorldState};
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLink, CanvasProjection, District, GroundCover, MarkShape,
-    RoutineStop, Season, SelectionId,
+    CanvasItem, CanvasItemKind, CanvasLink, CanvasProjection, GroundCover, MarkShape, Season,
+    SelectionId,
 };
 
 /// A place's stretches, their names, and where its three seeded things
@@ -110,40 +111,6 @@ fn layout(place: Place) -> &'static Layout {
     }
 }
 
-/// Houses at the back, works in the middle, small things at the front; no
-/// two rows share a spot along the ground.
-const ROWS: [Row; 5] = [
-    Row {
-        pitch: 0.16,
-        offset: 0.0,
-    },
-    Row {
-        pitch: 0.16,
-        offset: 0.08,
-    },
-    Row {
-        pitch: 0.16,
-        offset: 0.04,
-    },
-    Row {
-        pitch: 0.08,
-        offset: 0.02,
-    },
-    // The plots the player can build on, which nothing else takes.
-    Row {
-        pitch: crate::plots::PLOT_PITCH,
-        offset: crate::plots::PLOT_OFFSET,
-    },
-];
-const BACK: usize = 0;
-const MIDDLE: usize = 1;
-const NEARER: usize = 2;
-const FRONT: usize = 3;
-/// How far along the ground what stands in front of or behind a work on a
-/// plot keeps from it.
-const CLEAR: f32 = 0.08;
-const ROW_Y: [f32; 5] = [0.3, 0.45, 0.6, 0.76, crate::plots::PLOT_Y];
-
 /// How wide a place is, in screens.
 pub(crate) fn width(place: Place) -> f32 {
     layout(place).width
@@ -163,19 +130,8 @@ pub(crate) fn stretch_ids(place: Place) -> [&'static str; 3] {
     layout(place).stretches.map(|stretch| stretch.id)
 }
 
-/// The ids homes and works go by on the scene: neither is a thing the
-/// World records, so they take ids no entity ever has.
-const HOME_IDS: u64 = 900_000_000;
-const WORK_IDS: u64 = 910_000_000;
-
-pub(crate) fn home_id(founder: EntityId) -> SelectionId {
-    SelectionId::Entity(EntityId::new(HOME_IDS + founder.0))
-}
-
 #[cfg(test)]
-pub(crate) fn is_home(selection: SelectionId) -> bool {
-    matches!(selection, SelectionId::Entity(id) if (HOME_IDS..WORK_IDS).contains(&id.0))
-}
+pub(crate) use days::town::is_home;
 
 fn role(state: &WorldState, person: EntityId) -> Option<&str> {
     match state.entity(person)?.component("role")? {
@@ -408,13 +364,6 @@ fn work_stretch(place: Place, id: &str, index: usize) -> usize {
         .unwrap_or(index % 3)
 }
 
-fn is_building(shape: MarkShape) -> bool {
-    matches!(
-        shape,
-        MarkShape::House | MarkShape::Shop | MarkShape::Tower | MarkShape::Dome
-    )
-}
-
 /// The works finished so far, oldest first.
 /// The works finished so far, in the catalog's order, each with its place
 /// in the catalog and the period it was finished, when the World's history
@@ -504,137 +453,60 @@ pub(crate) fn lay_out(
     };
     let layout = layout(place);
     let width = layout.width;
-    let mut street = Street::new(width, &layout.stretches, &ROWS);
-    let mut placed: BTreeMap<SelectionId, f32> = BTreeMap::new();
+    let mut town = Town::new(width, &layout.stretches, days::town::PLOT_ROW_AT);
     let mut items = items;
 
     for (id, px) in layout.anchors {
-        let selection = SelectionId::Entity(id);
-        if let Some(item) = items.iter_mut().find(|item| item.id == selection) {
-            let row = if item.kind == CanvasItemKind::Place {
+        let row = |item: &CanvasItem| {
+            if item.kind == CanvasItemKind::Place {
                 BACK
             } else {
                 FRONT
-            };
-            if let Some(px) = street.take(row, street.stretch_at(px), px) {
-                item.px = Some(px);
-                // The row it stands in, for the app to stand it in.
-                item.y = ROW_Y[row];
-                placed.insert(selection, px);
             }
-        }
+        };
+        town.stand(&mut items, id, row, px, false);
     }
 
-    let households = households(state);
-    let mut home_of: BTreeMap<EntityId, SelectionId> = BTreeMap::new();
-    for (founder, members) in &households {
-        let stretch = if [SLOT_B, SLOT_E].contains(founder) {
-            0
-        } else {
-            (days::mix(&[founder.0, 3]) % 3) as usize
-        };
-        let near = street.spread(stretch, founder.0);
-        let Some((row, px)) = street.take_first(&[BACK, MIDDLE], Some(stretch), near) else {
-            continue;
-        };
-        let id = home_id(*founder);
-        for member in members {
-            home_of.insert(*member, id);
-        }
-        placed.insert(id, px);
-        items.push(CanvasItem {
-            art: Some(crate::drawings::home_art(place).into()),
-            ..new_item(
-                id,
-                CanvasItemKind::Place,
-                layout.home.into(),
-                members
-                    .iter()
-                    .map(|member| lives::first_name(state, *member))
-                    .collect::<Vec<_>>()
-                    .join(" · "),
-                (px, width, row),
-                MarkShape::House,
-                None,
-            )
-        });
-    }
+    let home_of = town.homes(
+        &mut items,
+        &households(state),
+        |founder| {
+            if [SLOT_B, SLOT_E].contains(&founder) {
+                0
+            } else {
+                (days::mix(&[founder.0, 3]) % 3) as usize
+            }
+        },
+        layout.home,
+        |member| lives::first_name(state, member),
+        Some(crate::drawings::home_art(place)),
+    );
 
     // Every work the place could finish has a spot kept for it, in the
     // catalog's order, whether finished yet or not: what is built never
     // moves for what is built after it.
     let catalog = catalog(world, place);
     let done = finished_in(world, &catalog);
-    let mut works: [Vec<SelectionId>; 3] = Default::default();
-    for (index, work) in catalog.into_iter().enumerate() {
-        let stretch = work_stretch(place, work.id, index);
-        let near = street.spread(stretch, index as u64);
-        let spot = street.take_first(&[MIDDLE, NEARER, FRONT], Some(stretch), near);
-        let (Some((row, px)), Some(built)) = (spot, done.get(&index).copied()) else {
-            continue;
-        };
-        let id = SelectionId::Entity(EntityId::new(WORK_IDS + index as u64));
-        placed.insert(id, px);
-        if let Some(at) = street.stretch_at(px) {
-            works[at].push(id);
-        }
-        let mut item = new_item(
-            id,
-            if is_building(work.shape) {
-                CanvasItemKind::Place
-            } else {
-                CanvasItemKind::Object
-            },
-            work.label,
-            String::new(),
-            (px, width, row),
-            work.shape,
-            built,
-        );
-        item.art = crate::drawings::art_of_work(place, work.id).map(Into::into);
-        items.push(item);
-    }
+    let works = catalog
+        .into_iter()
+        .enumerate()
+        .map(|(index, work)| CatalogWork {
+            stretch: work_stretch(place, work.id, index),
+            id: work.id,
+            label: work.label,
+            shape: work.shape,
+        });
+    let mut works = town.works(&mut items, works, &done, |id| {
+        crate::drawings::art_of_work(place, id).map(Into::into)
+    });
 
     // What the player built on plots stands on its plot, and everything
     // says what it can wear and be called.
     crate::plots::dress(world, &mut items);
     crate::drawings::dress_art(world, &mut items);
-    for item in items.iter().filter(|item| item.variant.is_some()) {
-        if let Some(px) = item.px {
-            placed.insert(item.id, px);
-            if let Some(at) = street.stretch_at(px) {
-                works[at].push(item.id);
-            }
-            // Nothing the player puts up after stands right before or
-            // behind it: a flag on a plot never hangs from a lamp post.
-            for row in [NEARER, FRONT] {
-                street.keep_clear(row, px, CLEAR);
-            }
-        }
-    }
+    town.plotted(&items, &mut works);
 
-    let mut fixtures = items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| item.px.is_none() && item.kind != CanvasItemKind::Actor)
-        .map(|(at, item)| (item.id, at))
-        .collect::<Vec<_>>();
-    fixtures.sort();
-    for (_, at) in fixtures {
-        let item = &items[at];
-        let near = item
-            .spot
-            .map(|spot| spot * width)
-            .or_else(|| item.at.and_then(|place| placed.get(&place).copied()))
-            .unwrap_or(width / 2.0);
-        if let Some((row, px)) =
-            street.take_first(&[FRONT, NEARER, MIDDLE], street.stretch_at(near), near)
-        {
-            items[at].px = Some(px);
-            items[at].y = ROW_Y[row];
-            placed.insert(items[at].id, px);
-        }
-    }
+    town.fixtures(&mut items, |item| item.kind != CanvasItemKind::Actor);
 
     // Everyone's day. The pair work where they always have; those who came
     // later work at the place's buildings, spread along it.
@@ -645,11 +517,10 @@ pub(crate) fn lay_out(
     let mut workplaces = works;
     for (id, _) in layout.anchors {
         let selection = SelectionId::Entity(id);
-        if let Some(at) = placed.get(&selection).and_then(|px| street.stretch_at(*px)) {
+        if let Some(at) = town.stretch_of(selection) {
             workplaces[at].insert(0, selection);
         }
     }
-    let stretch_of = |id: SelectionId| placed.get(&id).and_then(|px| street.stretch_at(*px));
     // The pair work where they always have. Everyone else, in the order
     // they came, spends the day on the stretch with the fewest there yet,
     // so a place of a dozen is not all in one spot at noon.
@@ -657,7 +528,7 @@ pub(crate) fn lay_out(
     let mut day_place: BTreeMap<EntityId, SelectionId> = BTreeMap::new();
     for person in [SLOT_B, SLOT_E] {
         if let Some(work) = crate::life::work(state, person).map(SelectionId::Entity) {
-            if let Some(at) = stretch_of(work) {
+            if let Some(at) = town.stretch_of(work) {
                 busy[at] += 1;
                 day_place.insert(person, work);
             }
@@ -669,9 +540,9 @@ pub(crate) fn lay_out(
         // Someone drawn here by what the player built works at it.
         if let Some(work) = lives::drawn_by(state, person)
             .map(SelectionId::Entity)
-            .filter(|work| placed.contains_key(work))
+            .filter(|work| town.placed.contains_key(work))
         {
-            if let Some(at) = stretch_of(work) {
+            if let Some(at) = town.stretch_of(work) {
                 busy[at] += 1;
             }
             day_place.insert(person, work);
@@ -703,7 +574,6 @@ pub(crate) fn lay_out(
         let Some(home) = home_of.get(&person).copied() else {
             continue;
         };
-        item.home = Some(home);
         let spends = day_place.get(&person).copied();
         let child = is_child(state, person);
         let work = spends.filter(|_| !child);
@@ -717,78 +587,19 @@ pub(crate) fn lay_out(
             festival,
             seed: person.0,
         };
-        item.day = days::day(&plan)
-            .into_iter()
-            .map(|stop| RoutineStop {
-                from_hour: stop.from_hour,
-                at: stop.at,
-                inside: stop.inside,
-            })
-            .collect();
-        item.px = item
-            .at
-            .and_then(|at| placed.get(&at).copied())
-            .or_else(|| placed.get(&home).copied());
+        town.live(item, home, &plan);
     }
 
     crate::drawings::vary_seats(&mut items);
     let almanac = crate::almanac::almanac(state);
-    let (season, ground, ice) = season_on(place, calendar::day_of_year(state, &almanac));
-    CanvasProjection {
+    town.projection(
         items,
         links,
-        marks: Vec::new(),
-        width: Some(width),
-        districts: layout
-            .stretches
-            .iter()
-            .zip(layout.labels)
-            .map(|(stretch, label)| District {
-                id: stretch.id.into(),
-                label: label.into(),
-                from: stretch.from,
-                to: stretch.to,
-            })
-            .collect(),
-        season: Some(season),
-        ground,
-        ice,
-        plots: crate::plots::canvas_plots(world),
-        setting: Some(crate::drawings::setting_of(place).into()),
-    }
-}
-
-fn new_item(
-    id: SelectionId,
-    kind: CanvasItemKind,
-    label: String,
-    detail: String,
-    (px, width, row): (f32, f32, usize),
-    shape: MarkShape,
-    built: Option<u32>,
-) -> CanvasItem {
-    CanvasItem {
-        id,
-        kind,
-        label,
-        detail,
-        x: px / width,
-        y: ROW_Y[row],
-        changes: Vec::new(),
-        shape: Some(shape),
-        at: None,
-        look: None,
-        drawing: None,
-        stance: None,
-        standing: None,
-        mood: None,
-        spot: None,
-        px: Some(px),
-        home: None,
-        day: Vec::new(),
-        built,
-        ..Default::default()
-    }
+        layout.labels,
+        season_on(place, calendar::day_of_year(state, &almanac)),
+        crate::plots::canvas_plots(world),
+        crate::drawings::setting_of(place),
+    )
 }
 
 #[cfg(test)]
@@ -797,128 +608,39 @@ mod tests {
     use crate::{PocketUniverse, NUDGE_COMMAND};
     use world_projection::ProjectionSnapshot;
 
-    /// How a place stands, as its bars measure it.
-    #[derive(Debug)]
-    struct Bars {
-        people: usize,
-        homeless: usize,
-        apart: usize,
-        outside_at_22: usize,
-        busiest_at_noon: f64,
-        gathered_in_evening: f64,
-        festival: bool,
-        finished: usize,
-        standing: usize,
-        shared_slots: usize,
-    }
+    use world_pack_testkit::town::{check_town_bars, outdoors, town_bars, TownBars, TownFacts};
 
-    fn bars(world: &World, snapshot: &ProjectionSnapshot) -> Bars {
-        let canvas = &snapshot.canvas;
+    fn bars(world: &World, snapshot: &ProjectionSnapshot) -> TownBars {
         let state = world.state();
-        let place = Place::of(state).unwrap();
-        let people = canvas
-            .items
-            .iter()
-            .filter(|item| item.kind == CanvasItemKind::Actor)
-            .collect::<Vec<_>>();
-        let homeless = people
-            .iter()
-            .filter(|person| {
-                person
-                    .home
-                    .is_none_or(|home| !is_home(home) || canvas.px_of(home).is_none())
-            })
-            .count();
-        let apart = people
-            .iter()
-            .filter(|person| {
-                let SelectionId::Entity(id) = person.id else {
-                    return false;
-                };
-                lives::partner(state, id).is_some_and(|partner| {
-                    people
-                        .iter()
-                        .find(|other| other.id == SelectionId::Entity(partner))
-                        .is_some_and(|other| other.home != person.home)
-                })
-            })
-            .count();
-        let district_of = |stop: &RoutineStop| {
-            canvas
-                .px_of(stop.at)
-                .and_then(|px| canvas.district_at(px))
-                .map(|district| district.id.clone())
-                .unwrap_or_default()
+        let canvas = &snapshot.canvas;
+        let partner = |id: SelectionId| match id {
+            SelectionId::Entity(id) => lives::partner(state, id).map(SelectionId::Entity),
+            _ => None,
         };
-        let noon = canvas.whereabouts(12);
-        let mut by_district: BTreeMap<String, usize> = BTreeMap::new();
-        for (_, stop) in &noon {
-            *by_district.entry(district_of(stop)).or_default() += 1;
-        }
         let gathering = canvas
             .px_of(SelectionId::Entity(SLOT_A))
             .and_then(|px| canvas.district_at(px))
             .map(|district| district.id.clone())
             .unwrap_or_default();
-        let evening = canvas.whereabouts(19);
-        let done = finished(world, place);
-        let mut spots = canvas
-            .items
-            .iter()
-            .filter(|item| item.kind != CanvasItemKind::Actor)
-            .filter_map(|item| item.px)
-            .collect::<Vec<_>>();
-        spots.sort_by(f32::total_cmp);
-        Bars {
-            people: people.len(),
-            homeless,
-            apart,
-            outside_at_22: canvas
-                .whereabouts(22)
-                .iter()
-                .filter(|(_, stop)| !stop.inside)
-                .count(),
-            busiest_at_noon: by_district.values().copied().max().unwrap_or(0) as f64
-                / noon.len().max(1) as f64,
-            gathered_in_evening: evening
-                .iter()
-                .filter(|(_, stop)| district_of(stop) == gathering)
-                .count() as f64
-                / evening.len().max(1) as f64,
-            festival: festival_today(state),
-            finished: done.len(),
-            standing: done
-                .iter()
-                .filter(|(_, work, _)| {
-                    canvas
-                        .items
-                        .iter()
-                        .any(|item| item.label == work.label && item.px.is_some())
-                })
-                .count(),
-            shared_slots: spots
-                .windows(2)
-                .filter(|pair| pair[1] - pair[0] < 0.01)
-                .count(),
-        }
+        town_bars(
+            snapshot,
+            &TownFacts {
+                is_home: &is_home,
+                partner: &partner,
+                gathering,
+                finished: finished(world, Place::of(state).unwrap())
+                    .into_iter()
+                    .map(|(_, work, _)| work.label)
+                    .collect(),
+                festival: festival_today(state),
+            },
+        )
     }
 
-    fn check(seed: &str, day: usize, bars: &Bars) {
-        eprintln!("{seed} day {day}: {bars:?}");
-        assert_eq!(bars.homeless, 0, "{seed} day {day}: {bars:?}");
-        assert_eq!(bars.apart, 0, "{seed} day {day}: {bars:?}");
-        assert_eq!(bars.shared_slots, 0, "{seed} day {day}: {bars:?}");
-        assert_eq!(bars.standing, bars.finished, "{seed} day {day}: {bars:?}");
+    fn check(seed: &str, day: usize, bars: &TownBars) {
         // A handful of people cannot spread over three stretches; a town
         // can.
-        if bars.people >= 5 {
-            assert!(bars.busiest_at_noon <= 0.6, "{seed} day {day}: {bars:?}");
-        }
-        if bars.festival {
-            assert!(bars.gathered_in_evening > 0.5, "{seed} day {day}: {bars:?}");
-        } else {
-            assert!(bars.outside_at_22 <= 3, "{seed} day {day}: {bars:?}");
-        }
+        check_town_bars(&format!("{seed} day {day}"), bars, 5);
     }
 
     /// The generous player of the density tests in each place: the first
@@ -978,33 +700,6 @@ mod tests {
             }
             assert!(festivals * 12 >= days, "{seed}: {festivals} festivals");
         }
-    }
-
-    /// The share of the people on the scene whose day has them outside at
-    /// an hour.
-    fn outdoors(snapshot: &ProjectionSnapshot, hour: u8) -> f32 {
-        let people = snapshot
-            .canvas
-            .items
-            .iter()
-            .filter(|item| item.kind == CanvasItemKind::Actor)
-            .collect::<Vec<_>>();
-        let out = people
-            .iter()
-            .filter(|item| {
-                let day = item
-                    .day
-                    .iter()
-                    .map(|stop| days::Stop {
-                        from_hour: stop.from_hour,
-                        at: stop.at,
-                        inside: stop.inside,
-                    })
-                    .collect::<Vec<_>>();
-                days::stop_at(&day, hour).is_some_and(|stop| !stop.inside)
-            })
-            .count();
-        out as f32 / people.len().max(1) as f32
     }
 
     #[test]

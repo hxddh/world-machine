@@ -12,8 +12,8 @@ use world_persistence::{
 use world_projection::ProjectionSnapshot;
 
 use crate::{
-    describe_from_snapshot, next_display_title_after, required_archive, snapshot_display_title,
-    DurableWorldSession, LibraryError, WorldLibrary,
+    describe_all_but_drawings, drawing_values, drawn_in, next_display_title_after,
+    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldLibrary,
 };
 
 /// What the World file holds, kept so a change writes out only what the
@@ -33,6 +33,10 @@ pub(crate) struct Saved {
     pack: WorldPackRef,
     world_time: u64,
     pending: Vec<ArchivedScheduledAction>,
+    /// The drawings the file's description was last written from, so a
+    /// change that draws the same ones keeps their written form rather
+    /// than writing it again (none until the first change is saved).
+    drawn: Vec<world_projection::Drawing>,
 }
 
 impl Saved {
@@ -64,6 +68,7 @@ impl Saved {
             pack: archive.pack.clone(),
             world_time: archive.world_time,
             pending: archive.pending.clone(),
+            drawn: Vec::new(),
         })
     }
 
@@ -195,13 +200,29 @@ impl DurableWorldSession {
             return Ok(false);
         }
 
+        // The description as `describe_from_snapshot` writes it; the
+        // drawings, the bulk of it, are written again only when the cast is
+        // drawn with others than last time, and are otherwise taken over
+        // (and given back if the change is not kept).
+        let drawn = drawn_in(snapshot);
+        let same_drawings = saved.drawn.len() == drawn.len()
+            && saved.drawn.iter().zip(&drawn).all(|(was, is)| was == *is);
+        let kept_drawings = std::mem::take(&mut self.metadata.display_drawings);
         let mut metadata = self.metadata.clone();
         metadata.display_title = next_display_title_after(
             self.metadata.display_title.as_deref(),
             own_title_before,
             snapshot,
         );
-        describe_from_snapshot(&mut metadata, snapshot);
+        describe_all_but_drawings(&mut metadata, snapshot);
+        let new_drawings = if same_drawings {
+            metadata.display_drawings = kept_drawings;
+            None
+        } else {
+            self.metadata.display_drawings = kept_drawings;
+            metadata.display_drawings = drawing_values(&drawn);
+            Some(drawn.into_iter().cloned().collect::<Vec<_>>())
+        };
 
         // The checkpoint moves on to the start of the latest season, as a
         // document settles its own (see `WorldDocument::settle_checkpoint`).
@@ -249,9 +270,15 @@ impl DurableWorldSession {
             Err(error) => {
                 saved.history.rewind(mark);
                 saved.deflated.go_back_to(text_before);
+                if new_drawings.is_none() {
+                    self.metadata.display_drawings = metadata.display_drawings;
+                }
                 return Err(error);
             }
         };
+        if let Some(drawn) = new_drawings {
+            saved.drawn = drawn;
+        }
 
         season.drain(..settled);
         saved.season = season;
