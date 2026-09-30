@@ -241,16 +241,38 @@ pub fn daylight_at(hour: u32) -> Daylight {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's pinned hour, for this thread only.
+    static PINNED: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Pins the hour on this thread, as `WORLD_MACHINE_HOUR` does for the
+/// app: a test looks at a World by night without touching the process's
+/// environment.
+#[cfg(test)]
+pub(crate) fn pin_hour(hour: Option<u32>) {
+    PINNED.with(|pinned| pinned.set(hour.map(|hour| hour % 24)));
+}
+
+/// The pinned hour, if one is: `WORLD_MACHINE_HOUR`, or a test's.
+pub fn pinned_hour() -> Option<u32> {
+    #[cfg(test)]
+    if let Some(hour) = PINNED.with(|pinned| pinned.get()) {
+        return Some(hour);
+    }
+    std::env::var("WORLD_MACHINE_HOUR")
+        .ok()
+        .and_then(|hour| hour.parse::<u32>().ok())
+        .filter(|hour| *hour < 24)
+}
+
 /// The time of day now, in hours from midnight with the minutes as a
 /// fraction (13.5 is half past one), or the pinned hour on the hour.
 pub fn hour_of_day() -> f32 {
     use chrono::Timelike;
-    if std::env::var("WORLD_MACHINE_HOUR")
-        .ok()
-        .and_then(|hour| hour.parse::<u32>().ok())
-        .is_some_and(|hour| hour < 24)
-    {
-        return hour_now() as f32;
+    if let Some(hour) = pinned_hour() {
+        return hour as f32;
     }
     let now = chrono::Local::now();
     now.hour() as f32 + now.minute() as f32 / 60.0
@@ -265,11 +287,7 @@ pub fn daylight_now() -> Daylight {
 /// The hour now on this computer's clock (0 to 23), or the pinned one.
 pub fn hour_now() -> u32 {
     use chrono::Timelike;
-    std::env::var("WORLD_MACHINE_HOUR")
-        .ok()
-        .and_then(|hour| hour.parse::<u32>().ok())
-        .filter(|hour| *hour < 24)
-        .unwrap_or_else(|| chrono::Local::now().hour())
+    pinned_hour().unwrap_or_else(|| chrono::Local::now().hour())
 }
 
 /// The light over the stage at this part of the day: nothing by day, a

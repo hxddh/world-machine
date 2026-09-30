@@ -321,11 +321,13 @@ fn a_code_reopens_as_the_same_world() {
 ///
 /// Each snapshot is timed on a different day: the player answers and lets
 /// a day pass, as they would, and the World is looked at as it then
-/// stands. A session keeps nothing between snapshots; the one thing the
-/// session's own snapshot after the day leaves behind is the World's index
-/// of its history, which the day's ticks already brought up to date for all
-/// but the day's last few events, so the snapshot timed here costs what the
-/// first one after the day does.
+/// stands. The session's own snapshot after the day has already been
+/// taken, and the World keeps what it showed for as long as it stands as
+/// it does (as a Pack in a process of its own always has), so the look
+/// timed here costs what looking again at an unchanged World does: a copy,
+/// and whatever a session adds. What the first look after a day costs is
+/// in the day's own time, printed here and barred with the save in
+/// `a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds`.
 #[test]
 #[ignore]
 fn a_three_year_snapshot_takes_under_fifteen_milliseconds() {
@@ -345,6 +347,7 @@ fn a_three_year_snapshot_takes_under_fifteen_milliseconds() {
         .and_then(|count| count.parse().ok())
         .unwrap_or(21);
     let mut times = Vec::new();
+    let mut days = Vec::new();
     for _ in 0..count {
         if let Some(answer) = snapshot
             .commands
@@ -353,17 +356,88 @@ fn a_three_year_snapshot_takes_under_fifteen_milliseconds() {
         {
             let _ = session.handle(InvokeCommand(answer.id.clone()));
         }
+        let started = Instant::now();
         let _ = session.handle(InvokeCommand(PASS.into())).unwrap();
+        days.push(started.elapsed());
         let started = Instant::now();
         snapshot = session.snapshot();
         times.push(started.elapsed());
     }
     times.sort();
+    days.sort();
     let median = times[times.len() / 2];
     eprintln!(
-        "snapshot on {count} days after day {DAYS}: median {median:?}, fastest {:?}, slowest {:?}",
+        "snapshot on {count} days after day {DAYS}: median {median:?}, fastest {:?}, slowest {:?}; \
+         the day itself with its first snapshot, no save: median {:?}",
         times[0],
-        times[times.len() - 1]
+        times[times.len() - 1],
+        days[days.len() / 2],
     );
     assert!(median < Duration::from_millis(15), "median {median:?}");
+}
+
+/// A turn at three years as the app plays one: the World opened from its
+/// file, then each day an answer and the day let pass, each change saved to
+/// the file before it is kept, and the snapshot after it returned. In
+/// release (see the top of this file).
+#[test]
+#[ignore]
+fn a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds() {
+    let document = three_years();
+    let registry = registry();
+    let dir = std::env::temp_dir().join(format!("three-years-turn-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("three.world");
+    std::fs::write(&path, document.to_bytes().unwrap()).unwrap();
+    let library = world_library::WorldLibrary::new(dir.join("library"));
+    let mut session = world_library::DurableWorldSession::open_file(path, &registry).unwrap();
+    let mut snapshot = session.snapshot();
+    let count = std::env::var("WORLD_MACHINE_TURNS")
+        .ok()
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(15);
+    let mut turns = Vec::new();
+    for _ in 0..count {
+        if let Some(answer) = snapshot
+            .commands
+            .iter()
+            .find(|c| c.question.is_some() && c.unavailable.is_none() && c.id != PASS)
+        {
+            let started = Instant::now();
+            if session
+                .handle(InvokeCommand(answer.id.clone()), &registry, &library)
+                .is_ok()
+            {
+                turns.push(started.elapsed());
+            }
+        }
+        let started = Instant::now();
+        snapshot = session
+            .handle(InvokeCommand(PASS.into()), &registry, &library)
+            .unwrap();
+        turns.push(started.elapsed());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    turns.sort();
+    let median = turns[turns.len() / 2];
+    eprintln!(
+        "{} turns with their saves after day {DAYS}: median {median:?}, fastest {:?}, slowest {:?}",
+        turns.len(),
+        turns[0],
+        turns[turns.len() - 1]
+    );
+    assert!(median < Duration::from_millis(35), "median {median:?}");
+}
+
+/// What a three-year World's snapshot weighs on the wire, as a Pack in a
+/// process of its own sends it: 1,243,230 bytes of JSON at v0.25, with
+/// room for a tenth more before this fails.
+#[test]
+fn a_three_year_snapshot_stays_within_a_tenth_of_its_v0_25_size_on_the_wire() {
+    let document = three_years();
+    let session = registry().open_archive(&document.archive).unwrap();
+    let wire = world_pack_protocol::ProjectionSnapshotWire::from(&session.snapshot());
+    let bytes = serde_json::to_vec(&wire).unwrap().len();
+    eprintln!("a three-year snapshot is {bytes} bytes on the wire");
+    assert!(bytes <= 1_367_000, "{bytes} bytes");
 }

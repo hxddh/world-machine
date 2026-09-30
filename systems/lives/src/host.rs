@@ -9,16 +9,36 @@ use super::*;
 pub const MOST_GUEST_TEXT: usize = 280;
 
 /// The most a guest's look or drawing, as the text they travel as, can run
-/// to.
+/// to. A drawing is recorded with the visit and travels on in this World's
+/// code, so it is kept small: a resident's own drawing is under 2 KiB.
 pub const MOST_GUEST_LOOK: usize = 200;
-pub const MOST_GUEST_DRAWING: usize = 32 * 1024;
+pub const MOST_GUEST_DRAWING: usize = 8 * 1024;
 
 /// How many periods a guest stays.
 pub const GUEST_STAY_PERIODS: u64 = 3;
 
-/// A guest's optional text: absent or blank is nothing; too long, or with
-/// a control character in it, is refused.
-fn optional_text<'a>(
+/// A guest's optional words: absent or blank is nothing; too long is
+/// refused. Characters that change how text reads without being seen are
+/// taken out (see [`world_core::text::clean_text`]).
+fn optional_words(
+    request: &ActionRequest,
+    key: &str,
+    most: usize,
+) -> Result<Option<String>, ActionError> {
+    let Ok(text) = arg_text(request, key) else {
+        return Ok(None);
+    };
+    let text = world_core::text::clean_text(text);
+    if text.chars().count() > most {
+        return Err(ActionError::Invalid(format!("a guest's {key} is too long")));
+    }
+    Ok((!text.is_empty()).then_some(text))
+}
+
+/// A guest's optional code (their look, their drawing): absent or blank is
+/// nothing; too long, or with any hidden control character in it, is
+/// refused, since a code is read as it is.
+fn optional_code<'a>(
     request: &'a ActionRequest,
     key: &str,
     most: usize,
@@ -26,7 +46,7 @@ fn optional_text<'a>(
     let Some(text) = arg_text(request, key).ok().map(str::trim) else {
         return Ok(None);
     };
-    if text.chars().count() > most || text.chars().any(char::is_control) {
+    if text.len() > most || text.chars().any(world_core::text::is_hidden_control) {
         return Err(ActionError::Invalid(format!("a guest's {key} is too long")));
     }
     Ok((!text.is_empty()).then_some(text))
@@ -58,8 +78,10 @@ pub struct Staying {
     pub drawing: Option<String>,
 }
 
-fn guest_text<'a>(request: &'a ActionRequest, key: &str) -> Result<&'a str, ActionError> {
-    let text = arg_text(request, key)?.trim();
+/// A guest's words, cleaned of characters that change how text reads
+/// without being seen: their name, where they are from, their letter.
+fn guest_text(request: &ActionRequest, key: &str) -> Result<String, ActionError> {
+    let text = world_core::text::clean_text(arg_text(request, key)?);
     if text.is_empty() || text.chars().count() > MOST_GUEST_TEXT {
         return Err(ActionError::Invalid(format!(
             "a guest's {key} is missing or too long"
@@ -85,16 +107,10 @@ impl Action for Hosts {
         let guest = guest_text(request, "name")?;
         let home = guest_text(request, "from")?;
         let letter = guest_text(request, "letter")?;
-        let gift = arg_text(request, "gift")
-            .ok()
-            .map(str::trim)
-            .filter(|gift| !gift.is_empty());
-        if gift.is_some_and(|gift| gift.chars().count() > MOST_GUEST_TEXT) {
-            return Err(ActionError::Invalid("a guest's gift is too long".into()));
-        }
-        let line = optional_text(request, "line", MOST_GUEST_TEXT)?;
-        let look = optional_text(request, "look", MOST_GUEST_LOOK)?;
-        let drawing = optional_text(request, "drawing", MOST_GUEST_DRAWING)?;
+        let gift = optional_words(request, "gift", MOST_GUEST_TEXT)?;
+        let line = optional_words(request, "line", MOST_GUEST_TEXT)?;
+        let look = optional_code(request, "look", MOST_GUEST_LOOK)?;
+        let drawing = optional_code(request, "drawing", MOST_GUEST_DRAWING)?;
         let host = cast.host;
         if state.entity(host).is_none() || gone(state, host) {
             return Err(ActionError::Invalid("nobody to welcome them".into()));
@@ -102,8 +118,8 @@ impl Action for Hosts {
         let mut draft = EventDraft::new("guest_visited");
         draft.actor = Some(host);
         draft.targets = vec![host];
-        draft.payload.insert("guest".into(), guest.into());
-        draft.payload.insert("from".into(), home.into());
+        draft.payload.insert("guest".into(), guest.as_str().into());
+        draft.payload.insert("from".into(), home.as_str().into());
         draft.payload.insert(
             "told".into(),
             format!("{guest} came over from {home} to visit").into(),
@@ -129,7 +145,11 @@ impl Action for Hosts {
             draft
                 .payload
                 .insert("until".into(), Value::Integer(until as i64));
-            for (key, text) in [("line", line), ("look", look), ("drawing", drawing)] {
+            for (key, text) in [
+                ("line", line.as_deref()),
+                ("look", look),
+                ("drawing", drawing),
+            ] {
                 if let Some(text) = text {
                     draft.payload.insert(key.into(), text.into());
                 }

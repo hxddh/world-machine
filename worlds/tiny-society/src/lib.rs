@@ -125,63 +125,140 @@ pub struct TinySocietyBranch {
     world: World,
 }
 
-/// The guests staying in this World, as the canvas stands them.
-pub(crate) fn guests_staying(world: &World, cast: &lives::Cast) -> Vec<world_projection::Staying> {
-    lives::guests_staying(world, cast)
-        .into_iter()
-        .map(|guest| world_projection::Staying {
-            visit: guest.visit,
-            name: guest.name,
-            from: guest.from,
-            line: guest.line,
-            look: guest.look,
-            drawing: guest.drawing,
-        })
-        .collect()
-}
-
-/// What a visit tells this World of a guest.
-pub(crate) fn guest_words<'a>(
-    guest: &'a world_projection::Guest,
-    look: &'a Option<String>,
-    drawing: &'a Option<String>,
-) -> lives::GuestWords<'a> {
-    lives::GuestWords {
-        name: &guest.name,
-        from: &guest.from,
-        letter: &guest.letter,
-        gift: &guest.gift,
-        line: guest.line.as_deref(),
-        look: look.as_deref(),
-        drawing: drawing.as_deref(),
-    }
-}
+pub(crate) use lives::shown::{guest_words, guests_staying};
 
 /// Mark each choice with how it would move the town's gauges, by making it
 /// on a copy of the town and reading them again. The town's rules answer the
 /// same way twice, so the mark is what will happen, not a guess.
-pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+pub(crate) fn with_previews(world: &World, snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+    // What each choice would do is the same for as long as the town stands
+    // as it does, so it is worked out once for each way it stands.
+    let kept =
+        world.as_it_stands(|| Previews(previews(world, &snapshot.commands, &snapshot.gauges)));
+    previewed(world, snapshot, &kept)
+}
+
+/// The snapshot with its guests, and each choice marked with what it
+/// would do: from `kept`, if it was worked out for these very choices.
+fn previewed(
+    world: &World,
+    mut snapshot: ProjectionSnapshot,
+    kept: &Previews,
+) -> ProjectionSnapshot {
     world_projection::with_guests(&mut snapshot, &guests_staying(world, &life::cast()));
-    let before = snapshot.gauges.clone();
+    let choices = || {
+        snapshot
+            .commands
+            .iter()
+            .filter(|command| command.hand.is_none())
+    };
+    let fresh;
+    let previews = if kept.0.len() == choices().count()
+        && kept
+            .0
+            .iter()
+            .zip(choices())
+            .all(|((id, _), command)| *id == command.id)
+    {
+        &kept.0
+    } else {
+        fresh = previews(world, &snapshot.commands, &snapshot.gauges);
+        &fresh
+    };
+    for ((_, moves), command) in previews.iter().zip(
+        snapshot
+            .commands
+            .iter_mut()
+            .filter(|command| command.hand.is_none()),
+    ) {
+        if let Some(moves) = moves {
+            command.moves = moves.clone();
+        }
+    }
+    snapshot
+}
+
+/// The harbour as the player is shown it (with what changed since the
+/// `since`th event, if asked), kept with the World for as long as it stands
+/// as it does: looking again at a harbour nothing has changed costs a copy,
+/// as it does of a Pack in a process of its own.
+pub(crate) fn shown(world: &World, since: Option<usize>) -> ProjectionSnapshot {
+    let standing = world.standing();
+    let kept = world.derived::<Shown>(|kept| match kept {
+        Some(kept) if kept.standing == standing && kept.since == since => kept,
+        _ => std::sync::Arc::new(Shown {
+            standing,
+            since,
+            snapshot: show(world, since),
+        }),
+    });
+    kept.snapshot.clone()
+}
+
+/// The harbour's snapshot, with what each choice would do worked out on a
+/// thread of its own meanwhile: trying the choices on a copy reads the
+/// World and changes nothing, so the snapshot is the same whichever
+/// finishes first.
+fn show(world: &World, since: Option<usize>) -> ProjectionSnapshot {
+    std::thread::scope(|scope| {
+        let trying = std::thread::Builder::new()
+            .name("tiny-society-previews".into())
+            .spawn_scoped(scope, || {
+                world.as_it_stands(|| {
+                    let commands = projection::available_commands(world);
+                    Previews(previews(world, &commands, &projection::gauges(world)))
+                })
+            });
+        let snapshot = projection::snapshot_since(world, since);
+        let kept = match trying {
+            Ok(trying) => trying
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            // No thread to be had: worked out here instead.
+            Err(_) => world
+                .as_it_stands(|| Previews(previews(world, &snapshot.commands, &snapshot.gauges))),
+        };
+        previewed(world, snapshot, &kept)
+    })
+}
+
+/// A snapshot kept by [`shown`], with where the World stood.
+struct Shown {
+    standing: world_core::Standing,
+    since: Option<usize>,
+    snapshot: ProjectionSnapshot,
+}
+
+/// How each choice on offer (by its id) would move the town's gauges, if
+/// it can be made.
+struct Previews(Vec<(String, Option<Vec<world_projection::GaugeMove>>)>);
+
+fn previews(
+    world: &World,
+    commands: &[world_projection::ProjectionCommand],
+    before: &[world_projection::Gauge],
+) -> Vec<(String, Option<Vec<world_projection::GaugeMove>>)> {
     // One copy for every choice, each tried and then taken back: going back
     // to a checkpoint leaves the copy exactly as it was, so each mark is
     // what that choice alone would do.
     let mut copy = TinySocietyBranch {
         world: world.sketch(world_projection::RECENT_EVENTS),
     };
-    for command in &mut snapshot.commands {
+    let mut previews = Vec::new();
+    for command in commands {
         // A deed of the player's own hands is not a choice to weigh.
         if command.hand.is_some() {
             continue;
         }
         let checkpoint = copy.world.checkpoint();
-        if copy.invoke_projection_command(&command.id).is_ok() {
-            command.moves =
-                world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
-        }
+        let moves = copy
+            .invoke_projection_command(&command.id)
+            .is_ok()
+            .then(|| world_projection::gauge_moves(before, &projection::gauges(&copy.world)));
+        previews.push((command.id.clone(), moves));
         copy.world.rollback(checkpoint);
     }
-    snapshot
+    previews
 }
 
 impl TinySocietyBranch {
@@ -190,7 +267,7 @@ impl TinySocietyBranch {
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        with_previews(&self.world, projection::snapshot(&self.world))
+        shown(&self.world, None)
     }
 
     /// A story the harbour tells about itself: a legend, a moment or a
@@ -407,6 +484,21 @@ impl TinySocietyBranch {
 
     /// The player paints a design on something, or names it: the harbour
     /// checks it like anything else, and it changes nothing else.
+    /// A design or a name the player gave, as a typed intent (protocol
+    /// v8): `what` is `design` or `name`, `target` the command the harbour
+    /// offered, `argument` the design's text or the name.
+    pub fn mark_typed(
+        &mut self,
+        what: &str,
+        target: &str,
+        argument: &str,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request = plots::typed_request(what, target, argument)
+            .ok_or_else(|| std::io::Error::other(format!("not a {what}: {target}")))?;
+        let actions = build_action_registry()?;
+        Ok(vec![self.world.execute(actions, &request)?.id])
+    }
+
     fn mark(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
         let request = plots::request(command_id)
             .ok_or_else(|| std::io::Error::other(format!("not a mark: {command_id}")))?;

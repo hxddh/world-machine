@@ -1,0 +1,1257 @@
+[
+  {"spec": [
+    "edge_find",
+    {"follow": ["@SLOT_E", [{"Marked": ["edge", 2]}, {"Unmarked": ["edge_decided"]}]]},
+    {"()": [
+      "{explorer} found something past the edge",
+      "Out past the edge there's an old shelter. Make it ours?"
+    ]},
+    [
+      {"yes": [
+        "flag",
+        "Put our flag on it",
+        "{explorer} plants a flag on it.",
+        {".and": [
+          {"said": [
+            "edge_claimed",
+            "{explorer} planted a flag past the edge",
+            "There. That's ours now.",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["edge_decided"]},
+            {"Effect::Advance": ["survey"]},
+            {"build": ["@EDGE_FLAG", "Our flag past the edge", "flag", "@SLOT_D", "@None"]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "leave",
+        "Leave it be",
+        "Some things are better left.",
+        {".and": [
+          {"said": [
+            "edge_left",
+            "{explorer} left the old shelter be",
+            "Maybe someone else needs it more.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["edge_decided"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "edge_forgotten",
+        "Nobody went back to the shelter",
+        "It's probably fallen in by now.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["edge_decided"]}]
+    ]}
+  ]},
+  {"spec": [
+    "second_open",
+    {"follow": ["@SLOT_B", [{"Finished": ["second_home"]}, {"Unmarked": ["second_open"]}]]},
+    {"()": ["{second} is finished", "{Second} is finished! Who's it for?"]},
+    [
+      {"yes": [
+        "ours",
+        "It's ours",
+        "Room to breathe, the two of them.",
+        {".and": [
+          {"said": [
+            "second_ours",
+            "{keeper} and {explorer} moved into {second}",
+            "Room to breathe at last.",
+            {"bond": [2, -1]}
+          ]},
+          [
+            {"mark": ["second_open"]},
+            {"build": ["@SECOND", "{second}", "second", "@SLOT_A", "@None"]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "spare",
+        "Keep it for someone new",
+        "Somebody might come.",
+        {".and": [
+          {"said": [
+            "second_kept",
+            "{second} was kept for whoever comes",
+            "Someone will come. I'm sure of it.",
+            {"bond": [0, 0]}
+          ]},
+          [
+            {"mark": ["second_open"]},
+            {"mark": ["invited"]},
+            {"build": ["@SECOND", "{second}", "second", "@SLOT_A", "@None"]}
+          ]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "second_stood_empty",
+        "{second} stood empty",
+        "It's just sitting there.",
+        {"bond": [0, 1]}
+      ]},
+      [
+        {"mark": ["second_open"]},
+        {"build": ["@SECOND", "{second}", "second", "@SLOT_A", "@None"]}
+      ]
+    ]}
+  ]},
+  {"spec": [
+    "beacon_answer",
+    {"follow": ["@SLOT_E", [{"Finished": ["beacon"]}, {"Unmarked": ["beacon_done"]}]]},
+    {"()": ["Someone answered the beacon", "Someone's answered the beacon!"]},
+    [
+      {"yes": [
+        "invite",
+        "Invite them",
+        "Whoever it is, they're welcome.",
+        {".and": [
+          {"said": [
+            "beacon_invited",
+            "{explorer} invited whoever answered the beacon",
+            "Come on over, we said!",
+            {"bond": [1, 0]}
+          ]},
+          [{"mark": ["beacon_done"]}, {"mark": ["invited"]}]
+        ]}
+      ]},
+      {"yes": [
+        "just_us",
+        "Just the two of us",
+        "The beacon stays a light, nothing more.",
+        {".and": [
+          {"said": [
+            "beacon_kept_quiet",
+            "{keeper} and {explorer} kept to themselves",
+            "Just us. That's fine.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["beacon_done"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "beacon_answer_lost",
+        "The answer on the beacon faded",
+        "They've gone quiet.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["beacon_done"]}]
+    ]}
+  ]},
+  {"spec": [
+    "old_times",
+    {"follow": ["@SLOT_B", [{"Marked": ["made_up", 2]}, {"Unmarked": ["old_times"]}]]},
+    {"()": [
+      "{keeper} remembers the bad old days",
+      "Remember when we couldn't stand each other?"
+    ]},
+    [
+      {"yes": [
+        "laugh",
+        "Laugh about it",
+        "It seems a long time ago.",
+        {".and": [
+          {"said": [
+            "old_times_laughed",
+            "{keeper} and {explorer} laughed about the old days",
+            "You were impossible!",
+            {"bond": [1, -1]}
+          ]},
+          [{"mark": ["old_times"]}]
+        ]}
+      ]},
+      {"yes": [
+        "not_again",
+        "Let's not go there",
+        "Some things stay sore.",
+        {".and": [
+          {"said": [
+            "old_times_sore",
+            "{keeper} and {explorer} left the old days alone",
+            "Best not.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["old_times"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "old_times_left",
+        "The old days went unmentioned",
+        "Never mind. It was only an idea.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["old_times"]}]
+    ]}
+  ]},
+  {"spec": [
+    "harvest_home",
+    {"follow": ["@SLOT_B", [{"Marked": ["garden", 3]}, {"Unmarked": ["garden_cropped"]}]]},
+    {"()": ["{keeper}'s garden has cropped", "The garden's given us something to eat!"]},
+    [
+      {"yes": [
+        "feast",
+        "A little feast",
+        "Everything from the garden, on one plate.",
+        {".and": [
+          {"said": [
+            "garden_feast",
+            "{keeper} and {explorer} ate from their own garden",
+            "We grew this!",
+            {"bond": [2, -1]}
+          ]},
+          [{"mark": ["garden_cropped"]}]
+        ]}
+      ]},
+      {"yes": [
+        "store",
+        "Put it by",
+        "For a harder day.",
+        {".and": [
+          {"said": [
+            "garden_stored",
+            "{keeper} put the garden's crop by",
+            "For a rainy day.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["garden_cropped"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "garden_went_over",
+        "The garden's crop went over",
+        "Too late. Shame.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["garden_cropped"]}]
+    ]}
+  ]},
+  {"spec": [
+    "seal_fit",
+    {"follow": ["@SLOT_B", [{"Marked": ["spare", 2]}, {"Unmarked": ["seal_fit"]}]]},
+    {"()": ["{keeper} is fitting the new seal", "Help me fit the new {spare}?"]},
+    [
+      {"yes": [
+        "together",
+        "Fit it together",
+        "An afternoon, side by side.",
+        {".and": [
+          {"said": [
+            "seal_fitted_together",
+            "{keeper} and {explorer} fitted the new seal together",
+            "Snug as anything.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["seal_fit"]},
+            {"build": ["@PARCEL", "The old seal, retired", "parcel", "@SLOT_A", {"Some": [2]}]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "alone",
+        "{keeper} can manage",
+        "{explorer} has work of their own.",
+        {".and": [
+          {"said": [
+            "seal_fitted_alone",
+            "{keeper} fitted the new seal alone",
+            "Done. On my own.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["seal_fit"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "seal_fitted_eventually",
+        "The new seal went in eventually",
+        "Done, finally.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["seal_fit"]}]
+    ]}
+  ]},
+  {"spec": [
+    "seal_leaks",
+    {"follow": ["@SLOT_B", [{"Marked": ["spare_refused", 1]}, {"Unmarked": ["seal_leak"]}]]},
+    {"()": ["The old seal is leaking", "The old seal's leaking. I did say."]},
+    [
+      {"yes": [
+        "fetch",
+        "Fetch a new one now",
+        "{explorer} goes, grumbling.",
+        {".and": [
+          {"said": [
+            "seal_fetched_late",
+            "{explorer} fetched a new seal at last",
+            "Here. Happy now?",
+            {"bond": [0, 1]}
+          ]},
+          [
+            {"mark": ["seal_leak"]},
+            {"mark": ["spare"]},
+            {"build": [
+              "@PARCEL",
+              "{spare}, fetched at last",
+              "parcel",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "tape",
+        "Tape it up",
+        "It holds. For now.",
+        {".and": [
+          {"said": [
+            "seal_taped",
+            "{keeper} taped up the leaking seal",
+            "Tape and hope.",
+            {"bond": [-1, 1]}
+          ]},
+          [
+            {"mark": ["seal_leak"]},
+            {"build": ["@PARCEL", "Tape over the old seal", "parcel", "@SLOT_A", {"Some": [3]}]}
+          ]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["seal_held", "The old seal held, somehow", "Still holding.", {"bond": [0, 0]}]},
+      [{"mark": ["seal_leak"]}]
+    ]}
+  ]},
+  {"spec": [
+    "restless",
+    {"follow": ["@SLOT_E", [{"Marked": ["edge_refused", 2]}, {"Unmarked": ["restless_done"]}]]},
+    {"()": ["{explorer} is restless", "I keep looking at the horizon."]},
+    [
+      {"yes": [
+        "day_trip",
+        "Go, just for a day",
+        "{explorer} is back by dark.",
+        {".and": [
+          {"said": [
+            "day_trip_taken",
+            "{explorer} took a day out past the familiar",
+            "That's better. Much better.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["restless_done"]},
+            {"build": [
+              "@MARKERS",
+              "{explorer}'s day-trip markers",
+              "flag",
+              "@SLOT_D",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "stay",
+        "Stay a while longer",
+        "Not yet.",
+        {".and": [
+          {"said": ["restless_kept", "{explorer} stayed put", "Fine. Fine.", {"bond": [-1, 1]}]},
+          [{"mark": ["restless_done"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "restless_faded",
+        "{explorer} stopped looking at the horizon",
+        "Fine. Never mind, then.",
+        {"bond": [0, 1]}
+      ]},
+      [{"mark": ["restless_done"]}]
+    ]}
+  ]},
+  {"spec": [
+    "rested_idea",
+    {"follow": ["@SLOT_B", [{"Marked": ["rested", 2]}, {"Unmarked": ["rested_idea"]}]]},
+    {"()": [
+      "{keeper} had an idea on their day off",
+      "I had an idea on my day off. Shelves, everywhere!"
+    ]},
+    [
+      {"yes": [
+        "build",
+        "Build the shelves",
+        "{explorer} holds the other end.",
+        {".and": [
+          {"said": [
+            "shelves_built",
+            "{keeper} and {explorer} put up shelves",
+            "A place for everything!",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["rested_idea"]},
+            {"build": [
+              "@PARCEL",
+              "New shelves, full already",
+              "parcel",
+              "@SLOT_A",
+              {"Some": [4]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "later",
+        "Maybe later",
+        "There's other work.",
+        {".and": [
+          {"said": [
+            "shelves_put_off",
+            "The shelves were put off",
+            "One day.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["rested_idea"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "idea_forgotten",
+        "{keeper}'s idea was forgotten",
+        "What was it again?",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["rested_idea"]}]
+    ]}
+  ]},
+  {"spec": [
+    "snapped",
+    {"follow": ["@SLOT_B", [{"Marked": ["rest_refused", 1]}, {"Unmarked": ["snapped"]}]]},
+    {"()": ["{keeper} snapped at {explorer}", "I'm exhausted. I snapped at you. Sorry."]},
+    [
+      {"yes": [
+        "forgive",
+        "Forgive and rest",
+        "{keeper} finally sleeps.",
+        {".and": [
+          {"said": [
+            "snap_forgiven",
+            "{explorer} forgave {keeper} and sent them to bed",
+            "Go to sleep. That's an order.",
+            {"bond": [1, -2]}
+          ]},
+          [
+            {"mark": ["snapped"]},
+            {"build": ["@REST", "{keeper} asleep at last", "tent", "@SLOT_C", {"Some": [1]}]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "push_on",
+        "Push on anyway",
+        "The work won't wait.",
+        {".and": [
+          {"said": [
+            "snap_pushed_on",
+            "{keeper} pushed on, exhausted",
+            "I'll sleep when it's done.",
+            {"bond": [-1, 1]}
+          ]},
+          [{"mark": ["snapped"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "snap_passed",
+        "The bad moment passed",
+        "Let's not talk about it.",
+        {"bond": [0, 1]}
+      ]},
+      [{"mark": ["snapped"]}]
+    ]}
+  ]},
+  {"spec": [
+    "first_solo",
+    {"follow": ["@SLOT_B", [{"Marked": ["taught", 2]}, {"Unmarked": ["first_solo"]}]]},
+    {"()": ["{keeper} found their own way", "I found my way out and back, on my own!"]},
+    [
+      {"yes": [
+        "celebrate",
+        "Celebrate it",
+        "Bunting for a navigator.",
+        {".and": [
+          {"said": [
+            "solo_celebrated",
+            "{explorer} celebrated {keeper}'s first trip alone",
+            "A navigator at last!",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["first_solo"]},
+            {"build": [
+              "@WASHING",
+              "Bunting for a navigator",
+              "bunting",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "careful",
+        "Be careful next time",
+        "A worried hug.",
+        {".and": [
+          {"said": [
+            "solo_worried",
+            "{explorer} worried about {keeper} going out alone",
+            "Next time, tell me first.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["first_solo"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "solo_unremarked",
+        "Nobody mentioned the trip",
+        "Oh. Never mind.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["first_solo"]}]
+    ]}
+  ]},
+  {"spec": [
+    "after_weather",
+    {"follow": ["@SLOT_E", [{"Marked": ["weather_hit", 1]}, {"Unmarked": ["weather_after"]}]]},
+    {"()": ["The weather left its mark", "{Weather} left dust in everything."]},
+    [
+      {"yes": [
+        "clean",
+        "Clean up together",
+        "Every corner, both of them.",
+        {".and": [
+          {"said": [
+            "weather_cleaned_together",
+            "{keeper} and {explorer} cleaned up after the weather",
+            "Good as new.",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["weather_after"]},
+            {"build": [
+              "@WASHING",
+              "Washing out after the weather",
+              "bunting",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "leave",
+        "Leave it",
+        "It'll settle.",
+        {".and": [
+          {"said": [
+            "weather_mess_left",
+            "The mess from the weather was left",
+            "It'll keep.",
+            {"bond": [0, 1]}
+          ]},
+          [
+            {"mark": ["weather_after"]},
+            {"build": [
+              "@PARCEL",
+              "Drifts of dust by the door",
+              "parcel",
+              "@SLOT_A",
+              {"Some": [3]}
+            ]}
+          ]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "weather_mess_settled",
+        "The mess settled by itself",
+        "Well, it's settled.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["weather_after"]}]
+    ]}
+  ]},
+  {"spec": [
+    "keeper_sore",
+    {"follow": ["@SLOT_B", [{"Marked": ["failing_alone", 1]}, {"Unmarked": ["sore_done"]}]]},
+    {"()": ["{keeper} is sore about being left alone", "You left me to fix that alone."]},
+    [
+      {"yes": [
+        "sorry",
+        "Say sorry",
+        "{explorer} makes supper by way of sorry.",
+        {".and": [
+          {"said": [
+            "sorry_said",
+            "{explorer} said sorry for leaving {keeper} alone",
+            "Apology accepted. Mostly.",
+            {"bond": [1, -2]}
+          ]},
+          [
+            {"mark": ["sore_done"]},
+            {"build": [
+              "@LAMPS",
+              "A sorry supper by lamplight",
+              "lantern",
+              "@SLOT_A",
+              {"Some": [1]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "work",
+        "Someone had to work",
+        "{explorer} doesn't apologise.",
+        {".and": [
+          {"said": [
+            "sorry_refused",
+            "{explorer} wouldn't say sorry",
+            "Someone had to.",
+            {"bond": [-1, 2]}
+          ]},
+          [{"mark": ["sore_done"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["sore_forgotten", "{keeper} let it go", "Forget it.", {"bond": [0, 1]}]},
+      [{"mark": ["sore_done"]}]
+    ]}
+  ]},
+  {"spec": [
+    "signal_source",
+    {"follow": ["@SLOT_E", [{"Marked": ["signal", 2]}, {"Unmarked": ["signal_source"]}]]},
+    {"()": [
+      "{explorer} found where the signal comes from",
+      "It's an old relay, out past the ridge. Fix it?"
+    ]},
+    [
+      {"yes": [
+        "fix",
+        "Fix the relay",
+        "A week's tinkering.",
+        {".and": [
+          {"said": [
+            "relay_fixed",
+            "{explorer} fixed the old relay",
+            "Listen! It's working!",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["signal_source"]},
+            {"Effect::Advance": ["beacon"]},
+            {"build": ["@BEACON", "{beacon}, going up", "beacon", "@SLOT_A", "@None"]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "leave",
+        "Leave it",
+        "Some things are best left.",
+        {".and": [
+          {"said": [
+            "relay_left",
+            "{explorer} left the old relay alone",
+            "Let it sleep.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["signal_source"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "relay_forgotten",
+        "The old relay was forgotten",
+        "It's quiet again.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["signal_source"]}]
+    ]}
+  ]},
+  {"spec": [
+    "after_quarrel",
+    {"follow": ["@SLOT_E", [{"Marked": ["quarrel", 1]}, {"Unmarked": ["after_quarrel"]}]]},
+    {"()": ["The quarrel still hangs in the air", "Still cross about yesterday?"]},
+    [
+      {"yes": [
+        "make_up",
+        "Make it up",
+        "A hug, and it's done.",
+        {".and": [
+          {"said": [
+            "quarrel_mended",
+            "{keeper} and {explorer} made it up",
+            "Friends?",
+            {"bond": [1, -2]}
+          ]},
+          [
+            {"mark": ["after_quarrel"]},
+            {"build": [
+              "@FLOWERS",
+              "Flowers after the quarrel",
+              "garden",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "still_cross",
+        "Still cross",
+        "It'll take time.",
+        {".and": [
+          {"said": [
+            "quarrel_lingered",
+            "The quarrel lingered",
+            "Give me a day.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["after_quarrel"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "quarrel_faded",
+        "The quarrel faded",
+        "Water under the bridge.",
+        {"bond": [0, -1]}
+      ]},
+      [{"mark": ["after_quarrel"]}]
+    ]}
+  ]},
+  {"spec": [
+    "close_call_after",
+    {"follow": ["@SLOT_E", [{"Marked": ["rescued", 1]}, {"Unmarked": ["close_call_thanks"]}]]},
+    {"()": ["{explorer} wants to say thank you", "Thank you for coming for me. Really."]},
+    [
+      {"yes": [
+        "gift",
+        "Accept the thanks",
+        "{explorer} brings back something from the edge.",
+        {".and": [
+          {"said": [
+            "thanks_given",
+            "{explorer} gave {keeper} a stone from the edge",
+            "I carried it all the way back for you.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["close_call_thanks"]},
+            {"build": ["@PARCEL", "A stone from the edge", "parcel", "@SLOT_A", {"Some": [4]}]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "shrug",
+        "It's what we do",
+        "No thanks needed.",
+        {".and": [
+          {"said": [
+            "thanks_shrugged",
+            "{keeper} shrugged off the thanks",
+            "It's what we do.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["close_call_thanks"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["thanks_unsaid", "The thanks went unsaid", "Anyway.", {"bond": [0, 0]}]},
+      [{"mark": ["close_call_thanks"]}]
+    ]}
+  ]},
+  {"spec": [
+    "supper_again",
+    {"follow": ["@SLOT_B", [{"Marked": ["supper", 2]}, {"Unmarked": ["supper_habit"]}]]},
+    {"()": ["{keeper} wants supper together again", "Supper again? Make it a habit?"]},
+    [
+      {"yes": [
+        "habit",
+        "Every week",
+        "Lanterns on the table every week.",
+        {".and": [
+          {"said": [
+            "supper_habit",
+            "{keeper} and {explorer} made supper a weekly thing",
+            "Same time next week.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["supper_habit"]},
+            {"build": ["@LAMPS", "Lanterns for weekly supper", "lantern", "@SLOT_A", "@None"]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "now_and_then",
+        "Now and then",
+        "When there's time.",
+        {".and": [
+          {"said": [
+            "supper_now_and_then",
+            "Supper stayed a now-and-then thing",
+            "When we can.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["supper_habit"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "supper_forgotten",
+        "Nobody mentioned supper again",
+        "Oh well.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["supper_habit"]}]
+    ]}
+  ]},
+  {"spec": [
+    "reply_came",
+    {"follow": ["@SLOT_E", [{"Marked": ["message", 2]}, {"Unmarked": ["reply_came"]}]]},
+    {"()": ["A reply came from home", "A reply from home! Read it with me?"]},
+    [
+      {"yes": [
+        "together",
+        "Read it together",
+        "The whole letter, out loud.",
+        {".and": [
+          {"said": [
+            "reply_read_together",
+            "{keeper} and {explorer} read the reply from home together",
+            "They say hello to you too!",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["reply_came"]},
+            {"build": [
+              "@PARCEL",
+              "The letter from home, pinned up",
+              "parcel",
+              "@SLOT_A",
+              {"Some": [4]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "alone",
+        "Read it alone",
+        "Some things are private.",
+        {".and": [
+          {"said": [
+            "reply_read_alone",
+            "{explorer} read the reply from home alone",
+            "Just news. Nothing much.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["reply_came"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "reply_unread",
+        "The reply went unread for days",
+        "I'll read it later.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["reply_came"]}]
+    ]}
+  ]},
+  {"spec": [
+    "photo_frame",
+    {"follow": ["@SLOT_B", [{"Marked": ["photo", 2]}, {"Unmarked": ["photo_hung"]}]]},
+    {"()": ["{keeper} wants to hang the picture", "Where shall we hang the picture?"]},
+    [
+      {"yes": [
+        "door",
+        "By the door",
+        "Everyone who comes in sees it.",
+        {".and": [
+          {"said": [
+            "photo_by_door",
+            "{keeper} hung the picture by the door",
+            "There. Perfect.",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["photo_hung"]},
+            {"build": [
+              "@PARCEL",
+              "The picture, hung by the door",
+              "parcel",
+              "@SLOT_A",
+              "@None"
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "drawer",
+        "In a drawer",
+        "Some things are just for us.",
+        {".and": [
+          {"said": [
+            "photo_in_drawer",
+            "{keeper} put the picture away safe",
+            "Safe in the drawer.",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["photo_hung"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "photo_lost",
+        "The picture got lost somewhere",
+        "Where did it go?",
+        {"bond": [0, 1]}
+      ]},
+      [{"mark": ["photo_hung"]}]
+    ]}
+  ]},
+  {"spec": [
+    "trader_returns",
+    {"follow": ["@SLOT_E", [{"Marked": ["traded", 2]}, {"Unmarked": ["trader_back"]}]]},
+    {"()": ["The trader is back", "The trader's back, and asking for you by name!"]},
+    [
+      {"yes": [
+        "deal",
+        "Do another deal",
+        "Something useful, something silly.",
+        {".and": [
+          {"said": [
+            "trader_deal",
+            "{keeper} and {explorer} did another deal with the trader",
+            "A bargain, I tell you!",
+            {"bond": [1, 0]}
+          ]},
+          [
+            {"mark": ["trader_back"]},
+            {"build": [
+              "@TENT",
+              "The trader's tent, back again",
+              "tent",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "no",
+        "Not this time",
+        "Wave them on.",
+        {".and": [
+          {"said": [
+            "trader_waved_on",
+            "The trader was waved on",
+            "Not today!",
+            {"bond": [0, 0]}
+          ]},
+          [{"mark": ["trader_back"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "trader_left_again",
+        "The trader left before anyone came out",
+        "Missed them.",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["trader_back"]}]
+    ]}
+  ]},
+  {"spec": [
+    "keeper_lost",
+    {"follow": ["@SLOT_B", [{"Marked": ["lesson_refused", 2]}, {"Unmarked": ["keeper_lost"]}]]},
+    {"()": [
+      "{keeper} got lost out there",
+      "I got lost out there. Should have let you teach me."
+    ]},
+    [
+      {"yes": [
+        "teach_now",
+        "Teach me now",
+        "A long walk, and a lesson.",
+        {".and": [
+          {"said": [
+            "lesson_after_all",
+            "{explorer} taught {keeper} the way after all",
+            "Left at the big rock. Always.",
+            {"bond": [2, -1]}
+          ]},
+          [
+            {"mark": ["keeper_lost"]},
+            {"mark": ["taught"]},
+            {"build": [
+              "@MARKERS",
+              "Route markers, put up at last",
+              "flag",
+              "@SLOT_D",
+              {"Some": [3]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "laugh",
+        "Laugh it off",
+        "It happens.",
+        {".and": [
+          {"said": [
+            "lost_laughed_off",
+            "{keeper} laughed off getting lost",
+            "I found my way. Eventually.",
+            {"bond": [0, 1]}
+          ]},
+          [{"mark": ["keeper_lost"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["lost_unspoken", "Nobody mentioned it again", "Anyway.", {"bond": [0, 1]}]},
+      [{"mark": ["keeper_lost"]}]
+    ]}
+  ]},
+  {"spec": [
+    "letter_later",
+    {"follow": [
+      "@SLOT_E",
+      [{"Marked": ["message_waiting", 2]}, {"Unmarked": ["letter_later"]}]
+    ]},
+    {"()": ["{explorer}'s letter is still unsent", "Help me finish that letter home?"]},
+    [
+      {"yes": [
+        "help",
+        "Help finish it",
+        "Two heads, one letter.",
+        {".and": [
+          {"said": [
+            "letter_finished_together",
+            "{keeper} helped {explorer} finish the letter home",
+            "Signed by both of us!",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["letter_later"]},
+            {"mark": ["message"]},
+            {"build": [
+              "@PARCEL",
+              "A letter home, sealed at last",
+              "parcel",
+              "@SLOT_D",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "bin",
+        "Bin it",
+        "It was never going to go.",
+        {".and": [
+          {"said": [
+            "letter_binned",
+            "{explorer} threw the letter away",
+            "Never mind. Forget I asked.",
+            {"bond": [-1, 1]}
+          ]},
+          [{"mark": ["letter_later"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "letter_lost",
+        "The letter got lost under things",
+        "Where did I put it?",
+        {"bond": [0, 0]}
+      ]},
+      [{"mark": ["letter_later"]}]
+    ]}
+  ]},
+  {"spec": [
+    "amends_again",
+    {"follow": ["@SLOT_E", [{"Marked": ["amends_refused", 2]}, {"Unmarked": ["amends_again"]}]]},
+    {"()": ["{explorer} wants to try again", "Can we try that again? Making up, I mean."]},
+    [
+      {"yes": [
+        "yes",
+        "Yes, let's",
+        "It's easier the second time.",
+        {".and": [
+          {"said": [
+            "amends_second_try",
+            "{explorer} and {keeper} made up at the second try",
+            "Second time lucky.",
+            {"bond": [2, -2]}
+          ]},
+          [
+            {"mark": ["amends_again"]},
+            {"mark": ["made_up"]},
+            {"build": [
+              "@FLOWERS",
+              "Flowers, second time round",
+              "garden",
+              "@SLOT_A",
+              {"Some": [2]}
+            ]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "no",
+        "Still too soon",
+        "Not yet.",
+        {".and": [
+          {"said": [
+            "amends_refused_again",
+            "{keeper} still wasn't ready",
+            "Still no.",
+            {"bond": [-1, 1]}
+          ]},
+          [{"mark": ["amends_again"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["amends_dropped", "Nobody tried again", "Fine.", {"bond": [0, 1]}]},
+      [{"mark": ["amends_again"]}]
+    ]}
+  ]},
+  {"spec": [
+    "supper_later",
+    {"follow": ["@SLOT_B", [{"Marked": ["supper_missed", 2]}, {"Unmarked": ["supper_later"]}]]},
+    {"()": ["{keeper} misses their suppers", "We never have supper together any more."]},
+    [
+      {"yes": [
+        "tonight",
+        "Tonight, then",
+        "Work can wait.",
+        {".and": [
+          {"said": [
+            "supper_tonight",
+            "{keeper} and {explorer} made time for supper",
+            "Just like old times.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["supper_later"]},
+            {"build": ["@LAMPS", "Supper by lamplight", "lantern", "@SLOT_A", {"Some": [1]}]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "busy",
+        "Too busy",
+        "Another time.",
+        {".and": [
+          {"said": [
+            "supper_too_busy",
+            "{explorer} was too busy for supper again",
+            "Another time.",
+            {"bond": [-1, 1]}
+          ]},
+          [{"mark": ["supper_later"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": ["supper_drifted", "Suppers drifted apart", "Oh well.", {"bond": [0, 1]}]},
+      [{"mark": ["supper_later"]}]
+    ]}
+  ]},
+  {"spec": [
+    "window_box",
+    {"follow": ["@SLOT_B", [{"Marked": ["garden_refused", 2]}, {"Unmarked": ["window_box"]}]]},
+    {"()": [
+      "{keeper} wants a window box instead",
+      "No room for a garden. What about a window box?"
+    ]},
+    [
+      {"yes": [
+        "yes",
+        "A window box, then",
+        "A small green corner.",
+        {".and": [
+          {"said": [
+            "window_box_planted",
+            "{keeper} planted a window box",
+            "It's small. It's perfect.",
+            {"bond": [1, -1]}
+          ]},
+          [
+            {"mark": ["window_box"]},
+            {"build": ["@GARDEN", "{keeper}'s window box", "garden", "@SLOT_A", "@None"]}
+          ]
+        ]}
+      ]},
+      {"yes": [
+        "no",
+        "Not even that",
+        "Nothing green.",
+        {".and": [
+          {"said": [
+            "window_box_refused",
+            "{keeper} was refused even a window box",
+            "Not even a window box.",
+            {"bond": [-1, 2]}
+          ]},
+          [{"mark": ["window_box"]}]
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "window_box_forgotten",
+        "The window box was forgotten",
+        "Ah well. Never mind.",
+        {"bond": [0, 1]}
+      ]},
+      [{"mark": ["window_box"]}]
+    ]}
+  ]}
+]

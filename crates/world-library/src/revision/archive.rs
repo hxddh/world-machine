@@ -78,6 +78,7 @@ mod tests {
             saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
+            writer: Default::default(),
         }
     }
 

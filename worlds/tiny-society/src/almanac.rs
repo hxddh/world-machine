@@ -346,35 +346,12 @@ fn festive(state: &WorldState) -> i64 {
         Some(Value::Integer(mood)) => *mood,
         _ => 0,
     };
-    let made = hands::made(state)
-        .into_iter()
-        .map(
-            |fixture| match state.entity(fixture).and_then(|f| f.component("shape")) {
-                Some(Value::Text(shape))
-                    if matches!(shape.as_str(), "bunting" | "lantern" | "flag") =>
-                {
-                    2
-                }
-                _ => 1,
-            },
-        )
-        .sum::<i64>()
-        .min(6);
+    let made = calendar::decorated(state);
     2 + mood + made
 }
 
 /// How many gardens the player planted have grown.
-pub(crate) fn grown(state: &WorldState) -> i64 {
-    hands::made(state)
-        .into_iter()
-        .filter(|fixture| {
-            matches!(
-                state.entity(*fixture).and_then(|f| f.component("shape")),
-                Some(Value::Text(shape)) if shape == "garden"
-            )
-        })
-        .count() as i64
-}
+pub(crate) use calendar::gardens_grown as grown;
 
 fn held(state: &WorldState, festival: &Festival, turnout: Turnout, grown: i64) -> Vec<StateChange> {
     let mut changes = Vec::new();

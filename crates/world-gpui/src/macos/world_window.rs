@@ -21,6 +21,8 @@ pub(crate) const CHROME: f32 = 52.0;
 /// How wide the card and the drawer are.
 const CARD_WIDTH: f32 = 560.0;
 pub(crate) const DRAWER_WIDTH: f32 = 380.0;
+/// How wide the card of someone being asked is.
+const ASKING_WIDTH: f32 = 300.0;
 /// How often a living World redraws while its window is in front.
 /// How often a window behind others checks whether it has come to the
 /// front again. In front, it draws at the display's own rate.
@@ -104,15 +106,209 @@ impl Area {
     }
 }
 
-/// Where a speech bubble over a head at `x`, `y` is drawn, generously.
-fn bubble_box(x: f32, y: f32, stage: &Stage) -> Area {
-    let x = bubble_centre(x, stage);
-    Area {
-        x: x - BUBBLE_ROOM / 2.0,
-        y: y - 110.0,
-        w: BUBBLE_ROOM,
-        h: 110.0,
+/// How tall the row of gauges and handles over the sky is, generously.
+const HUD_ROOM: f32 = 64.0;
+/// How tall the card at the foot of the stage is, generously.
+const CARD_ROOM: f32 = 250.0;
+/// The zoom control's size: two buttons, one over the other.
+const ZOOM_SIZE: (f32, f32) = (36.0, 68.0);
+/// How far a bubble's tail reaches down to the head it speaks for.
+const TAIL: f32 = 8.0;
+/// How much room is kept between a bubble and whatever it must not
+/// cover, and the stage's edge.
+const BUBBLE_CLEAR: f32 = 6.0;
+
+/// How big a speech bubble showing `page` is drawn, generously: its width
+/// and its height, the tail below it included.
+pub(crate) fn bubble_size(page: &str) -> (f32, f32) {
+    let scale = crate::text_scale();
+    let widest = page.lines().map(text_width).max().unwrap_or(0) as f32;
+    let rows = page.lines().count().max(1) as f32;
+    let w = (widest * 7.4 * scale + 30.0).clamp(56.0, BUBBLE_ROOM);
+    (w, rows * 20.0 * scale + 18.0 + TAIL)
+}
+
+/// A speech bubble as placed on the stage: the box its words are in, and
+/// its tail, from the box's foot at `tail` down to the head at (`head`,
+/// `foot`): straight down, or slanting where the head is too near the
+/// stage's edge for the box to be right over it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Placed {
+    pub(crate) area: Area,
+    pub(crate) tail: f32,
+    pub(crate) head: f32,
+    pub(crate) foot: f32,
+}
+
+impl Placed {
+    /// The box around the tail.
+    pub(crate) fn stalk(&self) -> Area {
+        let bottom = self.area.y + self.area.h;
+        Area {
+            x: self.tail.min(self.head) - 7.0,
+            y: bottom,
+            w: (self.tail - self.head).abs() + 14.0,
+            h: (self.foot - bottom).max(0.0),
+        }
     }
+
+    /// What the bubble covers: its box, and its tail.
+    pub(crate) fn parts(&self) -> [Area; 2] {
+        [self.area, self.stalk()]
+    }
+
+    /// The whole of it: box and tail.
+    pub(crate) fn whole(&self) -> Area {
+        Area {
+            h: (self.foot - self.area.y).max(self.area.h),
+            ..self.area
+        }
+    }
+}
+
+impl Area {
+    /// How much of this lies over `other`, in square pixels.
+    fn over(&self, other: &Area) -> f32 {
+        let w = (self.x + self.w).min(other.x + other.w) - self.x.max(other.x);
+        let h = (self.y + self.h).min(other.y + other.h) - self.y.max(other.y);
+        w.max(0.0) * h.max(0.0)
+    }
+
+    /// The same, with `by` more room all round.
+    fn grown(&self, by: f32) -> Area {
+        Area {
+            x: self.x - by,
+            y: self.y - by,
+            w: self.w + by * 2.0,
+            h: self.h + by * 2.0,
+        }
+    }
+}
+
+/// Places speech bubbles, each `(x, y, w, h)` over a head at `x`, `y`
+/// (the bubble `w` by `h`, its tail included), one after another on a
+/// stage `width` wide: each right over its head if it can be, else moved
+/// along or lifted higher (its tail still pointing down at the head), so
+/// that it never covers the interface (`interface`: the gauges and
+/// handles, the zoom control, the card) or a bubble placed before it, and
+/// stays on the stage. Where there is no room anywhere, it goes where it
+/// covers least.
+pub(crate) fn place_bubbles(
+    bubbles: &[(f32, f32, f32, f32)],
+    interface: &[Area],
+    (width, _height): (f32, f32),
+) -> Vec<Placed> {
+    let mut placed: Vec<Placed> = Vec::new();
+    for (index, &(x, y, w, h)) in bubbles.iter().enumerate() {
+        let w = w.min(width - BUBBLE_CLEAR * 2.0).max(1.0);
+        // Among others speaking close by, a bubble leans away from them
+        // from the start, so theirs have room over their own heads.
+        let near = bubbles
+            .iter()
+            .enumerate()
+            .filter(|(other, (ox, oy, ..))| {
+                *other != index && (ox - x).abs() < w && (oy - y).abs() < h * 2.0
+            })
+            .map(|(_, (ox, ..))| *ox)
+            .collect::<Vec<_>>();
+        let away = if near.is_empty() {
+            0.0
+        } else {
+            let middle = near.iter().sum::<f32>() / near.len() as f32;
+            if x < middle {
+                -1.0
+            } else if x > middle {
+                1.0
+            } else {
+                0.0
+            }
+        };
+        // As far along as a bubble goes: its head under its corner.
+        let edge = (0.5 - 16.0 / w).max(0.0);
+        let shifts = if away == 0.0 {
+            [0.0, -0.25, 0.25, -edge, edge]
+        } else {
+            [edge, 0.25, 0.0, -0.25, -edge].map(|shift| shift * away)
+        };
+        let boxed = h - TAIL;
+        // What is taken: the interface, the bubbles placed, and over the
+        // heads of those still to place, where their tails will go.
+        let taken = interface
+            .iter()
+            .copied()
+            .chain(placed.iter().flat_map(|other| other.parts()))
+            .chain(bubbles[index + 1..].iter().map(|(ox, oy, ..)| Area {
+                x: ox - 10.0,
+                y: 0.0,
+                w: 20.0,
+                h: *oy,
+            }))
+            .collect::<Vec<_>>();
+        let mut best: Option<(f32, Placed)> = None;
+        'search: for lift in [0.0, 16.0, 32.0, 56.0, 88.0, 128.0, 176.0, 232.0] {
+            for shift in shifts {
+                let left = (x - w / 2.0 + shift * w)
+                    .min(width - BUBBLE_CLEAR - w)
+                    .max(BUBBLE_CLEAR);
+                // The tail leaves the box clear of its rounded corners,
+                // slanting to a head too near the edge; a box moved along
+                // keeps its tail straight down.
+                let tail = x.clamp(left + 14.0, left + w - 14.0);
+                if (tail - x).abs() > 0.5 && shift != 0.0 {
+                    continue;
+                }
+                let top = y - h - lift;
+                if top < BUBBLE_CLEAR {
+                    continue;
+                }
+                let candidate = Placed {
+                    area: Area {
+                        x: left,
+                        y: top,
+                        w,
+                        h: boxed,
+                    },
+                    tail,
+                    head: x,
+                    foot: y,
+                };
+                let covered = candidate
+                    .parts()
+                    .iter()
+                    .flat_map(|part| {
+                        taken
+                            .iter()
+                            .map(|other| part.grown(BUBBLE_CLEAR).over(other))
+                    })
+                    .sum::<f32>();
+                if best.is_none_or(|(least, _)| covered < least) {
+                    best = Some((covered, candidate));
+                }
+                if covered <= 0.0 {
+                    break 'search;
+                }
+            }
+        }
+        // Too near the top, or too near an edge, for any of that: right
+        // over the head, as low as it can go.
+        let chosen = best.map(|(_, placed)| placed).unwrap_or_else(|| {
+            let left =
+                (x - w / 2.0).clamp(BUBBLE_CLEAR, (width - BUBBLE_CLEAR - w).max(BUBBLE_CLEAR));
+            Placed {
+                area: Area {
+                    x: left,
+                    y: (y - h).max(0.0),
+                    w,
+                    h: boxed.min(y.max(1.0)),
+                },
+                tail: x.clamp(left + 14.0, left + w - 14.0),
+                head: x,
+                foot: y,
+            }
+        });
+        placed.push(chosen);
+    }
+    placed
 }
 
 /// Where each pointer is drawn on a stage `width` by `height`, generously:
@@ -725,11 +921,11 @@ fn never_ends_a_line(character: char) -> bool {
     )
 }
 
-/// A line cut into pages of at most two bubble lines each, broken between
-/// words, or anywhere in a language written without spaces, but never
-/// before a closing mark or after an opening one: the character before a
-/// comma goes down to the next line with it.
-pub fn speech_pages(line: &str) -> Vec<String> {
+/// A line cut into bubble lines: broken between words, or anywhere in a
+/// language written without spaces, but never before a closing mark or
+/// after an opening one: the character before a comma goes down to the
+/// next line with it.
+fn bubble_rows(line: &str) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
     let mut row = String::new();
     for word in line.split_whitespace() {
@@ -776,10 +972,120 @@ pub fn speech_pages(line: &str) -> Vec<String> {
     if !row.is_empty() {
         rows.push(row);
     }
-    if rows.is_empty() {
+    rows
+}
+
+/// Where a sentence ends: after its closing mark (and any closing quote
+/// or bracket after it).
+fn ends_a_sentence(character: char) -> bool {
+    matches!(character, '.' | '!' | '?' | '…' | '。' | '！' | '？')
+}
+
+/// A mark that closes a quotation or an aside: after a sentence's end,
+/// it belongs to that sentence (`?"` and `。」`).
+fn closes(character: char) -> bool {
+    matches!(
+        character,
+        '"' | '\'' | ')' | ']' | '”' | '’' | '」' | '』' | '）' | '】' | '》' | '〉'
+    )
+}
+
+/// A line cut into its sentences, each with its closing marks; a
+/// language written without spaces is cut after its full stops too.
+pub(crate) fn sentences(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut sentence = String::new();
+    let characters = line.chars().collect::<Vec<_>>();
+    // The mark that ended the sentence, while closing marks follow it.
+    let mut ended: Option<char> = None;
+    for (index, character) in characters.iter().copied().enumerate() {
+        sentence.push(character);
+        if ends_a_sentence(character) {
+            ended = Some(character);
+        } else if !(ended.is_some() && closes(character)) {
+            ended = None;
+        }
+        let Some(mark) = ended else {
+            continue;
+        };
+        let next = characters.get(index + 1).copied();
+        // More marks to come: `?!`, `。」`.
+        if next.is_some_and(|next| ends_a_sentence(next) || closes(next)) {
+            continue;
+        }
+        // "Mr. Lark" and "3.5" are not the end of anything: a full stop
+        // ends a sentence written with spaces only before a space.
+        let spaced = !matches!(mark, '。' | '！' | '？');
+        if spaced && next.is_some_and(|next| !next.is_whitespace()) {
+            continue;
+        }
+        ended = None;
+        let done = std::mem::take(&mut sentence);
+        if !done.trim().is_empty() {
+            out.push(done.trim().to_string());
+        }
+    }
+    if !sentence.trim().is_empty() {
+        out.push(sentence.trim().to_string());
+    }
+    out
+}
+
+/// How many bubble lines a page shows at most: two, or for one sentence
+/// too long for two, as many as it takes, up to this, so no sentence is
+/// ever cut off and finished on the next page.
+const PAGE_MOST: usize = 4;
+
+/// A line cut into pages for a speech bubble. A page holds whole
+/// sentences, as many as fit in two bubble lines; a sentence too long for
+/// two lines has a page of its own, as tall as it needs (up to
+/// [`PAGE_MOST`] lines; only a sentence longer still goes on over pages).
+/// So a page never stops in the middle of a sentence and leaves the
+/// reader waiting for its end.
+pub fn speech_pages(line: &str) -> Vec<String> {
+    let joined = |a: &str, b: &str| {
+        if a.is_empty() {
+            b.to_string()
+        } else if a
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii() || c.is_whitespace())
+            || b.chars().next().is_some_and(|c| c.is_ascii())
+        {
+            format!("{a} {b}")
+        } else {
+            format!("{a}{b}")
+        }
+    };
+    let mut pages: Vec<Vec<String>> = Vec::new();
+    let mut page = String::new();
+    for sentence in sentences(line) {
+        let together = joined(&page, &sentence);
+        if bubble_rows(&together).len() <= 2 {
+            page = together;
+            continue;
+        }
+        if !page.is_empty() {
+            pages.push(bubble_rows(&std::mem::take(&mut page)));
+        }
+        let rows = bubble_rows(&sentence);
+        if rows.len() <= 2 {
+            page = sentence;
+        } else {
+            // A long sentence on its own page, as tall as it needs; one
+            // longer than a bubble can hold goes on over pages.
+            for chunk in rows.chunks(PAGE_MOST) {
+                pages.push(chunk.to_vec());
+            }
+        }
+    }
+    if !page.is_empty() {
+        pages.push(bubble_rows(&page));
+    }
+    if pages.is_empty() {
         return vec![String::new()];
     }
-    rows.chunks(2).map(|pair| pair.join("\n")).collect()
+    pages.into_iter().map(|rows| rows.join("\n")).collect()
 }
 
 /// How long an answer to the player stays over its speaker: long enough
@@ -788,82 +1094,67 @@ fn answer_seconds(answer: &str) -> f32 {
     ANSWER_SECONDS.max(LINE_SECONDS * speech_pages(answer).len() as f32 + 2.0)
 }
 
-/// A speech bubble over someone: what they say, with a tail pointing down
-/// at them. `x`, `y` is the top of their head, on screen.
 /// How wide a speech bubble can be.
 const BUBBLE_ROOM: f32 = 300.0;
 
-/// Where a bubble over a head at `x` is centred: over them, but inside the
-/// stage; on a stage too narrow for it, in the middle (clamp would panic
-/// with its bounds the wrong way round).
-fn bubble_centre(x: f32, stage: &Stage) -> f32 {
-    let (low, high) = (
-        BUBBLE_ROOM / 2.0 + 8.0,
-        stage.width - BUBBLE_ROOM / 2.0 - 8.0,
-    );
-    if high >= low {
-        x.clamp(low, high)
-    } else {
-        stage.width / 2.0
-    }
-}
-
-fn bubble(
-    key: String,
-    line: String,
-    x: f32,
-    y: f32,
-    stage: &Stage,
-    opacity: f32,
-    strong: bool,
-) -> Div {
-    const ROOM: f32 = BUBBLE_ROOM;
-    let x = bubble_centre(x, stage);
+/// A speech bubble: what someone says, where [`place_bubbles`] put it,
+/// with a tail pointing down at their head.
+fn bubble(line: String, placed: Placed, opacity: f32, strong: bool) -> Div {
+    let area = placed.whole();
+    let stalk = placed.stalk();
     let ink: Hsla = color(tokens::TEXT).into();
-    let ground: Hsla = gpui::white();
-    let tail = canvas(
+    // White by day; after dark the night's own card, never a glare.
+    let ground: Hsla = color(tokens::SURFACE).into();
+    // Lifted clear of something, the tail reaches down the further, and
+    // the narrower; to a head near the edge it slants.
+    let (tail, head) = (placed.tail - stalk.x, placed.head - stalk.x);
+    let half = if stalk.h > TAIL * 2.0 { 5.0 } else { 7.0 };
+    let tail_shape = canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
-            let o = bounds.origin;
-            let w = f32::from(bounds.size.width);
+            let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
             let h = f32::from(bounds.size.height);
-            let ox = f32::from(o.x);
-            let oy = f32::from(o.y);
             art::polygon(
                 window,
-                &[(ox, oy), (ox + w, oy), (ox + w / 2.0, oy + h)],
+                &[
+                    (ox + tail - half, oy - 1.0),
+                    (ox + tail + half, oy - 1.0),
+                    (ox + head, oy + h),
+                ],
                 ground,
             );
         },
     )
-    .w(px(14.0))
-    .h(px(8.0));
-    let _ = key;
+    .absolute()
+    .left(px(stalk.x - area.x))
+    .top(px(placed.area.h))
+    .w(px(stalk.w))
+    .h(px(stalk.h));
     div()
         .absolute()
-        .left(px(x - ROOM / 2.0))
-        .top(px(y - 150.0))
-        .w(px(ROOM))
-        .h(px(150.0))
-        .flex()
-        .flex_col()
-        .justify_end()
-        .items_center()
+        .left(px(area.x))
+        .top(px(area.y))
+        .w(px(area.w))
+        .h(px(area.h))
         .opacity(opacity)
         .child(
             div()
-                .max_w(px(ROOM))
+                .absolute()
+                .left_0()
+                .bottom(px(stalk.h))
+                .w_full()
                 .px_3()
                 .py_2()
                 .rounded_xl()
                 .bg(ground)
                 .shadow_md()
                 .text_sm()
+                .text_center()
                 .when(strong, |text| text.font_weight(FontWeight::MEDIUM))
                 .text_color(ink)
                 .child(line),
         )
-        .child(tail)
+        .child(tail_shape)
 }
 
 impl ProjectionView {
@@ -2224,25 +2515,27 @@ impl ProjectionView {
                     })),
             );
         }
-        // Where a line said now is, so no pointer covers it.
-        let spoken = line.as_ref().and_then(|(who, ..)| {
+        // Where a line said now goes: over its speaker, clear of the
+        // interface; and so no pointer covers it.
+        let asker_x = card_people
+            .iter()
+            .find_map(|who| heads.iter().find(|(id, ..)| id == who))
+            .map(|(_, x, _)| *x)
+            .filter(|_| self.retelling.is_none());
+        let asking = self
+            .looking
+            .asking
+            .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied());
+        let interface = self.interface_areas((width, height), asker_x, asking);
+        let placed = line.as_ref().and_then(|(who, text, ..)| {
             let (_, x, y) = heads.iter().find(|(id, ..)| id == who)?;
-            Some(bubble_box(*x, *y, &stage))
+            let (w, h) = bubble_size(text);
+            place_bubbles(&[(*x, *y, w, h)], &interface, (width, height)).pop()
         });
-        let pointing = self.point(width, height, spoken);
+        let pointing = self.point(width, height, placed.map(|placed| placed.whole()));
         // Whoever is talking, over their head.
-        if let Some((who, text, fade, strong)) = line {
-            if let Some((_, x, y)) = heads.iter().find(|(id, ..)| *id == who) {
-                root = root.child(bubble(
-                    format!("line-{}", who.stable_key()),
-                    text,
-                    *x,
-                    *y,
-                    &stage,
-                    fade,
-                    strong,
-                ));
-            }
+        if let (Some((_, text, fade, strong)), Some(placed)) = (line, placed) {
+            root = root.child(bubble(text, placed, fade, strong));
         }
 
         // Something handed over while the player watches is shown for a
@@ -2271,7 +2564,7 @@ impl ProjectionView {
                 .px_4()
                 .py_2()
                 .rounded_xl()
-                .bg(gpui::white())
+                .bg(color(tokens::SURFACE))
                 .shadow_md()
                 .flex()
                 .flex_col()
@@ -3251,7 +3544,6 @@ impl ProjectionView {
         stage: &Stage,
         cx: &mut Context<Self>,
     ) -> Div {
-        const WIDTH: f32 = 300.0;
         let name = label_of(&self.snapshot, who).unwrap_or_default();
         let detail = self
             .snapshot
@@ -3265,7 +3557,7 @@ impl ProjectionView {
             .id("asking")
             .role(Role::Group)
             .aria_label(ui::t(format!("Asking {name}")))
-            .w(px(WIDTH))
+            .w(px(ASKING_WIDTH))
             .p_4()
             .rounded_xl()
             .bg(color(tokens::SURFACE))
@@ -3439,29 +3731,102 @@ impl ProjectionView {
                     cx.notify();
                 })),
         );
-        // Beside them, on whichever side has room, level with their head.
-        let left = if x + 40.0 + WIDTH < stage.width - 12.0 {
+        let area = self.asking_area(who, x, head, (stage.width, stage.height));
+        div()
+            .absolute()
+            .left(px(area.x))
+            .top(px(area.y))
+            .child(ui::spring_in(
+                card,
+                format!("asking-{}", who.stable_key()),
+                cx.reduce_motion(),
+            ))
+    }
+
+    /// Where the card of someone being asked goes, generously: beside them
+    /// on whichever side has room, level with their head at `x`, `head`,
+    /// on a stage `width` by `height`. A conversation makes it taller; it
+    /// rises to stay on screen.
+    fn asking_area(
+        &self,
+        who: SelectionId,
+        x: f32,
+        head: f32,
+        (width, height): (f32, f32),
+    ) -> Area {
+        let left = if x + 40.0 + ASKING_WIDTH < width - 12.0 {
             x + 40.0
         } else {
-            (x - 40.0 - WIDTH).max(12.0)
+            (x - 40.0 - ASKING_WIDTH).max(12.0)
         };
-        // A conversation makes the card taller; it rises to stay on screen.
         let talked = self
             .snapshot
             .exchanges_with(who)
             .count()
             .min(CONVERSATION_SHOWN) as f32;
         let tall = 360.0 + talked * 96.0;
-        let top = (head + 8.0).clamp(64.0, (stage.height - tall).max(64.0));
-        div()
-            .absolute()
-            .left(px(left))
-            .top(px(top))
-            .child(ui::spring_in(
-                card,
-                format!("asking-{}", who.stable_key()),
-                cx.reduce_motion(),
-            ))
+        Area {
+            x: left,
+            y: (head + 8.0).clamp(64.0, (height - tall).max(64.0)),
+            w: ASKING_WIDTH,
+            h: tall,
+        }
+    }
+
+    /// What of the interface lies over a stage `width` by `height`,
+    /// generously, for a speech bubble to keep clear of: the row of gauges
+    /// and handles, the zoom control, the card at the foot (stood aside
+    /// from whoever asks, at `asker_x`), an open drawer, and the card of
+    /// whoever is being asked.
+    pub(crate) fn interface_areas(
+        &self,
+        (width, height): (f32, f32),
+        asker_x: Option<f32>,
+        asking: Option<(SelectionId, f32, f32)>,
+    ) -> Vec<Area> {
+        let mut areas = vec![Area {
+            x: 0.0,
+            y: 0.0,
+            w: width,
+            h: HUD_ROOM,
+        }];
+        if !is_beginning(&self.snapshot) && self.retelling.is_none() {
+            areas.push(Area {
+                x: 16.0,
+                y: zoom_top(height),
+                w: ZOOM_SIZE.0,
+                h: ZOOM_SIZE.1,
+            });
+        }
+        let room = width
+            - if self.looking.drawer {
+                DRAWER_WIDTH
+            } else {
+                0.0
+            };
+        let (from, to) = if is_beginning(&self.snapshot) {
+            (0.0, width)
+        } else {
+            card_dock(room, asker_x).span(room)
+        };
+        areas.push(Area {
+            x: from,
+            y: height - CARD_MARGIN - CARD_ROOM,
+            w: to - from,
+            h: CARD_ROOM + CARD_MARGIN,
+        });
+        if self.looking.drawer {
+            areas.push(Area {
+                x: width - DRAWER_WIDTH,
+                y: 0.0,
+                w: DRAWER_WIDTH,
+                h: height,
+            });
+        }
+        if let Some((who, x, head)) = asking {
+            areas.push(self.asking_area(who, x, head, (width, height)));
+        }
+        areas
     }
 
     /// What the player and someone said to each other today, latest last:
@@ -3572,7 +3937,7 @@ pub(crate) fn name_tag(name: String) -> Div {
 pub(crate) fn scene_paper() -> gpui::Rgba {
     // The tests' pictures keep to the day's paper whatever the clock says,
     // unless an hour is pinned.
-    if cfg!(test) && std::env::var_os("WORLD_MACHINE_HOUR").is_none() {
+    if cfg!(test) && scene::pinned_hour().is_none() {
         return paper_at(scene::Daylight::Day, world_theme::is_dark());
     }
     paper_at(scene::daylight_now(), world_theme::is_dark())
@@ -3606,9 +3971,40 @@ fn pill() -> Div {
 
 /// A gauge as a pill: its name and a short bar, and while a choice is on
 /// the table which way the choice would move it and where it would end.
+/// How bright (as the eye has it, 0 to 1) a colour on the interface may
+/// be after dark, so it is never brighter than the night sky.
+const NIGHT_BRIGHTNESS: f32 = 0.24;
+
+/// A colour dimmed, if it must be, to be no brighter than the night sky:
+/// its hue and its saturation kept.
+pub(crate) fn at_night(colour: Hsla) -> Hsla {
+    let rgba: gpui::Rgba = colour.into();
+    let luma = 0.2126 * rgba.r + 0.7152 * rgba.g + 0.0722 * rgba.b;
+    if luma <= NIGHT_BRIGHTNESS {
+        return colour;
+    }
+    let by = NIGHT_BRIGHTNESS / luma;
+    gpui::Rgba {
+        r: rgba.r * by,
+        g: rgba.g * by,
+        b: rgba.b * by,
+        a: rgba.a,
+    }
+    .into()
+}
+
 fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Stateful<Div> {
     const BAR: f32 = 64.0;
-    let fill: Hsla = color(scene::tone_token(gauge.tone)).into();
+    // After dark the fill keeps its colour but not its glow: no brighter
+    // than the night sky it hangs in.
+    let night = |colour: Hsla| {
+        if scene::daylight_now() == scene::Daylight::Night {
+            at_night(colour)
+        } else {
+            colour
+        }
+    };
+    let fill: Hsla = night(color(scene::tone_token(gauge.tone)).into());
     let now = shown.clamp(0.0, 1.0);
     let then = by.map(|by| (now + by as f32 / 1000.0).clamp(0.0, 1.0));
     let mut bar = div()
@@ -3641,7 +4037,7 @@ fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> St
                 .h_full()
                 .w(px(BAR * (to - from)))
                 .rounded_full()
-                .bg(color(tokens::ACCENT).opacity(0.55)),
+                .bg(night(color(tokens::ACCENT).into()).opacity(0.55)),
         );
     }
     // The reading in the World's own words, a number where it counts
@@ -4043,7 +4439,6 @@ pub(crate) fn card_dock(width: f32, asker_x: Option<f32>) -> Dock {
 
 impl Dock {
     /// The span of the stage the card covers, left to right.
-    #[cfg(test)]
     pub(crate) fn span(&self, width: f32) -> (f32, f32) {
         match self.side {
             DockSide::Left => (CARD_MARGIN, CARD_MARGIN + self.w),
@@ -4670,6 +5065,143 @@ mod tests {
         assert!(moving > 10.0, "starts below its place: {moving}");
         assert_eq!(top(false, true, cx), 0.0, "GPUI's Reduce Motion");
         assert_eq!(top(true, false, cx), 0.0, "our own");
+    }
+
+    /// A page of speech ends where a sentence ends, never in the middle
+    /// of one: whole sentences share a page while they fit two lines, and
+    /// a sentence too long for two has a page of its own, taller. Nothing
+    /// is lost, in English or in Chinese.
+    #[test]
+    fn a_page_of_speech_never_stops_in_the_middle_of_a_sentence() {
+        let lines = [
+            "Here we are again. Last time: Evan took a week's work on the mainland. A week's carpentry on the mainland. Should I go?",
+            "The boats came in late again, and the market will be quiet tomorrow because the whole of the north quay is still under repair. Come by!",
+            "Is it 3.5 miles to the lighthouse? \"Nearer four,\" she said. We walked anyway.",
+            "今天港口的船都回来了，大家都很高兴。晚上我们在码头一起吃饭吧，你也来吗？好！",
+        ];
+        for line in lines {
+            let wanted = sentences(line);
+            assert!(wanted.len() >= 2, "{wanted:?}");
+            let pages = speech_pages(line);
+            let flat = |text: &str| text.split_whitespace().collect::<String>();
+            // Every page is whole sentences: the sentences, in order, make
+            // up the pages exactly.
+            let mut left = wanted.iter();
+            for page in &pages {
+                let mut made = String::new();
+                while flat(&made) != flat(page) {
+                    let sentence = left
+                        .next()
+                        .unwrap_or_else(|| panic!("{page:?} stops mid-sentence in {pages:?}"));
+                    made.push_str(sentence);
+                    assert!(
+                        flat(page).starts_with(&flat(&made)),
+                        "{page:?} stops mid-sentence ({made:?}) in {pages:?}"
+                    );
+                }
+                // Two lines, or one long sentence as tall as it needs.
+                let rows = page.lines().count();
+                assert!(
+                    rows <= 2 || sentences(page).len() == 1 && rows <= PAGE_MOST,
+                    "{page:?}"
+                );
+            }
+            assert!(left.next().is_none(), "nothing is lost: {pages:?}");
+        }
+        assert_eq!(
+            sentences("Mara said so. \"Really?\" Yes."),
+            vec!["Mara said so.", "\"Really?\"", "Yes."]
+        );
+    }
+
+    /// The v0.25 bar for speech: a bubble never covers the interface (the
+    /// gauges and handles, the zoom control, the card) nor another bubble,
+    /// and stays on the stage, wherever its speaker stands: beside the
+    /// zoom control, under the handles, over the card, at either edge.
+    #[test]
+    fn speech_bubbles_never_cover_the_interface_or_each_other() {
+        let (width, height) = (1100.0, 760.0);
+        let interface = [
+            Area {
+                x: 0.0,
+                y: 0.0,
+                w: width,
+                h: HUD_ROOM,
+            },
+            Area {
+                x: 16.0,
+                y: zoom_top(height),
+                w: ZOOM_SIZE.0,
+                h: ZOOM_SIZE.1,
+            },
+            Area {
+                x: 270.0,
+                y: height - CARD_MARGIN - CARD_ROOM,
+                w: CARD_WIDTH,
+                h: CARD_ROOM + CARD_MARGIN,
+            },
+        ];
+        let long = "The boats came in late again, and the market will be quiet. Come by!";
+        let pages = speech_pages(long);
+        let (w, h) = bubble_size(&pages[0]);
+        let check = |heads: &[(f32, f32)]| {
+            let bubbles = heads
+                .iter()
+                .map(|(x, y)| (*x, *y, w, h))
+                .collect::<Vec<_>>();
+            let placed = place_bubbles(&bubbles, &interface, (width, height));
+            assert_eq!(placed.len(), bubbles.len());
+            for (index, bubble) in placed.iter().enumerate() {
+                let area = bubble.whole();
+                assert!(
+                    area.x >= 0.0
+                        && area.y >= 0.0
+                        && area.x + area.w <= width
+                        && area.y + area.h <= height,
+                    "{heads:?}: bubble {index} leaves the stage: {area:?}"
+                );
+                for mine in bubble.parts() {
+                    for part in &interface {
+                        assert!(
+                            !mine.overlaps(part),
+                            "{heads:?}: bubble {index} {mine:?} covers {part:?}"
+                        );
+                    }
+                    for (other, them) in placed.iter().enumerate().take(index) {
+                        for theirs in them.parts() {
+                            assert!(
+                                !mine.overlaps(&theirs),
+                                "{heads:?}: bubbles {other} and {index} cover each other"
+                            );
+                        }
+                    }
+                }
+                // Its tail points down at its speaker's head, from over it.
+                let (x, y) = heads[index];
+                assert_eq!((bubble.head, bubble.foot), (x, y));
+                assert!(bubble.area.y + bubble.area.h < y);
+            }
+        };
+        // A speaker anywhere along the stage: by the zoom control, at
+        // either edge, just over the card, under the handles.
+        for head in [
+            (70.0, zoom_top(height) + 90.0),
+            (60.0, zoom_top(height) + 20.0),
+            (8.0, 220.0),
+            (width - 8.0, 400.0),
+            (550.0, height - CARD_MARGIN - CARD_ROOM - 4.0),
+            (700.0, HUD_ROOM + h + 30.0),
+        ] {
+            check(&[head]);
+        }
+        // Someone answering the player, beside the card that asks them,
+        // while someone else speaks; three speaking at once, side by side.
+        check(&[(500.0, 420.0), (560.0, 430.0)]);
+        check(&[(420.0, 420.0), (480.0, 420.0), (540.0, 420.0)]);
+        // With room, a bubble is right over its speaker.
+        let alone = place_bubbles(&[(550.0, 400.0, w, h)], &interface, (width, height));
+        assert_eq!(alone[0].area.x, 550.0 - w / 2.0);
+        assert_eq!(alone[0].whole().y + alone[0].whole().h, 400.0);
     }
 
     /// Chinese is cut by width, but a closing mark (，。！？」) never

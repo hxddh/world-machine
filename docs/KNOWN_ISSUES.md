@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.24.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.25.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -50,7 +50,6 @@ Current as of `v0.24.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **A legend gives a cause for about half its lines.** A cause is shown only when it is a real, earlier Event: an answer you gave, a festival or a storm. A friendship made or lost says why in its own words. Everyday beats with no such cause are shown without one.
 - **Moment strips are saved with `screencapture`,** like Photo and postcards, so saving one needs Screen Recording and has not been tried on a Mac. Nobody has seen the ages, the legend page, the strips or the almanac on a Mac; they were checked on Linux.
 - **A town at noon looks thin in any one view.** Everyone is outside by day, but spread along a panorama four and a half screens wide, so one screen holds three or four people.
-- **One Pocket Universe long test fails as it did in `v0.21.0`:** a scripted careful player finishes only 2 of the 4 parts of Ares's landing pad in a year.
 - **The World voice guard lets some bad answers through and stops some good ones.** It is a set of deterministic rules in English and Chinese, not a model. On red-team sets written blind by someone who never read the guard:
   - on the first set it declines all 164 out-of-world answers and keeps all 239 good ones, but it was built after seeing what that set's first run missed;
   - on a second set, used to improve it one category at a time, the first run declined 74%;
@@ -61,7 +60,9 @@ Current as of `v0.24.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **The `fm` helper is source only.** It has never been compiled (there is no Swift on the machines that build it outside a Mac) and the app does not call it. The release workflow tries to build it on the Mac runner and carries on without it.
 - **Day 1 is sparse.** A new harbour is mostly its back row, a meadow and the quay until the town builds; the rows draw forward while the street is empty.
 - **The new look, the Pocket Universe places and the drawer are unseen on a Mac.** They were checked in the Linux preview and in golden images.
-- **Performance is not yet back to v0.20.** A three-year snapshot measured 21.6–23.9 ms at v0.23 against a 15 ms bar; v0.25 is meant to fix it. The window's longest frame stays about 9–14 ms.
+- **A turn with its save is 43–57 ms on a busy test machine,** against a 35 ms bar. About 9–25 ms of it is writing the file to disk. It has not been measured on a quiet machine or on a Mac.
+- **A builder's three-year World code is 49,951 characters,** 49 under the 50,000 bar. A denser code format would give it room.
+- **At night the whole World window turns dark,** the drawer included.
 - **Designs are not drawn in moment strips,** which are painted without pictures.
 - **Designing, naming, plots, the touchable strip and a friend's resident are untried on a Mac.** They were checked in the Linux preview, keys and clicks included.
 - **Homes and works cannot be inspected.** They are drawn and named, but clicking one opens nothing, because they are worked out for the picture rather than recorded in the World.

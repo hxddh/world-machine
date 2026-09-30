@@ -16,6 +16,7 @@
 //! still decide what follows.
 
 mod bounds;
+pub mod faces;
 
 pub use bounds::{in_world, keeps_to, Era, Grounds, OutOfWorld};
 use lives::Need;

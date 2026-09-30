@@ -10,6 +10,11 @@
 //! stretches (the quay, the square), says which of its people share a home
 //! and where each of them works, and asks for slots and days.
 
+pub mod festive;
+pub mod town;
+
+pub use town::Town;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A stretch of a place along its panorama: the quay, the square, the hill.

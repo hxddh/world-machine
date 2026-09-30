@@ -17,10 +17,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require a publishable tag: a stable v<version> or pre.1 or newer.",
     )
+    parser.add_argument(
+        "--require-signed",
+        action="store_true",
+        help=(
+            "Refuse an ad-hoc package: only a Developer ID signed, notarized "
+            "package passes. The release workflow passes this for a stable tag "
+            "once signing is configured (see docs/RELEASE_SIGNING.md)."
+        ),
+    )
     return parser.parse_args()
 
 
-def validate(package_dir: Path, *, publishing: bool) -> dict:
+def validate(package_dir: Path, *, publishing: bool, require_signed: bool = False) -> dict:
     manifest_path = package_dir / "release-manifest.json"
     manifest = json.loads(manifest_path.read_text())
 
@@ -52,6 +61,11 @@ def validate(package_dir: Path, *, publishing: bool) -> dict:
             raise ValueError("a Developer ID package must be notarized before it is published")
     else:
         raise ValueError(f"unknown signing mode {signing!r}; expected ad-hoc or developer-id")
+    if require_signed and signing != "developer-id":
+        raise ValueError(
+            f"refusing an unsigned ({signing}) package: this release must be "
+            "Developer ID signed and notarized (docs/RELEASE_SIGNING.md)"
+        )
 
     version = str(manifest["app_version"])
     tag = str(manifest["tag"])
@@ -105,7 +119,9 @@ def validate(package_dir: Path, *, publishing: bool) -> dict:
 
 def main() -> int:
     args = parse_args()
-    manifest = validate(args.package_dir, publishing=args.publishing)
+    manifest = validate(
+        args.package_dir, publishing=args.publishing, require_signed=args.require_signed
+    )
     print(
         json.dumps(
             {

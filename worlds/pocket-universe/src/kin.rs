@@ -396,46 +396,25 @@ const MEMORIAL_COMMAND: &str = "pocket-universe.memorial.";
 
 /// The person a memorial command is for, and the spot the player chose.
 pub(crate) fn parse_command(command_id: &str) -> Option<(EntityId, Option<u8>)> {
-    let rest = command_id.strip_prefix(MEMORIAL_COMMAND)?;
-    let (who, spot) = match rest.split_once('@') {
-        Some((who, spot)) => (who, Some(spot.parse::<u8>().ok()?.min(100))),
-        None => (rest, None),
-    };
-    Some((EntityId::new(who.parse().ok()?), spot))
+    lives::shown::memorial_target(MEMORIAL_COMMAND, command_id)
 }
 
 /// A card to put up a memorial for each person the place lost and has not
 /// yet remembered, where the player likes.
 pub(crate) fn commands(world: &world_core::World) -> Vec<world_projection::ProjectionCommand> {
-    let state = world.state();
-    let Some(place) = Place::of(state) else {
+    let Some(place) = Place::of(world.state()) else {
         return Vec::new();
     };
-    let kin = of(place);
-    lives::awaiting_memorial(state)
-        .into_iter()
-        .map(|who| {
-            let named = lives::generations::memorial_name(state, kin, who, 0);
-            world_projection::ProjectionCommand {
-                id: format!("{MEMORIAL_COMMAND}{}", who.0),
-                title: format!("A memorial for {}", lives::first_name(state, who)),
-                detail: "Put it wherever they'd have liked to be".into(),
-                effects: Vec::new(),
-                scenery: None,
-                asker: None,
-                moves: Vec::new(),
-                question: None,
-                unavailable: None,
-                hand: Some(world_projection::Hand {
-                    verb: "Build".into(),
-                    thing: named,
-                    at: Some(world_projection::SelectionId::Entity(SLOT_A)),
-                    cost: None,
-                }),
-                preview: None,
-            }
-        })
-        .collect()
+    lives::shown::memorial_commands(
+        world,
+        of(place),
+        &lives::shown::MemorialWords {
+            prefix: MEMORIAL_COMMAND,
+            what: "memorial",
+            detail: "Put it wherever they'd have liked to be",
+            at: SLOT_A,
+        },
+    )
 }
 
 /// The drawings of each place's memorials, as `{prefix}-memorial-*`.

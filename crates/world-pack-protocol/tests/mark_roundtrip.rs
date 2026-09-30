@@ -118,7 +118,7 @@ fn a_broken_design_or_plot_is_dropped_not_shown() {
         .as_mut()
         .unwrap()
         .proposals
-        .push("two\nlines".into());
+        .push("\u{202E}\u{2066}".into());
     wire.canvas.plots.push(PlotWire {
         id: " ".into(),
         px: 1.0,
@@ -130,6 +130,7 @@ fn a_broken_design_or_plot_is_dropped_not_shown() {
     let item = &back.canvas.items[0];
     assert!(item.pattern.is_none());
     assert!(item.design.is_none());
+    // A proposal of nothing but hidden controls is no name at all.
     assert_eq!(item.naming.as_ref().unwrap().proposals.len(), 3);
     assert_eq!(back.canvas.plots.len(), 1);
 }

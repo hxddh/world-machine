@@ -1328,30 +1328,8 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
     }
     let cast = cast(world.state());
     let memorials = crate::kin::commands(world);
-    lives::situations(world, &cast)
+    lives::shown::situation_commands(world, &cast, LIFE_COMMAND)
         .into_iter()
-        .flat_map(|situation| {
-            let question = world_projection::Question {
-                id: format!("life.{}", situation.key),
-                prompt: situation.prompt.clone(),
-            };
-            situation
-                .answers
-                .into_iter()
-                .map(move |answer| world_projection::ProjectionCommand {
-                    id: format!("{LIFE_COMMAND}{}.{}", situation.key, answer.id),
-                    title: answer.title,
-                    detail: situation.told.clone(),
-                    effects: Vec::new(),
-                    scenery: None,
-                    asker: Some(world_projection::SelectionId::Entity(situation.asker)),
-                    moves: Vec::new(),
-                    question: Some(question.clone()),
-                    unavailable: answer.unavailable,
-                    hand: None,
-                    preview: None,
-                })
-        })
         .chain(memorials)
         .collect()
 }
@@ -1481,16 +1459,7 @@ fn harvested(
 }
 
 /// Letters the player has been written, oldest first, for the letter box.
-pub(crate) fn letters(world: &World) -> Vec<world_projection::Letter> {
-    lives::letters(world)
-        .into_iter()
-        .map(|letter| world_projection::Letter {
-            from: world_projection::SelectionId::Entity(letter.from),
-            note: letter.note,
-            moment: world_projection::SelectionId::Event(letter.event),
-        })
-        .collect()
-}
+pub(crate) use lives::shown::letters_shown as letters;
 
 /// What the player can suggest the place does together.
 pub(crate) const SUGGEST_COMMAND: &str = "pocket-universe.suggest.";

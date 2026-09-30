@@ -176,7 +176,7 @@ impl ApiNarrator {
     fn ask(&mut self, facts: &[NarrationFacts]) -> Option<String> {
         let body_file = write_body_file(facts, &self.key)?;
         let request = build_request(facts, &self.key, body_file.path()?);
-        let mut child = Command::new("curl")
+        let mut child = Command::new(world_voice::CURL)
             .args(&request.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

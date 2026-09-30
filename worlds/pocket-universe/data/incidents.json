@@ -1,0 +1,322 @@
+[
+  {"spec": [
+    "weather",
+    {"incident": ["@SLOT_E", [{"up": ["tension"]}, {"down": ["trust"]}]]},
+    {"()": ["{weather} is coming", "{Weather} on the horizon!"]},
+    [
+      {"yes": [
+        "batten",
+        "Batten down together",
+        "Both of them, side by side, all night.",
+        {".remembered": [
+          {"said": [
+            "weather_weathered",
+            "They sat out {weather} together",
+            "We made it through that one.",
+            {"bond": [1, -1]}
+          ]},
+          "That was a long night."
+        ]}
+      ]},
+      {"yes": [
+        "push_on",
+        "Push on through",
+        "{explorer} won't wait. {keeper} worries.",
+        {".and": [
+          {"said": [
+            "weather_braved",
+            "{explorer} pushed on through {weather}",
+            "A little weather never stopped me.",
+            {"bond": [-1, 2]}
+          ]},
+          [{"Effect::Advance": ["survey"]}]
+        ]}
+      ]}
+    ],
+    {"//": [
+      "Caught out in it, the explorer still maps what they saw.",
+      {".and": [
+        {"said": [
+          "weather_caught_them",
+          "{weather} caught them apart",
+          "Where were you?",
+          {"bond": [-1, 2]}
+        ]},
+        [{"Effect::Advance": ["survey"]}]
+      ]}
+    ]}
+  ]},
+  {"spec": [
+    "failing",
+    {"incident": ["@SLOT_B", [{"up": ["tension"]}, {"down": ["trust"]}]]},
+    {"()": ["Trouble at {home}: {failing}", "It's {failing}. I need a hand, now!"]},
+    [
+      {"yes": [
+        "together",
+        "Mend it together",
+        "{explorer} drops everything.",
+        {"said": [
+          "failing_fixed",
+          "They mended {failing} together",
+          "Good as new. Well. Good enough.",
+          {"bond": [1, 0]}
+        ]}
+      ]},
+      {"yes": [
+        "alone",
+        "Manage alone",
+        "{explorer} stays out. {keeper} copes.",
+        {"said": [
+          "failing_patched",
+          "{keeper} patched {failing} alone",
+          "Thanks for nothing.",
+          {"bond": [-1, 2]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "failing_spread",
+      "Nobody saw to {failing}, and it got worse",
+      "It's getting worse!",
+      {"bond": [-2, 2]}
+    ]}
+  ]},
+  {"spec": [
+    "signal",
+    {"incident": ["@SLOT_E", []]},
+    {"()": ["{signal} came in", "Did you hear that? {Signal}!"]},
+    [
+      {"yes": [
+        "follow",
+        "Follow it",
+        "{explorer} sets off. It may lead somewhere.",
+        {".remembered": [
+          {".and": [
+            {"said": [
+              "signal_followed",
+              "{explorer} followed {signal}",
+              "I knew there was something out there.",
+              {"bond": [0, 1]}
+            ]},
+            [{"Effect::Advance": ["beacon"]}]
+          ]},
+          "Still thinking about that signal."
+        ]}
+      ]},
+      {"yes": [
+        "log",
+        "Note it down",
+        "Nobody leaves. {keeper} writes it down.",
+        {".by_other": [
+          {"said": [
+            "signal_logged",
+            "{keeper} wrote down {signal}",
+            "For another day.",
+            {"bond": [1, 0]}
+          ]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "signal_faded",
+      "{signal} faded away",
+      "Gone. Did we imagine it?",
+      {"bond": [0, 0]}
+    ]}
+  ]},
+  {"spec": [
+    "quarrel",
+    {"incident": ["@SLOT_B", [{"down": ["trust"]}, {"up": ["tension"]}]]},
+    {"()": ["{keeper} and {explorer} are arguing", "You never listen when it matters!"]},
+    [
+      {"yes": [
+        "keeper",
+        "{keeper}'s right",
+        "{explorer} won't like it.",
+        {"said": [
+          "quarrel_keeper_won",
+          "{keeper} won the argument",
+          "Thank you.",
+          {"bond": [-1, 1]}
+        ]}
+      ]},
+      {"yes": [
+        "explorer",
+        "{explorer}'s right",
+        "{keeper} won't like it.",
+        {".by_other": [
+          {"said": [
+            "quarrel_explorer_won",
+            "{explorer} won the argument",
+            "Told you so.",
+            {"bond": [-1, 1]}
+          ]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "quarrel_simmered",
+      "The argument simmered on",
+      "I'm not talking about it.",
+      {"bond": [-1, 2]}
+    ]}
+  ]},
+  {"spec": [
+    "amends",
+    {".requires": [
+      {"incident": ["@SLOT_E", [{"down": ["tension"]}, {"up": ["trust"]}]]},
+      [{"Condition::AtLeast": ["@RELATIONSHIP", "@RELATIONSHIP_TENSION", 4]}]
+    ]},
+    {"()": ["{explorer} wants to make amends", "I said things I shouldn't have."]},
+    [
+      {"yes": [
+        "amends",
+        "Make up",
+        "The rivalry is set down, for now.",
+        {".remembered": [
+          {"said": [
+            "amends_made",
+            "{explorer} and {keeper} made it up",
+            "Friends again?",
+            {"bond": [2, -3]}
+          ]},
+          "I'm glad we talked."
+        ]}
+      ]},
+      {"no": [
+        "not_yet",
+        "Too soon",
+        "The hurt stays where it is.",
+        {".by_other": [
+          {"said": [
+            "amends_too_soon",
+            "{keeper} wasn't ready to make it up",
+            "Not yet.",
+            {"bond": [0, 1]}
+          ]}
+        ]}
+      ]}
+    ],
+    {"said": ["time_healed", "Time took the edge off", "Let's not fight.", {"bond": [1, -2]}]}
+  ]},
+  {"spec": [
+    "close_call",
+    {"incident": ["@SLOT_E", [{"down": ["tension"]}, {"up": ["trust"]}]]},
+    {"()": ["{explorer} is caught out in the cold", "I'm lost out here. Can you hear me?"]},
+    [
+      {"yes": [
+        "rescue",
+        "Go out after them",
+        "{keeper} leaves {home} to find them.",
+        {".remembered": [
+          {"said": [
+            "explorer_rescued",
+            "{keeper} brought {explorer} home",
+            "You came for me.",
+            {"bond": [3, -3]}
+          ]},
+          "I owe you my life, you know."
+        ]}
+      ]},
+      {"yes": [
+        "guide",
+        "Talk them home",
+        "{keeper} stays, and talks all night.",
+        {"said": [
+          "explorer_guided",
+          "{keeper} talked {explorer} home",
+          "Your voice got me back.",
+          {"bond": [2, -2]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "explorer_found_the_way",
+      "{explorer} found the way home alone",
+      "Made it. Just.",
+      {"bond": [1, -2]}
+    ]}
+  ]},
+  {"spec": [
+    "supper",
+    {"incident": ["@SLOT_B", [{"down": ["tension"]}, {"up": ["trust"]}]]},
+    {"()": ["{keeper} wants to cook for them both", "Supper, the two of us?"]},
+    [
+      {"yes": [
+        "eat",
+        "Supper together",
+        "An evening off, and a long talk.",
+        {".remembered": [
+          {"said": [
+            "supper_shared",
+            "{keeper} and {explorer} shared a supper",
+            "This is nice.",
+            {"bond": [1, -2]}
+          ]},
+          "That was a good supper."
+        ]}
+      ]},
+      {"yes": [
+        "work",
+        "Work through it",
+        "There's too much to do.",
+        {"said": [
+          "supper_skipped",
+          "They worked through supper",
+          "Another time.",
+          {"bond": [0, 1]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "supper_went_cold",
+      "The supper went cold",
+      "I'll eat it myself, then.",
+      {"bond": [-1, 0]}
+    ]}
+  ]},
+  {"spec": [
+    "beacon_work",
+    {".requires": [
+      {"incident": ["@SLOT_E", [{"up": ["trust"]}]]},
+      [{"Condition::Unfinished": ["beacon"]}]
+    ]},
+    {"()": ["{beacon} could go up", "If we put up {beacon}, anyone could find us."]},
+    [
+      {"yes": [
+        "build",
+        "Put it up",
+        "Days of work, and it will stand on the horizon.",
+        {".and": [
+          {"said": [
+            "beacon_raised",
+            "Work went on at {beacon}",
+            "Higher every day!",
+            {"bond": [1, 1]}
+          ]},
+          [{"Effect::Advance": ["beacon"]}]
+        ]}
+      ]},
+      {"yes": [
+        "later",
+        "Later",
+        "There's enough to do.",
+        {"said": [
+          "beacon_left",
+          "{beacon} was left for later",
+          "Later, then.",
+          {"bond": [0, 1]}
+        ]}
+      ]}
+    ],
+    {".and": [
+      {"said": [
+        "beacon_forgotten",
+        "{beacon} was left to {explorer}",
+        "Bit by bit, then. On my own.",
+        {"bond": [0, 0]}
+      ]},
+      [{"Effect::Advance": ["beacon"]}]
+    ]}
+  ]}
+]

@@ -410,6 +410,29 @@ The first stage, "coherent".
 
 Next is v0.25: a crafted and trusted product, with the speed back.
 
+## What v0.25.0 did
+
+The second stage, "crafted and trusted".
+
+| Bar | v0.25.0 |
+|---|---|
+| Goldens pass with the hand-made look | yes, deterministic; regenerated and each one looked at |
+| Nothing over the scene brighter than the night sky | tested at 23:00 |
+| Three-year snapshot under 15 ms | 3.9–6.3 ms (was 26) |
+| A turn under 35 ms | not met on a busy machine: 43–57 ms (was 53–68) |
+| Longest window frame under 8 ms CPU | 3.3–5.2 ms (was 7–11.6) |
+| Snapshot size bar | 1,243,230 bytes, byte-identical to v0.24, bar 1,367,000 |
+| Builder's World code under 50,000 | 49,951 |
+| World codes limited and opened off the window's thread | 1 MiB / 16 MiB, 20 s |
+| Files versioned, with backups, and old files replayed | v0.20–v0.24 fixtures in both Packs |
+| At least 2,000 duplicated lines removed | 2,319 (1,664 of them code) |
+| Nightly job for every ignored bar | yes |
+
+![The harbour, drawn by hand](review/v25-noon.png)
+![Night, with the window gone dark](review/v25-night.png)
+
+Next is v0.26: a layered World voice measured on a fresh blind set, then going out.
+
 ## Decisions only you can make
 
 1. **Apple Developer Program** ($99 a year). It unlocks notarization, the widget, Quick Look, iCloud and any store. Everything in v0.26's second part waits on it.

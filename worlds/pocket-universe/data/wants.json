@@ -1,0 +1,208 @@
+[
+  {"spec": [
+    "keeper_spare",
+    {"want": ["@SLOT_B", [{"up": ["trust"]}]]},
+    {"()": ["{keeper} needs {spare}", "If I had {spare}, I'd sleep at night."]},
+    [
+      {"yes": [
+        "fetch",
+        "Send {explorer} for one",
+        "{explorer} makes the trip. {keeper} owes them one.",
+        {".remembered": [
+          {"said": [
+            "spare_fetched",
+            "{explorer} brought {keeper} {spare}",
+            "You went all that way for this?",
+            {"bond": [2, 0]}
+          ]},
+          "Slept like a stone since you brought that."
+        ]}
+      ]},
+      {"no": [
+        "make_do",
+        "Make do",
+        "Nobody goes anywhere. {keeper} lies awake.",
+        {"said": [
+          "spare_refused",
+          "{keeper} was told to make do",
+          "Fine. I'll make do.",
+          {"bond": [-1, 2]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "spare_went_without",
+      "{keeper} went without {spare}",
+      "Nobody listens.",
+      {"bond": [-1, 1]}
+    ]}
+  ]},
+  {"spec": [
+    "explorer_trip",
+    {"want": ["@SLOT_E", [{"up": ["tension"]}, {"down": ["trust"]}]]},
+    {"()": [
+      "{explorer} wants to go past the edge of the map",
+      "Just one trip past the edge of the map."
+    ]},
+    [
+      {"yes": [
+        "go",
+        "Go",
+        "{explorer} is gone for days. {keeper} keeps watch alone.",
+        {".remembered": [
+          {".and": [
+            {"said": [
+              "edge_explored",
+              "{explorer} went past the edge of the map",
+              "You should see what's out there!",
+              {"bond": [-1, 1]}
+            ]},
+            [{"Effect::Advance": ["survey"]}]
+          ]},
+          "I keep drawing what I saw past the edge."
+        ]}
+      ]},
+      {"no": [
+        "stay",
+        "Stay close",
+        "{keeper} is glad. {explorer} isn't.",
+        {"said": [
+          "edge_refused",
+          "{explorer} was kept close to home",
+          "One day I'll just go.",
+          {"bond": [0, 2]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "edge_forgotten",
+      "{explorer} gave up on the edge of the map",
+      "Forget it.",
+      {"bond": [0, 1]}
+    ]}
+  ]},
+  {"spec": [
+    "keeper_rest",
+    {"want": ["@SLOT_B", [{"down": ["tension"]}, {"up": ["trust"]}]]},
+    {"()": ["{keeper} needs a day off", "Could I have one day off?"]},
+    [
+      {"yes": [
+        "rest",
+        "Take the day",
+        "{explorer} covers {home} for a day.",
+        {".remembered": [
+          {"said": [
+            "keeper_rested",
+            "{keeper} took a day off while {explorer} covered",
+            "Thank you. I needed that.",
+            {"bond": [1, -2]}
+          ]},
+          "Still feel rested."
+        ]}
+      ]},
+      {"no": [
+        "keep_going",
+        "Keep going",
+        "{home} needs everyone.",
+        {"said": [
+          "keeper_kept_going",
+          "{keeper} kept going without a break",
+          "Right. Back to it.",
+          {"bond": [0, 2]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "keeper_worn_out",
+      "{keeper} wore out",
+      "I can't keep my eyes open.",
+      {"bond": [0, 1]}
+    ]}
+  ]},
+  {"spec": [
+    "explorer_teach",
+    {"want": ["@SLOT_E", [{"up": ["trust"]}, {"down": ["tension"]}]]},
+    {"()": [
+      "{explorer} wants to teach {keeper} something",
+      "Let me show you how I find my way out there."
+    ]},
+    [
+      {"yes": [
+        "learn",
+        "Show me",
+        "A day lost to work, a day won between them.",
+        {".remembered": [
+          {"said": [
+            "keeper_taught",
+            "{explorer} taught {keeper} to find the way",
+            "See? You're a natural.",
+            {"bond": [2, -1]}
+          ]},
+          "You picked that up fast."
+        ]}
+      ]},
+      {"no": [
+        "no_time",
+        "No time",
+        "The work comes first.",
+        {"said": [
+          "lesson_refused",
+          "{keeper} had no time for {explorer}'s lesson",
+          "Another time, then.",
+          {"bond": [-1, 0]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "lesson_forgotten",
+      "{explorer}'s lesson never happened",
+      "Never mind. Another time.",
+      {"bond": [-1, 0]}
+    ]}
+  ]},
+  {"spec": [
+    "keeper_grow",
+    {".requires": [
+      {"want": ["@SLOT_B", [{"up": ["trust"]}]]},
+      [{"Condition::Unfinished": ["second_home"]}]
+    ]},
+    {"()": ["{keeper} wants to start {second}", "We could make room for {second}."]},
+    [
+      {"yes": [
+        "start",
+        "Start building",
+        "Hard work for both of them. It will show on the horizon.",
+        {".remembered": [
+          {".and": [
+            {"said": [
+              "second_begun",
+              "{keeper} and {explorer} worked on {second}",
+              "One more piece in place.",
+              {"bond": [1, 1]}
+            ]},
+            [{"Effect::Advance": ["second_home"]}]
+          ]},
+          "My hands still ache from building."
+        ]}
+      ]},
+      {"no": [
+        "not_yet",
+        "Not yet",
+        "What they have is enough for now.",
+        {"said": ["second_put_off", "{second} was put off", "Some day.", {"bond": [0, 1]}]}
+      ]}
+    ],
+    {"//": [
+      "Let go by, it is left to the keeper, who makes a slow start on it alone.",
+      {".and": [
+        {"said": [
+          "second_forgotten",
+          "{second} was left to {keeper}",
+          "Then I'll make a start on my own.",
+          {"bond": [0, 1]}
+        ]},
+        [{"Effect::Advance": ["second_home"]}]
+      ]}
+    ]}
+  ]}
+]

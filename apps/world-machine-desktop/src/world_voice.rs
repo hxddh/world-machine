@@ -6,6 +6,13 @@
 //! decision lives here rather than in the main view: which settings are read,
 //! what a Pack is told, and the rule that a Pack given nothing behaves exactly
 //! as it always has.
+//!
+//! **The key goes only to this app's own voice.** A Pack, including one the
+//! player installed from anywhere, is never handed the player's API key:
+//! with a key, the app asks the model itself ([`ask_model`], through the
+//! Pack's `hear` prompt) and hands the Pack only the answer. A Pack told of
+//! a local program or of this Mac's own model still runs it itself, since
+//! neither needs a secret.
 
 use world_machine_desktop::app_settings::{self, ConfiguredVoice};
 use world_machine_desktop::key_store;
@@ -14,10 +21,7 @@ use world_pack_process::ProcessPackSource;
 /// Told to a Pack that should say what happened in its World's own words.
 const VOICE_SETTING: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
 const PROGRAM_SETTING: &str = "WORLD_MACHINE_PI_PROGRAM";
-const KEY_SETTING: &str = "WORLD_MACHINE_ANTHROPIC_API_KEY";
-const MODEL_SETTING: &str = ::world_voice::MODEL_ENV;
 const VOICE_LOCAL_MODEL: &str = "pi";
-const VOICE_API: &str = "api";
 const VOICE_ON_DEVICE: &str = "fm";
 
 /// The settings every Pack this app launches is given.
@@ -33,30 +37,25 @@ pub(crate) fn pack_settings() -> Vec<(String, String)> {
     let Ok(settings) = app_settings::load(&root) else {
         return Vec::new();
     };
-    let model = ::world_voice::model_or(settings.voice_model.as_deref());
-    settings_for(settings.configured_voice(key_store::load()), &model)
+    // Read without the keychain: whatever the key is, a Pack is not told.
+    settings_for(settings.configured_voice(None))
 }
 
-/// What a configured voice tells a Pack, and which Claude model a key asks.
-/// Separated from reading the settings so the mapping can be checked without
-/// a keychain or a settings file.
+/// What a configured voice tells a Pack. Separated from reading the settings
+/// so the mapping can be checked without a keychain or a settings file.
 ///
 /// This Mac's own model needs nothing but its name: a Pack runs `fm` itself
-/// and keeps its own words whenever it gives no answer.
-pub(crate) fn settings_for(voice: Option<ConfiguredVoice>, model: &str) -> Vec<(String, String)> {
+/// and keeps its own words whenever it gives no answer. A key tells a Pack
+/// nothing at all: the app asks the model with it, never a Pack.
+pub(crate) fn settings_for(voice: Option<ConfiguredVoice>) -> Vec<(String, String)> {
     match voice {
-        None => Vec::new(),
+        None | Some(ConfiguredVoice::Key(_)) => Vec::new(),
         Some(ConfiguredVoice::OnDevice) => {
             vec![(VOICE_SETTING.to_string(), VOICE_ON_DEVICE.to_string())]
         }
         Some(ConfiguredVoice::Program(program)) => vec![
             (VOICE_SETTING.to_string(), VOICE_LOCAL_MODEL.to_string()),
             (PROGRAM_SETTING.to_string(), program),
-        ],
-        Some(ConfiguredVoice::Key(key)) => vec![
-            (VOICE_SETTING.to_string(), VOICE_API.to_string()),
-            (KEY_SETTING.to_string(), key),
-            (MODEL_SETTING.to_string(), model.to_string()),
         ],
     }
 }
@@ -146,22 +145,19 @@ mod tests {
     #[test]
     fn this_macs_own_model_is_named_to_a_pack_with_nothing_else() {
         assert_eq!(
-            settings_for(Some(ConfiguredVoice::OnDevice), "claude-sonnet-5"),
+            settings_for(Some(ConfiguredVoice::OnDevice)),
             vec![(VOICE_SETTING.to_string(), "fm".to_string())]
         );
     }
 
     #[test]
     fn a_voice_with_nothing_behind_it_tells_a_pack_nothing() {
-        assert!(settings_for(None, "claude-sonnet-5").is_empty());
+        assert!(settings_for(None).is_empty());
     }
 
     #[test]
     fn each_way_of_reaching_a_model_is_named_to_the_pack() {
-        let program = settings_for(
-            Some(ConfiguredVoice::Program("/usr/local/bin/pi".into())),
-            "claude-sonnet-5",
-        );
+        let program = settings_for(Some(ConfiguredVoice::Program("/usr/local/bin/pi".into())));
         assert_eq!(
             program,
             vec![
@@ -169,25 +165,19 @@ mod tests {
                 (PROGRAM_SETTING.to_string(), "/usr/local/bin/pi".to_string()),
             ]
         );
+    }
 
-        let key = settings_for(
-            Some(ConfiguredVoice::Key("sk-ant-test".into())),
-            "claude-opus-5-5",
-        );
-        assert_eq!(
-            key,
-            vec![
-                (VOICE_SETTING.to_string(), "api".to_string()),
-                (KEY_SETTING.to_string(), "sk-ant-test".to_string()),
-                (
-                    "WORLD_MACHINE_VOICE_MODEL".to_string(),
-                    "claude-opus-5-5".to_string()
-                ),
-            ]
-        );
+    #[test]
+    fn a_key_is_never_handed_to_a_pack() {
+        let key = settings_for(Some(ConfiguredVoice::Key("sk-ant-test".into())));
+        assert!(key.is_empty(), "{key:?}");
         assert!(
-            !key.iter().any(|(name, _)| name == PROGRAM_SETTING),
-            "a key voice was also handed a program to run"
+            !key.iter().any(|(_, value)| value.contains("sk-ant")),
+            "the key reached a Pack's settings"
         );
+        // And the Pack layer would refuse one named as a key anyway.
+        assert!(world_pack_process::is_secret_name(
+            ::world_voice::API_KEY_ENV
+        ));
     }
 }

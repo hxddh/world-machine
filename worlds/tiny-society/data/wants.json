@@ -1,0 +1,332 @@
+[
+  {"spec": [
+    "school_roof",
+    {"want": ["@EMMA"]},
+    {"()": ["Emma's school roof is leaking", "The roof's dripping on the desks again."]},
+    [
+      {"yes": [
+        "mend",
+        "Pay Evan to mend it",
+        "Noah puts in 60: 25 to Evan for the work, the rest for mainland slate.",
+        [{"has": ["@NOAH", 60]}],
+        {".remembered": [
+          {"said": [
+            "school_roof_mended",
+            "Evan mended the school roof",
+            "Dry desks at last!",
+            {".chain": [
+              [{"pay": ["@NOAH", "@EVAN", 25]}, {"spend": ["@NOAH", 35]}],
+              [{"mood": [1]}]
+            ]}
+          ]},
+          "The children can hear themselves think now."
+        ]}
+      ]},
+      {"no": [
+        "bucket",
+        "A bucket will do",
+        "Nothing spent. Emma won't forget it.",
+        {"said": [
+          "school_roof_left",
+          "Emma was told a bucket would do",
+          "A bucket. Wonderful.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "school_roof_fell_in",
+      "Part of the school roof came in",
+      "Half the ceiling's on the floor!",
+      {".chain": [{"spend": ["@NOAH", 80]}, [{"mood": [-1]}]]}
+    ]}
+  ]},
+  {"spec": [
+    "music_night",
+    {"want": ["@LEO"]},
+    {"()": ["Leo wants to put on a music night", "A fiddler and a full pub. What do you say?"]},
+    [
+      {"yes": [
+        "hold",
+        "Put it on",
+        "Leo spends 40 on a fiddler from the mainland. The whole harbour comes.",
+        [{"has": ["@LEO", 40]}],
+        {".remembered": [
+          {"said": [
+            "music_night_held",
+            "The Anchor Pub had a music night",
+            "Listen to them sing!",
+            {".chain": [{"spend": ["@LEO", 40]}, [{"mood": [2]}]]}
+          ]},
+          "My feet still ache from dancing."
+        ]}
+      ]},
+      {"no": [
+        "quiet",
+        "Keep it quiet",
+        "Nothing spent, and nothing to remember.",
+        {"said": [
+          "music_night_called_off",
+          "Leo called off his music night",
+          "Another quiet night, then.",
+          []
+        ]}
+      ]}
+    ],
+    {"said": [
+      "music_night_forgotten",
+      "Leo's music night never happened",
+      "Nobody seemed to care.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "new_oven",
+    {".requires": [
+      {"want": ["@MARA"]},
+      [{"Condition::Is": ["@BAKERY", "@OPERATING_STATUS", "open"]}]
+    ]},
+    {"()": ["Mara's oven is failing", "The old oven burns every other loaf."]},
+    [
+      {"yes": [
+        "buy",
+        "Buy a new oven",
+        "80 of Mara's savings go to the mainland for a new oven.",
+        [{"has": ["@MARA", 80]}],
+        {".remembered": [
+          {"said": [
+            "oven_bought",
+            "Mara's new oven arrived",
+            "Listen to that oven roar!",
+            {".chain": [{"spend": ["@MARA", 80]}, [{"mood": [1]}]]}
+          ]},
+          "Not a burnt loaf all week."
+        ]}
+      ]},
+      {"no": [
+        "patch",
+        "Patch the old one",
+        "Evan patches it for 10. It won't last.",
+        {"said": [
+          "oven_patched",
+          "Mara patched up the old oven",
+          "Held together with wire and hope.",
+          {"pay": ["@MARA", "@EVAN", 10]}
+        ]}
+      ]}
+    ],
+    {"said": [
+      "oven_failed",
+      "Mara's oven gave out",
+      "A whole batch, ruined.",
+      {".chain": [{"spend": ["@MARA", 30]}, [{"mood": [-1]}]]}
+    ]}
+  ]},
+  {"spec": [
+    "new_nets",
+    {".requires": [
+      {"want": ["@JONAS"]},
+      [
+        {"Condition::Is": ["@JONAS_BOAT", "@CONDITION", "sound"]},
+        {"Condition::Is": ["@JONAS", "@JOB", "fisher"]}
+      ]
+    ]},
+    {"()": ["Jonas's nets are torn", "My nets are more hole than net."]},
+    [
+      {"yes": [
+        "buy",
+        "Leo buys new nets",
+        "Leo spends 30 on mainland nets for Jonas.",
+        [{"has": ["@LEO", 30]}],
+        {".remembered": [
+          {"said": [
+            "nets_bought",
+            "Jonas got new nets",
+            "These'll hold a whale!",
+            {".chain": [{"spend": ["@LEO", 30]}, [{"mood": [1]}]]}
+          ]},
+          "The new nets are pulling their weight."
+        ]}
+      ]},
+      {"no": [
+        "mend",
+        "Mend them yourself",
+        "Nothing spent. A long night for Jonas.",
+        {"said": [
+          "nets_left_torn",
+          "Jonas was left to mend his own nets",
+          "I'll be up all night with these.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "nets_gave_way",
+      "Jonas lost a catch through his torn nets",
+      "Half the catch swam off.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "pier_timber",
+    {".requires": [{"want": ["@EVAN"]}, [{"Condition::Unfinished": ["pier"]}]]},
+    {"()": ["Evan wants timber for the new pier", "Give me timber and I'll give you a pier."]},
+    [
+      {"yes": [
+        "buy",
+        "Buy the timber",
+        "The harbour fund pays 70 for timber. The pier grows a section.",
+        [{"has": ["@HARBOR", 70]}],
+        {".remembered": [
+          {"said": [
+            "pier_section_built",
+            "Evan built a section of the new pier",
+            "Another length of pier, straight and true.",
+            {".chain": [
+              {"spend": ["@HARBOR", 70]},
+              [{"Effect::Advance": ["pier"]}, {"mood": [1]}]
+            ]}
+          ]},
+          "The pier's coming along."
+        ]}
+      ]},
+      {"no": [
+        "wait",
+        "The pier can wait",
+        "Nothing spent, and no pier.",
+        {"said": [
+          "pier_put_off",
+          "The new pier was put off again",
+          "Always next month.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "pier_timber_rotted",
+      "The pier timber rotted on the quay",
+      "Good wood, gone to rot.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "market_stall",
+    {"want": ["@SOFIA"]},
+    {"()": ["Sofia wants a stall of her own", "Just a little stall on market day. Please?"]},
+    [
+      {"yes": [
+        "build",
+        "Set her up",
+        "50 of Sofia's savings go on a stall and her first stock.",
+        [{"has": ["@SOFIA", 50]}],
+        {".remembered": [
+          {"said": [
+            "stall_opened",
+            "Sofia opened a stall of her own",
+            "My own stall! Come and see!",
+            {".chain": [{"spend": ["@SOFIA", 50]}, [{"mood": [1]}]]}
+          ]},
+          "Sold out of jam again."
+        ]}
+      ]},
+      {"no": [
+        "not_yet",
+        "Not this year",
+        "Nothing spent. Sofia keeps her savings, and her grievance.",
+        {"said": [
+          "stall_refused",
+          "Sofia stayed behind the pub counter",
+          "Maybe next year, then.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "stall_dream_faded",
+      "Sofia gave up on her stall",
+      "Forget I asked.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "school_books",
+    {"want": ["@MIA"]},
+    {"()": ["Mia needs new schoolbooks", "My books are older than Emma!"]},
+    [
+      {"yes": [
+        "buy",
+        "Buy new books",
+        "Emma spends 25 on books from the mainland.",
+        [{"has": ["@EMMA", 25]}],
+        {".remembered": [
+          {"said": [
+            "books_bought",
+            "Mia got new schoolbooks",
+            "They still smell new!",
+            {".chain": [{"spend": ["@EMMA", 25]}, [{"mood": [1]}]]}
+          ]},
+          "I've read the new one twice already."
+        ]}
+      ]},
+      {"no": [
+        "share",
+        "Share a friend's",
+        "Nothing spent. Mia makes do.",
+        {"said": [
+          "books_shared",
+          "Mia was told to share a friend's books",
+          "We'll take turns, I suppose.",
+          []
+        ]}
+      ]}
+    ],
+    {"said": [
+      "books_went_without",
+      "Mia went without new books",
+      "Never mind. Another time.",
+      [{"mood": [-1]}]
+    ]}
+  ]},
+  {"spec": [
+    "harbour_lamp",
+    {".requires": [{"want": ["@NOAH"]}, [{"Condition::Unfinished": ["lamp"]}]]},
+    {"()": ["Noah wants a lamp on the point", "Boats need a light to come home by."]},
+    [
+      {"yes": [
+        "fund",
+        "Fund the lamp",
+        "The harbour fund pays 90 for brass and oil. The lamp is a step nearer lit.",
+        [{"has": ["@HARBOR", 90]}],
+        {".remembered": [
+          {"said": [
+            "lamp_work_done",
+            "Work went on at the lamp on the point",
+            "One step closer to a light on the point.",
+            {".chain": [
+              {"spend": ["@HARBOR", 90]},
+              [{"Effect::Advance": ["lamp"]}, {"mood": [1]}]
+            ]}
+          ]},
+          "Can't wait to see it lit."
+        ]}
+      ]},
+      {"no": [
+        "later",
+        "The lamp can wait",
+        "Nothing spent. The point stays dark.",
+        {"said": [
+          "lamp_put_off",
+          "The lamp on the point was put off",
+          "In the dark a while longer, then.",
+          [{"mood": [-1]}]
+        ]}
+      ]}
+    ],
+    {"said": [
+      "lamp_forgotten",
+      "Noah's lamp was forgotten",
+      "Nobody remembers the lamp.",
+      [{"mood": [-1]}]
+    ]}
+  ]}
+]

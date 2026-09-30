@@ -16,6 +16,8 @@
 //! makes sure something is always open. When a gauge the Pack reports is
 //! pinned at one end, it reaches first for a storylet that eases it back.
 
+pub mod script;
+
 use std::collections::BTreeMap;
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, EventDraft, EventId,
@@ -1946,6 +1948,42 @@ pub fn pick_line<'a>(pool: &[&'a str], key: u64, recent: &[String]) -> Option<&'
         .map(|offset| pool[(start + offset) % pool.len()])
         .find(|line| !recent.iter().any(|said| said == line))
         .or(Some(pool[start]))
+}
+
+/// Puts something on the scene ([`Effect::Build`]).
+pub fn build(
+    entity: EntityId,
+    name: &'static str,
+    shape: &'static str,
+    at: EntityId,
+    lasts: Option<u64>,
+) -> Effect {
+    Effect::Build {
+        entity,
+        name,
+        shape,
+        at,
+        lasts,
+    }
+}
+
+/// Remembers that something happened ([`Effect::Mark`]).
+pub fn mark(name: &'static str) -> Effect {
+    Effect::Mark(name)
+}
+
+/// The chapters of a World's story that have ended, as the book shows
+/// them.
+pub fn chapters_shown(world: &World) -> Vec<world_projection::Chapter> {
+    chapters_ended(world)
+        .into_iter()
+        .map(|ended| world_projection::Chapter {
+            number: ended.number.max(0) as u32,
+            title: ended.title,
+            summary: ended.summary,
+            moment: Some(world_projection::SelectionId::Event(ended.event)),
+        })
+        .collect()
 }
 
 #[cfg(test)]

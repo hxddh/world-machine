@@ -427,7 +427,7 @@ impl WorldDocumentView {
     /// A window onto a World that is already open elsewhere, such as in a
     /// strip along the edge of the screen.
     fn with_document(document: SharedDocument, cx: &mut Context<Self>) -> Self {
-        let (document_label, document_name, next_move_at) = {
+        let (document_label, document_name, next_move_at, read_only) = {
             let state = document.borrow();
             (
                 state.session.display_name(),
@@ -435,6 +435,8 @@ impl WorldDocumentView {
                 observer::next_move_in(&state.session, &state.library)
                     .zip(unix_now())
                     .map(|(remaining, now)| now + remaining),
+                // A World a newer World Machine saved is only looked at.
+                state.session.read_only_reason(),
             )
         };
         let controller = HostProjectionController::new(Rc::clone(&document));
@@ -455,7 +457,7 @@ impl WorldDocumentView {
             document_name,
             document,
             projection,
-            status: None,
+            status: read_only.map(DocumentStatus::error),
             next_move_at,
             share_open: false,
         }
@@ -3544,11 +3546,13 @@ const WORLD_COVER_HEIGHT: f32 = 196.0;
 
 /// How long a World has been living without you, in its own unit:
 /// "1 sol has passed", "3 nights have passed".
+#[cfg(target_os = "macos")]
 fn time_waiting_line(periods: u64, unit: &str) -> String {
     world_gpui::i18n::time_passed(periods, unit)
 }
 
 /// "1 sol", "3 nights".
+#[cfg(target_os = "macos")]
 fn count_of(count: u64, unit: &str) -> String {
     world_gpui::i18n::count_of(count, unit)
 }
@@ -4319,6 +4323,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let application = application();
     system_open::install(&application);
     diagnostics::init();
+    // Every World file this app writes says which app wrote it.
+    world_document::set_writing_app(format!("World Machine {}", build_info::APP_VERSION));
     load_window_geometry();
     let saved = world_machine_desktop::app_settings::application_support_root()
         .ok()

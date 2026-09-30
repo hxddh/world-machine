@@ -2,7 +2,7 @@
 //! places and the things made in it, told line by line from what the
 //! World recorded, each line with what brought it about.
 
-use chronicle::{text, Answered, Teller};
+use chronicle::{kit, text, Answered, Teller};
 use std::sync::OnceLock;
 use world_core::{EntityId, Event, World};
 use world_projection::{Legend, SelectionId};
@@ -13,58 +13,16 @@ pub(crate) struct Harbour<'a>(pub(crate) &'a World);
 /// The storylets that are a storm the harbour weathers.
 const STORMS: [&str; 2] = ["great_storm", "storm_warning"];
 
-/// Kinds that concern someone without always changing them.
-const NAMING: &[&str] = &[
-    "born",
-    "came_of_age",
-    "left_home",
-    "retired",
-    "died",
-    "heirloom_passed",
-    "memorial_placed",
-    "anniversary_kept",
-    "year_turned",
-    "bond_changed",
-    "situation_answered",
-    "situation_lapsed",
-    "greeted",
-    "keepsake_left",
-    "gift_given",
-    "invited_out",
-    "built_by_hand",
-    "decorated_by_hand",
-    "planted_by_hand",
-    "festival_held",
-];
-
-/// Kinds of the harbour's everyday round and its bookkeeping, never a line.
+/// Kinds of this World's own everyday round and bookkeeping, never a line.
 const EVERYDAY: &[&str] = &[
-    "lived",
-    "enjoyed",
     "work_shift_completed",
     "bread_purchased",
     "living_cost_paid",
     "catch_landed",
     "fish_sold",
-    "first_mentioned",
-    "year_remembered",
-    "fixture_passed",
-    "festival_nears",
-    "situation_arose",
-    "situation_came_up",
-    "chapter_ended",
-    "chapter_turning",
-    "reacted",
-    "moved_by_hand",
-    "lines_forgotten",
     "counter_sale_recorded",
     "market_restocked",
     "spirits_settled",
-    "warmed",
-    "life_began",
-    "plant_grew",
-    "undone_by_hand",
-    "letter_written",
     "payroll_shortfall",
     "living_cost_unmet",
 ];
@@ -98,19 +56,6 @@ fn is_person(world: &World, id: EntityId) -> bool {
         .is_some_and(|entity| entity.kind == "resident")
 }
 
-fn involves(event: &Event, who: EntityId) -> bool {
-    event.actor == Some(who) || event.targets.contains(&who)
-}
-
-/// The first time a festival was held, for a place's legend.
-fn first_held(world: &World, event: &Event) -> bool {
-    let festival = text(event, "festival");
-    world_projection::latest_before(world, &["festival_held"], event.id, |held| {
-        text(held, "festival") == festival
-    })
-    .is_none()
-}
-
 impl Teller for Harbour<'_> {
     fn world(&self) -> &World {
         self.0
@@ -135,7 +80,7 @@ impl Teller for Harbour<'_> {
     fn line(&self, subject: EntityId, event: &Event) -> Option<String> {
         let world = self.0;
         let kind = event.kind.as_str();
-        if EVERYDAY.contains(&kind) {
+        if kit::everyday(kind, EVERYDAY) {
             return None;
         }
         if chronicle::LIFE_BEATS.contains(&kind) {
@@ -150,21 +95,23 @@ impl Teller for Harbour<'_> {
             // Among people, what happened between them or to them.
             "bond_changed" | "situation_answered" | "situation_lapsed" | "greeted"
             | "keepsake_left"
-                if !involves(event, subject) =>
+                if !kit::involves(event, subject) =>
             {
                 None
             }
             // A festival is a place's, the first time it is held there.
-            "festival_held" if person || !first_held(world, event) => None,
+            "festival_held" if person || !kit::first_held(world, event) => None,
             _ if chronicle::DEEDS.contains(&kind) => text(event, "told").map(str::to_string),
             // The storyteller's questions are the asker's, and the harbour's.
-            _ if text(event, "storylet").is_some() && person && !involves(event, subject) => None,
+            _ if text(event, "storylet").is_some() && person && !kit::involves(event, subject) => {
+                None
+            }
             _ => crate::projection::narrated_title(world, event),
         }
     }
 
     fn naming_kinds(&self) -> &[&'static str] {
-        NAMING
+        kit::NAMING
     }
 
     fn storylet_answer(&self, event: &Event) -> Option<Answered> {
@@ -199,6 +146,5 @@ impl Teller for Harbour<'_> {
 
 /// The legend of a person, place or thing in the harbour.
 pub(crate) fn legend(world: &World, subject: SelectionId) -> Option<Legend> {
-    let teller = Harbour(world);
-    chronicle::legend(&teller, subject).map(|legend| chronicle::filled_life(&teller, legend))
+    kit::filled_legend(&Harbour(world), subject)
 }

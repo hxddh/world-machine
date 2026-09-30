@@ -508,8 +508,9 @@ fn designs_and_names_are_checked_and_kept() {
         .clone();
     assert_eq!(painted, "designed");
     assert_eq!(pattern_of(world.state(), boathouse), Some(design.as_str()));
-    // Names: tidied, one line, one to twenty-four letters.
-    for bad in ["", "   ", "two\nlines", &"x".repeat(25)] {
+    // Names: tidied, one to twenty-four letters, with nothing hidden in
+    // them (an override, an isolate, a control character).
+    for bad in ["", "   ", "\u{202E}\u{2066}\u{7}", &"x".repeat(25)] {
         assert!(world
             .execute(&registry, &name_request(boathouse, bad))
             .is_err());
@@ -526,8 +527,13 @@ fn designs_and_names_are_checked_and_kept() {
     assert_eq!(name(world.state(), boathouse), "Old Reliable");
     assert!(named(world.state(), boathouse));
     assert_eq!(was_called(world.state(), boathouse), Some("Boathouse"));
+    // A right-to-left override would show the name backwards; it is
+    // taken out, and the name kept as it reads.
     world
-        .execute(&registry, &name_request(boathouse, "Second Thoughts"))
+        .execute(
+            &registry,
+            &name_request(boathouse, "\u{202E}Second\nThoughts\u{200F}"),
+        )
         .unwrap();
     assert_eq!(was_called(world.state(), boathouse), Some("Boathouse"));
     // Finished, it keeps the name it was given.

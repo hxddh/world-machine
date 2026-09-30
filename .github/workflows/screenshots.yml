@@ -3,8 +3,8 @@ name: Screenshots
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
+# Nothing by default; the one job that pushes says so itself.
+permissions: {}
 
 concurrency:
   group: screenshots-${{ github.ref }}
@@ -17,10 +17,14 @@ jobs:
       matrix:
         runner: [macos-15, macos-26]
     runs-on: ${{ matrix.runner }}
+    permissions:
+      # Pushes its captures to a screenshots/run-… branch of their own.
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
-      - uses: Swatinem/rust-cache@v2
+      # Credentials are kept: the last step pushes the screenshots branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: gpui-macos
 
@@ -31,7 +35,7 @@ jobs:
         run: |
           LIB="$RUNNER_TEMP/world-machine/Worlds"
           mkdir -p "$LIB"
-          cargo run -p pocket-universe --example demo_world -- "$LIB"
+          cargo run --locked -p pocket-universe --example demo_world -- "$LIB"
           echo "WM_LIB=$LIB" >> "$GITHUB_ENV"
 
       - name: Launch the app and capture the screen
@@ -114,7 +118,7 @@ jobs:
           echo "===== gpu"; system_profiler SPDisplaysDataType || true
           cp "$RUNNER_TEMP"/app.*.log shots/ || true
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: world-machine-screenshots-${{ matrix.runner }}
           path: shots/*

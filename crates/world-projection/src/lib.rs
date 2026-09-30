@@ -1,4 +1,5 @@
 mod causal;
+pub mod derived;
 mod drawing;
 mod guest;
 mod influence;
@@ -18,8 +19,10 @@ pub use drawing::{
     DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
 pub use guest::{
-    drawing_code, drawing_from_code, guest_drawing_id, look_code, look_from_code, with_guests,
-    Guest, Staying, GUEST_GREETING, MOST_DRAWING_CODE, MOST_GUEST_PARTS,
+    drawing_code, drawing_from_code, guest_drawing_id, guest_drawing_is_sound, look_code,
+    look_from_code, with_guests, Guest, Staying, GUEST_DRAWING_REACH, GUEST_GREETING,
+    MOST_DRAWING_CODE, MOST_GUEST_ALL_POINTS, MOST_GUEST_COLOURS, MOST_GUEST_PARTS,
+    MOST_GUEST_POINTS,
 };
 pub use influence::effect_headline;
 pub use mark::{
@@ -33,6 +36,9 @@ pub use stories::{
     lowered, one_a_day, Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat,
     Prop, StoryPage, StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
 };
+/// Text from outside a World, cleaned of characters that change how it
+/// reads without being seen (see [`world_core::text`]).
+pub use world_core::text::clean_text;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 /// The row of an event's context naming who did it.
@@ -187,6 +193,50 @@ pub enum ProjectionIntent {
     /// arrive only as words, which this World checks like anything else;
     /// nothing is shared with, or written back to, the World they came from.
     Host(Guest),
+    /// The player paints `pattern` on what a [`Designable`] offers: its
+    /// `command` is the `target`. The World checks it like anything else.
+    Design {
+        target: String,
+        pattern: Design,
+    },
+    /// The player gives `name` to what a [`Naming`] offers: its `command`
+    /// is the `target`. The World checks it like anything else.
+    Name {
+        target: String,
+        name: String,
+    },
+}
+
+impl ProjectionIntent {
+    /// A design or a name as World Machine sent it before typed intents
+    /// (and as a Pack on protocol v7 reads it): the target command with its
+    /// argument, `<target>=<argument>`. Every other intent is itself.
+    pub fn as_command(self) -> Self {
+        match self {
+            Self::Design { target, pattern } => {
+                Self::InvokeCommand(command_with(&target, &pattern.text()))
+            }
+            Self::Name { target, name } => Self::InvokeCommand(command_with(&target, &name)),
+            intent => intent,
+        }
+    }
+
+    /// A mark as the target and argument a World handles it by, whichever
+    /// way it was sent: typed, or as `<target>=<argument>`. `None` for an
+    /// intent that is not a command.
+    pub fn mark_parts(&self) -> Option<(&str, Option<std::borrow::Cow<'_, str>>)> {
+        match self {
+            Self::Design { target, pattern } => {
+                Some((target, Some(std::borrow::Cow::Owned(pattern.text()))))
+            }
+            Self::Name { target, name } => Some((target, Some(std::borrow::Cow::Borrowed(name)))),
+            Self::InvokeCommand(command) => {
+                let (target, argument) = command_argument(command);
+                Some((target, argument.map(std::borrow::Cow::Borrowed)))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Who hears what the player says to someone.
@@ -409,6 +459,21 @@ pub enum EffectChange {
     Up,
     Down,
     To(String),
+}
+
+/// What a Pack can do beyond the core of the protocol, as it says so in
+/// its descriptor (protocol v8). A host checks these rather than a protocol
+/// number before it offers or sends what needs them.
+pub mod capability {
+    /// Its places have plots the player can build on.
+    pub const PLOTS: &str = "plots";
+    /// It takes a design painted on something
+    /// ([`crate::ProjectionIntent::Design`]).
+    pub const DESIGNS: &str = "designs";
+    /// It takes a name given to something ([`crate::ProjectionIntent::Name`]).
+    pub const NAMES: &str = "names";
+    /// Its Worlds tell stories: legends, moments and almanacs.
+    pub const STORY: &str = "story";
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2031,13 +2096,83 @@ pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorPr
             inspector_for_relation(recorded, world),
         );
     }
-    for event in recent_events(world) {
+    let recent = recent_events(world);
+    let told = told_events(world, recent);
+    for event in recent {
+        let parts = told.0.get(&event.id).cloned();
+        let parts = parts.unwrap_or_else(|| std::sync::Arc::new(EventParts::of(event)));
         inspectors.insert(
             SelectionId::Event(event.id),
-            inspector_for_event(event, world),
+            inspector_for_event_with(event, world, &parts),
         );
     }
     inspectors
+}
+
+/// What an event's detail panel says of the event alone (everything but
+/// who was in it, whose names are read from where the World stands now).
+#[derive(Debug, PartialEq)]
+struct EventParts {
+    title: String,
+    subtitle: String,
+    caused_by: Option<InspectorRow>,
+    payload: Vec<InspectorRow>,
+    changes: Vec<InspectorRow>,
+}
+
+impl EventParts {
+    fn of(event: &Event) -> Self {
+        Self {
+            title: humanize(&event.kind),
+            subtitle: format!("Time {}", event.world_time),
+            caused_by: (!event.caused_by.is_empty()).then(|| InspectorRow {
+                label: "Caused by".into(),
+                value: event
+                    .caused_by
+                    .iter()
+                    .map(|id| format!("Event #{id}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            }),
+            payload: event
+                .payload
+                .iter()
+                .map(|(key, value)| InspectorRow {
+                    label: humanize(key),
+                    value: recorded_value_text(value),
+                })
+                .collect(),
+            changes: event.changes.iter().map(change_row).collect(),
+        }
+    }
+}
+
+/// The recent events' own parts, kept with the World: a recorded event
+/// never changes, so each is written out once, when it is first recent.
+#[derive(Default)]
+struct ToldEvents(BTreeMap<EventId, std::sync::Arc<EventParts>>);
+
+fn told_events(world: &World, recent: &[Event]) -> std::sync::Arc<ToldEvents> {
+    world.derived::<ToldEvents>(|kept| {
+        let kept = kept.unwrap_or_default();
+        if recent.iter().all(|event| kept.0.contains_key(&event.id)) && kept.0.len() == recent.len()
+        {
+            return kept;
+        }
+        std::sync::Arc::new(ToldEvents(
+            recent
+                .iter()
+                .map(|event| {
+                    let parts = kept
+                        .0
+                        .get(&event.id)
+                        .cloned()
+                        .unwrap_or_else(|| std::sync::Arc::new(EventParts::of(event)));
+                    (event.id, parts)
+                })
+                .collect(),
+        ))
+    })
 }
 
 /// How many of a World's latest events a snapshot describes in full, with
@@ -2280,7 +2415,11 @@ fn recorded_relation_change_rows(recorded: &RelationRecord, world: &World) -> Ve
         .collect()
 }
 
-fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
+fn inspector_for_event_with(
+    event: &Event,
+    world: &World,
+    parts: &EventParts,
+) -> InspectorProjection {
     let mut context = Vec::new();
     if let Some(actor) = event.actor {
         context.push(InspectorRow {
@@ -2309,49 +2448,29 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
                 .join(", "),
         });
     }
-    if !event.caused_by.is_empty() {
-        context.push(InspectorRow {
-            label: "Caused by".into(),
-            value: event
-                .caused_by
-                .iter()
-                .map(|id| format!("Event #{id}"))
-                .collect::<Vec<_>>()
-                .join(", "),
-        });
-    }
-
-    let payload = event
-        .payload
-        .iter()
-        .map(|(key, value)| InspectorRow {
-            label: humanize(key),
-            value: recorded_value_text(value),
-        })
-        .collect::<Vec<_>>();
-    let changes = event.changes.iter().map(change_row).collect::<Vec<_>>();
+    context.extend(parts.caused_by.clone());
 
     let mut sections = vec![InspectorSection {
         title: "Context".into(),
         rows: context,
     }];
-    if !payload.is_empty() {
+    if !parts.payload.is_empty() {
         sections.push(InspectorSection {
             title: "Payload".into(),
-            rows: payload,
+            rows: parts.payload.clone(),
         });
     }
-    if !changes.is_empty() {
+    if !parts.changes.is_empty() {
         sections.push(InspectorSection {
             title: "Changes".into(),
-            rows: changes,
+            rows: parts.changes.clone(),
         });
     }
 
     InspectorProjection {
         selection: SelectionId::Event(event.id),
-        title: humanize(&event.kind),
-        subtitle: format!("Time {}", event.world_time),
+        title: parts.title.clone(),
+        subtitle: parts.subtitle.clone(),
         sections,
     }
 }

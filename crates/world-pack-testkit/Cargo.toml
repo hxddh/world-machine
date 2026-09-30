@@ -1,0 +1,21 @@
+[package]
+name = "world-pack-testkit"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Shared test harnesses for World Packs: replay-identical fixtures, long runs, players, red team and seams."
+
+[dependencies]
+world-document = { path = "../world-document" }
+world-host = { path = "../world-host" }
+world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }
+days = { path = "../../systems/days" }
+conversation = { path = "../../systems/conversation" }
+lives = { path = "../../systems/lives" }
+chronicle = { path = "../../systems/chronicle" }
+world-core = { path = "../world-core" }
+# The snapshot JSON a Pack process sends, for snapshot_json.
+world-pack-protocol = { path = "../world-pack-protocol" }
+serde_json = "1"

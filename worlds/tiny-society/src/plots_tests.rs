@@ -316,7 +316,11 @@ fn a_design_and_a_name_are_kept_and_replayed_exactly() {
     for bad in [
         format!("tiny-society.mark.design.{}=0000:1", pole_id.0),
         format!("tiny-society.mark.name.{}=", crate::JONAS_BOAT.0),
-        format!("tiny-society.mark.name.{}=a\nb", crate::JONAS_BOAT.0),
+        // Nothing but hidden controls cleans to no name at all.
+        format!(
+            "tiny-society.mark.name.{}=\u{202E}\u{2066}",
+            crate::JONAS_BOAT.0
+        ),
         format!(
             "tiny-society.mark.name.{}={}",
             crate::JONAS_BOAT.0,
@@ -557,11 +561,11 @@ fn a_warm_builder_draws_eight_newcomers_in_three_years() {
             "{what}: {legend:?}"
         );
     }
-    // The plan's 50,000 characters is for the warm player's harbour
-    // (world-library's three_years, 47.9k). This one also houses the
-    // eight people what the player built drew, each of whom the lives
-    // System remembers much about: about 50.3k at v0.23.
-    assert!(code.len() < 51_000, "{}", code.len());
+    // The plan's 50,000 characters holds for the warm builder too: this
+    // harbour also houses the eight people what the player built drew,
+    // each of whom the lives System remembers much about (about 50.3k at
+    // v0.23, 47.3k at v0.25).
+    assert!(code.len() < 50_000, "{}", code.len());
 }
 
 /// Whether a line, translated, still has a word of English in it that is

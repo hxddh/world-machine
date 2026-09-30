@@ -10,24 +10,13 @@
 
 use crate::places::Place;
 use crate::{SLOT_A, SLOT_C, SLOT_D};
-use hands::{Effect, Thing, Verb};
+use hands::plots::{plot_px, slot_of, wearing, PlotLook, PlotPack, PlotWork as Work};
+use hands::{Effect, Kit, Thing};
 use std::sync::OnceLock;
-use world_core::{ActionRegistry, EntityId, Event, EventId, Value, World, WorldError, WorldState};
-use world_projection::{
-    CanvasItem, CanvasItemKind, Designable, MarkShape, Naming, PlotOffer, SelectionId, Variant,
-    Wears,
-};
+use world_core::{ActionRegistry, EntityId, Event, EventId, World, WorldError, WorldState};
+use world_projection::{CanvasItem, MarkShape, Wears};
 
-/// A work the player can build on a plot: what it is, which stretch of the
-/// place it belongs on, whom it draws to live there (their trade, which is
-/// also their job), and what it can wear.
-struct Work {
-    thing: Thing,
-    stretch: usize,
-    draws: Option<&'static str>,
-    wears: Option<Wears>,
-}
-
+/// A work built on a plot of a stretch.
 const fn work(
     id: &'static str,
     name: &'static str,
@@ -35,31 +24,12 @@ const fn work(
     stretch: usize,
     effect: Effect,
 ) -> Work {
-    Work {
-        thing: Thing {
-            id,
-            name,
-            verb: Verb::Build,
-            shape,
-            cost: 0,
-            lasts: None,
-            stages: &[],
-            effect,
-        },
-        stretch,
-        draws: None,
-        wears: None,
-    }
+    hands::plots::plot_work(id, name, shape, 0, effect, stretch)
 }
 
-const fn draws(mut work: Work, trade: &'static str) -> Work {
-    work.draws = Some(trade);
-    work
-}
-
-const fn wearing(mut work: Work, wears: Wears) -> Work {
-    work.wears = Some(wears);
-    work
+/// A work that draws someone of a trade, which is also their job.
+const fn draws(work: Work, trade: &'static str) -> Work {
+    hands::plots::draws(work, trade, trade)
 }
 
 use Effect::{Gather, Harvest, Rest};
@@ -314,14 +284,6 @@ fn spec(state: &WorldState, id: &str) -> Option<&'static Work> {
         .find(|work| work.thing.id == id)
 }
 
-/// The row plots lie in, behind the front row, and where it lies.
-pub(crate) const PLOT_ROW: usize = 4;
-pub(crate) const PLOT_Y: f32 = 0.68;
-pub(crate) const PLOT_OFFSET: f32 = 0.02;
-pub(crate) const PLOT_PITCH: f32 = 0.16;
-/// The most a plot offers at once: everything that belongs on its stretch.
-const OFFERED: usize = 12;
-
 /// How a place's plots open: five as its story begins (some on every
 /// stretch), then four more in each year (periods after the story
 /// began), until all are open. A place
@@ -341,64 +303,15 @@ fn stretch_of(state: &WorldState, plot: &hands::Plot) -> usize {
     }
 }
 
-/// Where a plot slot lies along the place.
-pub(crate) fn plot_px(slot: usize) -> f32 {
-    PLOT_OFFSET + (slot as f32 + 0.5) * PLOT_PITCH
-}
-
-fn slots(place: Place) -> impl Iterator<Item = usize> {
-    let width = crate::town::width(place);
-    0..((width - PLOT_OFFSET) / PLOT_PITCH).floor() as usize
-}
-
-fn plot_id(slot: usize) -> String {
-    format!("p{slot}")
-}
-
-fn slot_of(id: &str) -> Option<usize> {
-    id.strip_prefix('p')?.parse().ok()
-}
-
-/// The place a plot on a stretch is told as lying by.
-fn place_on(stretch: usize) -> EntityId {
-    if stretch == 0 {
-        SLOT_A
-    } else {
-        SLOT_C
-    }
-}
-
 /// The place's plots, and what could be built on each: everything that
 /// belongs on its stretch.
 pub(crate) fn plots(state: &WorldState) -> Vec<hands::Plot> {
-    let Some(place) = Place::of(state) else {
-        return Vec::new();
-    };
-    slots(place)
-        .map(|slot| {
-            let stretch = crate::town::stretch_at(place, plot_px(slot));
-            hands::Plot {
-                id: plot_id(slot),
-                at: place_on(stretch),
-                offers: list(place)
-                    .iter()
-                    .filter(|work| work.stretch == stretch)
-                    .map(|work| work.thing.id)
-                    .collect(),
-            }
-        })
-        .collect()
+    hands::plots::plots(&Here, state)
 }
 
 /// What something can wear a design as, if it can.
 pub(crate) fn wears_of(state: &WorldState, id: EntityId) -> Option<Wears> {
-    if !hands::made(state).contains(&id) {
-        return None;
-    }
-    let thing = match state.entity(id)?.component("hands.thing")? {
-        Value::Text(thing) => thing.as_str(),
-        _ => return None,
-    };
+    let thing = hands::plots::made_thing(state, id)?;
     match thing {
         "flag" => Some(Wears::Flag),
         "rowboat" | "kayak" => Some(Wears::Sail),
@@ -425,13 +338,7 @@ pub(crate) fn naming(state: &WorldState, id: EntityId) -> Option<String> {
         return (stage == lives::Stage::Baby)
             .then(|| if penguin { "chick" } else { "baby" }.into());
     }
-    if !hands::made(state).contains(&id) {
-        return None;
-    }
-    let thing = match entity.component("hands.thing")? {
-        Value::Text(thing) => thing.as_str(),
-        _ => return None,
-    };
+    let thing = hands::plots::made_thing(state, id)?;
     match spec(state, thing) {
         Some(work) => Some(work.thing.name.to_lowercase()),
         None => crate::handwork::thing_name(state, thing).map(str::to_lowercase),
@@ -453,6 +360,24 @@ fn command(what: &str, target: EntityId) -> String {
     format!("{MARK_COMMAND}{what}.{}", target.0)
 }
 
+/// The request a typed design or name makes (protocol v8): `target` is
+/// the command the World offered, `what` is `design` or `name`, and
+/// `argument` the design's text or the name. Nothing is parsed out of the
+/// argument, which may hold any character.
+pub(crate) fn typed_request(
+    what: &str,
+    target: &str,
+    argument: &str,
+) -> Option<world_core::ActionRequest> {
+    let rest = target.strip_prefix(MARK_COMMAND)?;
+    let (kind, id) = rest.split_once('.')?;
+    let id = EntityId::new(id.parse().ok()?);
+    (kind == what).then(|| match what {
+        "design" => hands::design_request(id, argument),
+        _ => hands::name_request(id, argument),
+    })
+}
+
 /// The request a design or naming command makes.
 pub(crate) fn request(command_id: &str) -> Option<world_core::ActionRequest> {
     let (what, target, argument) = parse_command(command_id)?;
@@ -460,54 +385,6 @@ pub(crate) fn request(command_id: &str) -> Option<world_core::ActionRequest> {
         "design" => hands::design_request(target, argument),
         _ => hands::name_request(target, argument),
     })
-}
-
-/// The plots as a screen shows them, with what could stand on each,
-/// starting from a different one on each plot.
-pub(crate) fn canvas_plots(world: &World) -> Vec<world_projection::Plot> {
-    let state = world.state();
-    let Some(place) = Place::of(state) else {
-        return Vec::new();
-    };
-    let kit = crate::handwork::kit(state);
-    let stretches = crate::town::stretch_ids(place);
-    hands::plot_deeds(world, &kit)
-        .into_iter()
-        .filter_map(|(plot, mut deeds)| {
-            let slot = slot_of(&plot.id)?;
-            let px = plot_px(slot);
-            let turn = if deeds.is_empty() {
-                0
-            } else {
-                slot % deeds.len()
-            };
-            deeds.rotate_left(turn);
-            Some(world_projection::Plot {
-                id: plot.id.clone(),
-                px,
-                row: PLOT_ROW as u8,
-                district: stretches[crate::town::stretch_at(place, px)].into(),
-                offers: deeds
-                    .into_iter()
-                    .take(OFFERED)
-                    .map(|deed| {
-                        let what = hands::plot_work(&deed.key).unwrap_or_default();
-                        PlotOffer {
-                            command: crate::handwork::command_id(&deed.key),
-                            label: deed.thing,
-                            shape: spec(state, what).map_or(MarkShape::House, |work| {
-                                crate::story::fixture_shape(world, work.thing.shape)
-                            }),
-                            cost: deed.cost,
-                            unavailable: deed.unavailable,
-                            art: crate::drawings::art_of(place, what).map(Into::into),
-                        }
-                    })
-                    .collect(),
-            })
-        })
-        .filter(|plot| !plot.offers.is_empty())
-        .collect()
 }
 
 /// The paints each place picks from for what it builds on a plot.
@@ -540,154 +417,113 @@ fn paints(place: Place) -> [[u8; 3]; 6] {
     }
 }
 
-/// Places the works standing on plots on their plots, and says what each
-/// thing on the scene can wear, be named, and how the place built it.
-pub(crate) fn dress(world: &World, items: &mut [CanvasItem]) {
-    let state = world.state();
-    let kit = crate::handwork::kit(state);
-    let Some(place) = Place::of(state) else {
-        return;
-    };
-    let width = crate::town::width(place);
-    let on_plots = hands::on_plots(state);
-    let built_on = |slot: usize| on_plots.iter().any(|(id, _)| slot_of(id) == Some(slot));
-    let cast = crate::life::cast(state);
-    let newborns = lives::to_be_named(state, &cast, |child| hands::named(state, child));
-    let paints = paints(place);
-    for item in items.iter_mut() {
-        let SelectionId::Entity(id) = item.id else {
-            continue;
-        };
-        if let Some(wears) = wears_of(state, id) {
-            item.design = Some(Designable {
-                command: command("design", id),
-                wears,
-            });
-            item.pattern = hands::pattern_of(state, id)
-                .and_then(|text| world_projection::Design::parse(text).ok())
-                .map(|design| design.pattern());
+/// The place a World is in, once it has begun.
+fn place(state: &WorldState) -> Place {
+    Place::of(state).expect("a place, once its plots are asked for")
+}
+
+/// Each place, as the plots read it.
+struct Here;
+
+impl PlotPack for Here {
+    fn ready(&self, state: &WorldState) -> bool {
+        Place::of(state).is_some()
+    }
+    fn works(&self, state: &WorldState) -> &'static [Work] {
+        Place::of(state).map_or(&[], list)
+    }
+    fn slots(&self, state: &WorldState) -> Vec<usize> {
+        match Place::of(state) {
+            Some(place) => (0..hands::plots::plot_slots(crate::town::width(place))).collect(),
+            None => Vec::new(),
         }
-        // Something the player made says so, never what it is kept as.
-        if item.detail.is_empty() && hands::made(state).contains(&id) {
-            item.detail = if hands::plot_of(state, id).is_some() {
-                "Built by you"
-            } else {
-                "Made by you"
-            }
-            .into();
-        }
-        if naming(state, id).is_some() {
-            item.naming = Some(Naming {
-                command: command("name", id),
-                proposals: if newborns.contains(&id) {
-                    lives::name_proposals(state, &cast, id, 3)
-                } else {
-                    Vec::new()
-                },
-            });
-        }
-        let Some(slot) = hands::plot_of(state, id).and_then(slot_of) else {
-            continue;
-        };
-        let px = plot_px(slot);
-        item.px = Some(px);
-        item.x = px / width;
-        item.y = PLOT_Y;
-        let what = match state.entity(id).and_then(|e| e.component("hands.thing")) {
-            Some(Value::Text(what)) => what.len() as u64,
-            _ => 0,
-        };
-        let seed = days::mix(&[slot as u64, what, 31]);
-        let wall = matches!(
-            item.shape,
-            Some(MarkShape::House | MarkShape::Shop | MarkShape::Tower | MarkShape::Dome)
-        );
-        item.kind = if wall {
-            CanvasItemKind::Place
+    }
+    fn width(&self, state: &WorldState) -> f32 {
+        crate::town::width(place(state))
+    }
+    fn stretch_at(&self, state: &WorldState, px: f32) -> usize {
+        crate::town::stretch_at(place(state), px)
+    }
+    fn stretch_id(&self, state: &WorldState, stretch: usize) -> &'static str {
+        crate::town::stretch_ids(place(state))[stretch]
+    }
+    /// The place a plot on a stretch is told as lying by.
+    fn place_on(&self, _: &WorldState, stretch: usize, _: f32) -> EntityId {
+        if stretch == 0 {
+            SLOT_A
         } else {
-            CanvasItemKind::Object
-        };
-        // Neighbours on plots side by side are joined: a wall run on, or
-        // a path between.
-        item.variant = Some(Variant {
-            colour: paints[(seed % paints.len() as u64) as usize],
-            flip: (seed >> 7) % 2 == 1,
-            join_left: slot > 0 && built_on(slot - 1),
-            join_right: built_on(slot + 1),
-        });
-        if hands::building(state, id) {
-            item.detail = "Being built".into();
-            item.built = None;
-            // Scaffolding stands round it until it is finished.
-            item.art = Some("scaffold".into());
-        } else if let Some(finished) = hands::finished_at(state, &kit, id) {
-            item.built = Some(finished as u32 + 1);
+            SLOT_C
+        }
+    }
+    fn kit(&self, state: &WorldState) -> Kit {
+        crate::handwork::kit(state)
+    }
+    fn deed_command(&self, key: &str) -> String {
+        crate::handwork::command_id(key)
+    }
+    fn command(&self, what: &str, target: EntityId) -> String {
+        command(what, target)
+    }
+    fn fixture_shape(&self, world: &World, shape: &str) -> MarkShape {
+        crate::story::fixture_shape(world, shape)
+    }
+    fn art_of(&self, state: &WorldState, what: &str) -> Option<&'static str> {
+        crate::drawings::art_of(place(state), what)
+    }
+    fn wears_of(&self, state: &WorldState, id: EntityId) -> Option<Wears> {
+        wears_of(state, id)
+    }
+    fn naming(&self, state: &WorldState, id: EntityId) -> Option<String> {
+        naming(state, id)
+    }
+    fn newborn_word(&self, state: &WorldState, child: EntityId) -> String {
+        naming(state, child).unwrap_or_else(|| "baby".into())
+    }
+    fn cast(&self, state: &WorldState) -> lives::Cast {
+        crate::life::cast(state)
+    }
+    /// The room kept for whoever a work draws is theirs.
+    fn newcomer_cast(&self, state: &WorldState) -> lives::Cast {
+        let mut cast = crate::life::cast(state);
+        cast.most_people = crate::life::most_people(state);
+        cast
+    }
+    fn look(&self, state: &WorldState) -> PlotLook<'_> {
+        static PAINTS: OnceLock<[[[u8; 3]; 6]; 3]> = OnceLock::new();
+        let paints = PAINTS.get_or_init(|| [Place::Ares, Place::Maple, Place::Ice].map(paints));
+        PlotLook {
+            paints: &paints[place(state).index()],
+            salt: 31,
+            walls: &[
+                MarkShape::House,
+                MarkShape::Shop,
+                MarkShape::Tower,
+                MarkShape::Dome,
+            ],
+            pairs: false,
         }
     }
 }
 
-/// The name cards: the parents of a baby born these last days ask the
-/// player to choose a name, from three they propose.
+/// The plots as a screen shows them.
+pub(crate) fn canvas_plots(world: &World) -> Vec<world_projection::Plot> {
+    hands::plots::canvas_plots(&Here, world)
+}
+
+/// Places the works standing on plots on their plots, and says what each
+/// thing on the scene can wear, be named, and how the place built it.
+pub(crate) fn dress(world: &World, items: &mut [CanvasItem]) {
+    hands::plots::dress(&Here, world, items);
+}
+
+/// The name cards for a newborn.
 pub(crate) fn naming_cards(world: &World) -> Vec<world_projection::ProjectionCommand> {
-    let state = world.state();
-    if Place::of(state).is_none() {
-        return Vec::new();
-    }
-    let cast = crate::life::cast(state);
-    lives::to_be_named(state, &cast, |child| hands::named(state, child))
-        .into_iter()
-        .flat_map(|child| {
-            let parents = lives::generations::parents(state, child);
-            let what = naming(state, child).unwrap_or_else(|| "baby".into());
-            let prompt = match parents.as_slice() {
-                [a, b, ..] => format!(
-                    "{} and {} would like you to choose the {what}'s name",
-                    lives::first_name(state, *a),
-                    lives::first_name(state, *b)
-                ),
-                [a] => format!(
-                    "{} would like you to choose the {what}'s name",
-                    lives::first_name(state, *a)
-                ),
-                [] => format!("Choose the {what}'s name"),
-            };
-            let question = world_projection::Question {
-                id: format!("name-{}", child.0),
-                prompt,
-            };
-            let asker = parents.first().copied().map(SelectionId::Entity);
-            let detail = format!("Call the {what} this");
-            lives::name_proposals(state, &cast, child, 3)
-                .into_iter()
-                .map(move |name| world_projection::ProjectionCommand {
-                    id: world_projection::command_with(&command("name", child), &name),
-                    title: name,
-                    detail: detail.clone(),
-                    effects: Vec::new(),
-                    scenery: None,
-                    moves: Vec::new(),
-                    asker,
-                    question: Some(question.clone()),
-                    unavailable: None,
-                    hand: None,
-                    preview: None,
-                })
-        })
-        .collect()
+    hands::plots::naming_cards(&Here, world)
 }
 
 /// Whether something the player built (or began) waits to draw someone.
 pub(crate) fn waiting(state: &WorldState) -> bool {
-    hands::on_plots(state).into_iter().any(|(_, id)| {
-        let Some(entity) = state.entity(id) else {
-            return false;
-        };
-        let draws = match entity.component("hands.thing") {
-            Some(Value::Text(what)) => spec(state, what).is_some_and(|work| work.draws.is_some()),
-            _ => false,
-        };
-        draws && lives::drew(state, id).is_none()
-    })
+    hands::plots::waiting(&Here, state)
 }
 
 /// One period of what the player built drawing people to the place.
@@ -695,77 +531,11 @@ pub(crate) fn draw(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    let state = world.state();
-    let kit = crate::handwork::kit(state);
-    let draws = hands::on_plots(state)
-        .into_iter()
-        .filter(|(_, id)| lives::drew(state, *id).is_none())
-        .filter_map(|(_, id)| {
-            let entity = state.entity(id)?;
-            let what = match entity.component("hands.thing")? {
-                Value::Text(what) => spec(state, what)?,
-                _ => return None,
-            };
-            let trade = what.draws?;
-            let since = hands::finished_at(state, &kit, id)?;
-            Some(lives::Draw {
-                by: id,
-                what: what.thing.name.to_lowercase(),
-                trade,
-                job: trade,
-                since,
-                cause: None,
-            })
-        })
-        .collect::<Vec<_>>();
-    if draws.is_empty() {
-        return Ok(Vec::new());
-    }
-    let finished = world.events_of_kind(&["plot_finished"]);
-    let draws = draws
-        .into_iter()
-        .map(|mut draw| {
-            draw.cause = finished
-                .iter()
-                .rev()
-                .find(|event| event.targets.first() == Some(&draw.by))
-                .map(|event| event.id);
-            draw
-        })
-        .collect::<Vec<_>>();
-    // The room kept for whoever it draws is theirs.
-    let mut cast = crate::life::cast(world.state());
-    cast.most_people = crate::life::most_people(world.state());
-    lives::draw_newcomers(world, actions, &cast, &draws)
+    hands::plots::draw(&Here, world, actions)
 }
 
 /// A line told before someone was named, told with the name they were
-/// given: a baby's birth, told with the name the player chose.
+/// given.
 pub(crate) fn renamed(state: &WorldState, event: &Event, line: String) -> String {
-    if event.kind != "born" {
-        return line;
-    }
-    let Some(Value::Entity(child)) = event.payload.get("who") else {
-        return line;
-    };
-    let (Some(was), true) = (
-        hands::was_called(state, *child),
-        hands::named(state, *child),
-    ) else {
-        return line;
-    };
-    let now = lives::name(state, *child);
-    let mut out = String::new();
-    let mut rest = line.as_str();
-    while let Some(at) = rest.find(was) {
-        let before = rest[..at].chars().last();
-        let after = rest[at + was.len()..].chars().next();
-        let whole =
-            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric);
-        out.push_str(&rest[..at]);
-        out.push_str(if whole { &now } else { was });
-        rest = &rest[at + was.len()..];
-    }
-    out.push_str(rest);
-    out
+    hands::plots::renamed(state, event, line)
 }

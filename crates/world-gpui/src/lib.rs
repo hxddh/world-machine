@@ -5,6 +5,7 @@ pub mod design;
 pub mod diorama;
 #[cfg(test)]
 mod golden;
+pub mod hand;
 pub mod i18n;
 mod macos;
 pub mod mark;
@@ -180,8 +181,9 @@ mod tests {
     }
 
     /// At twice the text size, a line a third longer than English (as
-    /// many translations are) still shows at most two lines at a time,
-    /// each narrow enough for the bubble.
+    /// many translations are) still shows at most two lines at a time
+    /// (or one whole sentence, too long for two), each narrow enough for
+    /// the bubble.
     #[test]
     fn a_long_translation_at_double_size_still_pages_in_twos() {
         let english =
@@ -192,7 +194,15 @@ mod tests {
         set_text_scale(100);
         assert!(pages.len() >= 3, "{pages:?}");
         for page in &pages {
-            assert!(page.lines().count() <= 2, "{page:?}");
+            // Two lines, or one sentence too long for two on a taller
+            // page of its own, never cut in the middle.
+            let one_sentence = !page
+                .trim_end_matches(['.', '?', '!'])
+                .contains(['.', '?', '!']);
+            assert!(
+                page.lines().count() <= 2 || one_sentence && page.lines().count() <= 4,
+                "{page:?}"
+            );
             for line in page.lines() {
                 assert!(line.chars().count() <= 18, "{line:?} is too wide at 200%");
             }

@@ -279,6 +279,23 @@ impl PocketUniverse {
         Ok(event)
     }
 
+    /// A design or a name the player gave, as a typed intent (protocol
+    /// v8): `what` is `design` or `name`, `target` the command the place
+    /// offered, `argument` the design's text or the name.
+    pub fn mark_typed(
+        &mut self,
+        what: &str,
+        target: &str,
+        argument: &str,
+    ) -> Result<EventId, Box<dyn Error>> {
+        if seed_id(&self.world) == UNSEEDED {
+            return Err(std::io::Error::other("choose where this World begins first").into());
+        }
+        let request = plots::typed_request(what, target, argument)
+            .ok_or_else(|| std::io::Error::other(format!("not a {what}: {target}")))?;
+        Ok(self.world.execute(&self.actions, &request)?.id)
+    }
+
     pub fn invoke_projection_command(
         &mut self,
         command_id: &str,
@@ -597,6 +614,16 @@ impl WorldSession for PocketUniverseSession {
             ProjectionIntent::Host(guest) => {
                 self.world.host(&guest).map_err(HostError::session)?;
             }
+            ProjectionIntent::Design { target, pattern } => {
+                self.world
+                    .mark_typed("design", &target, &pattern.text())
+                    .map_err(HostError::session)?;
+            }
+            ProjectionIntent::Name { target, name } => {
+                self.world
+                    .mark_typed("name", &target, &name)
+                    .map_err(HostError::session)?;
+            }
         }
         self.return_since_event_count = None;
         Ok(self.snapshot())
@@ -736,6 +763,12 @@ pub fn pocket_universe_registration_with_voices(
     .with_owned_archive_opener(move |archive| {
         PocketUniverseSession::open_owned_archive(archive, own_voice(), own_ears())
     })
+    .with_capabilities([
+        world_projection::capability::PLOTS,
+        world_projection::capability::DESIGNS,
+        world_projection::capability::NAMES,
+        world_projection::capability::STORY,
+    ])
 }
 
 fn baseline() -> Result<WorldState, WorldStateError> {
@@ -937,37 +970,7 @@ pub(crate) fn seed_id(world: &World) -> &str {
         .unwrap_or(UNSEEDED)
 }
 
-/// The guests staying in this World, as the canvas stands them.
-pub(crate) fn guests_staying(world: &World, cast: &lives::Cast) -> Vec<world_projection::Staying> {
-    lives::guests_staying(world, cast)
-        .into_iter()
-        .map(|guest| world_projection::Staying {
-            visit: guest.visit,
-            name: guest.name,
-            from: guest.from,
-            line: guest.line,
-            look: guest.look,
-            drawing: guest.drawing,
-        })
-        .collect()
-}
-
-/// What a visit tells this World of a guest.
-pub(crate) fn guest_words<'a>(
-    guest: &'a world_projection::Guest,
-    look: &'a Option<String>,
-    drawing: &'a Option<String>,
-) -> lives::GuestWords<'a> {
-    lives::GuestWords {
-        name: &guest.name,
-        from: &guest.from,
-        letter: &guest.letter,
-        gift: &guest.gift,
-        line: guest.line.as_deref(),
-        look: look.as_deref(),
-        drawing: drawing.as_deref(),
-    }
-}
+pub(crate) use lives::shown::{guest_words, guests_staying};
 
 fn seed_id_from_state(state: &WorldState) -> Result<String, ActionError> {
     match state

@@ -5,30 +5,17 @@
 //! moments; captions are the place's own voice.
 
 use crate::SLOT_A as HOME;
-use chronicle::{fill, text, Beat};
-use std::collections::{BTreeMap, BTreeSet};
-use world_core::{EntityId, Event, StateChange, Value, World};
-use world_projection::{BookEntry, MarkShape, Moment, MomentKind, Mood, Prop, SelectionId};
+use chronicle::kit::{self, creates_someone, goes, married, ChroniclePack, Voice, Voices};
+use chronicle::text;
+use std::collections::BTreeMap;
+use world_core::{EntityId, Event, EventId, World};
+use world_projection::{BookEntry, Moment, MomentKind, Mood, Prop};
 
 use Mood::{Content, Happy, Sad, Thinking};
 
 /// The days of a season, for each season's best festival night.
 const SEASON_DAYS: u64 = crate::story::SEASON_PERIODS;
 const DAY: u64 = crate::BACKGROUND_PERIOD;
-
-/// The words of each kind of moment: its title, and the lines before and
-/// after the moment itself, a few of each, one picked by the Event. Each
-/// names who and what, from what the Event recorded: `{a}` and `{b}` (the
-/// first two people drawn), `{place}`, `{season}`, and per kind `{trade}`,
-/// `{festival}`, `{work}`, `{age}` or `{count}`.
-struct Voice {
-    title: &'static str,
-    before: &'static [&'static str],
-    after: &'static [&'static str],
-    moods: [Mood; 3],
-    /// What each panel shows besides its people, whatever its words.
-    props: [&'static [Prop]; 3],
-}
 
 /// Words a caption can say that a panel shows: a caption that names the
 /// bag has the bag drawn in it.
@@ -242,387 +229,121 @@ const ARRIVAL: Voice = Voice {
     props: [&[], &[Prop::Suitcase], &[]],
 };
 
-use crate::legends::is_person;
+const VOICES: Voices = Voices {
+    wedding: &WEDDING,
+    couple: &COUPLE,
+    party: &PARTY,
+    birth: &BIRTH,
+    grown: &GROWN,
+    retired: &RETIRED,
+    farewell: &FAREWELL,
+    death: &DEATH,
+    storm: &STORM,
+    work: &WORK,
+    festival: &FESTIVAL,
+    arrival: &ARRIVAL,
+};
 
-/// Who a moment is about: its subject, whom it concerned, and whom it
-/// joined them to, the people only.
-fn people(world: &World, event: &Event) -> Vec<EntityId> {
-    let mut seen = BTreeSet::new();
-    chronicle::entity(event, "who")
-        .into_iter()
-        .chain(event.actor)
-        .chain(event.targets.iter().copied())
-        .chain(event.changes.iter().filter_map(|change| match change {
-            StateChange::SetComponent {
-                key,
-                value: Value::Entity(other),
-                ..
-            } if key.ends_with("married") => Some(*other),
-            StateChange::SetComponent {
-                entity,
-                key,
-                value: Value::Bool(true),
-            } if key == lives::SETTLED => Some(*entity),
-            StateChange::CreateEntity(entity) => Some(entity.id),
-            _ => None,
-        }))
-        .filter(|id| is_person(world, *id) && seen.insert(*id))
-        .collect()
-}
+/// The place, as the moment kit reads it.
+pub(crate) struct Place;
 
-fn told(world: &World, event: &Event) -> Option<String> {
-    crate::story::told(world, event)
-        .or_else(|| lives::told(event))
-        .or_else(|| text(event, "told").map(str::to_string))
-}
-
-fn capitalized(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+impl ChroniclePack for Place {
+    fn home(&self) -> EntityId {
+        HOME
     }
-}
-
-/// Everyone a moment draws: those its captions name, at most four.
-const MOST_CAST: usize = 4;
-
-fn beat<'a>(
-    world: &World,
-    event: &'a Event,
-    kind: MomentKind,
-    voice: &Voice,
-    mut cast: Vec<EntityId>,
-    place: EntityId,
-    slots: &[(&str, &str)],
-) -> Option<Beat<'a>> {
-    let state = world.state();
-    // Someone without a name cannot be told of.
-    cast.retain(|id| !lives::first_name(state, *id).is_empty());
-    let count = cast.len().to_string();
-    cast.truncate(MOST_CAST);
-    let name = |at: usize| {
-        cast.get(at)
-            .map(|id| lives::first_name(state, *id))
-            .unwrap_or_default()
-    };
-    let (a, b) = (name(0), name(1));
-    let season = chronicle::season_at(event.world_time, DAY, crate::almanac::YEAR);
-    let place_name = state
-        .entity(place)
-        .map(world_projection::entity_title)
-        .unwrap_or_default();
-    let trade = text(event, "trade")
-        .map(str::to_string)
-        .or_else(|| {
-            event.changes.iter().find_map(|change| match change {
-                StateChange::SetComponent {
-                    entity,
-                    key,
-                    value: Value::Text(job),
-                } if Some(entity) == cast.first()
-                    && matches!(key.as_str(), "job" | "role")
-                    && job != "retired" =>
-                {
-                    Some(job.replace('_', " "))
-                }
-                _ => None,
-            })
-        })
-        .unwrap_or_default();
-    let age = match event.payload.get("age") {
-        Some(Value::Integer(age)) => age.to_string(),
-        _ => String::new(),
-    };
-    // A name nobody has is left unfilled, so no line is told without it.
-    let mut all = [("a", a.as_str()), ("b", b.as_str())]
-        .into_iter()
-        .filter(|(_, name)| !name.is_empty())
-        .collect::<Vec<_>>();
-    all.extend([
-        ("season", season),
-        ("place", place_name.as_str()),
-        ("count", count.as_str()),
-    ]);
-    all.extend_from_slice(slots);
-    // A trade is told as "a fisher"; one that would want "an" is left
-    // to the lines that do not name it.
-    let trade = trade.replace('_', " ");
-    if !trade.is_empty() && !trade.starts_with(['a', 'e', 'i', 'o', 'u']) {
-        all.push(("trade", &trade));
+    fn party_place(&self) -> EntityId {
+        HOME
     }
-    if !age.is_empty() {
-        all.push(("age", &age));
+    fn day(&self) -> u64 {
+        DAY
     }
-    // The first of the lines whose every slot can be filled, from the one
-    // the Event picks; none, and the moment is told without the panel's
-    // own words.
-    let line = |options: &[&str], seed: u64| {
-        let turn = (0..options.len()).map(|step| options[(seed as usize + step) % options.len()]);
-        // Lines that name who first; the others only when nobody can be.
-        turn.clone()
-            .filter(|option| option.contains("{a}"))
-            .chain(turn)
-            .map(|option| fill(option, &all))
-            .find(|line| !line.contains('{'))
-    };
-    let seed = event.id.0;
-    // A work is shown finished, whatever its last part was.
-    let moment = match slots.iter().find(|(slot, _)| *slot == "work") {
-        Some((_, work)) => format!("Finished at last: {work}."),
-        None => format!("{}.", told(world, event)?.trim_end_matches('.')),
-    };
-    let captions = [
-        line(voice.before, seed)?,
-        moment,
-        line(voice.after, seed / 3)?,
-    ];
-    // Whoever the captions name is drawn too, up to four.
-    let everyone = state
-        .entities()
-        .map(|entity| entity.id)
-        .filter(|id| is_person(world, *id))
-        .collect::<Vec<_>>();
-    let cast = chronicle::named_in(world, &captions, cast, everyone, MOST_CAST);
-    Some(Beat {
-        event,
-        kind,
-        title: capitalized(&fill(voice.title, &all)),
-        cast,
-        place: Some(place),
-        props: {
-            let mut props = [0, 1, 2]
-                .map(|at| chronicle::props_for(&captions[at], PROP_WORDS, voice.props[at]));
-            // Someone leaving goes, and someone new comes, the way people
-            // travel here.
-            if voice.title == FAREWELL.title {
-                props[1].push(transport(world));
-            } else if voice.title == ARRIVAL.title {
-                props[0].push(transport(world));
-            }
-            props
-        },
-        captions,
-        moods: voice.moods.map(Some),
-    })
-}
-
-/// Where a moment happens: where the Event itself put whom it is about,
-/// or the place. Read from the Event, never from how things
-/// stand now, so a moment is told the same way however long ago it was.
-fn where_of(event: &Event, who: Option<&EntityId>) -> EntityId {
-    event
-        .changes
-        .iter()
-        .find_map(|change| match change {
-            StateChange::SetComponent {
-                entity,
-                key,
-                value: Value::Entity(place),
-            } if Some(entity) == who && key == "location" => Some(*place),
-            _ => None,
-        })
-        .unwrap_or(HOME)
-}
-
-fn creates_someone(world: &World, event: &Event) -> Option<EntityId> {
-    event.changes.iter().find_map(|change| match change {
-        StateChange::CreateEntity(entity) if is_person(world, entity.id) => Some(entity.id),
-        _ => None,
-    })
-}
-
-fn married(event: &Event) -> bool {
-    event.changes.iter().any(|change| {
-        matches!(change, StateChange::SetComponent { key, value: Value::Entity(_), .. }
-            if key.ends_with("married"))
-    })
-}
-
-fn goes(event: &Event) -> bool {
-    event.changes.iter().any(|change| {
-        matches!(change, StateChange::SetComponent { key, value: Value::Bool(true), .. }
-            if key == lives::GONE)
-    })
-}
-
-/// Every key beat of the place's history.
-fn beats(world: &World) -> Vec<Beat<'_>> {
-    let mut beats = Vec::new();
-    // Storms weathered.
-    for event in world.events_of_kind(crate::legends::storm_kinds()) {
-        let cast = people(world, event);
-        beats.extend(beat(
-            world,
-            event,
-            MomentKind::Storm,
-            &STORM,
-            cast,
-            HOME,
-            &[],
-        ));
+    fn season_days(&self) -> u64 {
+        SEASON_DAYS
     }
-    // Lives: births, comings of age, retirements and deaths.
-    for event in world.events_of_kind(&["born", "came_of_age", "retired", "died"]) {
-        let cast = people(world, event);
-        let place = where_of(event, cast.first());
-        let (kind, voice) = match event.kind.as_str() {
-            "born" => (MomentKind::Birth, &BIRTH),
-            "came_of_age" => (MomentKind::ComingOfAge, &GROWN),
-            "retired" => (MomentKind::Farewell, &RETIRED),
-            _ => (MomentKind::Death, &DEATH),
-        };
-        beats.extend(beat(world, event, kind, voice, cast, place, &[]));
+    fn year_days(&self) -> u64 {
+        crate::almanac::YEAR
     }
-    // The place's turning years.
-    for event in world.events_of_kind(&["year_turned"]) {
-        let cast = people(world, event);
-        let place = where_of(event, cast.first());
+    fn prop_words(&self) -> &'static [(&'static str, Prop)] {
+        PROP_WORDS
+    }
+    fn voices(&self) -> &Voices {
+        &VOICES
+    }
+    fn is_person(&self, world: &World, id: EntityId) -> bool {
+        crate::legends::is_person(world, id)
+    }
+    fn is_married_key(&self, key: &str) -> bool {
+        key.ends_with("married")
+    }
+    fn is_trade_key(&self, key: &str) -> bool {
+        matches!(key, "job" | "role")
+    }
+    fn told(&self, world: &World, event: &Event) -> Option<String> {
+        crate::story::told(world, event)
+    }
+    fn storm_kinds(&self) -> &[&'static str] {
+        crate::legends::storm_kinds()
+    }
+    fn meeting_kinds(&self) -> &[&'static str] {
+        &["situation_answered", "situation_lapsed"]
+    }
+    /// The place's turning years.
+    fn turning_year(
+        &self,
+        world: &World,
+        event: &Event,
+        cast: &[EntityId],
+    ) -> Option<(MomentKind, &'static Voice)> {
         let turn = text(event, "beat")
             .and_then(|beat| beat.split('.').next())
             .unwrap_or_default();
-        let (kind, voice) = if turn == "grow" {
+        Some(if turn == "grow" {
             (MomentKind::ComingOfAge, &GROWN)
         } else if turn == "hand_on" {
             (MomentKind::Farewell, &RETIRED)
         } else if goes(event) {
             (MomentKind::Farewell, &FAREWELL)
-        } else if creates_someone(world, event).is_some() {
+        } else if creates_someone(self, world, event).is_some() {
             (MomentKind::Other, &ARRIVAL)
-        } else if cast.len() >= 2 && married(event) {
+        } else if cast.len() >= 2 && married(self, event) {
             (MomentKind::Wedding, &WEDDING)
         } else if turn == "settle" {
             (MomentKind::Other, &SETTLED)
         } else {
-            continue;
-        };
-        beats.extend(beat(world, event, kind, voice, cast, place, &[]));
+            return None;
+        })
     }
-    // Between people: a couple's party, a newcomer staying, someone leaving.
-    for event in world.events_of_kind(&["situation_answered", "situation_lapsed"]) {
-        let cast = people(world, event);
-        let answer = text(event, "answer").unwrap_or_default();
-        let (kind, voice, place) = match text(event, "kind") {
-            Some("sweet") if answer == "ask" => {
-                (MomentKind::Other, &COUPLE, where_of(event, cast.first()))
-            }
-            Some("party") if matches!(answer, "party" | "potluck") => {
-                (MomentKind::Other, &PARTY, HOME)
-            }
-            Some("leaving") if answer != "stay" && goes(event) => {
-                (MomentKind::Farewell, &FAREWELL, HOME)
-            }
-            _ => match creates_someone(world, event) {
-                Some(newcomer) => {
-                    let mut cast = cast.clone();
-                    cast.retain(|id| *id != newcomer);
-                    cast.insert(0, newcomer);
-                    beats.extend(beat(
-                        world,
-                        event,
-                        MomentKind::Other,
-                        &ARRIVAL,
-                        cast,
-                        HOME,
-                        &[],
-                    ));
-                    continue;
-                }
-                None => continue,
-            },
-        };
-        beats.extend(beat(world, event, kind, voice, cast, place, &[]));
+    fn works_opened(&self, world: &World) -> Vec<(EventId, u64, String)> {
+        let labels = crate::story::goals(world)
+            .into_iter()
+            .map(|goal| (goal.id, goal.label))
+            .collect::<BTreeMap<_, _>>();
+        storylets::finished_goals(world, crate::story::deck_ref())
+            .into_iter()
+            .filter_map(|finished| {
+                let (id, at) = finished.event?;
+                Some((id, at, labels.get(finished.goal)?.clone()))
+            })
+            .collect()
     }
-    // Works opened: the Event that put each one's last part in place.
-    let labels = crate::story::goals(world)
-        .into_iter()
-        .map(|goal| (goal.id, goal.label))
-        .collect::<BTreeMap<_, _>>();
-    for finished in storylets::finished_goals(world, crate::story::deck_ref()) {
-        let Some((id, _)) = finished.event else {
-            continue;
-        };
-        let (Some(event), Some(label)) = (world.event(id), labels.get(finished.goal)) else {
-            continue;
-        };
-        let cast = people(world, event);
-        beats.extend(beat(
-            world,
-            event,
-            MomentKind::WorkOpened,
-            &WORK,
-            cast,
-            HOME,
-            &[("work", &world_projection::lowered(label, &[]))],
-        ));
+    /// A shuttle from a colony, the bus from a town, a sled over the ice.
+    fn transport(&self, world: &World) -> Option<Prop> {
+        Some(transport(world))
     }
-    // A festival's best night: the first time each is held to a full
-    // turnout, and any night better attended than every one before it that
-    // season. Read from what came before only, so it is never taken back.
-    let mut first = BTreeSet::new();
-    let mut best: BTreeMap<u64, usize> = BTreeMap::new();
-    let mut nights = Vec::new();
-    for event in world.events_of_kind(&["festival_held"]) {
-        let grand = text(event, "turnout") == Some("grand");
-        let season = event.world_time / DAY / SEASON_DAYS;
-        let crowd = event.changes.len();
-        let record = best.get(&season).is_none_or(|most| crowd > *most);
-        if record {
-            best.insert(season, crowd);
-        }
-        if (grand && first.insert(text(event, "festival").unwrap_or_default())) || record {
-            nights.push(event);
-        }
-    }
-    for event in nights {
-        let name = text(event, "name").unwrap_or_default().to_string();
-        let place = event.targets.first().copied().unwrap_or(HOME);
-        let cast = people(world, event);
-        beats.extend(beat(
-            world,
-            event,
-            MomentKind::Festival,
-            &FESTIVAL,
-            cast,
-            place,
-            &[("festival", &name)],
-        ));
-    }
-    beats
 }
 
 /// Every moment of the place's history, at most one a day, oldest
 /// first.
 pub(crate) fn moments(world: &World) -> Vec<Moment> {
-    let mut seen = BTreeSet::new();
-    let beats = beats(world)
-        .into_iter()
-        .filter(|beat| seen.insert(beat.event.id))
-        .collect();
-    chronicle::moments(beats, DAY)
+    kit::moments_of(&Place, world)
 }
 
 /// One moment, by its id.
 pub(crate) fn moment(world: &World, id: &str) -> Option<Moment> {
-    moments(world).into_iter().find(|moment| moment.id == id)
+    kit::moment(&Place, world, id)
 }
 
 /// The book's page for each moment, with its cast for faces.
 pub(crate) fn book_entries(moments: &[Moment]) -> Vec<BookEntry> {
-    moments
-        .iter()
-        .map(|moment| BookEntry {
-            shelf: "Moments".into(),
-            name: moment.title.clone(),
-            found: true,
-            shape: Some(MarkShape::Flag),
-            hint: String::new(),
-            moment: Some(moment.id.clone()),
-            cast: moment
-                .cast()
-                .into_iter()
-                .chain(moment.panels[1].place)
-                .collect::<Vec<SelectionId>>(),
-        })
-        .collect()
+    kit::book_entries(moments)
 }

@@ -594,5 +594,37 @@ pub fn coming_up(state: &WorldState, almanac: &Almanac, within: u64) -> Option<S
     })
 }
 
+/// How much the player has made to celebrate with, decorations counting
+/// double, up to six.
+pub fn decorated(state: &WorldState) -> i64 {
+    hands::made(state)
+        .into_iter()
+        .map(
+            |fixture| match state.entity(fixture).and_then(|f| f.component("shape")) {
+                Some(Value::Text(shape))
+                    if matches!(shape.as_str(), "bunting" | "lantern" | "flag") =>
+                {
+                    2
+                }
+                _ => 1,
+            },
+        )
+        .sum::<i64>()
+        .min(6)
+}
+
+/// How many gardens the player planted have grown.
+pub fn gardens_grown(state: &WorldState) -> i64 {
+    hands::made(state)
+        .into_iter()
+        .filter(|fixture| {
+            matches!(
+                state.entity(*fixture).and_then(|f| f.component("shape")),
+                Some(Value::Text(shape)) if shape == "garden"
+            )
+        })
+        .count() as i64
+}
+
 #[cfg(test)]
 mod tests;

@@ -48,56 +48,10 @@ const UNKIND: &[&str] = &[
     "cried",
 ];
 
-/// Everything a player can read now in the World's own words: the scene,
-/// what people say, the questions, the drawer and the book (the details
-/// panels, which show what the World records, are left out).
+/// Everything a player can read now in the World's own words, the
+/// briefing among them.
 pub(crate) fn readable(snapshot: &ProjectionSnapshot) -> Vec<String> {
-    let mut text: Vec<String> = Vec::new();
-    if let Some(briefing) = &snapshot.briefing {
-        for item in &briefing.items {
-            text.push(item.title.clone());
-            text.push(item.detail.clone());
-        }
-    }
-    for command in &snapshot.commands {
-        text.push(command.title.clone());
-        text.push(command.detail.clone());
-        if let Some(question) = &command.question {
-            text.push(question.prompt.clone());
-        }
-    }
-    for item in &snapshot.timeline.items {
-        text.push(item.title.clone());
-    }
-    for item in &snapshot.canvas.items {
-        text.push(item.label.clone());
-        text.push(item.detail.clone());
-    }
-    text.extend(snapshot.voices.iter().map(|voice| voice.line.clone()));
-    for talk in &snapshot.talks {
-        text.push(talk.question.clone());
-        text.push(talk.answer.clone());
-    }
-    text.extend(snapshot.goals.iter().map(|goal| goal.label.clone()));
-    for chapter in &snapshot.chapters {
-        text.push(chapter.title.clone());
-        text.push(chapter.summary.clone());
-    }
-    for keepsake in &snapshot.keepsakes {
-        text.push(keepsake.what.clone());
-        text.push(keepsake.note.clone());
-    }
-    text.extend(snapshot.letters.iter().map(|letter| letter.note.clone()));
-    for moment in &snapshot.moments {
-        text.push(moment.title.clone());
-        text.extend(moment.panels.iter().map(|panel| panel.caption.clone()));
-    }
-    for entry in &snapshot.book {
-        text.push(entry.name.clone());
-        text.push(entry.hint.clone());
-    }
-    text.retain(|line| !line.trim().is_empty());
-    text
+    world_pack_testkit::seams::readable(snapshot, true)
 }
 
 fn unkind(line: &str) -> Option<&'static str> {

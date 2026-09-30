@@ -8,11 +8,34 @@
 //! A friend's resident is read from such a copy, as their World shows
 //! them, and arrives in yours only as a guest your World checks and
 //! records; nothing is written to the friend's World.
+//!
+//! A code is someone else's text, so it is read and replayed away from the
+//! window (see [`world_library::prepare_visit`]), with a time limit, while
+//! the window says it is opening; a code that is too large, damaged or too
+//! slow is refused with a sentence and never holds the window up.
 
 use super::*;
 use gpui::ClipboardItem;
-use world_library::{looks_like_world_code, write_world_code_file, WorldVisit, WORLD_CODE_SUFFIX};
+use world_library::{
+    looks_like_world_code, prepare_visit, write_world_code_file, VisitSource, WorldCodeError,
+    WorldVisit, VISIT_TIMEOUT, WORLD_CODE_SUFFIX,
+};
 use world_projection::Guest;
+
+/// What a window says while a code is read and replayed.
+pub(crate) const OPENING_CODE: &str = "Opening the World code…";
+
+/// Reads and replays a visit's code on the background executor, within
+/// [`VISIT_TIMEOUT`]: the document, known to open, for the window to open
+/// as a visit.
+fn prepared_in_background<V: 'static>(
+    source: VisitSource,
+    registry: std::sync::Arc<world_host::WorldRegistry>,
+    cx: &mut Context<V>,
+) -> gpui::Task<Result<world_document::WorldDocument, WorldCodeError>> {
+    cx.background_executor()
+        .spawn(async move { prepare_visit(source, registry, VISIT_TIMEOUT) })
+}
 
 /// Who from a friend's World could come to visit: everyone living there,
 /// each as their World draws them and saying the last thing they said
@@ -23,6 +46,13 @@ pub(crate) fn friends_residents(visit: &WorldVisit) -> Vec<Guest> {
     Guest::residents(&visit.snapshot())
         .into_iter()
         .map(|mut guest| {
+            // Someone else's words: shown here, and sent on, only cleaned
+            // of what could make them read as something else.
+            guest.name = world_projection::clean_text(&guest.name);
+            guest.line = guest
+                .line
+                .map(|line| world_projection::clean_text(&line))
+                .filter(|line| !line.is_empty());
             guest.from = from.clone();
             guest.gift = format!("a postcard of {from}");
             if let Some(line) = &guest.line {
@@ -30,6 +60,7 @@ pub(crate) fn friends_residents(visit: &WorldVisit) -> Vec<Guest> {
             }
             guest
         })
+        .filter(|guest| !guest.name.is_empty())
         .collect()
 }
 
@@ -175,8 +206,7 @@ impl WorldDocumentView {
             .and_then(|item| item.text())
             .unwrap_or_default();
         if looks_like_world_code(&text) {
-            let opened = WorldVisit::open_code(&text, &self.document.borrow().registry);
-            self.choose_friend(opened, cx);
+            self.choose_friend_from(VisitSource::Code(text), cx);
             return;
         }
         let picker = cx.prompt_for_paths(PathPromptOptions {
@@ -193,7 +223,26 @@ impl WorldDocumentView {
                 return;
             };
             let _ = this.update(cx, |this, cx| {
-                let opened = WorldVisit::open_file(&path, &this.document.borrow().registry);
+                this.choose_friend_from(VisitSource::File(path), cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Reads a friend's code away from the window, then offers who could
+    /// come from there.
+    fn choose_friend_from(&mut self, source: VisitSource, cx: &mut Context<Self>) {
+        self.status = Some(DocumentStatus::success(OPENING_CODE));
+        cx.notify();
+        let registry = std::sync::Arc::clone(&self.document.borrow().registry);
+        let prepared = prepared_in_background(source, registry, cx);
+        cx.spawn(async move |this, cx| {
+            let prepared = prepared.await;
+            let _ = this.update(cx, |this, cx| {
+                let opened = prepared.and_then(|document| {
+                    WorldVisit::open_document(document, &this.document.borrow().registry)
+                });
+                this.status = None;
                 this.choose_friend(opened, cx);
             });
         })
@@ -349,8 +398,7 @@ impl WorldMachineHome {
             cx.notify();
             return;
         }
-        let opened = WorldVisit::open_code(&text, &self.registry);
-        self.open_visit_result(opened, cx);
+        self.visit_source(VisitSource::Code(text), cx);
     }
 
     /// File ▸ Open World Code…: opens a `.worldcode` file as a visit.
@@ -375,8 +423,24 @@ impl WorldMachineHome {
 
     /// Opens a `.worldcode` file as a visit. The file is only read.
     pub(crate) fn visit_path(&mut self, path: &Path, cx: &mut Context<Self>) {
-        let opened = WorldVisit::open_file(path, &self.registry);
-        self.open_visit_result(opened, cx);
+        self.visit_source(VisitSource::File(path.to_path_buf()), cx);
+    }
+
+    /// Reads and replays a code away from the window, saying so meanwhile,
+    /// then opens it as a visit.
+    fn visit_source(&mut self, source: VisitSource, cx: &mut Context<Self>) {
+        self.status = Some(HomeStatus::info(OPENING_CODE));
+        cx.notify();
+        let prepared = prepared_in_background(source, std::sync::Arc::clone(&self.registry), cx);
+        cx.spawn(async move |this, cx| {
+            let prepared = prepared.await;
+            let _ = this.update(cx, |this, cx| {
+                let opened = prepared
+                    .and_then(|document| WorldVisit::open_document(document, &this.registry));
+                this.open_visit_result(opened, cx);
+            });
+        })
+        .detach();
     }
 
     fn open_visit_result(

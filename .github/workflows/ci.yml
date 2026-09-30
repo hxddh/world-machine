@@ -14,14 +14,24 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
+# Read-only by default; a job that needs more says so itself.
+permissions:
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # paths-filter lists a pull request's files through the API.
+      pull-requests: read
     outputs:
       gpui: ${{ steps.filter.outputs.gpui }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           # The app depends on every crate in the workspace (the kernel,
@@ -40,12 +50,16 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
@@ -59,37 +73,43 @@ jobs:
         run: python3 ./scripts/check-app-icon.py
       - run: cargo fmt --all -- --check
       # world-gpui builds and tests on Linux: its golden pictures are drawn
-      # by a CPU rasteriser. Only the desktop app is macOS-gated.
-      - run: cargo clippy --workspace --exclude world-machine-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-machine-desktop
+      # by a CPU rasteriser. Only the desktop app is macOS-gated, and it is
+      # linted here too, as the AGENTS.md guardrail runs it: whatever is
+      # macOS-only in it must be gated so, not left as dead code elsewhere.
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace --exclude world-machine-desktop
       - name: Verify external Pack conformance command
         run: |
           mkdir -p target/pack-check
-          cargo run -p tiny-society-pack -- --write-bundle target/pack-check/tiny-society.worldpack
-          cargo run -p world-pack-catalog --bin world-pack-check -- target/pack-check/tiny-society.worldpack
+          cargo run --locked -p tiny-society-pack -- --write-bundle target/pack-check/tiny-society.worldpack
+          cargo run --locked -p world-pack-catalog --bin world-pack-check -- target/pack-check/tiny-society.worldpack
 
   gpui-macos:
     needs: changes
     if: needs.changes.outputs.gpui == 'true'
     runs-on: macos-15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: gpui-macos
-      - run: cargo test -p world-library
-      - run: cargo test -p tiny-society-pack
-      - run: cargo test -p pocket-universe-pack
-      - run: cargo clippy -p world-gpui -p world-machine-desktop --all-targets -- -D warnings
-      - run: cargo test -p world-machine-desktop
+      - run: cargo test --locked -p world-library
+      - run: cargo test --locked -p tiny-society-pack
+      - run: cargo test --locked -p pocket-universe-pack
+      - run: cargo clippy --locked -p world-gpui -p world-machine-desktop --all-targets -- -D warnings
+      - run: cargo test --locked -p world-machine-desktop
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh
       - name: Archive World Machine.app
         run: ditto -c -k --keepParent "target/bundle/World Machine.app" target/bundle/World-Machine-macOS.zip
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: world-machine-macos-app
           path: target/bundle/World-Machine-macOS.zip

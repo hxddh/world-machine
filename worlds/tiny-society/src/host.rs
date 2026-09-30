@@ -100,6 +100,16 @@ impl WorldSession for TinySocietySession {
             ProjectionIntent::Host(guest) => {
                 self.branch.host(&guest).map_err(HostError::session)?;
             }
+            ProjectionIntent::Design { target, pattern } => {
+                self.branch
+                    .mark_typed("design", &target, &pattern.text())
+                    .map_err(HostError::session)?;
+            }
+            ProjectionIntent::Name { target, name } => {
+                self.branch
+                    .mark_typed("name", &target, &name)
+                    .map_err(HostError::session)?;
+            }
         }
         self.background_cursor = None;
         Ok(self.snapshot())
@@ -183,7 +193,16 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
     .with_owned_archive_opener(move |archive| {
         TinySocietySession::open_owned_archive(archive, taking())
     })
+    .with_capabilities(PACK_CAPABILITIES)
 }
+
+/// What the harbour can do beyond the core of the Pack protocol.
+pub const PACK_CAPABILITIES: [&str; 4] = [
+    world_projection::capability::PLOTS,
+    world_projection::capability::DESIGNS,
+    world_projection::capability::NAMES,
+    world_projection::capability::STORY,
+];
 
 #[cfg(test)]
 mod tests {

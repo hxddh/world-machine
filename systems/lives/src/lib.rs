@@ -39,6 +39,7 @@ mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
 #[doc(hidden)]
 pub mod scanned;
+pub mod shown;
 mod suggest;
 pub use host::{
     guests_staying, host_guest, host_guest_with, GuestWords, Staying, GUEST_STAY_PERIODS,
@@ -1537,7 +1538,6 @@ impl Action for Bonds {
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         let cast = (self.0)(state);
-        let heard = Heard::of(state, &cast);
         let a = arg_entity(request, "a")?;
         let b = arg_entity(request, "b")?;
         let was = text(state, a, &bond_key(b)).unwrap_or("");
@@ -1565,6 +1565,8 @@ impl Action for Bonds {
         if (cast.kind)(state) && (now == "foes" || (was == "friends" && now.is_empty())) {
             return Err(ActionError::Invalid("not in the first days".into()));
         }
+        // What was said lately, read only for a bond that does change.
+        let heard = Heard::of(state, &cast);
         let (an, bn) = (name(state, a), name(state, b));
         let (kind, told, said) = match (was, now) {
             (_, "friends") if was == "foes" => (
@@ -1886,9 +1888,9 @@ fn standing_of(state: &WorldState, people: &[EntityId]) -> u64 {
 
 fn next_visitor(state: &WorldState, cast: &Cast) -> Option<EntityId> {
     let visitors = cast.visitors?;
-    (visitors.first..visitors.first + visitors.room)
-        .map(EntityId::new)
-        .find(|id| state.entity(*id).is_none())
+    state
+        .free_id_in(world_core::IdBlock::new(visitors.first, visitors.room))
+        .ok()
 }
 
 /// The situations the World could put to the player now, most pressing
@@ -4499,11 +4501,64 @@ fn keepsake_of_event(event: &Event) -> Option<Keepsake> {
 /// through the World's index of its history by kind, so asking costs the
 /// same however long the World has lived.
 pub fn keepsakes(world: &World) -> Vec<Keepsake> {
-    world
-        .events_of_kind(&KEPT_KINDS)
-        .into_iter()
-        .filter_map(keepsake_of_event)
-        .collect()
+    // Kept with the World and brought up to date with the events recorded
+    // since: a recorded event never changes, and one recorded after has a
+    // later id than any before it, so the keepsakes found stay found, in
+    // the order of their ids.
+    let events = world.events();
+    let kept = world.derived::<KeptKeepsakes>(|kept| {
+        if let Some(kept) = kept {
+            if kept.read == events.len() && events.last().map(|event| event.id) == kept.last {
+                return kept;
+            }
+            if kept.read < events.len()
+                && events[..kept.read].last().map(|event| event.id) == kept.last
+            {
+                let newer = &events[kept.read..];
+                let mut newest = kept.newest;
+                let later = newer.iter().all(|event| {
+                    let later = newest.is_none_or(|newest| event.id > newest);
+                    newest = Some(event.id);
+                    later
+                });
+                if later {
+                    let mut keepsakes = kept.keepsakes.clone();
+                    keepsakes.extend(
+                        newer
+                            .iter()
+                            .filter(|event| KEPT_KINDS.contains(&event.kind.as_str()))
+                            .filter_map(keepsake_of_event),
+                    );
+                    return std::sync::Arc::new(KeptKeepsakes {
+                        read: events.len(),
+                        last: events.last().map(|event| event.id),
+                        newest,
+                        keepsakes,
+                    });
+                }
+            }
+        }
+        std::sync::Arc::new(KeptKeepsakes {
+            read: events.len(),
+            last: events.last().map(|event| event.id),
+            newest: events.iter().map(|event| event.id).max(),
+            keepsakes: world
+                .events_of_kind(&KEPT_KINDS)
+                .into_iter()
+                .filter_map(keepsake_of_event)
+                .collect(),
+        })
+    });
+    kept.keepsakes.clone()
+}
+
+/// The keepsakes found in a World's first `read` events: the last of them
+/// `last`, the latest id among them `newest`.
+struct KeptKeepsakes {
+    read: usize,
+    last: Option<EventId>,
+    newest: Option<EventId>,
+    keepsakes: Vec<Keepsake>,
 }
 
 /// Every keepsake someone living here now could give the player, in the

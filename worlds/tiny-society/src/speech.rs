@@ -4,6 +4,7 @@
 
 use crate::model::OPERATING_STATUS;
 use crate::{BAKERY, HARBOR, PUB, SCHOOL};
+use conversation::faces::in_chinese;
 use society_basic::JOB;
 use world_core::{ActionRequest, EntityId, Value, World, WorldState};
 
@@ -106,14 +107,6 @@ fn aliases(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// What the Pack's own Chinese calls a name, if it translates it.
-fn in_chinese(catalog: &'static str, name: &str) -> Option<&'static str> {
-    catalog.lines().find_map(|line| {
-        let (english, chinese) = line.split_once('\t')?;
-        (english == name && chinese != name).then_some(chinese)
-    })
-}
-
 /// What the harbour's sky is doing, in anybody's words.
 fn weather(world: &World) -> String {
     use world_projection::Weather;
@@ -190,15 +183,7 @@ pub(crate) fn prompt(world: &World, who: EntityId, words: &str) -> Option<String
 
 /// How someone the player can talk to stands with them.
 pub(crate) fn standing_of(world: &World, who: EntityId) -> Option<world_projection::Standing> {
-    let state = world.state();
-    let kit = kit(state);
-    conversation::can_talk_to(state, &kit, who).then(|| {
-        let standing = conversation::standing(state, &kit, who);
-        world_projection::Standing {
-            level: standing.level,
-            words: standing.words,
-        }
-    })
+    conversation::faces::standing_of(world, &kit(world.state()), who)
 }
 
 /// Hears what the player says to someone and answers, ready to record: with
@@ -215,41 +200,18 @@ pub(crate) fn say(
 
 /// Everyone asking the player something now.
 pub(crate) fn askers(world: &World) -> std::collections::BTreeSet<EntityId> {
-    crate::story::commands(world)
-        .iter()
-        .filter(|command| command.question.is_some())
-        .filter_map(|command| match command.asker {
-            Some(world_projection::SelectionId::Entity(who)) => Some(who),
-            _ => None,
-        })
-        .collect()
+    conversation::faces::askers(&crate::story::commands(world))
 }
 
-/// How someone feels, for their face: thinking while they are asking the
-/// player something, cross while hurt by what the player said, else how
-/// their life is going.
+/// How someone feels, for their face.
 pub(crate) fn mood_of(
     world: &World,
     who: EntityId,
     askers: &std::collections::BTreeSet<EntityId>,
 ) -> Option<world_projection::Mood> {
-    use world_projection::Mood;
-    let state = world.state();
-    if !lives::enrolled(state, who) {
+    conversation::faces::mood_of(world, &kit(world.state()), who, askers, || {
         // A child of the harbour, too young for its everyday life, is happy.
-        return (!lives::parents(state, who).is_empty()).then_some(Mood::Happy);
-    }
-    if askers.contains(&who) {
-        return Some(Mood::Thinking);
-    }
-    if standing_of(world, who).is_some_and(|standing| standing.level < 0) {
-        return Some(Mood::Cross);
-    }
-    Some(match lives::mood(state, who) {
-        "cross" => Mood::Cross,
-        "sad" => Mood::Sad,
-        "happy" => Mood::Happy,
-        _ => Mood::Content,
+        (!lives::parents(world.state(), who).is_empty()).then_some(world_projection::Mood::Happy)
     })
 }
 

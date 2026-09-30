@@ -21,6 +21,7 @@ world-persistence = { path = "../../crates/world-persistence" }
 world-host = { path = "../../crates/world-host" }
 
 [dev-dependencies]
+world-pack-testkit = { path = "../../crates/world-pack-testkit" }
 # The old full-history scans, to test what the index finds against.
 lives = { path = "../../systems/lives", features = ["scan-reference"] }
 world-library = { path = "../../crates/world-library" }

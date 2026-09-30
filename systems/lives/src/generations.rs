@@ -198,6 +198,12 @@ pub struct Kin {
 }
 
 impl Kin {
+    /// The block of ids newborns take: [`Self::first_child`] and the
+    /// [`Self::room`] after it.
+    pub const fn children(&self) -> world_core::IdBlock {
+        world_core::IdBlock::new(self.first_child, self.room)
+    }
+
     /// A trade in words, from its job.
     pub fn trade_words(&self, job: &str) -> String {
         self.trades
@@ -562,10 +568,10 @@ impl Action for Born {
         if birth_odds(state, &cast, a, b).is_none() {
             return Err(ActionError::Invalid("no child for them now".into()));
         }
-        let child = (kin.first_child..kin.first_child + kin.room)
-            .map(EntityId::new)
-            .find(|id| state.entity(*id).is_none())
-            .ok_or_else(|| ActionError::Invalid("no room for another".into()))?;
+        // The lowest free id among the children's, from the state alone.
+        let child = state
+            .free_id_in(kin.children())
+            .map_err(|error| ActionError::Invalid(format!("no room for another: {error}")))?;
         let taken = state
             .entities()
             .map(|entity| first_name(state, entity.id))
@@ -1134,11 +1140,21 @@ pub fn tick(
             })
             .find(|(a, b, odds)| mix(&[now, a.0, b.0, 139]) % 10_000 < *odds);
         if let Some((a, b, _)) = couple {
-            let request = ActionRequest::new("lives_born")
-                .actor(a)
-                .arg("a", Value::Entity(a))
-                .arg("b", Value::Entity(b));
-            run(world, actions, request, &mut events);
+            // A full block of children must not end births in silence: a
+            // test (any build with debug assertions) fails here, loudly.
+            let room = world.state().room_left_in(kin.children());
+            debug_assert!(
+                room > 0,
+                "no room for another child: every id in {} is taken",
+                kin.children()
+            );
+            if room > 0 {
+                let request = ActionRequest::new("lives_born")
+                    .actor(a)
+                    .arg("a", Value::Entity(a))
+                    .arg("b", Value::Entity(b));
+                run(world, actions, request, &mut events);
+            }
         }
     }
     // Children grow up, and the grown move out.

@@ -91,6 +91,12 @@ pub fn save(key: &str) -> Result<(), String> {
     if key.is_empty() {
         return Err("a key with nothing in it is not a key".into());
     }
+    // A key is letters, digits, `-` and `_`: anything else (a space, a
+    // quote, a line break that would end the keychain's command and start
+    // another) is refused before it goes anywhere.
+    if !::world_voice::is_plausible_api_key(key) {
+        return Err("that is not an API key: a key is letters, digits, - and _".into());
+    }
     let mut child = Command::new(SECURITY)
         .args(save_args())
         .stdin(Stdio::piped())
@@ -132,7 +138,7 @@ pub fn load() -> Option<String> {
         return None;
     }
     let key = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    (!key.is_empty()).then_some(key)
+    ::world_voice::is_plausible_api_key(&key).then_some(key)
 }
 
 /// Forget the key. Forgetting one that is not there is not a failure.
@@ -222,6 +228,10 @@ mod tests {
     fn a_key_with_nothing_in_it_is_refused_before_the_keychain_is_touched() {
         assert!(save("").is_err());
         assert!(save("   ").is_err());
+        // Nor one that could end the keychain's command and start another.
+        assert!(save("sk-ant\" \nadd-generic-password -s x -w y").is_err());
+        assert!(save("sk ant").is_err());
+        assert!(save("sk-ant\u{202E}").is_err());
     }
 
     #[cfg(target_os = "macos")]

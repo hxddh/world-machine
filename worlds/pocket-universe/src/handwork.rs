@@ -4,6 +4,7 @@
 //! someone round. The mechanics are the `hands` System's.
 
 use crate::{SLOT_A, SLOT_C, UNIVERSE};
+use hands::commands::{add, enjoy};
 use hands::{Effect, Kit, Thing, Verb};
 use lives::Need;
 use world_core::{EntityId, StateChange, Value, World, WorldState};
@@ -648,18 +649,6 @@ fn places(_: &WorldState) -> Vec<EntityId> {
     vec![SLOT_A, SLOT_C]
 }
 
-fn add(state: &WorldState, who: EntityId, key: &str, by: i64, min: i64, max: i64) -> StateChange {
-    let now = match state.entity(who).and_then(|entity| entity.component(key)) {
-        Some(Value::Integer(value)) => *value,
-        _ => 0,
-    };
-    StateChange::SetComponent {
-        entity: who,
-        key: key.into(),
-        value: (now + by).clamp(min, max).into(),
-    }
-}
-
 fn gift(state: &WorldState, who: EntityId) -> Vec<StateChange> {
     vec![
         add(state, who, lives::REGARD, 10, -100, 100),
@@ -678,27 +667,6 @@ fn invite(state: &WorldState, who: EntityId) -> Vec<StateChange> {
             value: Value::Entity(SLOT_A),
         },
     ]
-}
-
-/// What using something the player made does for someone: a rest on a
-/// bench eases tiredness, an evening under a lamp eases loneliness, and
-/// bringing the player what a garden grew warms them to the player.
-fn enjoy(state: &WorldState, who: EntityId, effect: Effect) -> Vec<StateChange> {
-    match effect {
-        Effect::Rest => vec![
-            add(state, who, Need::Rest.key(), -20, 0, 100),
-            add(state, who, lives::REGARD, 1, -100, 100),
-        ],
-        Effect::Gather => vec![
-            add(state, who, Need::Company.key(), -20, 0, 100),
-            add(state, who, lives::REGARD, 1, -100, 100),
-        ],
-        Effect::Harvest => vec![
-            add(state, who, Need::Purpose.key(), -10, 0, 100),
-            add(state, who, lives::REGARD, 3, -100, 100),
-        ],
-        Effect::None => Vec::new(),
-    }
 }
 
 pub(crate) fn kit(state: &WorldState) -> Kit {
@@ -768,59 +736,19 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
     }
     let kit = kit(world.state());
     let gathering = lives::name(world.state(), SLOT_A);
-    hands::deeds(world, &kit)
-        .into_iter()
-        .map(|deed| {
-            let place = lives::name(world.state(), deed.at);
-            world_projection::ProjectionCommand {
-                id: format!("{HAND_COMMAND}{}", deed.key),
-                title: deed.thing.clone(),
-                detail: match deed.verb {
-                    Verb::Give => format!("Something for {}", deed.thing),
-                    Verb::Invite => format!("Invite {} to {gathering}", deed.thing),
-                    Verb::Move => format!("Move it to {place}"),
-                    _ => format!("By {place}"),
-                },
-                effects: Vec::new(),
-                scenery: None,
-                moves: Vec::new(),
-                asker: None,
-                question: None,
-                unavailable: deed.unavailable,
-                hand: Some(world_projection::Hand {
-                    verb: deed.verb.word().into(),
-                    thing: deed.thing,
-                    at: Some(world_projection::SelectionId::Entity(deed.at)),
-                    cost: deed.cost,
-                }),
-                preview: None,
-            }
-        })
-        .chain(hands::can_undo(world.state(), &kit).map(|title| {
-            world_projection::ProjectionCommand {
-                id: format!("{HAND_COMMAND}{UNDO}"),
-                title,
-                detail: "What it cost comes back".into(),
-                effects: Vec::new(),
-                scenery: None,
-                moves: Vec::new(),
-                asker: None,
-                question: None,
-                unavailable: None,
-                hand: Some(world_projection::Hand {
-                    verb: "Undo".into(),
-                    thing: String::new(),
-                    at: None,
-                    cost: None,
-                }),
-                preview: None,
-            }
-        }))
-        .collect()
+    hands::commands::deed_commands(
+        world,
+        &kit,
+        &hands::commands::DeedWords {
+            prefix: HAND_COMMAND,
+            gift: "Something for",
+            invite_to: &gathering,
+        },
+    )
 }
 
 /// The deed that takes back the latest thing made or moved.
-pub(crate) const UNDO: &str = "undo";
+pub(crate) use hands::commands::UNDO;
 
 /// What people say using what the player made, in each place's own words
 /// rather than words any place might say: nobody on Mars watches the

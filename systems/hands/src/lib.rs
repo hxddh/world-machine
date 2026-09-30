@@ -19,7 +19,9 @@ use world_core::{
     EventId, StateChange, Value, World, WorldError, WorldState,
 };
 
+pub mod commands;
 mod mark;
+pub mod plots;
 pub use mark::{
     building, design_parts, design_request, finished_at, name_request, named, offers, on_plots,
     open_plots, pattern_of, plot_key, plot_of, plot_work, plots_open_now, stage_plots, tidy_name,

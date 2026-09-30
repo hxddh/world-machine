@@ -1,3 +1,4 @@
+use crate::derived::DerivedViews;
 use crate::history::HistoryIndex;
 use crate::{
     ActionError, ActionRegistry, ActionRequest, Event, EventId, ScheduleId, Scheduler, StateChange,
@@ -22,6 +23,7 @@ pub struct World {
     scheduler: Scheduler,
     next_event_id: u64,
     index: IndexCache,
+    derived: DerivedViews,
 }
 
 /// The World's [`HistoryIndex`], read up to date on demand. It is derived
@@ -67,6 +69,22 @@ impl fmt::Debug for IndexCache {
 struct Settled {
     state: WorldState,
     next_event_id: u64,
+}
+
+/// Where a World stands, as far as a view of it can tell (see
+/// [`World::standing`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Standing {
+    events: usize,
+    last_event: Option<EventId>,
+    world_time: u64,
+    schedule: (u64, usize),
+}
+
+/// A view kept by [`World::as_it_stands`], with where the World stood.
+struct AsItStands<T> {
+    standing: Standing,
+    view: Arc<T>,
 }
 
 /// Where a World stood, to go back to with [`World::rollback`].
@@ -154,6 +172,7 @@ impl World {
             scheduler: Scheduler::new(),
             next_event_id: 1,
             index: IndexCache::default(),
+            derived: DerivedViews::default(),
         }
     }
 
@@ -203,6 +222,59 @@ impl World {
             }
         }
         Arc::clone(index)
+    }
+
+    /// A view of this World that a reader works out and keeps with it, so
+    /// the next reading can bring it up to date instead of starting again:
+    /// `update` is given the view as it was last kept, if it was, and
+    /// returns the view to keep and read now (the same one, when it still
+    /// holds).
+    ///
+    /// Views are kept one of each type, and only for the reader: they take
+    /// no part in comparing Worlds and are never saved or replayed. Since
+    /// the World's history only grows, a view of its recorded events stays
+    /// true of them; one that reads where the World stands must check it
+    /// still does. Going back to a checkpoint forgets every view, since
+    /// what was recorded after it may be recorded again differently. A copy
+    /// of a World starts with the views it had and keeps its own after; a
+    /// World rebuilt from its history, or a sketch of it, starts with none.
+    pub fn derived<T: std::any::Any + Send + Sync>(
+        &self,
+        update: impl FnOnce(Option<Arc<T>>) -> Arc<T>,
+    ) -> Arc<T> {
+        // Not held while `update` runs, which may read other views.
+        let view = update(self.derived.get::<T>());
+        self.derived.keep(Arc::clone(&view));
+        view
+    }
+
+    /// Where the World stands, as far as a view of it can tell: it moves on
+    /// with every event recorded, every change of the clock and every
+    /// action scheduled or done, and nothing else changes a World.
+    pub fn standing(&self) -> Standing {
+        Standing {
+            events: self.events.len(),
+            last_event: self.events.last().map(|event| event.id),
+            world_time: self.world_time(),
+            schedule: self.scheduler.stamp(),
+        }
+    }
+
+    /// A view of the World as it stands now, worked out by `make` the first
+    /// time it is asked for and kept for as long as the World stands so
+    /// (see [`Self::standing`] and [`Self::derived`]), so reading it again
+    /// costs nothing. Views are kept one per type: give each view a type of
+    /// its own.
+    pub fn as_it_stands<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
+        let standing = self.standing();
+        let kept = self.derived::<AsItStands<T>>(|kept| match kept {
+            Some(kept) if kept.standing == standing => kept,
+            _ => Arc::new(AsItStands {
+                standing,
+                view: Arc::new(make()),
+            }),
+        });
+        Arc::clone(&kept.view)
     }
 
     /// The recorded events of these kinds, oldest first, found through the
@@ -280,6 +352,18 @@ impl World {
         request: &ActionRequest,
     ) -> Result<&Event, WorldError> {
         let mut draft = registry.evaluate(&self.state, request)?;
+        // Ids from RESERVED_ENTITY_IDS up are kept for ids derived from
+        // entities; a new entity there could be mistaken for one. Only new
+        // Actions are checked: replay applies what was recorded.
+        for change in &draft.changes {
+            if let StateChange::CreateEntity(entity) = change {
+                if entity.id.0 >= crate::RESERVED_ENTITY_IDS {
+                    return Err(WorldError::Action(ActionError::Invalid(
+                        crate::IdError::Reserved(entity.id).to_string(),
+                    )));
+                }
+            }
+        }
         if draft.actor.is_none() {
             draft.actor = request.actor;
         }
@@ -321,6 +405,7 @@ impl World {
             scheduler: self.scheduler.clone(),
             next_event_id: self.next_event_id,
             index: IndexCache::default(),
+            derived: DerivedViews::default(),
         }
     }
 
@@ -345,6 +430,7 @@ impl World {
         self.next_event_id = checkpoint.next_event_id;
         // Events recorded since may be recorded again differently.
         self.index.forget();
+        self.derived.forget();
     }
 
     pub fn replay(&self) -> Result<Self, WorldError> {

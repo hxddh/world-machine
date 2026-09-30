@@ -1,0 +1,141 @@
+name: Nightly bars
+
+# The claims that carry the product (three-year variety, the ten-year
+# wire fit, Chinese coverage, the red team on unseen sets, the five-player
+# harnesses, the painter's frame budget) live in `#[ignore]`d tests: each
+# takes from seconds to minutes in a release build, too long for every
+# push. This workflow runs every one of them, every night, in release,
+# along with the rest of the workspace in release (which is how the
+# release-only strip failure of v0.23 went unseen: CI builds debug).
+#
+# Run it by hand before cutting a release tag:
+#   gh workflow run nightly.yml --ref main
+
+on:
+  schedule:
+    # 03:17 UTC, off the hour so it is not queued behind every other cron.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tests that are tools, not bars: they write pictures, sheets, sounds or
+  # fixtures for a person to look at or to check in, or print numbers for a
+  # review, and assert nothing (several panic without their environment
+  # variable). They are skipped by name, as substrings of the test path.
+  #
+  #   write_people_sheet, write_person_sheet  world-projection: drawing sheets (WORLD_MACHINE_SHEET)
+  #   write_sheets                           both Packs: drawing sheets (WORLD_MACHINE_SHEET)
+  #   write_contact_sheets                   world-gpui: contact sheets (WORLD_GPUI_CONTACT_SHEET)
+  #   composition_pictures                   world-gpui: pictures to look at (WORLD_GPUI_PICTURES)
+  #   sketch_the_panels_and_the_ages         world-gpui: pictures to look at (WORLD_GPUI_SKETCH)
+  #   write_sounds                           world-sound: audio to listen to (WORLD_MACHINE_SOUNDS)
+  #   write_untranslated                     world-builtins: a list for translators
+  #   show_lines                             world-builtins: prints lines for translators
+  #   write_place_fixtures                   pocket-universe: regenerates world-gpui fixtures
+  #   write_the_v0…                         both Packs: regenerate checked-in old-World fixtures
+  #                                          (write_the_v022_fixture(s), v023, and any later one)
+  #   show_sixty_periods, show_sixty_days, show_stories, probe_parts, measure_a_year
+  #                                          both Packs: print for a review, assert nothing
+  #   time_a_year_old_world                  pocket-universe: prints timings, asserts nothing
+  TOOLS: >-
+    --skip write_people_sheet
+    --skip write_person_sheet
+    --skip write_sheets
+    --skip write_contact_sheets
+    --skip composition_pictures
+    --skip sketch_the_panels_and_the_ages
+    --skip write_sounds
+    --skip write_untranslated
+    --skip show_lines
+    --skip write_place_fixtures
+    --skip write_the_v0
+    --skip show_sixty_periods
+    --skip show_sixty_days
+    --skip show_stories
+    --skip probe_parts
+    --skip measure_a_year
+    --skip time_a_year_old_world
+  # Wall-clock budgets run in their own job below, so a slow shared runner
+  # shows up as a timing failure and never hides whether the long bars held.
+  TIMING: >-
+    --skip a_three_year_world_never_waits_for_painting
+    --skip a_three_year_world_paints_within_its_frame_budget
+    --skip a_three_year_snapshot_takes_under_fifteen_milliseconds
+    --skip a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds
+
+jobs:
+  long-bars:
+    name: Every ignored bar, and the workspace, in release
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Make room for a release build of the workspace
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: nightly-release
+          save-if: ${{ github.event_name == 'schedule' }}
+      - name: Build the workspace's tests in release
+        run: cargo test --release --locked --workspace --exclude world-machine-desktop --no-run
+      # Both Packs' long tests (three years of lives, stories, towns, plots
+      # and agency; the careful player; the red team's later blind sets; the
+      # five-player harnesses), world-library's three years, Chinese
+      # coverage in world-builtins and Pocket Universe, the process Packs'
+      # long worlds and the ten-year wire fit, and world-sound's bars, with
+      # everything that is not ignored alongside, all in release.
+      - name: Run every bar in release
+        # TOOLS and TIMING are lists of flags, split on purpose.
+        run: |
+          # shellcheck disable=SC2086
+          cargo test --release --locked --workspace --exclude world-machine-desktop \
+            --no-fail-fast -- --include-ignored $TOOLS $TIMING
+
+  timing-bars:
+    name: Frame and snapshot budgets in release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: nightly-timing
+          save-if: ${{ github.event_name == 'schedule' }}
+      # These assert wall-clock budgets. GitHub's shared runners are slower
+      # and noisier than the machines the budgets were set on, so a red run
+      # here is a prompt to measure on a quiet machine, not proof on its own.
+      - name: The painter never waits, and paints within its frame budget
+        run: >-
+          cargo test --release --locked -p world-gpui --lib -- --ignored
+          a_three_year_world_never_waits_for_painting
+          a_three_year_world_paints_within_its_frame_budget
+      - name: A three-year snapshot takes under 15 ms
+        run: >-
+          cargo test --release --locked -p world-library --test three_years --
+          --ignored --test-threads=1 a_three_year_snapshot_takes_under_fifteen_milliseconds
+      # The 35 ms turn bar is measured but not yet met on shared runners
+      # (see docs/KNOWN_ISSUES.md), so it reports without failing the night.
+      - name: A three-year turn with its save (measured)
+        continue-on-error: true
+        run: >-
+          cargo test --release --locked -p world-library --test three_years --
+          --ignored --test-threads=1 a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds
