@@ -784,7 +784,22 @@ pub fn set_language(language: Language) {
     }
 }
 
+thread_local! {
+    static THIS_THREAD: std::cell::Cell<Option<Language>> = const { std::cell::Cell::new(None) };
+}
+
+/// Shows everything this thread draws in `language` (or, with `None`,
+/// in the app's language again), whatever the rest of the app is shown
+/// in. For a test that walks a window in one language while other tests
+/// run beside it in another.
+pub fn set_thread_language(language: Option<Language>) {
+    THIS_THREAD.with(|this| this.set(language));
+}
+
 pub fn language() -> Language {
+    if let Some(language) = THIS_THREAD.with(std::cell::Cell::get) {
+        return language;
+    }
     state()
         .read()
         .map(|state| state.language)

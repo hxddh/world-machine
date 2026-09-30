@@ -159,7 +159,7 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         let (granted, grudges) = crate::story::kindness(world, who);
         let how = if let Some(how) = lives::how_are_you(world, who) {
             how
-        } else if grudges > granted {
+        } else if grudges > granted && !crate::arrival::first_days(world.state()) {
             "Sore. Nobody listens when I ask for anything.".into()
         } else if granted > grudges {
             "Good. I feel looked after here.".into()

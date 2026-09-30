@@ -3,6 +3,7 @@ mod drawing;
 mod guest;
 mod influence;
 mod mark;
+mod seams;
 mod stories;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -26,10 +27,11 @@ pub use mark::{
     Plot, PlotOffer, Variant, Wears, MOST_PATTERN_COLOURS, PATTERN_CELLS, PATTERN_PALETTE,
     PATTERN_SIDE,
 };
+pub use seams::{seams_in, speaks_of_self, Seam};
 pub use stories::{
-    cause_in_words, day_of, latest_before, latest_moments, life_events, lowered, one_a_day,
-    Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat, StoryPage,
-    StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
+    cause_in_words, day_of, go_to_what_was_answered, latest_before, latest_moments, life_events,
+    lowered, one_a_day, Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat,
+    Prop, StoryPage, StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
 };
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
@@ -473,6 +475,10 @@ pub struct ProjectionSnapshot {
     /// The year just ended in review, on the first day of a new year: the
     /// almanac page, delivered like a letter. Any year's can be asked for.
     pub almanac: Option<Almanac>,
+    /// Every year whose almanac can be asked for now
+    /// ([`StoryRequest::Almanac`]), oldest first: each year that has ended.
+    /// Empty before the first New Year, or from a Pack that keeps none.
+    pub almanac_years: Vec<u32>,
 }
 
 /// One entry in a World's book of everything to find: a keepsake, a person
@@ -1517,6 +1523,13 @@ pub struct CanvasProjection {
     /// Plots along the paths where the player can build, and what could
     /// stand on each. Empty for a World without them.
     pub plots: Vec<Plot>,
+    /// What kind of place it is to look at, which the app dresses its
+    /// ground, sky, weather and props for: "harbour" (a green shore on the
+    /// sea, the look of a World that says nothing), "mars" (regolith under
+    /// a butterscotch sky), "street" (a town street of shops and wires),
+    /// "ice" (snow, ice shelves and sea ice). A setting the app does not
+    /// know is drawn as none.
+    pub setting: Option<String>,
 }
 
 impl CanvasProjection {
@@ -1773,6 +1786,10 @@ pub struct CanvasItem {
     pub naming: Option<Naming>,
     /// How the town built it, for something built on a plot.
     pub variant: Option<Variant>,
+    /// What the app draws it as, from its own library of drawings: a
+    /// "clock-tower", a "telescope", a "bandstand", a "hab-module". A key
+    /// the app does not know leaves it drawn by its `shape`.
+    pub art: Option<String>,
 }
 
 /// An empty object at the left edge, for a literal to fill in with
@@ -1803,6 +1820,7 @@ impl Default for CanvasItem {
             design: None,
             naming: None,
             variant: None,
+            art: None,
         }
     }
 }

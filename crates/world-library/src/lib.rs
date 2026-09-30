@@ -901,6 +901,7 @@ pub fn describe_from_snapshot(
                 bird: look.bird,
                 carries: look.carries.map(|carry| carry_name(carry).to_owned()),
                 drawing: item.drawing.clone(),
+                art: item.art.clone(),
             }
         })
         .collect();
@@ -1003,6 +1004,7 @@ fn cast_from_document(
                 at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
                 look,
                 drawing: figure.drawing.clone(),
+                art: world_pack_protocol::art_key(figure.art.clone()),
                 stance: None,
                 standing: None,
                 mood: None,

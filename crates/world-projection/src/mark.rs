@@ -294,6 +294,8 @@ pub struct PlotOffer {
     pub cost: Option<String>,
     /// Why it cannot be built now, if it cannot.
     pub unavailable: Option<String>,
+    /// What the app draws it as, like [`crate::CanvasItem::art`].
+    pub art: Option<String>,
 }
 
 #[cfg(test)]

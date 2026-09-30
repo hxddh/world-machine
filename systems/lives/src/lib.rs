@@ -198,6 +198,15 @@ pub struct Cast {
     /// How the place keeps its generations (ages, births and deaths), if
     /// it does.
     pub kin: Option<&'static Kin>,
+    /// Whether the place is in its first kind days, as a new player
+    /// arrives: nobody has words, falls out or drifts apart. [`never`]
+    /// for a Pack that keeps none.
+    pub kind: fn(&WorldState) -> bool,
+}
+
+/// No kind days: for [`Cast::kind`].
+pub fn never(_: &WorldState) -> bool {
+    false
 }
 
 /// Traits someone can have, and the ones that grate on each other.
@@ -981,7 +990,7 @@ impl Action for Lives {
             // A sour mood in the place shortens tempers; a bright one
             // lengthens them.
             let temper = (18 - fit * 4).max(5) + if frayed { 12 } else { 0 } - mood;
-            quarrel = chance < temper.max(2) as u64;
+            quarrel = chance < temper.max(2) as u64 && !(cast.kind)(state);
             let by = if quarrel {
                 -(10 + (chance % 12) as i64)
             } else {
@@ -1551,6 +1560,10 @@ impl Action for Bonds {
             if lately.iter().any(|(_, _, at)| today - at < BOND_GAP) {
                 return Err(ActionError::Invalid("one at a time".into()));
             }
+        }
+        // In the place's first kind days nobody falls out or drifts apart.
+        if (cast.kind)(state) && (now == "foes" || (was == "friends" && now.is_empty())) {
+            return Err(ActionError::Invalid("not in the first days".into()));
         }
         let (an, bn) = (name(state, a), name(state, b));
         let (kind, told, said) = match (was, now) {
@@ -2188,6 +2201,12 @@ fn words_for(
             }
         }
     }
+    // How people leave, for anyone thinking of it, not only a stranger.
+    if let Some(visitors) = &cast.visitors {
+        if !words.iter().any(|(slot, _)| *slot == "way_out") {
+            words.push(("way_out", visitors.way_out.into()));
+        }
+    }
     if let Some(friend) = best_friend(state, candidate.a) {
         words.push(("friend", name(state, friend)));
     }
@@ -2488,7 +2507,34 @@ fn fill_owned(template: &str, words: &[(&'static str, String)]) -> String {
         .iter()
         .map(|(slot, word)| (*slot, word.as_str()))
         .collect::<Vec<_>>();
-    fill(template, &borrowed)
+    articled(&fill(template, &borrowed))
+}
+
+/// "a engineer" as it is said: "an engineer". A capital "A" is an article
+/// only where a sentence starts ("side A is" is a side).
+pub(crate) fn articled(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 4);
+    let mut rest = text;
+    while let Some(at) = rest.find(['a', 'A']) {
+        let starts = |before: &str| {
+            let before = before.trim_end();
+            before.is_empty() || before.ends_with(['.', '!', '?', '"'])
+        };
+        let before_ok = if rest[at..].starts_with('A') {
+            starts(&format!("{out}{}", &rest[..at])) && (at == 0 || rest[..at].ends_with(' '))
+        } else {
+            at == 0 || !rest[..at].ends_with(|c: char| c.is_alphanumeric())
+        };
+        let after = &rest[at + 1..];
+        let next = after.strip_prefix(' ').and_then(|word| word.chars().next());
+        out.push_str(&rest[..=at]);
+        if before_ok && next.is_some_and(|c| "aeioAEIO".contains(c)) {
+            out.push('n');
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A situation as it would be put, from its candidate.
@@ -3514,8 +3560,17 @@ impl Action for Reacts {
             _ => return Err(ActionError::Invalid(format!("nothing to say about {deed}"))),
         };
         let heard = Heard::of(state, &cast);
+        // "Landing lights" are not "a landing lights" nor "that landing
+        // lights": a thing named in the plural keeps to the lines that fit.
+        let plural = thing.ends_with('s') && !thing.ends_with("ss");
         let options = pool
             .iter()
+            .filter(|line| {
+                !plural
+                    || !["A {thing}", "Another {thing}", "that {thing}", "{thing}'s"]
+                        .iter()
+                        .any(|single| line.contains(single))
+            })
             .map(|line| {
                 fill_owned(
                     line,
@@ -3643,12 +3698,12 @@ impl Action for Greets {
 
 /// How someone looks back on a day a year ago.
 const A_YEAR_AGO: [&str; 6] = [
-    "A year ago today: {told}. Feels like yesterday.",
-    "A year ago today: {told}. Where does the time go?",
-    "Remember? A year ago today: {told}.",
-    "A year ago today: {told}. I still think about it.",
-    "A year ago today: {told}. We've come a long way.",
-    "Would you believe it? A year ago today: {told}.",
+    "A year ago today, {told}. Feels like yesterday.",
+    "A year ago today, {told}. Where does the time go?",
+    "Remember? A year ago today, {told}.",
+    "A year ago today, {told}. I still think about it.",
+    "A year ago today, {told}. We've come a long way.",
+    "Would you believe it? A year ago today, {told}.",
 ];
 
 /// Someone remembers what happened a year ago today.
@@ -3671,7 +3726,7 @@ impl Action for Remembers {
         }
         let seed = mix(&[who.0, state.world_time(), 61]);
         let said = pick(&A_YEAR_AGO, seed)
-            .map(|line| fill_owned(line, &[("told", then.to_string())]))
+            .map(|line| fill_owned(line, &[("told", quiet::inside(then))]))
             .unwrap_or_default();
         let mut draft = EventDraft::new("year_remembered");
         draft.actor = Some(who);
@@ -4727,6 +4782,23 @@ pub fn tick_holding(
     tick_with(world, actions, cast, away, hold, &QuietDays::default())
 }
 
+/// The last day `a` and `b` spent together, within `span` of world time.
+fn last_day_together(world: &World, a: EntityId, b: EntityId, span: u64) -> Option<EventId> {
+    let since = world.world_time().saturating_sub(span);
+    let index = world.history_index();
+    index
+        .of_kind("lived")
+        .iter()
+        .rev()
+        .filter_map(|id| world.event(*id))
+        .take_while(|event| event.world_time >= since)
+        .find(|event| {
+            (event.actor == Some(a) && event.targets.contains(&b))
+                || (event.actor == Some(b) && event.targets.contains(&a))
+        })
+        .map(|event| event.id)
+}
+
 /// One period of everyone's lives, as [`tick_holding`], with quiet days
 /// kept as the Pack asks ([`QuietDays`]).
 pub fn tick_with(
@@ -4751,18 +4823,38 @@ pub fn tick_with(
         .into_iter()
         .filter(|(a, b)| !(cast.kept)(*a, *b) && !(cast.kept)(*b, *a))
         .collect::<Vec<_>>();
+    // The day each pair spent together, if they did: what a change
+    // between them today came of.
+    let mut together = BTreeMap::<(EntityId, EntityId), EventId>::new();
     for person in &people {
         let request = ActionRequest::new("lives_day")
             .arg("person", Value::Entity(*person))
             .arg("others", others_arg(&people));
         if let Ok(event) = world.execute(actions, &request) {
+            if let Some(other) = event.targets.first() {
+                let pair = (*person.min(other), *person.max(other));
+                together.insert(pair, event.id);
+            }
             events.push(event.id);
         }
     }
     for (a, b) in before {
-        let request = ActionRequest::new("lives_bond")
+        let mut request = ActionRequest::new("lives_bond")
             .arg("a", Value::Entity(a))
             .arg("b", Value::Entity(b));
+        let day = together.get(&(a.min(b), a.max(b))).copied().or_else(|| {
+            // Growing close or falling out, on a day apart: what came of
+            // the last day they spent together, lately.
+            let state = world.state();
+            let was = text(state, a, &bond_key(b)).unwrap_or("");
+            let now = standing(state, a, b, was);
+            (now != was && !now.is_empty())
+                .then(|| last_day_together(world, a, b, 30 * cast.period.max(1)))
+                .flatten()
+        });
+        if let Some(day) = day {
+            request = request.caused_by(day);
+        }
         if let Ok(event) = world.execute(actions, &request) {
             events.push(event.id);
         }

@@ -889,7 +889,37 @@ fn a_harbour_year_has_a_shape() {
     };
     let planted = a_harbour_year(75, true);
     let unplanted = a_harbour_year(75, false);
-    assert_ne!(harvest(&planted), harvest(&unplanted));
+    // What was planted and grew counts toward the day, and the planted
+    // harbour's harvest is at least as good. (Since v0.24 the gardens are
+    // the player's hands seen, and the harbour takes up what it was let
+    // down on, so the two harbours' spirits no longer match day for day
+    // and the words alone cannot tell the harvest apart.)
+    let turnout = |branch: &TinySocietyBranch| {
+        let held = branch
+            .world()
+            .events()
+            .iter()
+            .find(|event| {
+                event.kind == "festival_held"
+                    && event.payload.get("festival")
+                        == Some(&world_core::Value::Text("harvest_home".into()))
+            })
+            .and_then(calendar::turnout)
+            .unwrap();
+        match held {
+            calendar::Turnout::Grand => 2,
+            calendar::Turnout::Fine => 1,
+            calendar::Turnout::Thin => 0,
+        }
+    };
+    let grown = |branch: &TinySocietyBranch| crate::almanac::grown(branch.world().state());
+    assert!(grown(&planted) > 0 && grown(&unplanted) == 0);
+    assert!(
+        turnout(&planted) >= turnout(&unplanted),
+        "{} / {}",
+        harvest(&planted),
+        harvest(&unplanted)
+    );
     assert_eq!(
         planted.world().replay().unwrap().state(),
         planted.world().state()
@@ -1026,10 +1056,7 @@ fn everyone_on_the_scene_has_an_outline_of_their_own() {
 /// it, and what they say, read from the World itself (a new World is the
 /// same World every time).
 fn recorded_greeting() -> world_projection::Voice {
-    let mut society = TinySociety::new().unwrap();
-    society.run_story().unwrap();
-    let mut branch = society.branch();
-    branch.begin_story().unwrap();
+    let branch = crate::TinySocietyBranch::new_world().unwrap();
     let greeted = branch
         .world()
         .events()

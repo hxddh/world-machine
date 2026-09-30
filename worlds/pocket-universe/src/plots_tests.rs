@@ -34,6 +34,18 @@ fn item(snapshot: &ProjectionSnapshot, id: SelectionId) -> &CanvasItem {
         .expect("on the scene")
 }
 
+/// The command that builds `work` on a plot open now, whether or not the
+/// scene's popover shows it among the first it offers there.
+fn plot_command(universe: &PocketUniverse, work: &str) -> Option<String> {
+    let world = universe.world();
+    let kit = crate::handwork::kit(world.state());
+    hands::plot_deeds(world, &kit)
+        .into_iter()
+        .flat_map(|(_, deeds)| deeds)
+        .find(|deed| hands::plot_work(&deed.key) == Some(work))
+        .map(|deed| crate::handwork::command_id(&deed.key))
+}
+
 #[test]
 fn thirty_works_in_every_place_each_drawn_its_own_way() {
     for (place, seed) in SEEDS {
@@ -55,21 +67,25 @@ fn thirty_works_in_every_place_each_drawn_its_own_way() {
         }
         let snapshot = universe.projection_snapshot();
         let canvas = &snapshot.canvas;
-        assert!(
-            canvas.plots.len() >= 12,
-            "{place:?}: {}",
-            canvas.plots.len()
+        // Since v0.24 the plots open in stages over three years: a few as
+        // a place begins. What they all offer is counted from every plot
+        // the place will have.
+        let all = crate::plots::plots(state);
+        assert!(all.len() >= 12, "{place:?}: {}", all.len());
+        assert_eq!(
+            canvas.plots.len(),
+            crate::plots::STAGES.first,
+            "{place:?}: open at first"
         );
         let districts = canvas
             .plots
             .iter()
             .map(|plot| plot.district.as_str())
             .collect::<BTreeSet<_>>();
-        assert_eq!(districts.len(), 3, "{place:?}: plots on every stretch");
-        let offered = canvas
-            .plots
+        assert!(districts.len() >= 2, "{place:?}: plots along the place");
+        let offered = all
             .iter()
-            .flat_map(|plot| plot.offers.iter().map(|offer| offer.label.as_str()))
+            .flat_map(|plot| plot.offers.iter().copied())
             .collect::<BTreeSet<_>>();
         assert!(offered.len() >= 30, "{place:?}: {offered:?}");
         for plot in &canvas.plots {
@@ -108,16 +124,8 @@ fn a_work_on_a_plot_is_finished_and_draws_someone_in_every_place() {
         ),
     ] {
         let mut universe = seeded(seed);
-        let snapshot = universe.projection_snapshot();
-        let offer = snapshot
-            .canvas
-            .plots
-            .iter()
-            .flat_map(|plot| plot.offers.iter())
-            .find(|offer| offer.command.contains(&format!(".plot.{work}.")))
-            .unwrap_or_else(|| panic!("{place:?}: a plot offers the {work}"))
-            .command
-            .clone();
+        let offer = plot_command(&universe, work)
+            .unwrap_or_else(|| panic!("{place:?}: a plot offers the {work}"));
         universe.invoke_projection_command(&offer).unwrap();
         let mut drawn = None;
         for _ in 0..40 {
@@ -181,16 +189,8 @@ fn a_design_and_a_name_are_kept_through_a_replay_and_a_world_code() {
         ),
     ] {
         let mut universe = seeded(seed);
-        let offer = universe
-            .projection_snapshot()
-            .canvas
-            .plots
-            .iter()
-            .flat_map(|plot| plot.offers.iter())
-            .find(|offer| offer.command.contains(&format!(".plot.{flag}.")))
-            .unwrap_or_else(|| panic!("{place:?}: a plot offers the {flag}"))
-            .command
-            .clone();
+        let offer = plot_command(&universe, flag)
+            .unwrap_or_else(|| panic!("{place:?}: a plot offers the {flag}"));
         universe.invoke_projection_command(&offer).unwrap();
         let snapshot = universe.projection_snapshot();
         let pole = snapshot

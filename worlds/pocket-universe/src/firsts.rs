@@ -12,6 +12,16 @@ use world_core::{Value, WorldState};
 /// The most letters in any week, in every place.
 pub(crate) const LETTERS_A_WEEK: usize = 2;
 
+/// How many letters a week may bring, taken week by week in a mixed
+/// order: two some weeks, one most, and now and then none (about one and
+/// a quarter a week).
+const LETTER_WEEKS: &[usize] = &[2, 1, 1, 0, 2, 1, 1, 2];
+
+/// One day in this many is left quiet, with nothing new at all: fewer
+/// than the harbour's, since a place left to itself (Icebridge above all)
+/// has quiet days of its own.
+const STILL_EVERY: u64 = 60;
+
 const MARS_CORNERS: &[Corner] = &[
     Corner {
         place: SLOT_A,
@@ -453,6 +463,8 @@ pub(crate) fn quiet_days(state: &WorldState) -> QuietDays {
     };
     QuietDays {
         letters_a_week: Some(LETTERS_A_WEEK),
+        letter_weeks: LETTER_WEEKS,
+        still_every: Some(STILL_EVERY),
         corners,
         subjects,
     }

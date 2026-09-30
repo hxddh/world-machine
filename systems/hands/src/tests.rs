@@ -125,6 +125,8 @@ fn kit(_: &WorldState) -> Kit {
             (text(state, id, "hands.thing") == Some("boathouse") || id == SQUARE).then_some("sail")
         },
         naming: |state, id| made(state).contains(&id).then(|| "work".to_string()),
+        plot_stages: None,
+        first_growing: None,
     }
 }
 
@@ -559,4 +561,134 @@ fn a_named_plant_grows_and_keeps_its_name() {
         .filter(|event| event.kind == "plant_grew")
         .count();
     assert_eq!(grew, 2, "each stage once");
+}
+
+fn staged_kit(state: &WorldState) -> Kit {
+    Kit {
+        plot_stages: Some(PlotStages {
+            keeper: FUND,
+            first: 1,
+            at: &[3],
+            group: |_, plot| usize::from(plot.at == SQUARE),
+        }),
+        ..kit(state)
+    }
+}
+
+#[test]
+fn plots_open_in_stages_and_a_world_begun_before_keeps_them_all() {
+    let (mut world, _) = world(100);
+    let mut registry = ActionRegistry::new();
+    register_actions(&mut registry, staged_kit).unwrap();
+    let kit = staged_kit(world.state());
+    // A World that never began to stage its plots keeps every one.
+    assert_eq!(open_plots(world.state(), &kit).len(), 2);
+    assert!(stage_plots(&mut world, &registry, &kit).unwrap().is_some());
+    assert!(stage_plots(&mut world, &registry, &kit).unwrap().is_none());
+    assert_eq!(open_plots(world.state(), &kit).len(), 1);
+    let closed = (kit.plots)(world.state())
+        .into_iter()
+        .find(|plot| !open_plots(world.state(), &kit).contains(plot))
+        .unwrap();
+    // Nothing is built on a plot not yet open.
+    let key = plot_key(closed.offers[0], &closed.id);
+    assert!(world.execute(&registry, &do_request(&key)).is_err());
+    let mut cleared = Vec::new();
+    for _ in 0..4 {
+        let target = world.world_time() + 10;
+        world.advance_to(&registry, target).unwrap();
+        for id in tick(&mut world, &registry, &kit).unwrap() {
+            let event = world.event(id).unwrap();
+            if event.kind == "plot_cleared" {
+                cleared.push(told(event).unwrap());
+            }
+        }
+    }
+    assert_eq!(cleared.len(), 1, "{cleared:?}");
+    assert!(cleared[0].starts_with("A new plot was cleared by "));
+    assert_eq!(open_plots(world.state(), &kit).len(), 2);
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+fn quick_first_kit(state: &WorldState) -> Kit {
+    Kit {
+        first_growing: Some(1),
+        ..kit(state)
+    }
+}
+
+/// A Pack can make a new player's first build a short one: the first work
+/// on a plot is finished the next period, the next takes the usual time,
+/// and each keeps what it took, so a World replays exactly.
+#[test]
+fn the_first_work_on_a_plot_can_go_up_quickly() {
+    let (mut town, _) = world(100);
+    let mut registry = ActionRegistry::new();
+    register_actions(&mut registry, quick_first_kit).unwrap();
+    town.execute(&registry, &do_request(&plot_key("boathouse", "p1")))
+        .unwrap();
+    let first = made(town.state())[0];
+    assert!(building(town.state(), first));
+    pass(&mut town, &registry);
+    assert!(
+        !building(town.state(), first),
+        "the first is up in a period"
+    );
+    town.execute(&registry, &do_request(&plot_key("bandstand", "p2")))
+        .unwrap();
+    let second = *made(town.state()).iter().find(|id| **id != first).unwrap();
+    pass(&mut town, &registry);
+    assert!(
+        building(town.state(), second),
+        "the next takes the usual time"
+    );
+    for _ in 0..2 {
+        pass(&mut town, &registry);
+    }
+    assert!(!building(town.state(), second));
+    let kit = quick_first_kit(town.state());
+    assert_eq!(
+        finished_at(town.state(), &kit, second).unwrap()
+            - finished_at(town.state(), &kit, first).unwrap(),
+        3
+    );
+    // A Kit without a quick first build leaves every work at its own pace.
+    let (mut plain, registry) = world(100);
+    plain
+        .execute(&registry, &do_request(&plot_key("boathouse", "p1")))
+        .unwrap();
+    let work = made(plain.state())[0];
+    pass(&mut plain, &registry);
+    assert!(building(plain.state(), work));
+    let replayed = town.replay().unwrap();
+    assert_eq!(replayed.state(), town.state());
+}
+
+#[test]
+fn plots_open_a_stretch_at_a_time_from_the_middle() {
+    let plot = |id: &str, at| Plot {
+        id: id.into(),
+        at,
+        offers: vec!["bandstand"],
+    };
+    // Four on the quay, two on the square.
+    let plots = [
+        plot("q0", QUAY),
+        plot("q1", QUAY),
+        plot("q2", QUAY),
+        plot("q3", QUAY),
+        plot("s0", SQUARE),
+        plot("s1", SQUARE),
+    ];
+    let stages = PlotStages {
+        keeper: FUND,
+        first: 2,
+        at: &[],
+        group: |_, plot| usize::from(plot.at == SQUARE),
+    };
+    let order = crate::mark::opening_order(&WorldState::default(), &stages, &plots)
+        .into_iter()
+        .map(|at| plots[at].id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(order, ["q2", "s1", "q3", "s0", "q1", "q0"]);
 }

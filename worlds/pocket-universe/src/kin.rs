@@ -253,7 +253,7 @@ const ICE_MEMORIALS: &[Memorial] = &[
 ];
 
 pub(crate) static ARES: Kin = Kin {
-    year: 120,
+    year: crate::almanac::YEAR,
     age_at_start,
     born_at,
     youngest: 24,

@@ -506,6 +506,7 @@ pub(crate) fn cast() -> Cast {
         most_open: 1,
         voice: crate::voices::voice,
         kin: Some(&crate::kin::KIN),
+        kind: crate::arrival::first_days,
     }
 }
 

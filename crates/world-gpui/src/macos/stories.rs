@@ -82,7 +82,7 @@ pub(crate) fn panel_scenes(snapshot: &ProjectionSnapshot, moment: &Moment) -> Ve
         .iter()
         .enumerate()
         .map(|(index, panel)| {
-            panels::panel_scene(
+            let mut scene = panels::panel_scene(
                 snapshot,
                 occasion(moment.kind),
                 beat(panel.beat),
@@ -90,7 +90,9 @@ pub(crate) fn panel_scenes(snapshot: &ProjectionSnapshot, moment: &Moment) -> Ve
                 &panel.cast,
                 panel.mood,
                 &format!("{}-{index}", moment.id),
-            )
+            );
+            scene.props = panel.props.clone();
+            scene
         })
         .collect()
 }
@@ -213,7 +215,11 @@ pub(crate) fn line_label(unit: &str, line: &LegendLine) -> String {
         .as_deref()
         .map(|because| format!(" ({because})"))
         .unwrap_or_default();
-    format!("{unit} {}: {}{because}", line.day, line.text)
+    format!(
+        "{}: {}{because}",
+        crate::i18n::day_label(unit, line.day),
+        line.text
+    )
 }
 
 /// The size of a moment's panel as painted, and its picture if it has
@@ -400,7 +406,7 @@ pub(crate) fn snapshot_day_label(snapshot: &ProjectionSnapshot, day: u32) -> Str
         .calendar
         .as_ref()
         .map_or("Day", |calendar| calendar.unit.as_str());
-    format!("{} {day}", ui::t(unit))
+    crate::i18n::day_label(unit, day)
 }
 
 /// The day the World is on now.
@@ -469,7 +475,10 @@ pub(crate) fn legend_row(
                 .text_xs()
                 .text_right()
                 .text_color(gpui::rgb(INK_SOFT))
-                .child(day.map(|day| format!("{unit} {day}")).unwrap_or_default()),
+                .child(
+                    day.map(|day| crate::i18n::day_label(unit, day))
+                        .unwrap_or_default(),
+                ),
         )
         .child(
             div()
@@ -559,6 +568,9 @@ impl ProjectionView {
                 _ => None,
             });
         let Some(almanac) = almanac else {
+            self.status = Some(ui::t("No story to tell yet").to_string());
+            self.status_is_error = false;
+            cx.notify();
             return;
         };
         let best = almanac.best.as_deref().and_then(|id| {
@@ -582,7 +594,7 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn close_all_pages(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn close_all_pages(&mut self, cx: &mut Context<Self>) {
         self.reading.page = None;
         self.reading.back.clear();
         cx.notify();
@@ -759,52 +771,6 @@ impl ProjectionView {
             });
         })
         .detach();
-    }
-
-    /// The almanac, when a new year has brought one: a letter-like entry at
-    /// the top of the drawer that opens the year's page.
-    pub(crate) fn render_almanac_letter(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let almanac = self.snapshot.almanac.as_ref()?;
-        let year = almanac.year;
-        let heading = ui::t(format!("The almanac · Year {year}")).to_string();
-        Some(
-            ui::region("drawer-almanac", Role::List, heading.clone())
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(ui::section_label(heading.clone()))
-                .child(
-                    div()
-                        .id("almanac-letter")
-                        .role(Role::ListItem)
-                        .aria_label(format!("{heading}: {}", almanac.title))
-                        .mx_3()
-                        .px_4()
-                        .py_3()
-                        .rounded(px(4.0))
-                        .bg(gpui::rgb(PAPER))
-                        .border_1()
-                        .border_color(gpui::rgb(INK_SOFT).opacity(0.3))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(gpui::rgb(0xefe6d0)))
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(gpui::rgb(INK))
-                                .child(almanac.title.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(gpui::rgb(INK_SOFT))
-                                .child(ui::t("Who came and went, and what was built")),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_almanac(year, cx))),
-                ),
-        )
     }
 
     /// The strip of a moment just come, over the scene, with a way to put
@@ -1031,16 +997,14 @@ impl ProjectionView {
         let unit = snapshot
             .calendar
             .as_ref()
-            .map_or("Day".to_string(), |calendar| {
-                ui::t(calendar.unit.clone()).to_string()
-            });
+            .map_or("Day", |calendar| calendar.unit.as_str());
         let first = legend.lines.first().map_or(1, |line| line.day);
         let last = legend.lines.last().map_or(first, |line| line.day);
         let here = item.is_some();
         let span = if here {
             format!(
-                "{} {unit} {first} · {}",
-                ui::t("Here since"),
+                "{} · {}",
+                crate::i18n::here_since(unit, first),
                 ui::t(time_here(
                     first,
                     today(snapshot),
@@ -1052,7 +1016,11 @@ impl ProjectionView {
                 ))
             )
         } else {
-            format!("{unit} {first} – {unit} {last}")
+            format!(
+                "{} – {}",
+                crate::i18n::day_label(unit, first),
+                crate::i18n::day_label(unit, last)
+            )
         };
         let face = match item {
             Some(item) if item.kind != CanvasItemKind::Actor => {
@@ -1137,7 +1105,7 @@ impl ProjectionView {
                 let current = index == self.reading.line;
                 let row = index;
                 lines.push(
-                    legend_row(index, &unit, (nth == 0).then_some(day), line, current)
+                    legend_row(index, unit, (nth == 0).then_some(day), line, current)
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.reading.line = row;

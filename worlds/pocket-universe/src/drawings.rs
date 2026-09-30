@@ -791,3 +791,360 @@ fn festival_things(prefix: &str, colours: Festive) -> Vec<Drawing> {
 
     vec![flag, bunting, lanterns, stall, tent]
 }
+
+/// The kind of place each place is, to look at.
+pub(crate) fn setting_of(place: crate::places::Place) -> &'static str {
+    match place {
+        crate::places::Place::Ares => "mars",
+        crate::places::Place::Maple => "street",
+        crate::places::Place::Ice => "ice",
+    }
+}
+
+/// Seats made by hand that stand in a row are not all the same seat: each
+/// drawing here gives way to the next along the row, so none repeats.
+const SEATS: &[&[&str]] = &[&["metal-bench", "crate-seat", "rover-seat"]];
+
+/// Varies what repeats along a row: the third bench in a row on Ares is a
+/// crate or an old rover seat, never a third identical bench.
+pub(crate) fn vary_seats(items: &mut [world_projection::CanvasItem]) {
+    for seats in SEATS {
+        let mut row = items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.art.as_deref() == Some(seats[0]))
+            .filter_map(|(at, item)| Some((item.px?, at)))
+            .collect::<Vec<_>>();
+        row.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (index, (_, at)) in row.into_iter().enumerate() {
+            items[at].art = Some(seats[index % seats.len()].into());
+        }
+    }
+}
+
+/// What a place's homes are drawn as: hab modules on Ares, row houses on
+/// Maple Street, snow nests on the ice.
+pub(crate) fn home_art(place: crate::places::Place) -> &'static str {
+    match place {
+        crate::places::Place::Ares => "hab-module",
+        crate::places::Place::Maple => "row-house",
+        crate::places::Place::Ice => "snow-nest",
+    }
+}
+
+/// What the app draws each of a place's own works as, from its library
+/// of drawings, by the work's id: every work its own drawing, and each
+/// place's in its own clothes.
+pub(crate) fn art_of_work(place: crate::places::Place, work: &str) -> Option<&'static str> {
+    use crate::places::Place;
+    Some(match (place, work) {
+        (Place::Ares, "second_home") => "second-habitat",
+        (Place::Ares, "beacon") => "beacon-mast",
+        (Place::Ares, "survey") => "survey-rig",
+        (Place::Maple, "second_home") => "second-street",
+        (Place::Maple, "beacon") => "radio-beacon",
+        (Place::Maple, "survey") => "street-survey",
+        (Place::Ice, "second_home") => "second-nests",
+        (Place::Ice, "beacon") => "ice-beacon",
+        (Place::Ice, "survey") => "ice-survey",
+        (_, "ares_dust_wall") => "sandbag-wall",
+        (_, "ares_water_still") => "water-still",
+        (_, "ares_mess_hall") => "mess-hall-dome",
+        (_, "ares_rover_shed") => "rover-shed",
+        (_, "ares_relay_hut") => "relay-hut",
+        (_, "ares_seed_vault") => "seed-vault",
+        (_, "ares_storm_shelter") => "storm-shelter",
+        (_, "ares_solar_field") => "solar-field",
+        (_, "ares_greenhouse_annexe") => "greenhouse-annexe",
+        (_, "ares_track_beacons") => "track-beacons",
+        (_, "ares_clinic") => "clinic-bay",
+        (_, "ares_machine_shop") => "machine-shop",
+        (_, "ares_landing_pad") => "landing-pad",
+        (_, "ares_observatory") => "observatory-dome",
+        (_, "ares_second_tank") => "water-tank",
+        (_, "ares_dust_lock") => "dust-lock",
+        (_, "ares_school_pod") => "school-pod",
+        (_, "ares_ice_cable") => "cable-pylons",
+        (_, "ares_rec_room") => "rec-dome",
+        (_, "ares_radio_tower") => "radio-tower",
+        (_, "ares_landing_stone") => "landing-stone",
+        (_, "ares_algae_farm") => "algae-farm",
+        (_, "ares_bunkhouse") => "bunkhouse",
+        (_, "ares_rover_lift") => "rover-lift",
+        (_, "ares_windbreak") => "windbreak-panels",
+        (_, "ares_trading_post") => "trading-post",
+        (_, "ares_quiet_room") => "quiet-pod",
+        (_, "ares_book_shelves") => "library-module",
+        (_, "ares_mine_shaft") => "mine-headframe",
+        (_, "ares_dome_walkway") => "dome-walkway",
+        (_, "ares_flower_dome") => "flower-dome",
+        (_, "ares_welcome_arch") => "welcome-arch",
+        (_, "maple_bus_shelter") => "bus-shelter",
+        (_, "maple_snack_bar") => "snack-bar",
+        (_, "maple_call_in_booth") => "call-in-booth",
+        (_, "maple_crosswalk") => "crosswalk",
+        (_, "maple_bleachers") => "bleachers",
+        (_, "maple_underpass_mural") => "mural-wall",
+        (_, "maple_splash_pool") => "splash-pool",
+        (_, "maple_skate_floor") => "roller-floor",
+        (_, "maple_darkroom") => "darkroom",
+        (_, "maple_clubhouse") => "clubhouse",
+        (_, "maple_tall_antenna") => "tall-antenna",
+        (_, "maple_garden_plots") => "garden-plots",
+        (_, "maple_park_stage") => "park-stage",
+        (_, "maple_streetlights") => "streetlights",
+        (_, "maple_tape_shelf") => "tape-shelf",
+        (_, "maple_bike_rack") => "school-bike-rack",
+        (_, "maple_dance_floor") => "dance-floor",
+        (_, "maple_record_library") => "record-library",
+        (_, "maple_treehouse") => "treehouse",
+        (_, "maple_court") => "basketball-court",
+        (_, "maple_pay_phone") => "pay-phone",
+        (_, "maple_drive_in_screen") => "drive-in-screen",
+        (_, "maple_study_room") => "study-room",
+        (_, "maple_median_beds") => "median-beds",
+        (_, "maple_soapbox_track") => "soapbox-track",
+        (_, "maple_neon_sign") => "neon-sign",
+        (_, "maple_diner_board") => "diner-board",
+        (_, "maple_radio_van") => "radio-van",
+        (_, "maple_youth_centre") => "youth-centre",
+        (_, "maple_picnic_tables") => "picnic-tables",
+        (_, "maple_winter_rink") => "winter-rink",
+        (_, "maple_square_fountain") => "drinking-fountain",
+        (_, "maple_party_speakers") => "party-speakers",
+        (_, "maple_computer_room") => "computer-room",
+        (_, "maple_walk_of_fame") => "walk-of-fame",
+        (_, "maple_school_greenhouse") => "school-greenhouse",
+        (_, "maple_bus_depot") => "bus-depot",
+        (_, "maple_time_capsule") => "time-capsule",
+        (_, "maple_dog_run") => "dog-run",
+        (_, "maple_marquee") => "rialto-marquee",
+        (_, "maple_lake_path") => "lake-path",
+        (_, "maple_gazebo") => "street-gazebo",
+        (_, "maple_studio") => "recording-studio",
+        (_, "maple_market_stalls") => "market-stalls",
+        (_, "maple_bank_clock") => "bank-clock",
+        (_, "maple_skate_park") => "skate-park",
+        (_, "maple_henderson_bench") => "memorial-bench",
+        (_, "maple_arcade_upstairs") => "arcade-upstairs",
+        (_, "maple_welcome_sign") => "welcome-sign",
+        (_, "maple_transmitter") => "transmitter",
+        (_, "ice_snow_wall") => "snow-wall",
+        (_, "ice_bridge_hole") => "fishing-hole",
+        (_, "ice_ice_house") => "vault-ice-house",
+        (_, "ice_creche") => "creche",
+        (_, "ice_bridge_lanterns") => "bridge-lanterns",
+        (_, "ice_berg_lookout") => "berg-lookout",
+        (_, "ice_sea_slide") => "sea-slide",
+        (_, "ice_council_ring") => "council-ring",
+        (_, "ice_kelp_beds") => "kelp-beds",
+        (_, "ice_thaw_marker") => "thaw-marker",
+        (_, "ice_wind_shelter") => "wind-shelter",
+        (_, "ice_second_vault") => "second-vault",
+        (_, "ice_rope_bridge") => "rope-bridge",
+        (_, "ice_song_stone") => "song-stone",
+        (_, "ice_egg_warmer") => "egg-warmer",
+        (_, "ice_ridge_steps") => "ridge-steps",
+        (_, "ice_deep_ledge") => "deep-ledge",
+        (_, "ice_story_circle") => "story-circle",
+        (_, "ice_breathing_hole") => "breathing-hole",
+        (_, "ice_aurora_seat") => "aurora-seat",
+        (_, "ice_nest_row") => "nest-row",
+        (_, "ice_kelp_racks") => "kelp-racks",
+        (_, "ice_bridge_gate") => "bridge-gate",
+        (_, "ice_seal_watch") => "seal-watch",
+        (_, "ice_snow_hall") => "snow-hall",
+        (_, "ice_run_markers") => "run-markers",
+        (_, "ice_far_lantern") => "far-lantern",
+        (_, "ice_chick_slide") => "chick-slide",
+        (_, "ice_bone_arch") => "bone-arch",
+        (_, "ice_salt_pans") => "salt-pans",
+        (_, "ice_thaw_channel") => "thaw-channel",
+        (_, "ice_swim_pool") => "swim-pool",
+        (_, "ice_pebble_market") => "pebble-market",
+        (_, "ice_night_beacon") => "night-beacon",
+        (_, "ice_elders_ramp") => "elders-ramp",
+        (_, "ice_name_wall") => "name-wall",
+        (_, "ice_fog_horn") => "shell-horn",
+        (_, "ice_new_floe_bridge") => "floe-bridge",
+        _ => return None,
+    })
+}
+
+/// What the app draws something the player built on a plot or made by
+/// hand as, by what it is in the place's `hands` kit. A flag and a sail
+/// wear a design, and keep the shape it is painted on.
+pub(crate) fn art_of(place: crate::places::Place, thing: &str) -> Option<&'static str> {
+    use crate::places::Place;
+    Some(match (place, thing) {
+        // Ares's plots.
+        (Place::Ares, "hydroponics_bay") => "hydroponics-dome",
+        (Place::Ares, "infirmary") => "infirmary-dome",
+        (Place::Ares, "mess_hall") => "mess-module",
+        (Place::Ares, "workshop_dome") => "workshop-dome",
+        (Place::Ares, "music_pod") => "music-pod",
+        (Place::Ares, "schoolroom") => "schoolroom-module",
+        (Place::Ares, "fern_planter") => "fern-planter",
+        (Place::Ares, "control_tower") => "control-tower",
+        (Place::Ares, "rover_garage") => "rover-garage",
+        (Place::Ares, "radio_dish") => "radio-dish",
+        (Place::Ares, "supply_shop") => "supply-module",
+        (Place::Ares, "cargo_depot") => "cargo-depot",
+        (Place::Ares, "landing_lights") => "landing-lights",
+        (Place::Ares, "windsock") => "windsock",
+        (Place::Ares, "fuel_tanks") => "fuel-tanks",
+        (Place::Ares, "dust_shelter") => "dust-shelter",
+        (Place::Ares, "solar_array") => "solar-array",
+        (Place::Ares, "survey_station") => "survey-station",
+        (Place::Ares, "ice_drill") => "ice-drill",
+        (Place::Ares, "observatory") => "telescope-pad",
+        (Place::Ares, "crater_bench") => "crater-bench",
+        (Place::Ares, "marker_cairn") => "marker-cairn",
+        (Place::Ares, "greenhouse_tent") => "greenhouse-tent",
+        (Place::Ares, "weather_mast") => "weather-mast",
+        (Place::Ares, "lichen_garden") => "lichen-garden",
+        (Place::Ares, "low_swing") => "low-g-swing",
+        (Place::Ares, "ridge_beacon") => "ridge-beacon",
+        // Made by hand on Ares.
+        (Place::Ares, "bench") => "metal-bench",
+        (Place::Ares, "lamp") => "solar-lamp",
+        (Place::Ares, "tent") => "supply-tent",
+        (Place::Ares, "lights") => "fairy-lights-mars",
+        (Place::Ares, "tray") => "grow-tray",
+        (Place::Ares, "tree") => "dwarf-apple",
+        (Place::Ares, "condenser") => "condenser",
+        (Place::Ares, "swing") => "low-g-swing",
+        (Place::Ares, "mist") => "mist-fountain",
+        (Place::Ares, "marker") => "trail-marker",
+        (Place::Ares, "seedbox") => "supply-cache",
+        (Place::Ares, "founders") => "founders-statue",
+        (Place::Ares, "beacon_post") => "message-post",
+        (Place::Ares, "sled") => "dust-sled",
+        (Place::Ares, "canopy") => "rest-canopy",
+        (Place::Ares, "racks") => "planter-racks",
+        (Place::Ares, "algae") => "algae-beds",
+        (Place::Ares, "moss_mars") => "red-moss",
+        // Maple Street's plots.
+        (Place::Maple, "record_store") => "record-store",
+        (Place::Maple, "diner") => "diner",
+        (Place::Maple, "garage") => "garage",
+        (Place::Maple, "arcade") => "arcade",
+        (Place::Maple, "barber_shop") => "barber-shop",
+        (Place::Maple, "video_store") => "video-store",
+        (Place::Maple, "newsstand") => "newsstand",
+        (Place::Maple, "bus_shelter") => "bus-shelter",
+        (Place::Maple, "neon_lamp") => "neon-lamp",
+        (Place::Maple, "bandstand") => "roofed-bandstand",
+        (Place::Maple, "ice_cream_stand") => "ice-cream-stand",
+        (Place::Maple, "town_clock") => "town-clock",
+        (Place::Maple, "flower_beds") => "flower-beds",
+        (Place::Maple, "quilt_shop") => "quilt-shop",
+        (Place::Maple, "wishing_fountain") => "wishing-fountain",
+        (Place::Maple, "gazebo") => "street-gazebo",
+        (Place::Maple, "chess_tables") => "chess-tables",
+        (Place::Maple, "bike_rack") => "bike-rack",
+        (Place::Maple, "library") => "library",
+        (Place::Maple, "gym_hall") => "gym-hall",
+        (Place::Maple, "boathouse") => "boathouse",
+        (Place::Maple, "bee_garden") => "bee-garden",
+        (Place::Maple, "science_shed") => "science-shed",
+        (Place::Maple, "treehouse") => "treehouse",
+        (Place::Maple, "bleachers") => "bleachers",
+        (Place::Maple, "fishing_dock") => "fishing-dock",
+        (Place::Maple, "rope_swing") => "rope-swing",
+        // Made by hand on Maple Street.
+        (Place::Maple, "bench") => "park-bench",
+        (Place::Maple, "lamp") => "street-lamp-post",
+        (Place::Maple, "stand" | "hotdog") => "hot-dog-stand",
+        (Place::Maple, "streamers") => "streamers",
+        (Place::Maple, "lights") => "fairy-lights-street",
+        (Place::Maple, "flowers") => "flower-bed",
+        (Place::Maple, "maple") => "maple-tree",
+        (Place::Maple, "pump") => "water-pump",
+        (Place::Maple, "swing") => "playground-swing",
+        (Place::Maple, "drinking") => "drinking-fountain",
+        (Place::Maple, "feeder") => "bird-feeder",
+        (Place::Maple, "statue") => "mayor-statue",
+        (Place::Maple, "mailbox") => "mailbox",
+        (Place::Maple, "windowboxes") => "window-boxes",
+        (Place::Maple, "tomatoes") => "tomato-patch",
+        (Place::Maple, "roses") => "rose-bed",
+        // Icebridge's plots.
+        (Place::Ice, "chick_nursery") => "chick-nursery",
+        (Place::Ice, "song_circle") => "song-circle",
+        (Place::Ice, "fish_larder") => "fish-larder",
+        (Place::Ice, "lantern_ring") => "lantern-ring",
+        (Place::Ice, "story_berg") => "story-berg",
+        (Place::Ice, "pebble_garden") => "pebble-garden",
+        (Place::Ice, "snow_house") => "snow-house",
+        (Place::Ice, "ice_slide") => "ice-slide",
+        (Place::Ice, "ice_market") => "ice-market",
+        (Place::Ice, "carving_hall") => "carving-hall",
+        (Place::Ice, "lookout_post") => "lookout-post",
+        (Place::Ice, "skating_rink") => "skating-rink",
+        (Place::Ice, "kelp_racks") => "kelp-racks",
+        (Place::Ice, "ice_bench") => "ice-bench",
+        (Place::Ice, "bell_post") => "bell-post",
+        (Place::Ice, "snow_arch") => "snow-arch",
+        (Place::Ice, "warming_hut") => "warming-hut",
+        (Place::Ice, "kayak_shelter") => "kayak-shelter",
+        (Place::Ice, "whale_watch") => "whale-watch",
+        (Place::Ice, "aurora_seat") => "aurora-seat",
+        (Place::Ice, "fishing_hole") => "fishing-hole",
+        (Place::Ice, "moss_patch" | "moss") => "moss-patch",
+        (Place::Ice, "seal_fence") => "seal-fence",
+        (Place::Ice, "far_beacon") => "far-beacon",
+        (Place::Ice, "snow_maze") => "snow-maze",
+        (Place::Ice, "sculpture_garden") => "sculpture-garden",
+        // Made by hand on the ice.
+        (Place::Ice, "bench") => "ice-bench",
+        (Place::Ice, "lamp") => "lantern-post",
+        (Place::Ice, "stall") => "fish-stall",
+        (Place::Ice, "pennants") => "pennant-line",
+        (Place::Ice, "glow") => "glow-stones",
+        (Place::Ice, "kelp") => "kelp-garden",
+        (Place::Ice, "icewell") => "ice-well",
+        (Place::Ice, "swing") => "kelp-swing",
+        (Place::Ice, "geyser") => "geyser-fountain",
+        (Place::Ice, "marker") => "snow-marker",
+        (Place::Ice, "nest") => "nesting-box",
+        (Place::Ice, "sculpture") => "ice-sculpture",
+        (Place::Ice, "stone") => "message-stone",
+        (Place::Ice, "hole") => "fishing-hole-bench",
+        (Place::Ice, "pebbles") => "pebble-planters",
+        (Place::Ice, "seaweed") => "seaweed-bed",
+        (Place::Ice, "lichen") => "lichen-patch",
+        _ => return None,
+    })
+}
+
+/// Says what everything the player built or made is drawn as: its art
+/// once it stands finished in its own shape (a seedling is still a
+/// seedling).
+pub(crate) fn dress_art(world: &World, items: &mut [world_projection::CanvasItem]) {
+    let state = world.state();
+    let Some(place) = crate::places::Place::of(state) else {
+        return;
+    };
+    // What is still going up keeps the scaffold its plot says it has.
+    for item in items.iter_mut().filter(|item| item.art.is_none()) {
+        let world_projection::SelectionId::Entity(id) = item.id else {
+            continue;
+        };
+        let Some(entity) = state.entity(id) else {
+            continue;
+        };
+        let Some(world_core::Value::Text(thing)) = entity.component("hands.thing") else {
+            continue;
+        };
+        if matches!(entity.component("shape"), Some(world_core::Value::Text(shape)) if shape == "sprouts")
+        {
+            continue;
+        }
+        if let Some(art) = art_of(place, thing) {
+            item.art = Some(art.into());
+            // Its own drawing, not a festival's stall or lantern.
+            item.drawing = None;
+        }
+    }
+}

@@ -27,6 +27,9 @@ pub(crate) struct Marking {
     /// The plot whose offers are open (by its id), and the offer the keys
     /// are on.
     pub(crate) offers: Option<(String, usize)>,
+    /// The hands' verb a plot's card is turned to, instead of what could
+    /// stand on the plot itself.
+    pub(crate) offers_verb: Option<String>,
     /// Something whose card is open: what can be done to it.
     pub(crate) card: Option<SelectionId>,
     /// A design being made.
@@ -125,7 +128,7 @@ pub(crate) fn design_layout(width: f32, height: f32, target_x: Option<f32>) -> D
 
 /// How many offers a row of the plot's card holds.
 const OFFER_COLUMNS: usize = 3;
-const OFFER_W: f32 = 104.0;
+pub(crate) const OFFER_W: f32 = 104.0;
 
 impl ProjectionView {
     fn item_of(&self, id: SelectionId) -> Option<&CanvasItem> {
@@ -331,7 +334,9 @@ impl ProjectionView {
         marking.card = None;
         marking.design = None;
         marking.offers = Some((plot.to_string(), 0));
+        marking.offers_verb = None;
         self.looking.asking = None;
+        self.looking.hands = None;
         self.cue(crate::Cue::Flip);
         cx.notify();
     }
@@ -348,7 +353,9 @@ impl ProjectionView {
     }
 
     /// The plot's card: what could stand there, each as it would be drawn,
-    /// with what it costs.
+    /// with what it costs, greyed with the reason when it cannot be built;
+    /// and, turned to the hands' verbs, the smaller things the player can
+    /// make or do anywhere. One card, one way to build.
     pub(crate) fn render_offers(
         &self,
         stage: &Stage,
@@ -361,11 +368,30 @@ impl ProjectionView {
         let plot = &plots[index];
         let spot = stage.plots.iter().find(|spot| spot.plot == index)?;
         let (x, y) = camera.at(stage, spot.x, spot.y);
-        let columns = plot.offers.len().clamp(1, OFFER_COLUMNS);
-        let rows = plot.offers.len().div_ceil(OFFER_COLUMNS).max(1);
+        let verbs = self.hand_verbs();
+        let verb = self
+            .looking
+            .marking
+            .offers_verb
+            .clone()
+            .filter(|verb| verbs.contains(&verb.as_str()));
+        let things = verb
+            .as_deref()
+            .map(|verb| self.hand_things(verb))
+            .unwrap_or_default();
+        let count = if verb.is_some() {
+            things.len()
+        } else {
+            plot.offers.len()
+        };
+        let columns = OFFER_COLUMNS;
+        let rows = count.div_ceil(OFFER_COLUMNS).max(1);
         // The tiles, the gaps between them, the card's padding and border.
         let width = columns as f32 * OFFER_W + (columns - 1) as f32 * 8.0 + 32.0 + 6.0;
-        let tall = 76.0 + rows as f32 * 132.0;
+        let tabs_tall = if verbs.is_empty() { 0.0 } else { 70.0 };
+        // The tiles scroll inside the card rather than run off the window.
+        let grid_h = (rows as f32 * 132.0).min((stage.height - 290.0).max(140.0));
+        let tall = 92.0 + tabs_tall + grid_h;
         let district = self
             .snapshot
             .canvas
@@ -377,81 +403,120 @@ impl ProjectionView {
             .id("plot-offers")
             .role(Role::List)
             .aria_label(ui::t("What could stand here"))
+            .max_h(px(grid_h))
+            .overflow_y_scroll()
             .flex()
             .flex_wrap()
             .gap_2();
-        for (at, offer) in plot.offers.iter().enumerate() {
-            let offer_ = offer.clone();
-            let available = offer.unavailable.is_none();
-            let caption = offer
-                .unavailable
-                .clone()
-                .or_else(|| offer.cost.clone())
-                .unwrap_or_default();
-            let spoken = if caption.is_empty() {
-                offer.label.clone()
-            } else {
-                format!("{}, {}", offer.label, caption)
-            };
-            let shape = offer.shape;
-            let key = offer.label.clone();
-            let tile = div()
-                .id(SharedString::from(format!("offer-{at}")))
-                .role(Role::ListItem)
-                .aria_label(spoken)
-                .aria_selected(at == chosen)
-                .w(px(OFFER_W))
-                .p_1()
-                .rounded_lg()
-                .border_1()
-                .border_color(if at == chosen {
-                    color(tokens::ACCENT)
-                } else {
-                    gpui::transparent_black().into()
-                })
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_1()
-                .when(available, |tile| {
-                    tile.cursor_pointer()
-                        .hover(|style| style.bg(color(tokens::ROW_HOVER)))
-                        .on_click(cx.listener(move |this, _, _, cx| {
+        match &verb {
+            None => {
+                for (at, offer) in plot.offers.iter().enumerate() {
+                    let offer_ = offer.clone();
+                    let available = offer.unavailable.is_none();
+                    let caption = offer
+                        .unavailable
+                        .clone()
+                        .or_else(|| offer.cost.clone())
+                        .unwrap_or_default();
+                    let tile = offer_tile(
+                        SharedString::from(format!("offer-{at}")),
+                        &offer.label,
+                        caption,
+                        available,
+                        at == chosen,
+                        offer.shape,
+                        offer.art.clone(),
+                    );
+                    grid = grid.child(if available {
+                        tile.on_click(cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
                             this.build(&offer_, cx);
                         }))
-                })
-                .when(!available, |tile| tile.opacity(0.5))
-                .child(
-                    canvas(
-                        |_, _, _| (),
-                        move |bounds, _, window, _| paint_offer(window, bounds, shape, &key),
-                    )
-                    .w(px(OFFER_W - 8.0))
-                    .h(px(70.0)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(color(tokens::TEXT))
-                        .text_center()
-                        .line_height(relative(1.3))
-                        .child(offer.label.clone()),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(color(if available {
-                            tokens::TEXT_TERTIARY
-                        } else {
-                            tokens::WARNING
+                    } else {
+                        tile
+                    });
+                }
+            }
+            Some(verb) => {
+                for thing in things {
+                    let (verb, key) = (verb.clone(), thing.key.clone());
+                    let tile = offer_tile(
+                        SharedString::from(format!("plot-thing-{}", thing.command)),
+                        &thing.label,
+                        thing
+                            .reason
+                            .clone()
+                            .or(thing.cost.clone())
+                            .unwrap_or_default(),
+                        thing.possible,
+                        false,
+                        thing.shape,
+                        None,
+                    );
+                    grid = grid.child(if thing.possible {
+                        tile.on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.looking.marking.offers = None;
+                            this.looking.marking.offers_verb = None;
+                            this.looking.hands = Some(super::world_window::Hands {
+                                verb: Some(verb.clone()),
+                                thing: Some(key.clone()),
+                            });
+                            cx.notify();
                         }))
-                        .text_center()
-                        .child(caption),
-                );
-            grid = grid.child(tile);
+                    } else {
+                        tile
+                    });
+                }
+            }
         }
+        let mut tabs = div()
+            .id("plot-verbs")
+            .role(Role::TabList)
+            .aria_label(ui::t("What to do"))
+            .flex()
+            .flex_wrap()
+            .gap_1();
+        if !verbs.is_empty() {
+            tabs = tabs.child(
+                super::world_window::verb_tab("Build here", verb.is_none()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.looking.marking.offers_verb = None;
+                        cx.notify();
+                    },
+                )),
+            );
+            for each in verbs.iter().copied().filter(|verb| *verb != "Move") {
+                // Here, the hands' small builds are told from the plot's.
+                let label = if each == "Build" {
+                    "Something small"
+                } else {
+                    each
+                };
+                tabs = tabs.child(
+                    super::world_window::labelled_tab(each, label, verb.as_deref() == Some(each))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            if super::world_window::to_someone(each) {
+                                this.looking.marking.offers = None;
+                                this.looking.marking.offers_verb = None;
+                                this.looking.hands = Some(super::world_window::Hands {
+                                    verb: Some(each.to_string()),
+                                    thing: Some("*".into()),
+                                });
+                            } else {
+                                this.looking.marking.offers_verb = Some(each.to_string());
+                            }
+                            cx.notify();
+                        })),
+                );
+            }
+        }
+        let caption = match district {
+            Some(district) => format!("{} · {}", district, ui::t("What could stand here?")),
+            None => ui::t("What could stand here?").to_string(),
+        };
         let card = div()
             .id("plot-card")
             .role(Role::Dialog)
@@ -459,7 +524,7 @@ impl ProjectionView {
             .w(px(width))
             .p_4()
             .rounded_xl()
-            .bg(color(tokens::SURFACE))
+            .bg(super::world_window::scene_paper())
             .shadow_lg()
             .border_1()
             .border_color(color(tokens::BORDER))
@@ -479,21 +544,19 @@ impl ProjectionView {
                             .flex()
                             .flex_col()
                             .child(ui::row_title("A plot"))
-                            .child(ui::caption(match district {
-                                Some(district) => {
-                                    format!("{} · {}", district, ui::t("What could stand here?"))
-                                }
-                                None => ui::t("What could stand here?").to_string(),
-                            })),
+                            .child(ui::caption(caption))
+                            .children(self.purse().map(ui::caption)),
                     )
                     .child(close_button(
                         "plot-close",
                         cx.listener(|this, _, _, cx| {
                             this.looking.marking.offers = None;
+                            this.looking.marking.offers_verb = None;
                             cx.notify();
                         }),
                     )),
             )
+            .when(!verbs.is_empty(), |card| card.child(tabs))
             .child(grid);
         let left = (x - width / 2.0).clamp(12.0, (stage.view_w - width - 12.0).max(12.0));
         let above = y - spot.w * camera.zoom * 0.2 - tall - 18.0;
@@ -1429,7 +1492,93 @@ fn luminance(rgb: [u8; 3]) -> f32 {
 
 /// An offer as it would be drawn: on a slip of paper, on its own patch of
 /// ground, by the same hand as the place.
-fn paint_offer(window: &mut Window, bounds: gpui::Bounds<Pixels>, shape: MarkShape, key: &str) {
+/// One thing that could be made, as a tile of the build card: drawn as it
+/// would stand, its name, and what it costs; greyed, with the reason in
+/// its place, when it cannot be made now.
+pub(crate) fn offer_tile(
+    id: SharedString,
+    label: &str,
+    caption: String,
+    available: bool,
+    chosen: bool,
+    shape: MarkShape,
+    art: Option<String>,
+) -> Stateful<Div> {
+    let spoken = if caption.is_empty() {
+        label.to_string()
+    } else if available {
+        format!("{label}, {caption}")
+    } else {
+        format!("{label}: {}: {caption}", ui::t("Not now"))
+    };
+    let key = label.to_string();
+    div()
+        .id(id)
+        .role(Role::ListItem)
+        .aria_label(spoken)
+        .aria_selected(chosen)
+        .w(px(OFFER_W))
+        .p_1()
+        .rounded_lg()
+        .border_1()
+        .border_color(if chosen {
+            color(tokens::ACCENT)
+        } else {
+            gpui::transparent_black().into()
+        })
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .when(available, |tile| {
+            tile.cursor_pointer()
+                .hover(|style| style.bg(color(tokens::ROW_HOVER)))
+        })
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| {
+                    paint_offer(window, bounds, shape, &key, art.as_deref(), available)
+                },
+            )
+            .w(px(OFFER_W - 8.0))
+            .h(px(70.0)),
+        )
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color(if available {
+                    tokens::TEXT
+                } else {
+                    tokens::TEXT_TERTIARY
+                }))
+                .text_center()
+                .line_height(relative(1.3))
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(color(if available {
+                    tokens::TEXT_TERTIARY
+                } else {
+                    tokens::WARNING
+                }))
+                .text_center()
+                .line_height(relative(1.3))
+                .child(caption),
+        )
+}
+
+fn paint_offer(
+    window: &mut Window,
+    bounds: gpui::Bounds<Pixels>,
+    shape: MarkShape,
+    key: &str,
+    art_key: Option<&str>,
+    available: bool,
+) {
     let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
     let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     art::rect(window, x, y, w, h, 8.0, art::hex(PAPER));
@@ -1452,7 +1601,10 @@ fn paint_offer(window: &mut Window, bounds: gpui::Bounds<Pixels>, shape: MarkSha
         4.0,
         gpui::black().opacity(0.18),
     );
-    let palette = art::Palette::of(key, false);
+    let mut palette = art::Palette::of(key, false);
+    if let Some(art) = art_key.and_then(crate::works::Art::from_key) {
+        palette.art = Some(art);
+    }
     let small = !matches!(
         shape,
         MarkShape::House
@@ -1465,6 +1617,10 @@ fn paint_offer(window: &mut Window, bounds: gpui::Bounds<Pixels>, shape: MarkSha
     );
     let size = if small { h * 0.62 } else { h * 0.7 };
     art::paint_building(window, x + w / 2.0, ground, size, size, shape, &palette);
+    // What cannot be made now is drawn under a veil of the paper.
+    if !available {
+        art::rect(window, x, y, w, h, 8.0, art::hex(PAPER).opacity(0.55));
+    }
 }
 
 /// The grid of a design: each square its colour on the paper, hairlines
@@ -1718,6 +1874,7 @@ mod window_tests {
             shape,
             cost: Some("12 coins".into()),
             unavailable: unavailable.map(Into::into),
+            art: None,
         };
         snapshot.canvas.plots.push(Plot {
             id: "plot-1".into(),

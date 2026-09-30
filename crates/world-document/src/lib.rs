@@ -84,6 +84,9 @@ pub struct DocumentFigure {
     /// Which of the World's drawings it is drawn with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drawing: Option<String>,
+    /// What the app draws it as, from its own library of drawings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<String>,
 }
 
 impl WorldDocumentMetadata {

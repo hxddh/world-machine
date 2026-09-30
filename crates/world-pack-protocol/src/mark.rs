@@ -159,6 +159,9 @@ pub struct PlotOfferWire {
     pub cost: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+    /// What the app draws it as; an older Pack sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -189,6 +192,7 @@ impl From<&Plot> for PlotWire {
                     shape: offer.shape.into(),
                     cost: offer.cost.clone(),
                     unavailable: offer.unavailable.clone(),
+                    art: offer.art.clone(),
                 })
                 .collect(),
         }
@@ -214,6 +218,7 @@ impl PlotWire {
                     shape: MarkShape::from(offer.shape),
                     cost: offer.cost,
                     unavailable: offer.unavailable,
+                    art: crate::art_key(offer.art),
                 })
                 .collect(),
         })

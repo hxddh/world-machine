@@ -420,6 +420,9 @@ fn write_launch_image(
     permissions: fs::Permissions,
 ) -> Result<PathBuf, HostError> {
     let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
+    if nonce == 0 {
+        sweep_stale_launch_images();
+    }
     let extension = source
         .extension()
         .and_then(|extension| extension.to_str())
@@ -458,6 +461,39 @@ fn write_launch_image(
         )));
     }
     Ok(path)
+}
+
+/// How old an earlier run's launch image must be before it is swept.
+const STALE_LAUNCH_IMAGE: std::time::Duration = std::time::Duration::from_secs(12 * 60 * 60);
+
+/// Removes launch images an earlier run left behind: a process that ends
+/// without dropping its Pack (a crash, a forced quit) leaves its copy of
+/// the Pack's program in the temporary folder. Only images from other
+/// processes, untouched for half a day, are removed.
+fn sweep_stale_launch_images() {
+    let own = format!("world-machine-pack-launch-{}-", process::id());
+    let Ok(entries) = fs::read_dir(env::temp_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with("world-machine-pack-launch-") || name.starts_with(&own) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= STALE_LAUNCH_IMAGE);
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn sha256_file(path: &Path) -> Result<String, HostError> {

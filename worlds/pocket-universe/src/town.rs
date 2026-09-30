@@ -222,15 +222,15 @@ pub(crate) fn households(state: &WorldState) -> BTreeMap<EntityId, Vec<EntityId>
 }
 
 /// A work a place can finish, as the scene draws it.
-struct Work {
-    id: &'static str,
-    label: String,
-    shape: MarkShape,
+pub(crate) struct Work {
+    pub(crate) id: &'static str,
+    pub(crate) label: String,
+    pub(crate) shape: MarkShape,
 }
 
 /// Every work a place can finish, once each: its first goals, then its
 /// ladder's works (not their second rounds).
-fn catalog(world: &World, place: Place) -> Vec<Work> {
+pub(crate) fn catalog(world: &World, place: Place) -> Vec<Work> {
     let goals = crate::story::goals(world);
     ["second_home", "beacon", "survey"]
         .into_iter()
@@ -518,6 +518,8 @@ pub(crate) fn lay_out(
             };
             if let Some(px) = street.take(row, street.stretch_at(px), px) {
                 item.px = Some(px);
+                // The row it stands in, for the app to stand it in.
+                item.y = ROW_Y[row];
                 placed.insert(selection, px);
             }
         }
@@ -540,19 +542,22 @@ pub(crate) fn lay_out(
             home_of.insert(*member, id);
         }
         placed.insert(id, px);
-        items.push(new_item(
-            id,
-            CanvasItemKind::Place,
-            layout.home.into(),
-            members
-                .iter()
-                .map(|member| lives::first_name(state, *member))
-                .collect::<Vec<_>>()
-                .join(" · "),
-            (px, width, row),
-            MarkShape::House,
-            None,
-        ));
+        items.push(CanvasItem {
+            art: Some(crate::drawings::home_art(place).into()),
+            ..new_item(
+                id,
+                CanvasItemKind::Place,
+                layout.home.into(),
+                members
+                    .iter()
+                    .map(|member| lives::first_name(state, *member))
+                    .collect::<Vec<_>>()
+                    .join(" · "),
+                (px, width, row),
+                MarkShape::House,
+                None,
+            )
+        });
     }
 
     // Every work the place could finish has a spot kept for it, in the
@@ -573,7 +578,7 @@ pub(crate) fn lay_out(
         if let Some(at) = street.stretch_at(px) {
             works[at].push(id);
         }
-        items.push(new_item(
+        let mut item = new_item(
             id,
             if is_building(work.shape) {
                 CanvasItemKind::Place
@@ -585,12 +590,15 @@ pub(crate) fn lay_out(
             (px, width, row),
             work.shape,
             built,
-        ));
+        );
+        item.art = crate::drawings::art_of_work(place, work.id).map(Into::into);
+        items.push(item);
     }
 
     // What the player built on plots stands on its plot, and everything
     // says what it can wear and be called.
     crate::plots::dress(world, &mut items);
+    crate::drawings::dress_art(world, &mut items);
     for item in items.iter().filter(|item| item.variant.is_some()) {
         if let Some(px) = item.px {
             placed.insert(item.id, px);
@@ -619,10 +627,11 @@ pub(crate) fn lay_out(
             .map(|spot| spot * width)
             .or_else(|| item.at.and_then(|place| placed.get(&place).copied()))
             .unwrap_or(width / 2.0);
-        if let Some((_, px)) =
+        if let Some((row, px)) =
             street.take_first(&[FRONT, NEARER, MIDDLE], street.stretch_at(near), near)
         {
             items[at].px = Some(px);
+            items[at].y = ROW_Y[row];
             placed.insert(items[at].id, px);
         }
     }
@@ -722,6 +731,7 @@ pub(crate) fn lay_out(
             .or_else(|| placed.get(&home).copied());
     }
 
+    crate::drawings::vary_seats(&mut items);
     let almanac = crate::almanac::almanac(state);
     let (season, ground, ice) = season_on(place, calendar::day_of_year(state, &almanac));
     CanvasProjection {
@@ -744,6 +754,7 @@ pub(crate) fn lay_out(
         ground,
         ice,
         plots: crate::plots::canvas_plots(world),
+        setting: Some(crate::drawings::setting_of(place).into()),
     }
 }
 

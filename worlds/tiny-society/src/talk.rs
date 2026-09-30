@@ -317,7 +317,14 @@ pub(crate) fn request(
 /// How the harbour is doing, in anybody's words.
 pub(crate) fn harbour_mood(world: &World) -> String {
     let bakery_open = text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("closed");
-    match (bakery_open, crate::story::spirits(world)) {
+    // Nobody is glum to a newcomer in their first days.
+    let spirits = crate::story::spirits(world);
+    let spirits = if crate::arrival::first_days(world.state()) {
+        spirits.max(0)
+    } else {
+        spirits
+    };
+    match (bakery_open, spirits) {
         (false, _) => "The bakery's shut. Everyone feels it.".into(),
         (true, 3..) => "In fine spirits, all of us.".into(),
         (true, ..=-3) => "Glum. Everyone's short with each other.".into(),
@@ -343,7 +350,7 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
             how
         } else if cash < 50 {
             "Getting by. Just about.".into()
-        } else if kindness.1 > kindness.0 {
+        } else if kindness.1 > kindness.0 && !crate::arrival::first_days(world.state()) {
             "Sore. Nobody listens when I ask for anything.".into()
         } else if kindness.0 > 0 && kindness.0 > kindness.1 {
             "Glad. People here look out for me.".into()

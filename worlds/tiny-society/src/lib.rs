@@ -3,10 +3,15 @@ mod actions;
 mod agency;
 mod almanac;
 mod almanac_page;
+mod arrival;
+#[cfg(test)]
+mod art_tests;
 mod behaviors;
 mod book;
 mod drawings;
 mod drift;
+#[cfg(test)]
+mod first_minutes;
 mod firsts;
 mod fishing;
 mod handwork;
@@ -22,6 +27,8 @@ mod model;
 mod moments;
 mod payroll;
 mod persistence;
+#[cfg(test)]
+mod players;
 mod plots;
 #[cfg(test)]
 mod plots_tests;
@@ -30,6 +37,8 @@ mod reciprocity;
 mod recovery;
 #[cfg(test)]
 mod red_team;
+#[cfg(test)]
+mod seams_tests;
 mod seed;
 mod social;
 mod speech;
@@ -229,6 +238,19 @@ impl TinySocietyBranch {
         .collect())
     }
 
+    /// A new harbour as a new player finds it: Day 1, fair weather, and
+    /// someone coming over to say hello before anything is asked. The
+    /// harbour's old storm is not part of it (see [`arrival`]).
+    pub fn new_world() -> Result<Self, Box<dyn Error>> {
+        let actions = build_action_registry()?;
+        let mut world = World::new(seed::seed_world()?);
+        world.advance_to(actions, persistence::WORLD_DAY_TICKS)?;
+        world.execute(actions, &ActionRequest::new("harbour_arrived"))?;
+        let mut branch = Self { world };
+        branch.begin_story()?;
+        Ok(branch)
+    }
+
     /// Starts the storyteller. A new World opens on the place, and its
     /// first question waits for the player's first deed.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -314,6 +336,9 @@ impl TinySocietyBranch {
         let run = BehaviorRuntime::run_from_event(&mut self.world, actions, &behaviors, event, 32)?;
         let mut events = vec![event];
         events.extend(run.generated_events);
+        // The harbour sees the player here: it takes up the works they let
+        // wait.
+        events.extend(story::player_seen(&mut self.world, actions)?);
         // A work just finished leaves something to keep, and a gathering
         // may bring two people together.
         events.extend(story::mementos(&mut self.world, actions, &[event])?);
@@ -751,6 +776,7 @@ fn make_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     society_basic::register_actions(&mut actions)?;
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
+    arrival::register_actions(&mut actions)?;
     fishing::register_actions(&mut actions)?;
     drift::register_actions(&mut actions)?;
     hardship::register_actions(&mut actions)?;

@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.23.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.24.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -59,6 +59,9 @@ Current as of `v0.23.0` in the [changelog](../CHANGELOG.md). Report anything els
   It misses most often on paraphrased harm, fourth-wall remarks and invented names; it wrongly declines some era-correct names and words like "instructions". A declined answer is replaced by the World's own words. World voice is off by default. `cargo test -p tiny-society --release --lib the_later_blind_sets_are_measured -- --ignored --nocapture` prints the numbers. A likely next step is to have the model check its own answer as a recorded second opinion.
 - **A builder's World code can pass 50,000 characters.** At three years a World where the player built on every plot is 50,299 characters, because the people its works drew each keep a full life. An ordinary three-year World is 47,872.
 - **The `fm` helper is source only.** It has never been compiled (there is no Swift on the machines that build it outside a Mac) and the app does not call it. The release workflow tries to build it on the Mac runner and carries on without it.
+- **Day 1 is sparse.** A new harbour is mostly its back row, a meadow and the quay until the town builds; the rows draw forward while the street is empty.
+- **The new look, the Pocket Universe places and the drawer are unseen on a Mac.** They were checked in the Linux preview and in golden images.
+- **Performance is not yet back to v0.20.** A three-year snapshot measured 21.6–23.9 ms at v0.23 against a 15 ms bar; v0.25 is meant to fix it. The window's longest frame stays about 9–14 ms.
 - **Designs are not drawn in moment strips,** which are painted without pictures.
 - **Designing, naming, plots, the touchable strip and a friend's resident are untried on a Mac.** They were checked in the Linux preview, keys and clicks included.
 - **Homes and works cannot be inspected.** They are drawn and named, but clicking one opens nothing, because they are worked out for the picture rather than recorded in the World.

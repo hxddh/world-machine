@@ -41,14 +41,102 @@ const PLAIN: Scenery = Scenery {
 };
 
 /// Where the parts of the landscape sit, as fractions of the stage height:
-/// the horizon, the line buildings stand on, the line people stand on, and
-/// the top of the foreground (water in a harbour, dark dust on Mars) that
-/// the choice card floats over.
+/// the horizon; the back row, where the town begins; the quay, where
+/// people walk and sit; and the top of the foreground (the water in a
+/// harbour, dark dust on Mars), which the choice card floats over.
 const HORIZON: f32 = 0.40;
-const BASE: f32 = 0.58;
-const FEET: f32 = 0.63;
+const BASE: f32 = 0.47;
+const FEET: f32 = 0.745;
 const FRONT: f32 = 0.80;
 const MARGIN: f32 = 0.07;
+
+/// How much taller a cottage stands than a grown-up at the same depth.
+pub const COTTAGE: f32 = 2.75;
+
+/// The Pack's rows as its `y` gives them (the back row 0.3; the street's
+/// two rows, 0.45 and 0.6, with the plots at 0.68; the quay, 0.76), as
+/// lines on the stage (fractions of its height), and how big whatever
+/// stands on each is drawn: nearer is bigger, and the quay is full size.
+/// Between the back row and the quay each row stands about a storey
+/// nearer than the one behind, so the town climbs the stage in depth
+/// rather than standing on one line.
+const ROWS: [(f32, f32, f32); 5] = [
+    (0.30, BASE, 0.70),
+    (0.45, 0.548, 0.79),
+    (0.60, 0.618, 0.87),
+    (0.68, 0.658, 0.91),
+    (0.76, FEET, 1.0),
+];
+
+/// The rows of a young place, whose street is still empty: the back row
+/// stands forward, nearer the quay and bigger, so the town does not hang
+/// at the top of a bare field. As the street fills the rows move back to
+/// [`ROWS`].
+const YOUNG_ROWS: [(f32, f32, f32); 5] = [
+    (0.30, 0.56, 0.80),
+    (0.45, 0.60, 0.84),
+    (0.60, 0.635, 0.88),
+    (0.68, 0.662, 0.92),
+    (0.76, FEET, 1.0),
+];
+
+/// The line (a fraction of the stage height) and the scale of whatever
+/// stands in the Pack's row `y`, between two rows as far between them,
+/// for a grown place.
+fn row_at(y: f32) -> (f32, f32) {
+    row_aged(y, 1.0)
+}
+
+/// The same for a place whose street is `grown` of the way full (0 to 1):
+/// the young rows and the grown ones mixed.
+fn row_aged(y: f32, grown: f32) -> (f32, f32) {
+    let on = |rows: &[(f32, f32, f32); 5]| {
+        let y = y.clamp(rows[0].0, rows[rows.len() - 1].0);
+        for pair in rows.windows(2) {
+            let ((y0, l0, s0), (y1, l1, s1)) = (pair[0], pair[1]);
+            if y <= y1 {
+                let t = (y - y0) / (y1 - y0);
+                return (l0 + (l1 - l0) * t, s0 + (s1 - s0) * t);
+            }
+        }
+        let (_, line, scale) = rows[rows.len() - 1];
+        (line, scale)
+    };
+    let (grown_line, grown_scale) = on(&ROWS);
+    let (young_line, young_scale) = on(&YOUNG_ROWS);
+    let g = grown.clamp(0.0, 1.0);
+    (
+        young_line + (grown_line - young_line) * g,
+        young_scale + (grown_scale - young_scale) * g,
+    )
+}
+
+/// The four depth bands a place is composed in, back to front: the back
+/// row of buildings, the street, the quay (or the near ground) where
+/// people walk and sit, and the water.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Depth {
+    Back,
+    Street,
+    Quay,
+    Water,
+}
+
+impl Depth {
+    /// The band of a line `y` stage pixels down a stage `height` tall.
+    pub fn at(y: f32, height: f32) -> Self {
+        let line = y / height.max(1.0);
+        if line >= FRONT - 1e-3 {
+            Depth::Water
+        } else if line >= 0.70 {
+            Depth::Quay
+        } else if line >= 0.51 {
+            Depth::Street
+        } else {
+            Depth::Back
+        }
+    }
+}
 
 /// One thing's place on the stage, in stage pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,6 +145,12 @@ pub struct Spot {
     pub index: usize,
     pub x: f32,
     pub y: f32,
+    /// How wide it stands (its footprint), in stage pixels; for a person,
+    /// the room they take.
+    pub w: f32,
+    /// How big it is drawn for how near it stands: 1 on the quay, less
+    /// further back.
+    pub scale: f32,
 }
 
 /// Where everything stands, for a stage `width` by `height` pixels.
@@ -69,9 +163,16 @@ pub struct Stage {
     /// How wide the window onto it is.
     pub view_w: f32,
     pub horizon: f32,
+    /// The back row's line.
     pub base: f32,
+    /// The street's front row, where the nearest buildings stand.
+    pub street: f32,
+    /// The quay's line, where people stand.
     pub feet: f32,
+    /// The water's edge.
     pub front: f32,
+    /// A cottage's footprint and height, and a grown-up's height, on the
+    /// quay; further back each is smaller by its spot's `scale`.
     pub building_w: f32,
     pub building_h: f32,
     pub figure_h: f32,
@@ -91,6 +192,10 @@ pub struct Stage {
     /// Plots staked out where something could be built, by their index in
     /// the World's plots: their front edge's middle, and how wide.
     pub plots: Vec<PlotPaint>,
+    /// What the composition keeps back until the camera is close enough
+    /// for it to stand clear of its neighbours: an item's index, and the
+    /// least zoom it shows at (infinite: there is no room for it at all).
+    pub shown_from: BTreeMap<usize, f32>,
 }
 
 impl Stage {
@@ -101,41 +206,59 @@ impl Stage {
             .find(|spot| snapshot.canvas.items.get(spot.index).map(|item| item.id) == Some(id))
     }
 
+    /// Whether the item at `index` is shown with the camera `zoom` times
+    /// closer: everything is, but what the composition keeps back for a
+    /// closer look.
+    pub fn shows(&self, index: usize, zoom: f32) -> bool {
+        self.shown_from
+            .get(&index)
+            .is_none_or(|least| zoom + 1e-4 >= *least)
+    }
+
+    /// How tall a building on `spot` of `shape` stands.
+    pub fn height_of(&self, spot: &Spot, shape: MarkShape) -> f32 {
+        self.building_h
+            * spot.scale
+            * match shape {
+                MarkShape::Bridge => 0.7,
+                MarkShape::Tower => 1.2,
+                MarkShape::Dome | MarkShape::Tree => 0.8,
+                _ => 1.0,
+            }
+    }
+
     /// Where anything on stage is, and roughly how big it is, as a box
     /// around it: what a camera frames when it goes to look at it.
     pub fn frame_of(&self, index: usize) -> Option<(f32, f32, f32, f32)> {
         if let Some(spot) = self.buildings.iter().find(|spot| spot.index == index) {
-            return Some((
-                spot.x - self.building_w / 2.0,
-                spot.y - self.building_h,
-                self.building_w,
-                self.building_h,
-            ));
+            let h = self.building_h * spot.scale;
+            return Some((spot.x - spot.w / 2.0, spot.y - h, spot.w, h));
         }
         if let Some(spot) = self.things.iter().find(|spot| spot.index == index) {
             return Some((
-                spot.x - self.thing_w / 2.0,
-                spot.y - self.thing_w * 0.6,
-                self.thing_w,
-                self.thing_w * 0.6,
+                spot.x - spot.w / 2.0,
+                spot.y - spot.w * 0.6,
+                spot.w,
+                spot.w * 0.6,
             ));
         }
         self.people
             .iter()
             .find(|spot| spot.index == index)
             .map(|spot| {
-                (
-                    spot.x - self.figure_h * 0.3,
-                    spot.y - self.figure_h,
-                    self.figure_h * 0.6,
-                    self.figure_h,
-                )
+                let h = self.figure_h * spot.scale;
+                (spot.x - h * 0.3, spot.y - h, h * 0.6, h)
             })
     }
 
     /// How many window widths the place is.
     pub fn panorama(&self) -> f32 {
         (self.width / self.view_w.max(1.0)).max(1.0)
+    }
+
+    /// The depth band the spot stands in.
+    pub fn depth_of(&self, spot: &Spot) -> Depth {
+        Depth::at(spot.y, self.height)
     }
 }
 
@@ -210,13 +333,19 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
 }
 
 /// Lays out a World on a window `width` by `height` pixels at `clock`.
-/// Places stand in a row along the ground in the order the Pack placed
-/// them, left to right, or where their `px` puts them along a panorama;
-/// things with nobody's place stand in that row too; people stand in front
-/// of wherever they are (or wherever their day has them this hour), pairs
-/// side by side; anyone who is nowhere in particular stands where the Pack
-/// put them. Nobody stands on anybody else. The same World at the same
-/// hour always lays out the same.
+///
+/// The place is composed in four depth bands: the back row of buildings,
+/// the street (its rows climbing toward the viewer, each a little bigger),
+/// the quay in the lower third where people walk and sit, and the water.
+/// Places and things stand where their `px` puts them along a panorama, in
+/// the band their Pack's row (`y`) gives, or else in a row along one
+/// window in the order the Pack placed them; a thing kept at a place with
+/// no spot of its own stands on the quay beside it. People stand on the
+/// quay in front of wherever they are (or wherever their day has them this
+/// hour), pairs side by side; anyone who is nowhere in particular stands
+/// where the Pack put them. Then [`compose`] sees that nothing stands on
+/// anything else. The same World at the same hour always lays out the
+/// same.
 pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: Clock) -> Stage {
     let items = &snapshot.canvas.items;
     let view_w = width.max(120.0);
@@ -224,9 +353,10 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     let panorama = snapshot.canvas.width.unwrap_or(1.0).clamp(1.0, 24.0);
     let width = view_w * panorama;
     // A window's stage keeps its people big enough to see; a cover's
-    // shrinks everything with it.
-    let building_h = (height * 0.19).min(176.0).max((height * 0.3).min(92.0));
-    let figure_h = (height * 0.092).min(84.0).max((height * 0.14).min(52.0));
+    // shrinks everything with it. A cottage stands `COTTAGE` times a
+    // grown-up at the same depth.
+    let figure_h = (height * 0.068).min(64.0).max((height * 0.1).min(40.0));
+    let building_h = figure_h * COTTAGE;
     let index_of = items
         .iter()
         .enumerate()
@@ -261,16 +391,18 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         (host != index && items[host].at.is_none()).then_some(host)
     };
     let along = |item: &CanvasItem| item.px.map(|px| px.clamp(0.0, panorama) * view_w);
-    // What the player stood somewhere of their choosing keeps its spot and
-    // takes no place in the row; nor does what the Pack put at a point
-    // along its panorama.
+    // What stands by itself: a place, or a thing with nobody's place or
+    // with a point of its own along the panorama. What the player stood
+    // somewhere of their choosing keeps its spot; a thing kept at a place
+    // with no point of its own stands beside it.
+    let free = |index: usize| {
+        let item = &items[index];
+        item.kind != CanvasItemKind::Actor
+            && item.spot.is_none()
+            && (host(index).is_none() || item.px.is_some())
+    };
     let mut anchors = (0..items.len())
-        .filter(|index| {
-            host(*index).is_none()
-                && items[*index].kind != CanvasItemKind::Actor
-                && items[*index].spot.is_none()
-                && items[*index].px.is_none()
-        })
+        .filter(|index| free(*index) && items[*index].px.is_none())
         .collect::<Vec<_>>();
     anchors.sort_by(|a, b| {
         items[*a]
@@ -280,107 +412,122 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
             .then(a.cmp(b))
     });
     let usable = width * (1.0 - 2.0 * MARGIN);
-    let slots = anchors.len().max(1) as f32;
-    let mut slot_w = usable / slots;
-    // Along a panorama, a building is no wider than the gap to its
-    // neighbour.
-    // Along a panorama, a building is no wider than the gap to its
-    // neighbour in its own row.
-    let mut rows = BTreeMap::<i32, Vec<f32>>::new();
-    for (index, item) in items.iter().enumerate() {
-        if host(index).is_none() && item.kind != CanvasItemKind::Actor && item.spot.is_none() {
-            if let Some(x) = along(item) {
-                rows.entry((item.y * 100.0).round() as i32)
-                    .or_default()
-                    .push(x);
-            }
-        }
-    }
-    let gap = rows
-        .values_mut()
-        .filter_map(|row| {
-            row.sort_by(f32::total_cmp);
-            row.windows(2)
-                .map(|pair| pair[1] - pair[0])
-                .filter(|gap| *gap > 1.0)
-                .min_by(f32::total_cmp)
+    let slot_w = usable / anchors.len().max(1) as f32;
+    // A row of places along one window stands no wider than its slots.
+    let building_w = (building_h * 1.15)
+        .min(if anchors.len() > 1 {
+            slot_w * 0.9
+        } else {
+            f32::MAX
         })
-        .min_by(f32::total_cmp);
-    if let Some(gap) = gap {
-        slot_w = slot_w.min(gap * 1.45);
-    }
-    let building_w = (building_h * 1.15).min(slot_w * 0.62).max(building_h * 0.5);
-    let thing_w = (building_w * 0.62).max(40.0);
-    let base = height * BASE;
-    let feet = height * FEET;
+        .max(building_h * 0.5);
+    let thing_w = (building_w * 0.55).max(figure_h * 0.8);
     let mut slot_x = anchors
         .iter()
         .enumerate()
         .map(|(slot, index)| (*index, width * MARGIN + slot_w * (slot as f32 + 0.5)))
         .collect::<BTreeMap<_, _>>();
     for (index, item) in items.iter().enumerate() {
-        if item.kind != CanvasItemKind::Actor && item.spot.is_none() && host(index).is_none() {
+        if free(index) {
             if let Some(x) = along(item) {
                 slot_x.insert(index, x);
             }
         }
     }
 
-    // A panorama's rows stand one behind another: the back row on the
-    // line buildings stand on, the front one near the water.
-    let front = height * FRONT;
-    let row_line = |item: &CanvasItem| {
-        item.px.map(|_| {
-            let depth = ((item.y - 0.30) / 0.46).clamp(0.0, 1.0);
-            // Homes in the back row stand a step or two further back, each
-            // by its own seed, so a street is not one straight line.
-            let back = if depth < 0.05 && item.shape == Some(MarkShape::House) {
-                (art::seed_of(&item.id.stable_key()) % 3) as f32 * building_h * 0.07
-            } else {
-                0.0
-            };
-            base + depth * (front - base) * 0.62 - back
+    // How full the street is: a young place's rows stand forward while it
+    // is empty, and move back as it fills (about five works a window).
+    let street_count = slot_x
+        .keys()
+        .filter(|index| {
+            let item = &items[**index];
+            item.px.is_some() && (0.40..0.72).contains(&item.y)
         })
+        .count();
+    let grown = (street_count as f32 / (panorama * 5.0)).min(1.0);
+    let row_at = |y: f32| row_aged(y, grown);
+    // Which of the Pack's rows each thing stands in, and so its line and
+    // how big it is. A place never stands on the quay; a boat is on the
+    // water.
+    let boat = |index: usize| items[index].shape == Some(MarkShape::Boat);
+    let row_of = |index: usize| -> f32 {
+        let item = &items[index];
+        match (item.kind, item.px) {
+            (CanvasItemKind::Place, Some(_)) => item.y.min(0.68),
+            // Places along one window stand in the street.
+            (CanvasItemKind::Place, None) => 0.60,
+            (_, Some(_)) => item.y,
+            _ => 0.76,
+        }
+    };
+    let water_line = height * (FRONT + (1.0 - FRONT) * 0.22);
+    let nominal = |index: usize, scale: f32| match (items[index].kind, items[index].shape) {
+        (CanvasItemKind::Place, _) => building_w * scale,
+        (_, Some(MarkShape::Parcel)) => thing_w * 0.4 * scale,
+        (_, Some(MarkShape::Boat)) => thing_w,
+        _ => thing_w * scale,
+    };
+    let spot_in_row = |index: usize, x: f32, row: f32| -> Spot {
+        let item = &items[index];
+        if boat(index) {
+            return Spot {
+                index,
+                x,
+                y: water_line,
+                w: nominal(index, 1.0),
+                scale: 1.0,
+            };
+        }
+        let (line, scale) = row_at(row);
+        // Homes in the back row stand a step or two further back, each by
+        // its own seed, so a street is not one straight line.
+        let back = if item.px.is_some() && row < 0.35 && item.shape == Some(MarkShape::House) {
+            (art::seed_of(&item.id.stable_key()) % 3) as f32 * building_h * scale * 0.04
+        } else {
+            0.0
+        };
+        Spot {
+            index,
+            x,
+            y: line * height - back,
+            w: nominal(index, scale),
+            scale,
+        }
+    };
+    let mut rows = BTreeMap::<usize, i32>::new();
+    let row_key = |index: usize, row: f32| {
+        if boat(index) {
+            1000
+        } else {
+            (row * 100.0).round() as i32
+        }
     };
     let mut buildings = Vec::new();
     let mut things = Vec::new();
     for (index, x) in &slot_x {
-        let item = &items[*index];
-        let spot = Spot {
-            index: *index,
-            x: *x,
-            y: row_line(item).unwrap_or(if item.kind == CanvasItemKind::Place {
-                base
-            } else {
-                feet
-            }),
-        };
+        let row = row_of(*index);
+        rows.insert(*index, row_key(*index, row));
+        let spot = spot_in_row(*index, *x, row);
         if items[*index].kind == CanvasItemKind::Place {
             buildings.push(spot);
-        } else if items[*index].shape == Some(MarkShape::Boat) {
-            things.push(Spot {
-                y: height * FRONT + (height - height * FRONT) * 0.22,
-                ..spot
-            });
         } else {
             things.push(spot);
         }
     }
-    // Back rows first, so nearer buildings stand in front of them.
-    buildings.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
-    // Things kept at a place stand beside it: a boat moored at the harbour
-    // floats off its side, an order waits at the bakery's door.
+    // Things kept at a place stand beside it, on the quay: an order waits
+    // at the bakery's door, a boat is moored off the harbour's side.
     let mut beside = BTreeMap::<usize, usize>::new();
     for (index, item) in items.iter().enumerate() {
-        if item.kind == CanvasItemKind::Actor {
+        if item.kind == CanvasItemKind::Actor || free(index) {
             continue;
         }
         if let Some(spot) = item.spot {
-            things.push(Spot {
+            rows.insert(index, row_key(index, 0.76));
+            things.push(spot_in_row(
                 index,
-                x: width * MARGIN + usable * spot.clamp(0.0, 1.0),
-                y: feet,
-            });
+                width * MARGIN + usable * spot.clamp(0.0, 1.0),
+                0.76,
+            ));
             continue;
         }
         let Some(host) = host(index) else {
@@ -391,11 +538,11 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         };
         let nth = beside.entry(host).or_default();
         let side = if nth.is_multiple_of(2) { 1.0 } else { -1.0 };
+        let out = 1.0 + (*nth / 2) as f32;
         *nth += 1;
-        let boat = item.shape == Some(MarkShape::Boat);
         // A boat is moored toward the nearer edge, out of the way of the
         // card that floats over the middle of the water.
-        let side = if boat {
+        let side = if boat(index) {
             if *host_x < width / 2.0 {
                 -1.0
             } else {
@@ -404,16 +551,23 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         } else {
             side
         };
-        things.push(Spot {
+        rows.insert(index, row_key(index, 0.76));
+        things.push(spot_in_row(
             index,
-            x: host_x + side * (building_w * 0.5 + thing_w * 0.45),
-            y: if boat {
-                height * FRONT + (height - height * FRONT) * 0.22
-            } else {
-                feet
-            },
-        });
+            host_x + side * (building_w * 0.5 + thing_w * 0.6 * out),
+            0.76,
+        ));
     }
+    let mut shown_from = compose(
+        items,
+        &mut buildings,
+        &mut things,
+        &rows,
+        (width, height * FEET),
+        (building_h, figure_h),
+    );
+    // Back rows first, so nearer buildings stand in front of them.
+    buildings.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
 
     // Who is indoors this hour, and who is still on their way somewhere.
     let mut inside = Vec::new();
@@ -445,11 +599,11 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         .map(|(person, _)| *person)
         .collect::<BTreeSet<_>>();
 
-    // People stand in front of wherever they are, in a row centred on it,
-    // pairs side by side; beside a thing rather than in front of it.
-    let spacing = figure_h * 0.66;
+    // People stand on the quay in front of wherever they are, in a group
+    // round it, pairs side by side.
+    let spacing = figure_h * 0.62;
     let pairs = pairs(snapshot);
-    let mut people = Vec::new();
+    let mut wanted = Vec::new();
     let mut hosted = BTreeMap::<usize, Vec<usize>>::new();
     let mut loose = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -472,53 +626,78 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
                 members.insert(first + 1, partner);
             }
         }
-        let centre = slot_x[&host]
-            - if items[host].kind == CanvasItemKind::Place {
-                0.0
-            } else {
-                thing_w * 0.5 + spacing * members.len() as f32 / 2.0
-            };
         let row = spacing * members.len().saturating_sub(1) as f32;
         for (position, member) in members.into_iter().enumerate() {
-            people.push(Spot {
-                index: member,
-                x: centre - row / 2.0 + spacing * position as f32,
-                y: feet,
-            });
+            wanted.push((
+                member,
+                slot_x[&host] - row / 2.0 + spacing * position as f32,
+            ));
         }
     }
     for index in loose {
         let x = along(&items[index])
             .unwrap_or_else(|| width * MARGIN + usable * items[index].x.clamp(0.0, 1.0));
-        people.push(Spot { index, x, y: feet });
+        wanted.push((index, x));
     }
-    // Nobody stands on anybody: sweep left to right, then pull back inside
-    // the stage if the row ran off its right edge.
-    people.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.index.cmp(&b.index)));
-    for position in 1..people.len() {
-        let floor = people[position - 1].x + spacing;
-        if people[position].x < floor {
-            people[position].x = floor;
+    wanted.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    // Nobody stands on anybody, nor in anything standing on the quay:
+    // each takes the nearest room to where they would be.
+    let quay = height * FEET;
+    let room = figure_h * 0.5;
+    let blocked = things
+        .iter()
+        .filter(|spot| {
+            Depth::at(spot.y, height) == Depth::Quay
+                && shown_from
+                    .get(&spot.index)
+                    .is_none_or(|least| least.is_finite())
+        })
+        .map(|spot| (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0))
+        .collect::<Vec<_>>();
+    // The quay has two lanes: among what stands on it, and a step nearer,
+    // in front of everything, for a crowd the first has no room for.
+    let lane = figure_h * 0.45;
+    let mut people: Vec<Spot> = Vec::new();
+    let reach = view_w * 0.6;
+    let nudge = spacing * 0.25;
+    for (index, want) in wanted {
+        let clear = |x: f32, y: f32| {
+            x >= spacing * 0.5
+                && x <= width - spacing * 0.5
+                && (y > quay
+                    || blocked
+                        .iter()
+                        .all(|(left, right)| x + room / 2.0 <= *left || x - room / 2.0 >= *right))
+                && people
+                    .iter()
+                    .filter(|other| other.y == y)
+                    .all(|other| (other.x - x).abs() >= spacing - 0.01)
+        };
+        let steps = (reach / nudge) as i32;
+        let found = [quay, quay + lane].into_iter().find_map(|y| {
+            (0..=steps)
+                .flat_map(|step| [step, -step])
+                .map(|step| want + step as f32 * nudge)
+                .find(|x| clear(*x, y))
+                .map(|x| (x, y))
+        });
+        let (x, y) = found.unwrap_or((want.clamp(spacing * 0.5, width - spacing * 0.5), quay));
+        if found.is_none() {
+            // No room on the quay: this one waits for a closer look.
+            shown_from.insert(index, f32::INFINITY);
         }
-    }
-    let right = width - spacing;
-    if let Some(last) = people.last().map(|spot| spot.x) {
-        if last > right {
-            let shift = last - right;
-            for spot in &mut people {
-                spot.x -= shift;
-            }
-            for position in (0..people.len().saturating_sub(1)).rev() {
-                let ceiling = people[position + 1].x - spacing;
-                if people[position].x > ceiling {
-                    people[position].x = ceiling;
-                }
-            }
-        }
+        people.push(Spot {
+            index,
+            x,
+            y,
+            w: room,
+            scale: 1.0,
+        });
     }
     // A crowd stands at more than one depth: every other person in a row,
     // and anyone standing on their own, a step nearer or further, so the
-    // place reads as ground rather than a line.
+    // quay reads as ground rather than a line.
+    people.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.index.cmp(&b.index)));
     let step = figure_h * 0.2;
     for (position, spot) in people.iter_mut().enumerate() {
         let seed = art::seed_of(&items[spot.index].id.stable_key());
@@ -527,7 +706,11 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
             1 => 1.0,
             _ => 0.5,
         } + (seed % 7) as f32 / 30.0;
-        spot.y = feet + step * depth;
+        // In the front lane only a little: it is a step nearer already.
+        let near = if spot.y > quay { lane } else { 0.0 };
+        let step = if near > 0.0 { step * 0.3 } else { step };
+        spot.y = quay + near + step * (depth - 0.5);
+        spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
     }
     people.sort_by_key(|spot| spot.index);
     let routes = leaving
@@ -540,8 +723,9 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         height,
         view_w,
         horizon: height * HORIZON,
-        base,
-        feet,
+        base: height * row_at(0.30).0,
+        street: height * row_at(0.60).0,
+        feet: quay,
         front: height * FRONT,
         building_w,
         building_h,
@@ -552,8 +736,306 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         people,
         inside,
         routes,
-        plots: plots_on(snapshot, view_w, base, height * FRONT, building_w),
+        plots: plots_on(snapshot, view_w, height, (building_w, grown)),
+        shown_from,
     }
+}
+
+/// The quay's row, as [`compose`] keys rows (the Pack's `y` in hundredths).
+const QUAY_ROW: i32 = 76;
+
+/// How far apart, on screen, two neighbours in a row must stand for both
+/// to show: closer, the lesser waits for the camera to come nearer.
+const ELBOW_ROOM: f32 = 6.0;
+/// The least a thing is drawn across, on screen: smaller, it is left for
+/// a closer look.
+const LEAST_SEEN: f32 = 12.0;
+
+/// The composition pass: sees that nothing stands on anything else, and
+/// what cannot stand clear waits for a closer look. In each of the Pack's
+/// rows (`rows`, by item) what matters most is placed first (what the
+/// player built on a plot, then places, then the works of the town, then
+/// the rest), each as wide as it can be up to its own width, never into
+/// what is already there. A thing that does not fit steps aside to the
+/// nearest room in its row; a thing in front of nothing nearer stands
+/// clear of every nearer building too, since things are drawn over the
+/// buildings. What fits only barely shows from the zoom where the gap
+/// reads ([`ELBOW_ROOM`]), and what is too small to see shows once it is
+/// big enough ([`LEAST_SEEN`]). Returns the least zoom for each item held
+/// back.
+fn compose(
+    items: &[CanvasItem],
+    buildings: &mut [Spot],
+    things: &mut [Spot],
+    rows: &BTreeMap<usize, i32>,
+    (width, quay): (f32, f32),
+    (building_h, figure_h): (f32, f32),
+) -> BTreeMap<usize, f32> {
+    let gap = figure_h * 0.12;
+    let rank = |index: usize| {
+        let item = &items[index];
+        match (item.variant.is_some(), item.kind == CanvasItemKind::Place) {
+            (true, _) => 0,
+            (false, true) => 1,
+            _ if item.built.is_some() => 2,
+            _ => 3,
+        }
+    };
+    let tall = |spot: &Spot, place: bool| {
+        if place {
+            building_h
+                * spot.scale
+                * match items[spot.index].shape.unwrap_or_default() {
+                    MarkShape::Bridge => 0.7,
+                    MarkShape::Tower => 1.2,
+                    MarkShape::Dome | MarkShape::Tree => 0.8,
+                    _ => 1.0,
+                }
+        } else {
+            spot.w * 1.1
+        }
+    };
+    // Everything placed so far: row, x, width, the top and foot of its box,
+    // and whether it is a building.
+    struct Placed {
+        row: i32,
+        x: f32,
+        w: f32,
+        top: f32,
+        foot: f32,
+        building: bool,
+    }
+    let mut placed: Vec<Placed> = Vec::new();
+    let mut shown_from = BTreeMap::<usize, f32>::new();
+    // What came forward to the quay, and so stands in its row now.
+    let mut forward_rows = BTreeMap::<usize, i32>::new();
+    // The room left at `x` in `row` for something `foot` deep and as tall
+    // as `top` reaches: as wide as it may be, and whether a nearer
+    // building stands in its way.
+    let room = |placed: &[Placed], row: i32, x: f32, w: f32, top: f32, foot: f32, thing: bool| {
+        let mut widest = f32::MAX;
+        for other in placed {
+            if other.row == row {
+                widest = widest.min(2.0 * ((x - other.x).abs() - other.w / 2.0 - gap));
+            } else if thing
+                && other.building
+                && other.foot > foot + 1.0
+                && (x - other.x).abs() < (w + other.w) / 2.0
+                && other.top < foot
+                && top < other.foot
+            {
+                return -1.0;
+            }
+        }
+        widest
+    };
+    // Whether a building standing in the box `(x, w, top, foot)` would
+    // leave any building (itself, or one behind it) more than half hidden
+    // behind nearer ones.
+    let veils = |placed: &[Placed], (x, w, top, foot): (f32, f32, f32, f32)| {
+        let hidden = |x: f32, w: f32, top: f32, foot: f32, extra: Option<(f32, f32, f32, f32)>| {
+            let area = (w * (foot - top)).max(1.0);
+            let cover = |ox: f32, ow: f32, otop: f32, ofoot: f32| {
+                if ofoot <= foot + 1.0 {
+                    return 0.0;
+                }
+                let across =
+                    ((x + w / 2.0).min(ox + ow / 2.0) - (x - w / 2.0).max(ox - ow / 2.0)).max(0.0);
+                let down = (foot.min(ofoot) - top.max(otop)).max(0.0);
+                across * down
+            };
+            let mut covered = placed
+                .iter()
+                .filter(|other| other.building)
+                .map(|other| cover(other.x, other.w, other.top, other.foot))
+                .sum::<f32>();
+            if let Some((ox, ow, otop, ofoot)) = extra {
+                covered += cover(ox, ow, otop, ofoot);
+            }
+            covered > area * 0.5
+        };
+        hidden(x, w, top, foot, None)
+            || placed
+                .iter()
+                .filter(|other| other.building && other.foot < foot - 1.0)
+                .any(|other| {
+                    hidden(
+                        other.x,
+                        other.w,
+                        other.top,
+                        other.foot,
+                        Some((x, w, top, foot)),
+                    )
+                })
+    };
+    // A work of the town's may step aside for another building; what the
+    // player built, a place the World began with and a home stand where
+    // they are.
+    let movable = |building: bool, index: usize| {
+        building && items[index].variant.is_none() && items[index].built.is_some()
+    };
+    // What the player built and the places first, where they stand; then
+    // the town's works and everything else, each where there is room.
+    let mut order = buildings
+        .iter()
+        .map(|spot| (true, spot.index))
+        .chain(things.iter().map(|spot| (false, spot.index)))
+        .collect::<Vec<_>>();
+    order.sort_by_key(|(building, index)| {
+        let key = match (*building, movable(*building, *index), rank(*index)) {
+            (_, _, 0) => 0,
+            (true, false, _) => 1,
+            (true, true, _) => 2,
+            (false, _, rank) => 2 + rank,
+        };
+        (key, *index)
+    });
+    for (building, index) in order {
+        let list: &[Spot] = if building { buildings } else { things };
+        let Some(position) = list.iter().position(|spot| spot.index == index) else {
+            continue;
+        };
+        let spot = if building {
+            buildings[position]
+        } else {
+            things[position]
+        };
+        let row = rows.get(&index).copied().unwrap_or_default();
+        let nominal = spot.w;
+        let h = tall(&spot, building);
+        let fixed = (building && !movable(building, index)) || rank(index) == 0;
+        let room_at = |x: f32| {
+            if building && !fixed && veils(&placed, (x, nominal, spot.y - h, spot.y)) {
+                return -1.0;
+            }
+            room(&placed, row, x, nominal, spot.y - h, spot.y, !building)
+                .min(2.0 * x.min(width - x))
+        };
+        let mut x = spot.x;
+        let mut w = nominal.min(room_at(x));
+        if w < nominal * 0.75 && !fixed {
+            // Step aside to the nearest room in the row.
+            let nudge = nominal * 0.1;
+            if let Some(better) = (1..=16)
+                .flat_map(|step| [step, -step])
+                .map(|step| spot.x + step as f32 * nudge)
+                .find(|x| room_at(*x) >= nominal * 0.9)
+            {
+                x = better;
+                w = nominal.min(room_at(x));
+            }
+        }
+        if w < nominal * 0.6 {
+            if building {
+                // A building never goes: with no room anywhere near, it
+                // stands where it was put, as narrow as it must.
+                x = spot.x;
+                w = room(&placed, row, x, nominal, spot.y - h, spot.y, false)
+                    .min(nominal)
+                    .max(nominal * 0.5);
+            } else if fixed {
+                // What the player built, and a place, stand where they
+                // are, as narrow as they must.
+                w = w.max(nominal * 0.5);
+            } else {
+                // No room in its row: it comes forward onto the quay, full
+                // size, to the nearest room there.
+                let full = nominal / spot.scale.max(0.1);
+                let quay_room = |x: f32| {
+                    room(&placed, QUAY_ROW, x, full, quay - full * 1.1, quay, true)
+                        .min(2.0 * x.min(width - x))
+                };
+                let nudge = full * 0.1;
+                let Some(forward) = (0..=40)
+                    .flat_map(|step| [step, -step])
+                    .map(|step| spot.x + step as f32 * nudge)
+                    .find(|x| quay_room(*x) >= full * 0.9)
+                else {
+                    shown_from.insert(index, f32::INFINITY);
+                    continue;
+                };
+                let list: &mut [Spot] = things;
+                list[position] = Spot {
+                    x: forward,
+                    y: quay,
+                    w: full.min(quay_room(forward)),
+                    scale: 1.0,
+                    ..spot
+                };
+                let moved = list[position];
+                placed.push(Placed {
+                    row: QUAY_ROW,
+                    x: moved.x,
+                    w: moved.w,
+                    top: quay - moved.w * 1.1,
+                    foot: quay,
+                    building: false,
+                });
+                forward_rows.insert(index, QUAY_ROW);
+                continue;
+            }
+        }
+        let list: &mut [Spot] = if building { buildings } else { things };
+        list[position].x = x;
+        list[position].w = w;
+        placed.push(Placed {
+            row,
+            x,
+            w,
+            top: spot.y - tall(&list[position], building),
+            foot: spot.y,
+            building,
+        });
+    }
+    // What stands only just clear of a neighbour in its row shows from the
+    // zoom where the gap between them reads; the lesser of the two waits.
+    let mut by_row = BTreeMap::<i32, Vec<(f32, f32, usize)>>::new();
+    for spot in buildings.iter().chain(things.iter()) {
+        if shown_from.contains_key(&spot.index) {
+            continue;
+        }
+        by_row
+            .entry(
+                forward_rows
+                    .get(&spot.index)
+                    .or(rows.get(&spot.index))
+                    .copied()
+                    .unwrap_or_default(),
+            )
+            .or_default()
+            .push((spot.x, spot.w, spot.index));
+    }
+    for members in by_row.values_mut() {
+        members.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for pair in members.windows(2) {
+            let ((x0, w0, i0), (x1, w1, i1)) = (pair[0], pair[1]);
+            let between = (x1 - x0) - (w0 + w1) / 2.0;
+            let lesser = if (rank(i0), i0) > (rank(i1), i1) {
+                i0
+            } else {
+                i1
+            };
+            if rank(lesser) == 0 || items[lesser].kind == CanvasItemKind::Place {
+                continue;
+            }
+            let least = ELBOW_ROOM / between.max(0.01);
+            if least > 0.3 {
+                let entry = shown_from.entry(lesser).or_insert(0.0);
+                *entry = entry.max(least);
+            }
+        }
+    }
+    for spot in things.iter() {
+        if rank(spot.index) == 0 {
+            continue;
+        }
+        let least = LEAST_SEEN / spot.w.max(0.01);
+        if least > 0.3 {
+            let entry = shown_from.entry(spot.index).or_insert(0.0);
+            *entry = entry.max(least);
+        }
+    }
+    shown_from
 }
 
 /// Where a World's plots lie on the stage: along the panorama where the
@@ -561,26 +1043,23 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
 fn plots_on(
     snapshot: &ProjectionSnapshot,
     view_w: f32,
-    base: f32,
-    front: f32,
-    building_w: f32,
+    height: f32,
+    (building_w, grown): (f32, f32),
 ) -> Vec<PlotPaint> {
     let panorama = snapshot.canvas.width.unwrap_or(1.0).clamp(1.0, 24.0);
     crate::mark::plots_of(snapshot)
         .iter()
         .enumerate()
         .map(|(plot, at)| {
-            // Rows as a Pack lays its places out, counted from the back: the
-            // back row on the line buildings stand on, and each row after
-            // it a step nearer the water, where what is built there will
-            // stand (`row_line`).
-            let y = 0.30 + at.row as f32 * 0.095;
-            let depth = ((y - 0.30) / 0.46).clamp(0.0, 1.0);
+            // Rows as a Pack lays its places out, counted from the back:
+            // the back row, and each row after it a step nearer the water,
+            // where what is built there will stand.
+            let (line, scale) = row_aged(0.30 + at.row as f32 * 0.095, grown);
             PlotPaint {
                 plot,
                 x: at.px.clamp(0.0, panorama) * view_w,
-                y: base + depth * (front - base) * 0.62 + building_w * 0.06,
-                w: building_w * (0.85 + depth * 0.1),
+                y: line * height + building_w * scale * 0.05,
+                w: building_w * scale * 0.85,
             }
         })
         .collect()
@@ -839,16 +1318,72 @@ pub fn living(
 
 /// Where the camera looks: `zoom` times closer, centred on (`x`, `y`) in
 /// stage pixels. At rest it looks at the whole stage, or along a panorama
-/// one window of it.
+/// one window of it. Zoomed right out, a panorama too long for the window
+/// folds into a postcard (`fold` of the way, 0 to 1): its stretches stacked
+/// one behind another, the first in front by the water, the last up the
+/// hill against the sky.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
     pub zoom: f32,
     pub x: f32,
     pub y: f32,
+    pub fold: f32,
 }
 
 /// The closest the camera goes.
 pub const ZOOM_MOST: f32 = 2.2;
+
+/// How a place folds into a postcard: into `rows` stretches, each
+/// `row_w` stage pixels long and drawn at `zoom` so it fills the window's
+/// width, each standing `step` stage pixels up the hill from the one in
+/// front, so its street stands where the field in front begins.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fold {
+    pub rows: usize,
+    pub zoom: f32,
+    pub row_w: f32,
+    pub step: f32,
+}
+
+impl Fold {
+    /// How a stage `width` long, seen through a window `view_w` by
+    /// `height`, folds.
+    pub fn of(width: f32, view_w: f32, height: f32) -> Self {
+        let panorama = (width / view_w.max(1.0)).max(1.0);
+        let rows = ((panorama / 1.6).ceil() as usize).max(1);
+        let field = height * (HORIZON + (BASE - HORIZON) * 0.3);
+        Self {
+            rows,
+            zoom: (rows as f32 / panorama).min(1.0),
+            row_w: width / rows as f32,
+            step: height * row_at(0.60).0 - field,
+        }
+    }
+
+    pub fn of_stage(stage: &Stage) -> Self {
+        Self::of(stage.width, stage.view_w, stage.height)
+    }
+
+    /// The furthest out the camera goes: the place folded right up, or for
+    /// a place that does not fold, all of it at once.
+    pub fn least(&self) -> f32 {
+        self.zoom
+    }
+
+    /// How far a place that folds has folded with the camera `zoom` times
+    /// closer: not at all at one window, right up at its rows' zoom.
+    pub fn folded(&self, zoom: f32) -> f32 {
+        if self.rows < 2 || zoom >= 1.0 {
+            return 0.0;
+        }
+        ease((1.0 - zoom) / (1.0 - self.zoom).max(1e-4))
+    }
+
+    /// Which row a stage point `x` along stands in.
+    pub fn row_of(&self, x: f32) -> usize {
+        ((x / self.row_w.max(1.0)).floor().max(0.0) as usize).min(self.rows - 1)
+    }
+}
 
 /// The camera's closest and furthest along one axis: a view `half` wide
 /// either side kept on a stage `extent` long, or centred when it is wider.
@@ -860,59 +1395,6 @@ fn keep_on(at: f32, half: f32, extent: f32) -> f32 {
     }
 }
 
-/// The top of the postcard the place becomes when zoomed out, in stage
-/// pixels: a strip of sky above the horizon.
-fn card_top(horizon: f32, height: f32) -> f32 {
-    horizon - height * 0.2
-}
-
-/// The paper round the panoramic postcard, when zoomed out far enough to
-/// show one: above and below it, with a soft edge where the card lies on
-/// the paper.
-fn paint_card(window: &mut dyn Brush, frame: &Frame, ox: f32, oy: f32, width: f32, height: f32) {
-    if frame.camera.zoom >= 0.999 {
-        return;
-    }
-    let top = frame
-        .at(0.0, card_top(frame.horizon, frame.height))
-        .1
-        .max(0.0);
-    let bottom = frame.at(0.0, frame.height).1.min(height);
-    if top <= 0.5 && bottom >= height - 0.5 {
-        return;
-    }
-    let paper = art::hex(0xf2eee6);
-    let shadow = gpui::black().opacity(0.14);
-    window.rect(ox, oy, width, top, 0.0, paper);
-    window.rect(ox, oy + bottom, width, height - bottom, 0.0, paper);
-    // The card's edges: a hairline, and a soft shadow on the paper below.
-    window.gradient(
-        ox,
-        oy + bottom,
-        width,
-        (height - bottom).min(14.0),
-        180.0,
-        (shadow, 0.0),
-        (shadow.opacity(0.0), 1.0),
-    );
-    window.rect(
-        ox,
-        oy + top - 0.5,
-        width,
-        1.0,
-        0.0,
-        gpui::white().opacity(0.8),
-    );
-    window.rect(
-        ox,
-        oy + bottom - 0.5,
-        width,
-        1.0,
-        0.0,
-        gpui::white().opacity(0.8),
-    );
-}
-
 impl Camera {
     /// The middle of the place, at the window's own size.
     pub fn whole(stage: &Stage) -> Self {
@@ -920,13 +1402,14 @@ impl Camera {
             zoom: 1.0,
             x: stage.width / 2.0,
             y: stage.height / 2.0,
+            fold: 0.0,
         }
     }
 
     /// The furthest out the camera goes: one window, or for a panorama the
-    /// whole of it at once.
+    /// whole of it at once, folded into a postcard when it is long.
     pub fn least(stage: &Stage) -> f32 {
-        (stage.view_w / stage.width.max(1.0)).min(1.0)
+        Fold::of_stage(stage).least().min(1.0)
     }
 
     /// Close enough on a box to see who is in it, and no closer than twice.
@@ -942,36 +1425,76 @@ impl Camera {
             // Frame a little above centre, so the card below does not
             // cover what is being looked at.
             y: keep_on(y + h * 0.7, half_h, stage.height),
+            fold: 0.0,
         }
     }
 
     /// `zoom` times closer around a stage point, kept inside the stage.
-    /// Zoomed out past one window, the ground stays at the bottom and the
-    /// sky opens above it.
+    /// Zoomed out past one window, the water stays at the bottom and the
+    /// sky opens above, or a place too long for the window folds as it goes.
     pub fn around(stage: &Stage, zoom: f32, x: f32, y: f32) -> Self {
+        let fold = Fold::of_stage(stage);
         let zoom = zoom.clamp(Self::least(stage), ZOOM_MOST);
+        let folded = fold.folded(zoom);
         let half_w = stage.view_w / zoom / 2.0;
         let half_h = stage.height / zoom / 2.0;
         Self {
             zoom,
             x: keep_on(x, half_w, stage.width),
-            // Zoomed out past one window the place becomes a panoramic
-            // postcard: the town, a strip of sky over it and the water
-            // under it, centred, on the paper around it.
             y: if half_h * 2.0 >= stage.height {
-                (card_top(stage.horizon, stage.height) + stage.height) / 2.0
+                stage.height - half_h
             } else {
                 y.clamp(half_h, stage.height - half_h)
             },
+            fold: folded,
         }
     }
 
-    /// The stage point under a screen point.
+    /// The camera row `row` of the postcard is seen through, `fold` of the
+    /// way from where it lies along the panorama to where it stands in the
+    /// postcard: across the window, and up the hill behind the rows in
+    /// front of it.
+    pub fn row(&self, fold: &Fold, view_w: f32, height: f32, row: usize) -> Self {
+        if self.fold <= 0.0 || fold.rows < 2 {
+            return Self { fold: 0.0, ..*self };
+        }
+        // Each row centred across the window: exactly its width once
+        // folded right up.
+        let x = (row as f32 + 0.5) * fold.row_w;
+        let _ = view_w;
+        let y = height - height / (2.0 * self.zoom) + fold.step * row as f32;
+        Self {
+            zoom: self.zoom,
+            x: self.x + (x - self.x) * self.fold,
+            y: self.y + (y - self.y) * self.fold,
+            fold: 0.0,
+        }
+    }
+
+    /// The stage point under a screen point: on a folded postcard, in the
+    /// nearest row whose town reaches up that far.
     pub fn stage_point(&self, stage: &Stage, x: f32, y: f32) -> (f32, f32) {
-        (
-            (x - stage.view_w / 2.0) / self.zoom + self.x,
-            (y - stage.height / 2.0) / self.zoom + self.y,
-        )
+        let flat = |camera: &Camera| {
+            (
+                (x - stage.view_w / 2.0) / camera.zoom + camera.x,
+                (y - stage.height / 2.0) / camera.zoom + camera.y,
+            )
+        };
+        let fold = Fold::of_stage(stage);
+        if self.fold <= 0.0 || fold.rows < 2 {
+            return flat(self);
+        }
+        let roofs = stage.base - stage.building_h * row_at(0.30).1;
+        let mut last = flat(self);
+        for row in 0..fold.rows {
+            let camera = self.row(&fold, stage.view_w, stage.height, row);
+            last = flat(&camera);
+            if last.1 >= roofs {
+                let (from, to) = (row as f32 * fold.row_w, (row + 1) as f32 * fold.row_w);
+                return (last.0.clamp(from, to), last.1);
+            }
+        }
+        last
     }
 
     pub fn toward(self, target: Camera, t: f32) -> Self {
@@ -980,14 +1503,28 @@ impl Camera {
             zoom: self.zoom + (target.zoom - self.zoom) * t,
             x: self.x + (target.x - self.x) * t,
             y: self.y + (target.y - self.y) * t,
+            fold: self.fold + (target.fold - self.fold) * t,
         }
     }
 
     /// Where a stage point lands on screen.
     pub fn at(&self, stage: &Stage, x: f32, y: f32) -> (f32, f32) {
+        self.project((stage.width, stage.view_w, stage.height), x, y)
+    }
+
+    /// Where a stage point lands on screen, for a stage `width` long seen
+    /// through a window `view_w` by `height`: through the camera of its row
+    /// when the place is folding.
+    fn project(&self, (width, view_w, height): (f32, f32, f32), x: f32, y: f32) -> (f32, f32) {
+        let camera = if self.fold > 0.0 {
+            let fold = Fold::of(width, view_w, height);
+            self.row(&fold, view_w, height, fold.row_of(x))
+        } else {
+            *self
+        };
         (
-            (x - self.x) * self.zoom + stage.view_w / 2.0,
-            (y - self.y) * self.zoom + stage.height / 2.0,
+            (x - camera.x) * camera.zoom + view_w / 2.0,
+            (y - camera.y) * camera.zoom + height / 2.0,
         )
     }
 }
@@ -1012,6 +1549,9 @@ pub struct PersonPaint {
     pub mood: world_projection::Mood,
     /// A baby they carry in their arms.
     pub carrying: Option<Figure>,
+    /// Where along the stage they are, in stage pixels: which row of a
+    /// folded postcard they stand in.
+    pub along: f32,
 }
 
 /// A building as painted, in stage pixels at zoom 1.
@@ -1099,6 +1639,9 @@ pub struct Frame {
     season: Option<Season>,
     cover: Option<GroundCover>,
     ice: bool,
+    /// The kind of place it is, which its ground, sky and props are
+    /// dressed for (art's, B).
+    setting: art::Setting,
     camera: Camera,
     /// The stage's size and lines, in stage pixels.
     width: f32,
@@ -1106,6 +1649,9 @@ pub struct Frame {
     height: f32,
     horizon: f32,
     base: f32,
+    /// The quay's line, where people stand, and a grown-up's height there.
+    feet: f32,
+    figure_h: f32,
     front: f32,
     building_h: f32,
     water: bool,
@@ -1271,10 +1817,13 @@ impl Frame {
 
     /// Where a stage point lands on screen.
     fn at(&self, x: f32, y: f32) -> (f32, f32) {
-        (
-            (x - self.camera.x) * self.camera.zoom + self.view_w / 2.0,
-            (y - self.camera.y) * self.camera.zoom + self.height / 2.0,
-        )
+        self.camera
+            .project((self.width, self.view_w, self.height), x, y)
+    }
+
+    /// The top of the quay, where the street ends and the stone begins.
+    fn quay_top(&self) -> f32 {
+        self.feet - self.figure_h * 0.55
     }
 }
 
@@ -1300,6 +1849,7 @@ pub fn frame(
 ) -> Frame {
     let items = &snapshot.canvas.items;
     let scenery = snapshot.scenery.unwrap_or(PLAIN);
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
     let lit = matches!(daylight, Daylight::Dusk | Daylight::Night);
     let z = camera.zoom;
     let at = |x: f32, y: f32| camera.at(stage, x, y);
@@ -1356,28 +1906,26 @@ pub fn frame(
             .or_default()
             .push(Figure::of(&item.id.stable_key(), item.look));
     }
+    // What the composition keeps for a closer look is left out.
+    let shows = |spot: &&Spot| stage.shows(spot.index, z);
     let buildings = stage
         .buildings
         .iter()
+        .filter(shows)
         .map(|spot| {
             let item = &items[spot.index];
             let shape = item.shape.unwrap_or_default();
-            // Something wide stands a little lower and a tower taller.
-            let (w, h) = match shape {
-                MarkShape::Bridge => (stage.building_w * 1.3, stage.building_h * 0.7),
-                MarkShape::Tower => (stage.building_w, stage.building_h * 1.2),
-                MarkShape::Dome | MarkShape::Tree => (stage.building_w, stage.building_h * 0.8),
-                _ => (stage.building_w, stage.building_h),
-            };
+            // As wide as it stands, as tall as its depth has it: something
+            // wide stands a little lower and a tower taller.
+            // One squeezed into a narrow gap keeps its proportions.
+            let squeezed = (spot.w / (stage.building_w * spot.scale).max(1.0)).min(1.0);
+            let (w, h) = (spot.w, stage.height_of(spot, shape) * squeezed);
             // A Pack's own drawing keeps its own proportions, no wider
             // than a building's place allows.
-            // Further back is a little smaller.
-            let recede = 1.0 - ((stage.base - spot.y) / stage.building_h).max(0.0) * 0.6;
-            let (w, h) = (w * recede, h * recede);
             let drawing = snapshot.drawing_of(item).cloned();
             let (w, h) = match &drawing {
                 Some(drawing) => {
-                    let w = (h * drawing.aspect).min(stage.building_w * 1.5);
+                    let w = (h * drawing.aspect).min(spot.w * 1.25);
                     (w, w / drawing.aspect)
                 }
                 None => (w, h),
@@ -1389,7 +1937,7 @@ pub fn frame(
                 w,
                 h,
                 shape,
-                palette: painted_as(item, lit),
+                palette: painted_as(item, lit, setting),
                 flip: item.variant.is_some_and(|variant| variant.flip),
                 joins: item.variant.map_or((false, false), |variant| {
                     (variant.join_left, variant.join_right)
@@ -1406,6 +1954,7 @@ pub fn frame(
     let things = stage
         .things
         .iter()
+        .filter(shows)
         .map(|spot| {
             let item = &items[spot.index];
             let key = item.id.stable_key();
@@ -1425,17 +1974,14 @@ pub fn frame(
             } else {
                 0.0
             };
-            let w = match shape {
-                MarkShape::Parcel => stage.thing_w * 0.4,
-                _ => stage.thing_w,
-            };
+            let w = spot.w;
             ThingPaint {
                 index: spot.index,
                 x: spot.x,
                 base: spot.y + bob,
                 w,
                 shape,
-                palette: painted_as(item, lit),
+                palette: painted_as(item, lit, setting),
                 sway,
                 roll,
                 glow: glow_of(item),
@@ -1450,11 +1996,12 @@ pub fn frame(
         .people
         .iter()
         .zip(living)
+        .filter(|(spot, _)| shows(spot))
         .map(|(spot, life)| {
             let item = &items[spot.index];
             let (x, y) = at(life.x, spot.y);
             // Nearer is a little bigger.
-            let near = 1.0 + (spot.y - stage.feet) / stage.figure_h * 0.35;
+            let near = spot.scale;
             let figure = Figure::of(&item.id.stable_key(), item.look);
             PersonPaint {
                 index: spot.index,
@@ -1480,6 +2027,7 @@ pub fn frame(
                 },
                 mood: item.mood.unwrap_or_default(),
                 carrying: None,
+                along: life.x,
             }
         })
         .collect::<Vec<_>>();
@@ -1514,7 +2062,9 @@ pub fn frame(
         .collect();
 
     let near = art::hex(scenery.near);
-    let water = near.h > 0.45 && near.h < 0.72 && near.s > 0.2;
+    let water = setting
+        .water()
+        .unwrap_or(near.h > 0.45 && near.h < 0.72 && near.s > 0.2);
     // The light of this very hour when the frame is of now; the middle of
     // its part of the day when it is pinned to another.
     let hour = crate::scene::hour_of_day();
@@ -1538,12 +2088,15 @@ pub fn frame(
         season: snapshot.canvas.season,
         cover: snapshot.canvas.ground,
         ice: snapshot.canvas.ice,
+        setting,
         camera,
         width: stage.width,
         view_w: stage.view_w,
         height: stage.height,
         horizon: stage.horizon,
         base: stage.base,
+        feet: stage.feet,
+        figure_h: stage.figure_h,
         front: stage.front,
         building_h: stage.building_h,
         water,
@@ -1574,8 +2127,9 @@ pub fn frame(
 
 /// The colours something is painted in: its own, with the colour the town
 /// chose for it when it was built on a plot.
-fn painted_as(item: &CanvasItem, lit: bool) -> Palette {
-    let mut palette = Palette::of(&item.id.stable_key(), lit);
+fn painted_as(item: &CanvasItem, lit: bool, setting: art::Setting) -> Palette {
+    let mut palette =
+        Palette::of_in(&item.id.stable_key(), lit, setting).drawn_as(item.art.as_deref());
     if let Some(variant) = item.variant {
         let [r, g, b] = variant.colour;
         palette.roof = art::hex(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
@@ -2091,7 +2645,7 @@ fn stand_in(frame: &Frame, layer: Still, rect: Rect, light: [f32; 3]) -> Vec<Dra
 /// Where each still layer of the scene stands, per window and size: the
 /// version shown, and the next one fading in with when it began.
 type Slots = std::collections::HashMap<
-    (u64, Still, u32, u32),
+    (u64, Still, u32, u32, u32),
     (Option<Version>, Option<(Version, std::time::Instant)>),
 >;
 
@@ -2102,9 +2656,9 @@ type Slots = std::collections::HashMap<
 fn plan(
     frame: &std::sync::Arc<Frame>,
     window: &mut Window,
-    width: f32,
-    height: f32,
+    (width, height): (f32, f32),
     now: bool,
+    (slot, only): (u32, &[Still]),
 ) -> Vec<(Still, LayerPlan)> {
     use std::cell::RefCell;
     thread_local! {
@@ -2118,6 +2672,7 @@ fn plan(
     painter::begin_frame(!now);
     versions(frame, window, width, height, dpr)
         .into_iter()
+        .filter(|(layer, _)| only.contains(layer))
         .map(|(layer, wanted)| {
             // Ask for what the camera sees, and a tile more each side.
             let margin = if now { 0 } else { 1 };
@@ -2134,7 +2689,7 @@ fn plan(
                     }
                 }
             }
-            let slot_key = (id, layer, width as u32, height as u32);
+            let slot_key = (id, layer, slot, width as u32, height as u32);
             let clock = std::time::Instant::now();
             let (shown, arriving) = SLOTS.with(|slots| {
                 let mut slots = slots.borrow_mut();
@@ -2277,6 +2832,91 @@ fn paint_vignette_image(window: &mut Window, bounds: Bounds<Pixels>) {
     }
 }
 
+/// Every still layer, back to front.
+const ALL: [Still; 4] = [Still::Sky, Still::Hills, Still::Land, Still::Buildings];
+
+/// The rows of a folded postcard, back to front: each row's frame (seen
+/// through its own camera, with whoever stands in it), and the stretch of
+/// the screen it shows in, left to right. `None` while the place is not
+/// folding.
+fn rows_of(frame: &Frame) -> Option<Vec<(Frame, (f32, f32))>> {
+    if frame.camera.fold <= 0.0 {
+        return None;
+    }
+    let fold = Fold::of(frame.width, frame.view_w, frame.height);
+    if fold.rows < 2 {
+        return None;
+    }
+    Some(
+        (0..fold.rows)
+            .rev()
+            .map(|row| {
+                let camera = frame.camera.row(&fold, frame.view_w, frame.height, row);
+                let (from, to) = (row as f32 * fold.row_w, (row + 1) as f32 * fold.row_w);
+                let margin = frame.view_w * 0.3;
+                let mut part = frame.clone();
+                part.camera = camera;
+                part.buildings
+                    .retain(|building| building.x > from - margin && building.x < to + margin);
+                part.things
+                    .retain(|thing| thing.x > from - margin && thing.x < to + margin);
+                part.people
+                    .retain(|person| fold.row_of(person.along) == row);
+                // Too small to read on a postcard: the stakes and the bonds.
+                part.plots.clear();
+                part.bonds.clear();
+                let left = camera
+                    .project((frame.width, frame.view_w, frame.height), from, 0.0)
+                    .0;
+                let right = camera
+                    .project((frame.width, frame.view_w, frame.height), to, 0.0)
+                    .0;
+                (part, (left.max(0.0), right.min(frame.view_w)))
+            })
+            .collect(),
+    )
+}
+
+/// The air between one row of a folded postcard and the next nearer one:
+/// a veil of the sky's own haze over the row behind, thickening from its
+/// roofs down to its street, as far away things fade.
+fn paint_haze(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    ox: f32,
+    oy: f32,
+    span: (f32, f32),
+    height: f32,
+) {
+    let light = light_at(frame.hour, frame.weather);
+    let (_, bottom) = sky_colours(frame);
+    let rgba: gpui::Rgba = bottom.into();
+    let haze = Hsla::from(gpui::Rgba {
+        r: rgba.r * light[0],
+        g: rgba.g * light[1],
+        b: rgba.b * light[2],
+        a: 1.0,
+    });
+    let roofs = frame
+        .at(0.0, frame.base - frame.building_h * row_at(0.30).1)
+        .1;
+    let street = frame.at(0.0, frame.front).1;
+    let veil = 0.22 * frame.camera.fold.clamp(0.0, 1.0);
+    let (x, w) = (ox + span.0, (span.1 - span.0).max(0.0));
+    window.gradient(
+        x,
+        oy + roofs,
+        w,
+        (street - roofs).max(1.0),
+        180.0,
+        (haze.opacity(0.0), 0.0),
+        (haze.opacity(veil), 1.0),
+    );
+    if street < height {
+        window.rect(x, oy + street, w, height - street, 0.0, haze.opacity(veil));
+    }
+}
+
 /// Paints a frame into `bounds` all at once, painting whatever still layer
 /// is not painted yet right here: for a cover, the strip, a postcard and
 /// the golden pictures.
@@ -2290,18 +2930,38 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     let mut frame = frame.clone();
     fetch_pictures(&mut frame, window, true);
-    let frame = std::sync::Arc::new(frame);
-    let layers = plan(&frame, window, width, height, true);
     let light = light_at(frame.hour, frame.weather);
-    for (layer, plan) in &layers {
+    let view = (width, height);
+    // A folding place is painted a row at a time, back to front, each over
+    // the haze laid on the one behind; otherwise all at once.
+    let rows = rows_of(&frame).unwrap_or_else(|| vec![(frame.clone(), (0.0, width))]);
+    let folded = rows.len() > 1;
+    let back = std::sync::Arc::new(rows[0].0.clone());
+    for (layer, plan) in plan(&back, window, view, true, (0, &ALL[..2])) {
         draw_still(window, bounds, &plan.settled);
         match layer {
-            Still::Sky => paint_clouds(window, &frame, ox, oy, width, height),
-            Still::Hills => paint_rising(window, &frame, ox, oy, width, height),
+            Still::Sky => paint_clouds(window, &back, ox, oy, width, height),
+            Still::Hills => paint_rising(window, &back, ox, oy, width, height),
             _ => {}
         }
     }
-    paint_live(window, &frame, ox, oy, width, height, light);
+    let count = rows.len();
+    for (row, (part, span)) in rows.into_iter().enumerate() {
+        let part = std::sync::Arc::new(part);
+        let clip = Bounds::new(
+            point(px(ox + span.0), px(oy)),
+            size_of(span.1 - span.0, height),
+        );
+        window.with_content_mask(Some(gpui::ContentMask { bounds: clip }), |window| {
+            for (_, plan) in plan(&part, window, view, true, (1 + row as u32, &ALL[2..])) {
+                draw_still(window, bounds, &plan.settled);
+            }
+            paint_live(window, &part, ox, oy, width, height, light);
+            if folded && row + 1 < count {
+                paint_haze(window, &part, ox, oy, span, height);
+            }
+        });
+    }
     paint_weather(
         window,
         &frame,
@@ -2312,7 +2972,11 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         (height / 848.0).clamp(0.3, 1.3),
     );
     paint_vignette_image(window, bounds);
-    paint_card(window, &frame, ox, oy, width, height);
+}
+
+/// A size in pixels.
+fn size_of(w: f32, h: f32) -> gpui::Size<Pixels> {
+    size(px(w.max(0.0)), px(h.max(0.0)))
 }
 
 /// Live drawing over a scene: the window, the frame, and the scene's
@@ -2322,32 +2986,67 @@ type LivePaint = dyn Fn(&mut Window, &Frame, f32, f32, f32, f32);
 /// The scene as the World window shows it: the still layers painted off
 /// the window's thread and faded in as they arrive, and over and between
 /// them everything that moves, drawn live every frame. Nothing here waits
-/// for a picture.
+/// for a picture. A folding place is drawn a row at a time, back to front,
+/// each row's stills and its live drawing clipped to its stretch of the
+/// window.
 pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     use gpui::{ParentElement, Styled};
-    let viewport = window.viewport_size();
     let width = frame.view_w;
     let height = frame.height;
-    let _ = viewport;
     let mut frame = frame;
     painter::timed("main: pictures", || {
         fetch_pictures(&mut frame, window, painter::synchronous())
     });
+    let rows = rows_of(&frame).unwrap_or_else(|| vec![(frame.clone(), (0.0, width))]);
+    let folded = rows.len() > 1;
     let frame = std::sync::Arc::new(frame);
-    let layers = painter::timed("main: plan", || {
-        plan(&frame, window, width, height, painter::synchronous())
-    });
+    let sync = painter::synchronous();
+    let back = std::sync::Arc::new(rows[0].0.clone());
+    let mut planned = vec![(
+        back.clone(),
+        None,
+        painter::timed("main: plan", || {
+            plan(&back, window, (width, height), sync, (0, &ALL[..2]))
+        }),
+    )];
+    for (row, (part, span)) in rows.into_iter().enumerate() {
+        let part = std::sync::Arc::new(part);
+        let layers = painter::timed("main: plan", || {
+            plan(
+                &part,
+                window,
+                (width, height),
+                sync,
+                (1 + row as u32, &ALL[2..]),
+            )
+        });
+        planned.push((part, Some(span), layers));
+    }
     // While pictures are being painted or fading in, keep drawing frames,
     // so each is shown as soon as it is ready, however still the window.
-    if !painter::idle() || layers.iter().any(|(_, plan)| !plan.arriving.is_empty()) {
+    if !painter::idle()
+        || planned
+            .iter()
+            .any(|(_, _, layers)| layers.iter().any(|(_, plan)| !plan.arriving.is_empty()))
+    {
         window.request_animation_frame();
     }
-    let still = |drawn: Vec<Drawn>| {
+    let clip_to = |span: Option<(f32, f32)>, bounds: Bounds<Pixels>| {
+        span.map(|(left, right)| gpui::ContentMask {
+            bounds: Bounds::new(
+                point(bounds.origin.x + px(left), bounds.origin.y),
+                size_of(right - left, f32::from(bounds.size.height)),
+            ),
+        })
+    };
+    let still = |drawn: Vec<Drawn>, span: Option<(f32, f32)>| {
         gpui::canvas(
             |_, _, _| (),
             move |bounds, _, window: &mut Window, _| {
                 let started = std::time::Instant::now();
-                painter::timed("main: draw still", || draw_still(window, bounds, &drawn));
+                window.with_content_mask(clip_to(span, bounds), |window| {
+                    painter::timed("main: draw still", || draw_still(window, bounds, &drawn))
+                });
                 painter::note_frame(started.elapsed());
             },
         )
@@ -2356,20 +3055,21 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
         .left_0()
         .size_full()
     };
-    let live = |paint: Box<LivePaint>| {
-        let frame = frame.clone();
+    let live = |frame: std::sync::Arc<Frame>, span: Option<(f32, f32)>, paint: Box<LivePaint>| {
         gpui::canvas(
             |_, _, _| (),
             move |bounds, _, window: &mut Window, _| {
                 let started = std::time::Instant::now();
-                paint(
-                    window,
-                    &frame,
-                    f32::from(bounds.origin.x),
-                    f32::from(bounds.origin.y),
-                    f32::from(bounds.size.width),
-                    f32::from(bounds.size.height),
-                );
+                window.with_content_mask(clip_to(span, bounds), |window| {
+                    paint(
+                        window,
+                        &frame,
+                        f32::from(bounds.origin.x),
+                        f32::from(bounds.origin.y),
+                        f32::from(bounds.size.width),
+                        f32::from(bounds.size.height),
+                    )
+                });
                 painter::note_frame(started.elapsed());
             },
         )
@@ -2382,55 +3082,83 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     // For looking into how the scene is made: `WORLD_GPUI_HIDE=hills,sky`
     // leaves those still layers out.
     let hidden = std::env::var("WORLD_GPUI_HIDE").unwrap_or_default();
-    let layers = layers
-        .into_iter()
-        .filter(|(layer, _)| !hidden.contains(&format!("{layer:?}").to_lowercase()));
-    for (layer, plan) in layers {
-        root = root.child(still(plan.settled));
-        if !plan.arriving.is_empty() {
-            root = root.child(still(plan.arriving).opacity(plan.fade));
+    let count = planned.len();
+    for (position, (part, span, layers)) in planned.into_iter().enumerate() {
+        let layers = layers
+            .into_iter()
+            .filter(|(layer, _)| !hidden.contains(&format!("{layer:?}").to_lowercase()));
+        for (layer, plan) in layers {
+            root = root.child(still(plan.settled, span));
+            if !plan.arriving.is_empty() {
+                root = root.child(still(plan.arriving, span).opacity(plan.fade));
+            }
+            match layer {
+                Still::Sky => {
+                    root = root.child(live(
+                        part.clone(),
+                        None,
+                        Box::new(|window, frame, ox, oy, w, h| {
+                            paint_clouds(window, frame, ox, oy, w, h)
+                        }),
+                    ))
+                }
+                Still::Hills => {
+                    root = root.child(live(
+                        part.clone(),
+                        None,
+                        Box::new(|window, frame, ox, oy, w, h| {
+                            paint_rising(window, frame, ox, oy, w, h)
+                        }),
+                    ))
+                }
+                _ => {}
+            }
         }
-        match layer {
-            Still::Sky => {
-                root = root.child(live(Box::new(|window, frame, ox, oy, w, h| {
-                    paint_clouds(window, frame, ox, oy, w, h)
-                })))
-            }
-            Still::Hills => {
-                root = root.child(live(Box::new(|window, frame, ox, oy, w, h| {
-                    paint_rising(window, frame, ox, oy, w, h)
-                })))
-            }
-            _ => {}
+        // Each row (or the whole place) lives over its own stills.
+        if let Some(span) = span {
+            let haze = folded && position + 1 < count;
+            root = root.child(live(
+                part,
+                Some(span),
+                Box::new(move |window, frame, ox, oy, w, h| {
+                    let light = light_at(frame.hour, frame.weather);
+                    paint_live(window, frame, ox, oy, w, h, light);
+                    if haze {
+                        paint_haze(window, frame, ox, oy, span, h);
+                    }
+                }),
+            ));
         }
     }
-    root.child(live(Box::new(|window, frame, ox, oy, w, h| {
-        let light = light_at(frame.hour, frame.weather);
-        paint_live(window, frame, ox, oy, w, h, light);
-        paint_weather(window, frame, ox, oy, w, h, (h / 848.0).clamp(0.3, 1.3));
-        let bounds = Bounds::new(point(px(ox), px(oy)), size(px(w), px(h)));
-        if painter::synchronous() {
-            paint_vignette_image(window, bounds);
-        } else {
-            // Not worth a hitch: until it is painted, there is none.
-            let dpr = window.scale_factor().max(0.5);
-            let mut key = Key::new("vignette");
-            key.float(w).float(h).float(dpr);
-            let key = key.finish();
-            match painter::ready(key) {
-                Some(painter::Ready::Image(image, _)) => {
-                    let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+    root.child(live(
+        frame,
+        None,
+        Box::new(|window, frame, ox, oy, w, h| {
+            paint_weather(window, frame, ox, oy, w, h, (h / 848.0).clamp(0.3, 1.3));
+            let bounds = Bounds::new(point(px(ox), px(oy)), size(px(w), px(h)));
+            if painter::synchronous() {
+                paint_vignette_image(window, bounds);
+            } else {
+                // Not worth a hitch: until it is painted, there is none.
+                let dpr = window.scale_factor().max(0.5);
+                let mut key = Key::new("vignette");
+                key.float(w).float(h).float(dpr);
+                let key = key.finish();
+                match painter::ready(key) {
+                    Some(painter::Ready::Image(image, _)) => {
+                        let _ =
+                            window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+                    }
+                    _ => painter::want(
+                        window,
+                        key,
+                        false,
+                        Box::new(move || paint_vignette(w, h, dpr * 0.25)),
+                    ),
                 }
-                _ => painter::want(
-                    window,
-                    key,
-                    false,
-                    Box::new(move || paint_vignette(w, h, dpr * 0.25)),
-                ),
             }
-        }
-        paint_card(window, frame, ox, oy, w, h);
-    })))
+        }),
+    ))
 }
 
 /// The sky, graded for the hour and the weather, with the sun where the
@@ -2726,6 +3454,19 @@ fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, band: &Band
         if x + w < from || x - w > to {
             continue;
         }
+        // A setting of its own draws its own silhouettes (art's, B).
+        if crate::works::paint_silhouette(
+            canvas,
+            frame.setting,
+            mark.shape,
+            x,
+            base,
+            w * 1.3,
+            mark_h,
+            silhouette,
+        ) {
+            continue;
+        }
         crate::ui::paint_mark(
             canvas,
             Bounds::new(
@@ -2739,7 +3480,7 @@ fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, band: &Band
     }
     for goal in &frame.goals {
         let (x, base) = band.mark_at(frame, goal.along);
-        paint_goal(canvas, x, base, goal, silhouette, sun);
+        paint_goal(canvas, x, base, goal, silhouette, sun, frame.setting);
     }
     painter::grain_lit(canvas, at, 0.04, 0.035, light_at(frame.hour, frame.weather));
 }
@@ -2754,16 +3495,23 @@ fn paint_goal(
     goal: &RidgeGoal,
     silhouette: Hsla,
     light: Hsla,
+    setting: art::Setting,
 ) {
     let (w, h) = (goal.w, goal.h);
     let bounds = Bounds::new(point(px(x - w / 2.0), px(base - h)), size(px(w), px(h)));
+    // A setting of its own draws its own silhouettes (art's, B).
+    let mark = |brush: &mut dyn Brush, colour: Hsla, light: Hsla| {
+        if !crate::works::paint_silhouette(brush, setting, goal.shape, x, base, w, h, colour) {
+            crate::ui::paint_mark(brush, bounds, goal.shape, colour, light);
+        }
+    };
     if goal.done >= goal.parts {
-        crate::ui::paint_mark(brush, bounds, goal.shape, silhouette, light);
+        mark(brush, silhouette, light);
         return;
     }
     let share = goal.done as f32 / goal.parts.max(1) as f32;
     let ghost = gpui::white().opacity(0.16 + 0.4 * share);
-    crate::ui::paint_mark(brush, bounds, goal.shape, ghost, light.opacity(0.4));
+    mark(brush, ghost, light.opacity(0.4));
     let wood = art::hex(0x8a6a44).opacity(0.85);
     let left = x - w / 2.0;
     let risen = h * (0.35 + 0.65 * share);
@@ -2813,7 +3561,9 @@ fn field_top(frame: &Frame, x: f32) -> f32 {
 /// The top of the foreground (the water's edge in a harbour), at `x`.
 fn front_top(frame: &Frame, x: f32) -> f32 {
     let w = frame.view_w.max(1.0);
-    frame.front - 6.0 * (x / (0.7 * w) + 0.4).sin() - 3.0 * (x / (0.23 * w)).sin()
+    // A quay's wall runs nearly straight; a shore wanders.
+    let wander = if frame.water { 0.25 } else { 1.0 };
+    frame.front - wander * (6.0 * (x / (0.7 * w) + 0.4).sin() + 3.0 * (x / (0.23 * w)).sin())
 }
 
 /// The land's colours for the season: the field, and the foreground.
@@ -3038,6 +3788,142 @@ fn paint_building_tile(
     Some(canvas.pixmap)
 }
 
+/// The quay: a strip of pale stone along the water in the lower third,
+/// where people walk and sit, from the kerb where the street steps down
+/// onto it to the water's edge, laid in flagstones where the camera is
+/// close enough to see them.
+fn paint_quay(
+    canvas: &mut Canvas,
+    frame: &Frame,
+    (from, to): (f32, f32),
+    detail: bool,
+    ground: Hsla,
+) {
+    let k = (frame.height / 848.0).clamp(0.3, 1.3);
+    let top = frame.quay_top();
+    let stone = crate::setting::quay_inks(frame.setting, ground).0;
+    let step = 24.0;
+    let mut deck = Shape::new();
+    deck.move_to(from, top);
+    deck.line_to(to + step, top);
+    let mut x = to + step;
+    while x > from - step {
+        deck.line_to(x, front_top(frame, x) + 2.0);
+        x -= step;
+    }
+    deck.close();
+    painter::fill_shaded(
+        canvas,
+        &deck,
+        (0.0, top),
+        (0.0, frame.front),
+        &[
+            (0.0, art::shade(stone, 0.05)),
+            (1.0, art::shade(stone, -0.07)),
+        ],
+    );
+    // The kerb: a lip of darker stone, and its shadow on the quay.
+    canvas.gradient(
+        from,
+        top,
+        to - from + step,
+        5.0 * k,
+        180.0,
+        (art::shade(stone, -0.3).opacity(0.35), 0.0),
+        (art::shade(stone, -0.3).opacity(0.0), 1.0),
+    );
+    let mut kerb = Shape::new();
+    kerb.move_to(from, top).line_to(to + step, top);
+    canvas.stroke(&kerb, 1.4 * k, art::shade(stone, -0.4).opacity(0.45));
+    if !detail {
+        return;
+    }
+    // Flagstones: long courses along the quay, each joint offset from the
+    // one before, drawn faintly, as a painter would suggest them.
+    let joint = art::shade(stone, -0.28).opacity(0.22);
+    let deep = frame.front - top;
+    let courses = [0.0, 0.3, 0.62, 1.0];
+    for pair in 0..courses.len() - 1 {
+        let (y0, y1) = (top + deep * courses[pair], top + deep * courses[pair + 1]);
+        if pair > 0 {
+            let mut line = Shape::new();
+            line.move_to(from, y0).line_to(to + step, y0);
+            canvas.stroke(&line, 0.8 * k, joint);
+        }
+        let long = (46.0 + 12.0 * pair as f32) * k;
+        let offset = pair as f32 * long * 0.45;
+        let mut x = ((from - offset) / long).floor() * long + offset;
+        while x < to + long {
+            let seed = painter::hash2((x / long) as i32, pair as i32, 0x9a7);
+            let wobble = (seed % 9) as f32 - 4.0;
+            let mut cut = Shape::new();
+            cut.move_to(x + wobble * k, y0 + 1.5)
+                .line_to(x + wobble * k, (y1 - 1.5).min(frame.front - 3.0));
+            canvas.stroke(&cut, 0.8 * k, joint);
+            x += long;
+        }
+    }
+}
+
+/// The quay's wall where it goes down into the water: a band of darker
+/// stone under the coping, and its shadow on the water.
+fn paint_quay_wall(canvas: &mut Canvas, frame: &Frame, (from, to): (f32, f32), ground: Hsla) {
+    let k = (frame.height / 848.0).clamp(0.3, 1.3);
+    let stone = crate::setting::quay_inks(frame.setting, ground).1;
+    let wall = frame.figure_h * 0.28;
+    let step = 24.0;
+    let mut face = Shape::new();
+    face.move_to(from - step, front_top(frame, from - step));
+    let mut x = from - step;
+    while x < to + step {
+        x += step;
+        face.line_to(x, front_top(frame, x));
+    }
+    while x > from - step {
+        face.line_to(x, front_top(frame, x) + wall);
+        x -= step;
+    }
+    face.close();
+    painter::fill_shaded(
+        canvas,
+        &face,
+        (0.0, frame.front),
+        (0.0, frame.front + wall),
+        &[
+            (0.0, art::shade(stone, -0.08)),
+            (1.0, art::shade(stone, -0.3)),
+        ],
+    );
+    canvas.gradient(
+        from - step,
+        frame.front + wall - 1.0,
+        to - from + step * 2.0,
+        wall * 0.8,
+        180.0,
+        (gpui::black().opacity(0.16), 0.0),
+        (gpui::black().opacity(0.0), 1.0),
+    );
+    // The coping's lit edge.
+    let mut coping = Shape::new();
+    coping.move_to(from - step, front_top(frame, from - step));
+    let mut x = from - step;
+    while x < to + step {
+        x += step;
+        coping.line_to(x, front_top(frame, x));
+    }
+    canvas.stroke(&coping, 1.6 * k, gpui::white().opacity(0.35));
+    // On the ice the shelf's edge hangs with icicles (art's, B).
+    crate::setting::paint_shelf_edge(
+        canvas,
+        frame.setting,
+        (from, to),
+        &|x| front_top(frame, x),
+        wall,
+        k,
+        seed_of_scenery(&frame.scenery),
+    );
+}
+
 /// The field, the path worn along it, what grows and lies about on it, the
 /// foreground or the water, and what the season lays over them, for stage
 /// `x` from `view.0` to `view.1`.
@@ -3094,12 +3980,17 @@ fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
     canvas.stroke(&rim, 1.2, art::shade(ground, -0.3).opacity(0.25));
     let k = (frame.height / 848.0).clamp(0.3, 1.3);
     let detail = frame.height >= 360.0;
-    let strip_top = frame.base + (frame.front - frame.base) * 0.55;
     let front = frame.front;
+    // Grass and flowers grow on the street's verges down to the quay, or
+    // on dry ground down to the foreground.
+    let meadow = if frame.water { frame.quay_top() } else { front };
+    let strip_top = frame.base + (meadow - frame.base) * 0.4;
     let w = frame.view_w.max(1.0);
-    if detail {
-        // A worn path winds along the strip, where people have walked.
-        let mid = strip_top + (front - strip_top) * 0.45;
+    if frame.water {
+        paint_quay(canvas, frame, (from, to), detail, ground);
+    } else if detail {
+        // A worn path winds along the near ground, where people walk.
+        let mid = frame.feet;
         let wind = |x: f32| mid + 9.0 * k * (x / (0.55 * w) + 0.7).sin();
         let mut path = Shape::new();
         let mut x = from;
@@ -3154,6 +4045,9 @@ fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
             art::shade(near, -0.3).opacity(0.4)
         },
     );
+    if frame.water {
+        paint_quay_wall(canvas, frame, (from, to), ground);
+    }
     // A frozen edge to the harbour in deep winter.
     if frame.ice && frame.water {
         let deep = (frame.height - front) * 0.16;
@@ -3192,7 +4086,8 @@ fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
         return;
     }
     // What grows and lies about along the strip, in the colours of the
-    // ground it is on; the same place always has the same ones.
+    // ground it is on; the same place always has the same ones, and each
+    // kind of place its own (art's, B: setting.rs).
     let seed0 = seed_of_scenery(&frame.scenery);
     let per = frame.width / w;
     let scatter = |index: i32, salt: u32| {
@@ -3203,118 +4098,25 @@ fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
             seed,
         )
     };
-    let blade = match frame.cover {
-        Some(GroundCover::Snow) => art::shade(ground, -0.12),
-        _ => art::shade(ground, -0.22),
+    let dressing = crate::setting::Ground {
+        setting: frame.setting,
+        from,
+        to,
+        strip_top,
+        meadow,
+        front,
+        height: frame.height,
+        width: frame.width,
+        view_w: frame.view_w,
+        k,
+        seed: seed0,
+        ground,
+        near,
+        cover: frame.cover,
+        water: frame.water,
     };
-    for index in 0..((48.0 * per) as i32) {
-        let (x, t, seed) = scatter(index, 1);
-        if x < from || x > to {
-            continue;
-        }
-        let y = strip_top + t * (front - strip_top);
-        let tall = (9.0 + (seed >> 24) as f32 % 8.0) * k;
-        for lean in [-1.0_f32, 0.0, 1.0] {
-            art::line(
-                canvas,
-                (x + lean * 2.0 * k, y),
-                (x + lean * 4.0 * k, y - tall * (1.0 - lean.abs() * 0.25)),
-                1.3 * k,
-                blade,
-            );
-        }
-    }
-    let flower_inks = [0xf2d0e0_u32, 0xfff2b0, 0xffffff, 0xd8c8f2];
-    let flowering = !matches!(
-        frame.cover,
-        Some(GroundCover::Snow | GroundCover::Frost | GroundCover::Dust)
-    );
-    for index in 0..((16.0 * per) as i32) {
-        let (x, t, seed) = scatter(index, 2);
-        if x < from || x > to {
-            continue;
-        }
-        let y = strip_top + t * (front - strip_top);
-        if seed % 3 == 0 || !flowering {
-            art::ellipse(canvas, x, y, 5.0 * k, 3.0 * k, art::shade(ground, -0.35));
-            art::ellipse(
-                canvas,
-                x - 1.0 * k,
-                y - 1.0 * k,
-                3.0 * k,
-                1.6 * k,
-                art::shade(ground, 0.12),
-            );
-        } else {
-            let ink = art::hex(flower_inks[((seed >> 8) % 4) as usize]);
-            art::line(canvas, (x, y), (x, y - 10.0 * k), 1.2 * k, blade);
-            art::circle(canvas, x, y - 10.5 * k, 3.4 * k, ink);
-            art::circle(canvas, x, y - 10.5 * k, 1.3 * k, art::hex(0xe8b040));
-        }
-    }
-    // A short run of fence posts here and there.
-    let post = art::shade(ground, -0.45);
-    for index in 0..(per.ceil() as i32) {
-        let (x, _, _) = scatter(index, 3);
-        if x + 80.0 * k < from || x > to {
-            continue;
-        }
-        for post_index in 0..4 {
-            let px0 = x + post_index as f32 * 24.0 * k;
-            art::rect(
-                canvas,
-                px0,
-                strip_top - 6.0 * k,
-                4.0 * k,
-                20.0 * k,
-                1.0,
-                post,
-            );
-        }
-        art::line(
-            canvas,
-            (x, strip_top + 1.0 * k),
-            (x + 76.0 * k, strip_top + 1.0 * k),
-            1.4 * k,
-            post,
-        );
-    }
-    if frame.water {
-        // Reeds where the land meets the water.
-        let reed = art::shade(near, 0.25);
-        for index in 0..((18.0 * per) as i32) {
-            let (x, t, _) = scatter(index, 4);
-            if x < from || x > to {
-                continue;
-            }
-            let tall = (10.0 + t * 8.0) * k;
-            let lean = (t - 0.5) * 4.0 * k;
-            let foot = front_top(frame, x) + 4.0;
-            art::line(canvas, (x, foot), (x + lean, foot - tall), 1.2 * k, reed);
-        }
-    } else {
-        // On dry ground the foreground itself has stones and grass too.
-        for index in 0..((16.0 * per) as i32) {
-            let (x, t, seed) = scatter(index, 5);
-            if x < from || x > to {
-                continue;
-            }
-            let y = front + 10.0 + t * (frame.height - front - 14.0);
-            if seed % 2 == 0 {
-                art::ellipse(canvas, x, y, 7.0 * k, 4.0 * k, art::shade(near, -0.25));
-            } else {
-                for lean in [-1.0_f32, 1.0] {
-                    art::line(
-                        canvas,
-                        (x, y),
-                        (x + lean * 4.0 * k, y - 9.0 * k),
-                        1.4 * k,
-                        art::shade(near, 0.2),
-                    );
-                }
-            }
-        }
-    }
+    crate::setting::paint_ground_props(canvas, &dressing);
+    crate::setting::paint_sea_ice(canvas, &dressing);
     // What the season lays on the ground.
     let (count, inks): (f32, &[u32]) = match frame.cover {
         Some(GroundCover::Leaves) => (60.0, &[0xc8642e, 0xd9913a, 0xa8452c, 0xe0b04a]),
@@ -3817,6 +4619,7 @@ fn paint_clouds(window: &mut dyn Brush, frame: &Frame, ox: f32, oy: f32, width: 
         Daylight::Dawn if sun_out(frame.weather) => mix(cloud, art::hex(0xffe0cc), 0.35),
         _ => cloud,
     };
+    let cloud = crate::setting::cloud_ink(frame.setting, cloud, art::hex(frame.scenery.far));
     let _ = horizon;
     for index in 0..clouds {
         let speed = 4.0 + index as f32 * 1.7;
@@ -3844,7 +4647,7 @@ fn paint_clouds(window: &mut dyn Brush, frame: &Frame, ox: f32, oy: f32, width: 
             cloud,
         );
     }
-    if !night && sun_out(frame.weather) {
+    if !night && sun_out(frame.weather) && frame.setting.has_gulls() {
         for gull in 0..3 {
             let span = width + 200.0;
             let x = ox + ((gull as f32 * 417.0 + t * (18.0 + gull as f32 * 5.0)) % span) - 100.0;
@@ -4230,7 +5033,11 @@ fn paint_live(
             art::hex(0xcfcbc6)
         };
         for building in &frame.buildings {
-            if building.shape != MarkShape::House || building.drawing.is_some() {
+            if building.shape != MarkShape::House
+                || building.drawing.is_some()
+                || building.palette.art.is_some()
+                || !frame.setting.smokes()
+            {
                 continue;
             }
             if !seen(building.x, building.w * z * 2.0) {
@@ -4433,6 +5240,22 @@ fn paint_live(
         }
     }
 
+    // A street's poles, wires and parked cars, between its buildings and
+    // its people (art's, B).
+    crate::setting::paint_street_life(
+        &mut Tint::new(window, light),
+        &screen,
+        frame.setting,
+        frame.width,
+        frame.view_w,
+        frame.base,
+        frame.front,
+        frame.building_h,
+        z,
+        lit,
+        seed_of_scenery(&frame.scenery),
+        (ox, ox + width),
+    );
     // People: a soft shadow where they stand, a longer one away from a
     // sun that is out, and themselves.
     let long = 0.22 + 0.6 * (1.0 - high.max(0.0));
@@ -4475,6 +5298,17 @@ fn paint_live(
             contact.opacity(contact.a * (1.0 - lift)),
         );
         let mut tinted = Tint::new(window, light);
+        // Someone sitting sits on something (art's, B).
+        if person.stance == Stance::Sitting && !person.figure.bird {
+            crate::setting::paint_seat(
+                &mut tinted,
+                frame.setting,
+                x,
+                y,
+                person.height,
+                person.pose.facing,
+            );
+        }
         age::paint_person(
             &mut tinted,
             x,
@@ -4670,6 +5504,9 @@ pub fn cover(
             Some(most.map_or(px, |most| most.max(px)))
         })
         .map(|most| most.ceil().max(1.0));
+    // A cover keeps the cast, not the place's setting: it is read back
+    // from what the cast is drawn as (art's, B).
+    let setting = crate::works::setting_of_cast(cast.iter().filter_map(|item| item.art.as_deref()));
     let snapshot = ProjectionSnapshot {
         scenery,
         drawings,
@@ -4685,6 +5522,7 @@ pub fn cover(
                 })
                 .collect(),
             width,
+            setting: Some(setting.key().into()),
             ..Default::default()
         },
         ..ProjectionSnapshot::default()
@@ -4807,7 +5645,7 @@ pub(crate) mod tests {
         let mut people = stage.people.clone();
         people.sort_by(|a, b| a.x.total_cmp(&b.x));
         for pair in people.windows(2) {
-            assert!(pair[1].x - pair[0].x >= stage.figure_h * 0.66 - 0.01);
+            assert!(pair[1].x - pair[0].x >= stage.figure_h * 0.62 - 0.01);
         }
         assert!(people
             .iter()
@@ -5015,6 +5853,8 @@ pub(crate) mod tests {
         ];
         let drawing = [
             "let fx = left + (right - left) * t;",
+            // Where a row stands between two others: layout, not motion.
+            "return (l0 + (l1 - l0) * t, s0 + (s1 - s0) * t);",
             "|t: f32| point(from.x + (to.x - from.x) * t",
         ];
         for (name, source) in sources {
@@ -5106,6 +5946,258 @@ pub(crate) mod tests {
         assert!(corner.zoom <= 2.2);
         let (left, top) = corner.at(&stage, 0.0, 0.0);
         assert!(left.abs() < 0.01 && top.abs() < 0.01);
+    }
+
+    /// A real harbour on day 1,082, a builder's three years on, as its
+    /// Pack sends it (only what the scene draws): the composition's tests.
+    pub(crate) fn harbour_1082() -> ProjectionSnapshot {
+        let json = include_str!("../tests/fixtures/harbour-day-1082.json");
+        let wire: world_pack_protocol::ProjectionSnapshotWire =
+            serde_json::from_str(json).expect("a wire snapshot");
+        ProjectionSnapshot::try_from(wire).expect("a snapshot")
+    }
+
+    /// Every box the composition stands at `zoom`: buildings and things
+    /// (index, left, top, right, foot, building), as drawn.
+    fn boxes(
+        stage: &Stage,
+        snapshot: &ProjectionSnapshot,
+        zoom: f32,
+    ) -> Vec<(usize, f32, f32, f32, f32, bool)> {
+        let items = &snapshot.canvas.items;
+        stage
+            .buildings
+            .iter()
+            .map(|spot| (spot, true))
+            .chain(stage.things.iter().map(|spot| (spot, false)))
+            .filter(|(spot, _)| stage.shows(spot.index, zoom))
+            .map(|(spot, building)| {
+                let h = if building {
+                    stage.height_of(spot, items[spot.index].shape.unwrap_or_default())
+                } else {
+                    spot.w * 1.1
+                };
+                (
+                    spot.index,
+                    spot.x - spot.w / 2.0,
+                    spot.y - h,
+                    spot.x + spot.w / 2.0,
+                    spot.y,
+                    building,
+                )
+            })
+            .collect()
+    }
+
+    /// The v0.24 bar: on day 1,082 the harbour composes with nothing
+    /// standing on anything else, at every hour and at two window sizes.
+    /// Nothing in the same row overlaps; no thing overlaps a building
+    /// nearer than it (things are drawn over the buildings); no building is
+    /// more than half hidden by nearer ones; nobody stands on anybody or in
+    /// anything on the quay; and the composition keeps back little.
+    #[test]
+    fn a_three_year_harbour_composes_without_overlaps() {
+        let snapshot = harbour_1082();
+        for (width, height) in [(1100.0, 848.0), (1440.0, 848.0)] {
+            for hour in [8, 12, 19, 23] {
+                let stage = stage_at(&snapshot, width, height, Clock::at(hour));
+                for zoom in [1.0, Camera::least(&stage)] {
+                    let all = boxes(&stage, &snapshot, zoom);
+                    let row = stage.building_h * 0.15;
+                    let mut hidden_most = 0;
+                    for a in &all {
+                        let mut covered = 0.0;
+                        for b in &all {
+                            if a.0 == b.0 {
+                                continue;
+                            }
+                            let across = (a.3.min(b.3) - a.1.max(b.1)).max(0.0);
+                            let down = (a.4.min(b.4) - a.2.max(b.2)).max(0.0);
+                            if (a.4 - b.4).abs() < row {
+                                assert!(
+                                    across <= 0.5,
+                                    "{hour}h {width}: {} and {} overlap in a row",
+                                    a.0,
+                                    b.0
+                                );
+                            } else if b.5 && b.4 > a.4 && across * down > 0.0 {
+                                assert!(
+                                    a.5,
+                                    "{hour}h {width}: thing {} runs into nearer building {}",
+                                    a.0, b.0
+                                );
+                                covered += across * down;
+                            }
+                        }
+                        if a.5 && covered > 0.5 * (a.3 - a.1) * (a.4 - a.2) {
+                            hidden_most += 1;
+                        }
+                    }
+                    assert_eq!(
+                        hidden_most, 0,
+                        "{hour}h {width}: buildings more than half hidden"
+                    );
+                    let held = stage
+                        .shown_from
+                        .values()
+                        .filter(|least| **least > zoom + 1e-4)
+                        .count();
+                    let total = stage.buildings.len() + stage.things.len() + stage.people.len();
+                    // Up close almost nothing waits; on the postcard the
+                    // smallest things and the tightest neighbours do.
+                    let most = if zoom >= 1.0 { 0.1 } else { 0.3 };
+                    assert!(
+                        held as f32 <= total as f32 * most,
+                        "{hour}h {width} at {zoom}: {held} of {total} held back"
+                    );
+                    // And whatever waits shows once the camera comes close.
+                    let never = stage
+                        .shown_from
+                        .iter()
+                        .filter(|(_, least)| **least > ZOOM_MOST)
+                        .map(|(index, _)| *index)
+                        .collect::<Vec<_>>();
+                    assert!(never.is_empty(), "{hour}h {width}: never shown {never:?}");
+                    let people = stage
+                        .people
+                        .iter()
+                        .filter(|spot| stage.shows(spot.index, zoom))
+                        .collect::<Vec<_>>();
+                    let lane = |spot: &Spot| spot.y > stage.feet + stage.figure_h * 0.25;
+                    for (n, a) in people.iter().enumerate() {
+                        for b in people[n + 1..].iter().filter(|b| lane(b) == lane(a)) {
+                            assert!(
+                                (a.x - b.x).abs() >= stage.figure_h * 0.6,
+                                "{} on {}",
+                                a.index,
+                                b.index
+                            );
+                        }
+                        if lane(a) {
+                            continue;
+                        }
+                        for thing in all
+                            .iter()
+                            .filter(|b| !b.5 && Depth::at(b.4, height) == Depth::Quay)
+                        {
+                            let half = a.w / 2.0;
+                            assert!(
+                                a.x + half <= thing.1 + 0.5 || a.x - half >= thing.3 - 0.5,
+                                "{} stands in {}",
+                                a.index,
+                                thing.0
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The v0.24 bar for the lower third: at noon on day 1,082 everyone out
+    /// and about stands on the quay in the window's lower third, and so do
+    /// the things there; the quay lies in it from the street's end to the
+    /// water.
+    #[test]
+    fn the_lower_third_is_where_people_walk() {
+        let snapshot = harbour_1082();
+        let (width, height) = (1100.0, 848.0);
+        let stage = stage_at(&snapshot, width, height, Clock::at(12));
+        let third = height * 2.0 / 3.0;
+        let out = stage
+            .people
+            .iter()
+            .filter(|spot| stage.shows(spot.index, 1.0))
+            .collect::<Vec<_>>();
+        assert!(out.len() >= 8, "{} out at noon", out.len());
+        assert!(
+            out.iter().all(|spot| spot.y > third),
+            "everyone on the quay"
+        );
+        let quay_things = stage
+            .things
+            .iter()
+            .filter(|spot| stage.depth_of(spot) == Depth::Quay)
+            .count();
+        assert!(quay_things >= 10, "{quay_things} things on the quay");
+        let frame = frame(
+            &snapshot,
+            &stage,
+            &living(
+                &stage,
+                &snapshot,
+                0.0,
+                Daylight::Day,
+                &BTreeSet::new(),
+                None,
+            ),
+            Camera::whole(&stage),
+            0.0,
+            Daylight::Day,
+            &Glows::new(),
+            1.0,
+        );
+        assert!(frame.quay_top() > third && frame.front > frame.quay_top());
+        // Everyone on it faces the window at full size; each row further
+        // back is smaller.
+        let scales = ROWS.iter().map(|row| row.2).collect::<Vec<_>>();
+        assert!(scales.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// The v0.24 bar for scale: a cottage stands two and a half to three
+    /// times a grown-up at the same depth, wherever it stands, as drawn.
+    #[test]
+    fn a_cottage_stands_two_and_a_half_to_three_times_a_person() {
+        let snapshot = harbour_1082();
+        for (width, height) in [(1100.0, 848.0), (1440.0, 900.0), (480.0, 300.0)] {
+            let stage = stage_at(&snapshot, width, height, Clock::at(12));
+            let lives = living(
+                &stage,
+                &snapshot,
+                0.0,
+                Daylight::Day,
+                &BTreeSet::new(),
+                None,
+            );
+            let frame = frame(
+                &snapshot,
+                &stage,
+                &lives,
+                Camera::whole(&stage),
+                0.0,
+                Daylight::Day,
+                &Glows::new(),
+                1.0,
+            );
+            let grown = frame
+                .people
+                .iter()
+                .find(|person| person.figure.age == Age::Adult)
+                .expect("a grown-up");
+            let spot = stage
+                .people
+                .iter()
+                .find(|spot| spot.index == grown.index)
+                .unwrap();
+            // A grown-up's height on the quay, at full size.
+            let person = grown.height / spot.scale;
+            let mut cottages = 0;
+            for building in frame
+                .buildings
+                .iter()
+                .filter(|b| b.shape == MarkShape::House && b.drawing.is_none())
+            {
+                let spot = stage
+                    .buildings
+                    .iter()
+                    .find(|spot| spot.index == building.index)
+                    .unwrap();
+                let ratio = building.h / (person * spot.scale);
+                assert!((2.5..=3.0).contains(&ratio), "{width}: {ratio}");
+                cottages += 1;
+            }
+            assert!(cottages >= 10);
+        }
     }
 
     /// A World three years on: a real one's snapshot when
@@ -5377,14 +6469,18 @@ pub(crate) mod tests {
         assert!((right - 1000.0).abs() < 0.01);
         let west = Camera::around(&stage, 1.0, -1e6, 400.0);
         assert!((west.x - 500.0).abs() < 0.01);
+        // Zoomed right out it folds into a postcard: two rows, each as
+        // wide as the window, the second up the hill behind the first, and
+        // the water at the window's foot.
         let whole = Camera::around(&stage, 0.01, 0.0, 0.0);
-        assert!((whole.zoom - 1.0 / 3.0).abs() < 1e-4);
-        let (left, _) = whole.at(&stage, 0.0, 0.0);
-        let (right, bottom) = whole.at(&stage, stage.width, stage.height);
-        assert!(left.abs() < 0.01 && (right - 1000.0).abs() < 0.01);
-        // A panoramic postcard, centred: as much paper above as below.
-        let (_, top) = whole.at(&stage, 0.0, card_top(stage.horizon, stage.height));
-        assert!((top - (800.0 - bottom)).abs() < 0.01, "{top} {bottom}");
+        assert!((whole.fold - 1.0).abs() < 1e-4, "{whole:?}");
+        assert!((whole.zoom - 2.0 / 3.0).abs() < 1e-4, "{whole:?}");
+        let (left, bottom) = whole.at(&stage, 0.0, stage.height);
+        let (right, _) = whole.at(&stage, 1499.0, stage.height);
+        assert!(left.abs() < 0.01 && (right - 1000.0).abs() < 1.0);
+        assert!((bottom - 800.0).abs() < 0.01);
+        let (back_left, back_bottom) = whole.at(&stage, 1500.0, stage.height);
+        assert!(back_left.abs() < 0.01 && back_bottom < bottom - 50.0);
         // Without a width, nothing changes from one window.
         let plain = stage_at(&harbour(), 1000.0, 800.0, Clock::at(12));
         assert_eq!(plain.width, plain.view_w);

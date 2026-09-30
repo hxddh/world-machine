@@ -18,6 +18,10 @@ pub const MOST_LEGEND_LINES: usize = 1_000;
 pub const MOST_ALMANAC_NAMES: usize = 200;
 /// The most people or places one panel draws.
 pub const MOST_PANEL_CAST: usize = 12;
+/// The most props one panel shows.
+pub const MOST_PANEL_PROPS: usize = 6;
+/// The most years an app is told it can ask the almanac of.
+pub const MOST_ALMANAC_YEARS: usize = 1_000;
 
 /// What a player asks a World to tell.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -175,6 +179,10 @@ pub struct PanelWire {
     /// the same, and wins.
     #[serde(default)]
     pub beat: String,
+    /// What else the panel shows ("ferry", "bunting"); an id this build
+    /// does not know is left out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub props: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -201,6 +209,11 @@ impl From<&Panel> for PanelWire {
             place: panel.place.map(Into::into),
             mood: panel.mood.map(|mood| mood.id().to_string()),
             beat: panel.beat.id().to_string(),
+            props: panel
+                .props
+                .iter()
+                .map(|prop| prop.id().to_string())
+                .collect(),
         }
     }
 }
@@ -243,6 +256,12 @@ impl MomentWire {
                     .as_deref()
                     .and_then(world_projection::Mood::from_id),
                 beat,
+                props: panel
+                    .props
+                    .iter()
+                    .filter_map(|prop| world_projection::Prop::from_id(prop))
+                    .take(MOST_PANEL_PROPS)
+                    .collect(),
             });
         let panels = [panels.next()?, panels.next()?, panels.next()?];
         Some(Moment {

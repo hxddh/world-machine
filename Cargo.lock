@@ -4146,6 +4146,7 @@ dependencies = [
  "conversation",
  "days",
  "hands",
+ "image",
  "lives",
  "serde_json",
  "storylets",
@@ -4156,6 +4157,7 @@ dependencies = [
  "world-host",
  "world-i18n",
  "world-library",
+ "world-pack-protocol",
  "world-persistence",
  "world-projection",
 ]
@@ -5668,6 +5670,7 @@ dependencies = [
  "conversation",
  "days",
  "hands",
+ "image",
  "lives",
  "serde_json",
  "society-basic",
@@ -6996,7 +6999,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "cpal",
  "gpui",

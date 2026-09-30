@@ -1457,6 +1457,7 @@ fn moment_of(
         place: Some(id(101)),
         mood: None,
         beat,
+        props: Vec::new(),
     };
     world_projection::Moment {
         id: format!("{kind:?}-12"),
@@ -1653,5 +1654,209 @@ fn designs_on_a_flag_a_sail_a_sign_and_a_quilt_match_their_golden_pictures() {
         assert_eq!(worn, 4, "{name}: every design is worn");
         let image = draw(480.0, 300.0, move || painted(frame.clone()));
         matches_golden(name, &image);
+    }
+}
+
+// Composition (v0.24, owner A).
+
+/// The day-1,082 harbour at `hour`, `width` by `height`, with the camera
+/// `zoom` times closer (0 for as far out as it goes) at `pan` of the way
+/// along it.
+pub(crate) fn harbour_1082_frame(
+    (width, height): (f32, f32),
+    daylight: Daylight,
+    hour: f32,
+    zoom: f32,
+    pan: f32,
+) -> diorama::Frame {
+    snapshot_frame(
+        &crate::diorama::tests::harbour_1082(),
+        (width, height),
+        daylight,
+        hour,
+        zoom,
+        pan,
+    )
+}
+
+/// A snapshot's frame, as [`harbour_1082_frame`].
+fn snapshot_frame(
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+    daylight: Daylight,
+    hour: f32,
+    zoom: f32,
+    pan: f32,
+) -> diorama::Frame {
+    let snapshot = snapshot.clone();
+    let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+    let living = diorama::living(&stage, &snapshot, 0.0, daylight, &Default::default(), None);
+    let camera = Camera::around(&stage, zoom, stage.width * pan, height / 2.0);
+    diorama::frame(
+        &snapshot,
+        &stage,
+        &living,
+        camera,
+        0.0,
+        daylight,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(hour)
+}
+
+/// Pictures of the composition to look at rather than check: the harbour
+/// on day 1,082 at noon, dusk and night, and folded into its postcard.
+/// Written to the folder `WORLD_GPUI_PICTURES` names.
+#[test]
+#[ignore = "pictures: WORLD_GPUI_PICTURES=dir cargo test -p world-gpui -- --ignored composition_pictures"]
+fn composition_pictures() {
+    let Some(dir) = std::env::var_os("WORLD_GPUI_PICTURES") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let only = std::env::var("WORLD_GPUI_ONLY").unwrap_or_default();
+    // `WORLD_GPUI_SNAPSHOT` names another World's wire JSON to picture.
+    let (snapshot, prefix) = match std::env::var_os("WORLD_GPUI_SNAPSHOT") {
+        Some(path) => {
+            let json = std::fs::read_to_string(path).expect("the snapshot");
+            let wire: world_pack_protocol::ProjectionSnapshotWire =
+                serde_json::from_str(&json).expect("a wire snapshot");
+            (
+                ProjectionSnapshot::try_from(wire).expect("a snapshot"),
+                "other-",
+            )
+        }
+        None => (crate::diorama::tests::harbour_1082(), ""),
+    };
+    let (width, height) = (1100.0, 848.0);
+    for (name, daylight, hour, zoom, pan) in [
+        ("noon", Daylight::Day, 12.0, 1.0, 0.3),
+        ("noon-east", Daylight::Day, 12.0, 1.0, 0.75),
+        ("dusk", Daylight::Dusk, 19.5, 1.0, 0.3),
+        ("night", Daylight::Night, 23.0, 1.0, 0.3),
+        ("closer", Daylight::Day, 12.0, 1.8, 0.12),
+        ("wide", Daylight::Day, 12.0, 0.7, 0.3),
+        ("half-folded", Daylight::Day, 12.0, 0.6, 0.3),
+        ("postcard-noon", Daylight::Day, 12.0, 0.0, 0.5),
+        ("postcard-dusk", Daylight::Dusk, 19.5, 0.0, 0.5),
+        ("postcard-night", Daylight::Night, 23.0, 0.0, 0.5),
+    ] {
+        if !only.is_empty() && !only.split(',').any(|want| want == name) {
+            continue;
+        }
+        let frame = snapshot_frame(&snapshot, (width, height), daylight, hour, zoom, pan);
+        let image = draw(width, height, move || painted(frame.clone()));
+        image
+            .save(dir.join(format!("{prefix}{name}.png")))
+            .expect("a picture");
+    }
+}
+
+/// The v0.24 bar for the whole-town view: zoomed right out, the day-1,082
+/// harbour is a postcard that fills the window, by day and at night. The
+/// town stands from under a third of the way down to the water at the
+/// foot; above it is the sky (blue by day, dark at night, never bare
+/// paper), and no row of the window is left unpainted.
+#[test]
+fn the_whole_town_is_a_postcard_that_fills_the_window() {
+    let (width, height) = (550.0, 424.0);
+    for (daylight, hour) in [(Daylight::Night, 23.0), (Daylight::Day, 12.0)] {
+        let frame = harbour_1082_frame((width, height), daylight, hour, 0.0, 0.5);
+        let snapshot = crate::diorama::tests::harbour_1082();
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+        let camera = Camera::around(&stage, 0.0, stage.width / 2.0, height / 2.0);
+        assert!((camera.fold - 1.0).abs() < 1e-4, "folded right up");
+        // The back row's roofs, in the last row of the postcard.
+        let roofs = stage.base - stage.building_h * 0.7;
+        let top = camera.at(&stage, stage.width - 1.0, roofs).1;
+        let town = (height - top) / height;
+        assert!(
+            town >= 0.7,
+            "the town fills {:.0}% of the window",
+            town * 100.0
+        );
+        let image = draw(width, height, move || painted(frame.clone()));
+        let paper = image::Rgba([0xf2, 0xee, 0xe6, 0xff]);
+        let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
+            a.0.iter().zip(b.0).all(|(x, y)| x.abs_diff(y) <= 3)
+        };
+        let bare = image.pixels().filter(|pixel| near(pixel, &paper)).count();
+        assert!(bare * 1000 < image.pixels().len(), "{bare} bare pixels");
+        let band = image.height() * 15 / 100;
+        let sky = image
+            .enumerate_pixels()
+            .filter(|(_, y, _)| *y < band)
+            .map(|(_, _, pixel)| pixel.0)
+            .fold([0u64; 3], |sum, p| {
+                [
+                    sum[0] + p[0] as u64,
+                    sum[1] + p[1] as u64,
+                    sum[2] + p[2] as u64,
+                ]
+            });
+        let n = u64::from(image.width()) * u64::from(band);
+        let (r, g, b) = (sky[0] / n, sky[1] / n, sky[2] / n);
+        if daylight == Daylight::Night {
+            assert!(r + g + b < 3 * 110 && b > r, "a night sky: {r} {g} {b}");
+        } else {
+            assert!(b > r && b > 150, "a day sky: {r} {g} {b}");
+        }
+    }
+}
+
+/// A lived place of Pocket Universe, as its Pack sent it over the wire.
+fn place(name: &str) -> ProjectionSnapshot {
+    let json = match name {
+        "ares" => include_str!("../tests/fixtures/place-ares.json"),
+        "maple" => include_str!("../tests/fixtures/place-maple.json"),
+        _ => include_str!("../tests/fixtures/place-icebridge.json"),
+    };
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(json).expect("a place's snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+/// Each place of Pocket Universe in its own clothes, at noon: Ares's domes
+/// and hab modules on regolith under a butterscotch sky, Maple Street's
+/// storefronts, cars and wires, Icebridge's snow nests, ice shelf and sea
+/// ice. With `WORLD_GPUI_PLACE_SHOTS=<dir>` each is also drawn large there,
+/// for looking at.
+#[test]
+fn each_pocket_universe_place_matches_its_golden_picture() {
+    let shots = std::env::var("WORLD_GPUI_PLACE_SHOTS").ok();
+    for name in ["ares", "maple", "icebridge"] {
+        let snapshot = place(name);
+        assert!(snapshot.canvas.setting.is_some(), "{name} says what it is");
+        let frame = diorama_frame(&snapshot, 480.0, 300.0, Daylight::Day, 12.5);
+        let image = draw(480.0, 300.0, move || painted(frame.clone()));
+        matches_golden(&format!("place-{name}"), &image);
+        if let Some(dir) = &shots {
+            for (label, daylight, hour) in [
+                ("noon", Daylight::Day, 12.5),
+                ("dusk", Daylight::Dusk, 19.5),
+                ("night", Daylight::Night, 23.0),
+            ] {
+                let snapshot = snapshot.clone();
+                let stage =
+                    diorama::stage_at(&snapshot, 1100.0, 700.0, diorama::Clock::at(hour as u8));
+                let living =
+                    diorama::living(&stage, &snapshot, 0.0, daylight, &Default::default(), None);
+                let camera = Camera::around(&stage, 1.3, stage.width * 0.3, 700.0 * 0.55);
+                let frame = diorama::frame(
+                    &snapshot,
+                    &stage,
+                    &living,
+                    camera,
+                    0.0,
+                    daylight,
+                    &Glows::new(),
+                    1.0,
+                )
+                .at_hour(hour);
+                let image = draw(1100.0, 700.0, move || painted(frame.clone()));
+                image.save(format!("{dir}/{name}-{label}.png")).unwrap();
+            }
+        }
     }
 }

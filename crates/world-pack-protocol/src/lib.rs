@@ -27,7 +27,8 @@ pub use mark::{
 mod stories;
 pub use stories::{
     AlmanacWire, LegendLineWire, LegendWire, MomentWire, NamedWire, PanelWire, StoryPageWire,
-    StoryRequestWire, MOST_ALMANAC_NAMES, MOST_LEGEND_LINES, MOST_PANEL_CAST,
+    StoryRequestWire, MOST_ALMANAC_NAMES, MOST_ALMANAC_YEARS, MOST_LEGEND_LINES, MOST_PANEL_CAST,
+    MOST_PANEL_PROPS,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -947,6 +948,9 @@ pub struct ProjectionSnapshotWire {
     /// Optional both ways: the year in review, on New Year's day.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub almanac: Option<AlmanacWire>,
+    /// Optional both ways: every year whose almanac can be asked for now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub almanac_years: Vec<u32>,
 }
 
 /// One entry in a World's book, as it crosses the boundary.
@@ -1671,6 +1675,12 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 .map(Into::into)
                 .collect(),
             almanac: snapshot.almanac.as_ref().map(Into::into),
+            almanac_years: snapshot
+                .almanac_years
+                .iter()
+                .copied()
+                .take(MOST_ALMANAC_YEARS)
+                .collect(),
         }
     }
 }
@@ -1867,6 +1877,17 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 world_projection::latest_moments(&moments)
             },
             almanac: snapshot.almanac.map(Into::into),
+            almanac_years: {
+                let mut years = snapshot
+                    .almanac_years
+                    .into_iter()
+                    .filter(|year| *year > 0)
+                    .take(MOST_ALMANAC_YEARS)
+                    .collect::<Vec<_>>();
+                years.sort_unstable();
+                years.dedup();
+                years
+            },
         })
     }
 }
@@ -2369,6 +2390,10 @@ pub struct CanvasProjectionWire {
     /// Plots the player can build on; an older Pack sends none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plots: Vec<PlotWire>,
+    /// What kind of place it is to look at; an older Pack sends none, and
+    /// a setting the app does not know is drawn as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setting: Option<String>,
 }
 
 /// The widest panorama a snapshot may ask for, in screen-widths.
@@ -2610,6 +2635,7 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
             ground: canvas.ground.map(Into::into),
             ice: canvas.ice,
             plots: canvas.plots.iter().map(Into::into).collect(),
+            setting: canvas.setting.clone(),
         }
     }
 }
@@ -2660,6 +2686,7 @@ impl From<CanvasProjectionWire> for CanvasProjection {
                 .filter_map(PlotWire::known)
                 .take(MOST_PLOTS)
                 .collect(),
+            setting: art_key(canvas.setting),
         }
     }
 }
@@ -2810,6 +2837,25 @@ pub struct CanvasItemWire {
     pub naming: Option<NamingWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<VariantWire>,
+    /// What the app draws it as; an older Pack sends none, and a key the
+    /// app does not know is drawn by its shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<String>,
+}
+
+/// The longest name of a drawing in the app's own library, or of a setting.
+pub const MOST_ART_KEY: usize = 48;
+
+/// An art key or a setting, if it is one: a short name of lower-case
+/// letters, digits and dashes. Anything else reads as none.
+pub fn art_key(key: Option<String>) -> Option<String> {
+    key.filter(|key| {
+        !key.is_empty()
+            && key.len() <= MOST_ART_KEY
+            && key
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    })
 }
 
 /// The longest few words a standing is told in.
@@ -2876,6 +2922,7 @@ impl From<&CanvasItem> for CanvasItemWire {
             design: item.design.as_ref().map(Into::into),
             naming: item.naming.as_ref().map(Into::into),
             variant: item.variant.map(Into::into),
+            art: item.art.clone(),
         }
     }
 }
@@ -2952,6 +2999,7 @@ impl From<CanvasItemWire> for CanvasItem {
             design: item.design.and_then(DesignableWire::known),
             naming: item.naming.and_then(NamingWire::known),
             variant: item.variant.map(Into::into),
+            art: art_key(item.art),
         }
     }
 }
@@ -3383,6 +3431,7 @@ mod tests {
             book: Vec::new(),
             moments: Vec::new(),
             almanac: None,
+            almanac_years: Vec::new(),
         }
     }
 

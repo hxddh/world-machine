@@ -413,6 +413,7 @@ Day	日
 Jonas	Jonas
 keeps his job	保住了他的工作
 Harbor Bakery	港口面包房
+Harbour Bakery	港口面包房
 Mara's savings	Mara的存款
 Sea Finch	海雀号
 Leo's savings	Leo的存款
@@ -427,6 +428,7 @@ Give Jonas another chance	再给Jonas一次机会
 Keep Jonas at the bakery and let this branch continue into a different future.	让Jonas留在面包房，让这条路继续走向不同的未来。
 Reopen with Mara's savings	用Mara的存款重新开张
 Mara puts {} of her savings into Harbor Bakery and goes back to work.	Mara拿出她{}的存款投入港口面包房，重新开始工作。
+Mara puts {} of her savings into Harbour Bakery and goes back to work.	Mara拿出她{}的存款投入港口面包房，重新开始工作。
 The old staff aren't rehired.	老员工不会被重新雇用。
 Reopen as an owner-run counter	作为个体经营的柜台重新开张
 Mara puts in {} and runs the counter herself: cheap to keep open, but no steady wage.	Mara投入{}，自己经营柜台：维持成本低，但没有稳定的工资。
@@ -462,8 +464,11 @@ Jonas repaid Leo after returning to sea	Jonas重返大海后还清了Leo的钱
 Jonas's catch reached the mainland	Jonas的渔获运到了大陆
 Sea Finch returned to the water	海雀号重新下水了
 Mara reopened Harbor Bakery as an owner-run counter	Mara把港口面包房重新开成了个体经营的柜台
+Mara reopened Harbour Bakery as an owner-run counter	Mara把港口面包房重新开成了个体经营的柜台
 Mara reopened Harbor Bakery	Mara重新开张了港口面包房
+Mara reopened Harbour Bakery	Mara重新开张了港口面包房
 Harbor Bakery closed its doors	港口面包房关门了
+Harbour Bakery closed its doors	港口面包房关门了
 Leo started protecting his savings	Leo开始节省存款
 Emma started protecting her savings	Emma开始节省存款
 Leo's Pub income was disrupted	Leo的酒馆收入受到了冲击
@@ -501,14 +506,18 @@ The storm damaged Sea Finch	暴风损坏了海雀号
 {actor} decided	{actor}做了决定
 what is happening now	现在正在发生的事
 Harbor Bakery is open	港口面包房开着门
+Harbour Bakery is open	港口面包房开着门
 Harbor Bakery is closed	港口面包房关着门
+Harbour Bakery is closed	港口面包房关着门
 · till {cash}	· 收银箱里{cash}
 · counter run alone	· 独自经营柜台
 · counter shared with Mia	· 和Mia一起经营柜台
 Jonas: {}	Jonas：{}
 , cash {cash}	，现金{cash}
 Harbor today	港湾今日
+Harbour today	港湾今日
 Harbor Bakery had customers	港口面包房有顾客光顾
+Harbour Bakery had customers	港口面包房有顾客光顾
 {people} bought bread · {} {purchase_label} · {total_revenue} earned · last on day {}	{people}人买了面包 · {}次{purchase_label} · 赚了{total_revenue} · 最近一次是第{}天
 {people} worked · {} {shift_label} · {total_wages} paid in wages · last on day {}	{people}人上了工 · {}次{shift_label} · 发了{total_wages}工资 · 最近一次是第{}天
 Unknown job	未知工作
@@ -590,6 +599,7 @@ Noah	Noah
 Evan	Evan
 Sofia	Sofia
 Harbor	港口
+the harbour	港口
 Island School	岛上学校
 Anchor Pub	锚酒馆
 Mainland Fish Market	大陆鱼市
@@ -1027,6 +1037,7 @@ Sea Finch won the regatta.	海雀号赢得了帆船赛。
 The harbour held a fête.	港湾举办了游园会。
 The pub started a quiz night.	酒馆办起了智力问答之夜。
 Harbor Bakery closed its doors.	港口面包房关门了。
+Harbour Bakery closed its doors.	港口面包房关门了。
 Mara reopened the bakery.	Mara重新开了面包房。
 Jonas sold Sea Finch.	Jonas卖掉了海雀号。
 Sea Finch went back to sea.	海雀号重新出海了。
@@ -4442,3 +4453,28 @@ Closed for now	暂时歇业
 The harbour fund holds {}	港口基金里有{}
 The school on the hill	山上的学校
 The pub on the square	广场上的酒馆
+The harbour	港口
+{opener} Last time round, {}.	{opener} 上次，{}。
+Last time round, {x}.	上一次，{x}。
+# v0.24 C: a story for every player (wants taken up, plots cleared)
+{helper} took it on, and {x}	{helper}接手了这件事，{x}
+after you said “{answer}”	在你说了“{answer}”之后
+after {name} was left waiting	在{name}一直没等到回音之后
+A new plot was cleared by {place}	{place}旁清出了一块新地
+# v0.24: whole sentences for works that were painted, and the thing itself
+the bandstand	音乐台
+the postbox	邮筒
+The harbour finished painting the bandstand red and gold	港口把音乐台漆成了红金两色
+The harbour finished painting the postbox red	港口把邮筒漆成了红色
+The harbour finished painting the lighthouse	港口把灯塔粉刷一新了
+We've finished painting the bandstand red and gold!	音乐台漆成红金两色了！
+We've finished painting the postbox red!	邮筒漆成红色了！
+We've finished painting the lighthouse!	灯塔粉刷一新了！
+We've finished painting the bandstand red and gold! How shall we open it?	音乐台漆成红金两色了！我们怎么给它揭幕？
+We've finished painting the postbox red! How shall we open it?	邮筒漆成红色了！我们怎么给它揭幕？
+We've finished painting the lighthouse! How shall we open it?	灯塔粉刷一新了！我们怎么给它揭幕？
+# v0.24: a life told from the festivals it saw
+{name}'s first {festival}	{name}的第一个{festival}
+{name}'s first {festival} here	{name}在这里过的第一个{festival}
+# v0.24: a chapter told as it ends
+{title} came to an end	{title}结束了

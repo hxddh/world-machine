@@ -283,7 +283,7 @@ fn enjoy(state: &WorldState, who: EntityId, effect: Effect) -> Vec<StateChange> 
     }
 }
 
-pub(crate) fn kit(_: &WorldState) -> Kit {
+pub(crate) fn kit(state: &WorldState) -> Kit {
     Kit {
         notes: HANDS,
         first: 700,
@@ -309,6 +309,9 @@ pub(crate) fn kit(_: &WorldState) -> Kit {
         plots: crate::plots::plots,
         wears: crate::plots::wears,
         naming: crate::plots::naming,
+        plot_stages: Some(crate::plots::STAGES),
+        // A new player's first build is finished the next day.
+        first_growing: crate::arrival::arrived(state).map(|_| 1),
     }
 }
 

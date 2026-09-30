@@ -13,9 +13,12 @@ use world_theme::tokens;
 
 use crate::scene;
 
+mod drawer;
 mod marking;
 mod stories;
 mod world_window;
+#[cfg(test)]
+mod zh_walk;
 #[cfg(test)]
 pub(crate) use stories::{moment_strip, strip_layout};
 #[cfg(test)]
@@ -438,7 +441,7 @@ impl ProjectionView {
                     .text_color(color(tokens::TEXT_TERTIARY))
                     .cursor_pointer()
                     .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
-                    .child("Why?")
+                    .child(ui::t("Why?"))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx))),
             );
         }
@@ -963,7 +966,10 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
+                .child(ui::caption(crate::i18n::moment_label(
+                    &self.snapshot,
+                    item.world_time,
+                ))),
         );
         if !item.subtitle.is_empty() {
             row = row.child(
@@ -1136,7 +1142,10 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
+                .child(ui::caption(crate::i18n::moment_label(
+                    &self.snapshot,
+                    item.world_time,
+                ))),
         );
         let effect = world_projection::effect_headline(effect);
         if !effect.is_empty() {
@@ -1521,7 +1530,7 @@ struct HistorySection<'a> {
 
 impl HistorySection<'_> {
     fn label(&self, snapshot: &ProjectionSnapshot) -> String {
-        snapshot.span_label(self.oldest, self.newest)
+        crate::i18n::span_label(snapshot, self.oldest, self.newest)
     }
 }
 

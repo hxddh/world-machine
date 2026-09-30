@@ -200,7 +200,7 @@ mod tests {
         let bakery_activity = briefing
             .items
             .iter()
-            .find(|item| item.title == "Harbor Bakery had customers")
+            .find(|item| item.title == "Harbour Bakery had customers")
             .expect("recovered Jonas is included in Bakery demand");
         assert!(bakery_activity.detail.contains("Jonas"));
         assert!(bakery_activity.detail.contains("78 earned"));

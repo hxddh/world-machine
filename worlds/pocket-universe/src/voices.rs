@@ -386,7 +386,7 @@ pub(crate) const MAX_VOICE: Voice = Voice {
             "I'll dedicate one to you anyway.",
         ),
         scene(
-            "Need a song played for someone? Name it. I'll spin it on air.",
+            "Need a song played for someone? Tell me who, and I'll spin it on air.",
             "Consider it dedicated.",
             "The request line's always open.",
         ),

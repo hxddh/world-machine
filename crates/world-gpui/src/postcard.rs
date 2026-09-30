@@ -110,7 +110,7 @@ pub fn postcard(snapshot: &ProjectionSnapshot, moment: Option<SelectionId>) -> P
     };
     Postcard {
         world: snapshot.title.clone(),
-        day: snapshot.moment_label(world_time),
+        day: crate::i18n::moment_label(snapshot, world_time),
         caption,
         speaker: speaker.map(|name| name.unwrap_or_else(|| "someone here".into())),
         moment: chosen.map(|item| item.id),

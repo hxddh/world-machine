@@ -107,7 +107,12 @@ pub(crate) fn snapshot_since(
         book: crate::book::book(world),
         moments: Vec::new(),
         almanac: None,
+        almanac_years: crate::almanac_page::years(world),
     };
+    // Whoever asked what was just answered goes over to what it made.
+    world_projection::go_to_what_was_answered(world, &mut snapshot.canvas.items, |event| {
+        matches!(crate::story::answer_words(event), Some(Some(_)))
+    });
     // The harbour's moments: the latest few, and every one in the book.
     let moments = crate::moments::moments(world);
     snapshot.almanac = crate::almanac_page::new_year(world, &moments);
@@ -203,11 +208,11 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
             vec![effect(JONAS, "Jonas", to("keeps his job"), Tone::Good)]
         }
         crate::REOPEN_BAKERY_COMMAND => vec![
-            effect(BAKERY, "Harbor Bakery", to("open"), Tone::Good),
+            effect(BAKERY, "Harbour Bakery", to("open"), Tone::Good),
             effect(MARA, "Mara's savings", EffectChange::Down, Tone::Warning),
         ],
         crate::LEAN_REOPEN_BAKERY_COMMAND => vec![
-            effect(BAKERY, "Harbor Bakery", to("owner-run"), Tone::Good),
+            effect(BAKERY, "Harbour Bakery", to("owner-run"), Tone::Good),
             effect(MARA, "Mara's savings", EffectChange::Down, Tone::Warning),
         ],
         crate::REPAIR_BOAT_COMMAND => vec![
@@ -301,7 +306,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::REOPEN_BAKERY_COMMAND.into(),
             title: "Reopen with Mara's savings".into(),
             detail: format!(
-                "Mara puts {} of her savings into Harbor Bakery and goes back to work. The old staff aren't rehired.",
+                "Mara puts {} of her savings into Harbour Bakery and goes back to work. The old staff aren't rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -460,7 +465,9 @@ pub(crate) fn briefing_from(
     // The most recent occurrence stands for the rest; how many there were is
     // what the Status counters are for.
     let mut told = std::collections::BTreeSet::<String>::new();
-    let everyday = |event: &Event| crate::story::is_storylet(event);
+    // A plot cleared is somewhere new to build, not news of the harbour:
+    // it fills what room is left, like the storyteller's small moments.
+    let everyday = |event: &Event| crate::story::is_storylet(event) || event.kind == "plot_cleared";
     let beat = |event: &Event, title: String| BriefingItem {
         selection: Some(SelectionId::Event(event.id)),
         title,
@@ -542,7 +549,7 @@ pub(crate) fn briefing_from(
         .collect::<Vec<_>>();
 
     // Newest first is how you pick which beats to keep; oldest first is how
-    // you read them. Left newest-first, a window reported "Harbor Bakery
+    // you read them. Left newest-first, a window reported "Harbour Bakery
     // closed its doors" above "The bakery could not cover payroll" — the
     // consequence before its cause, which is a log. Turned around it is the
     // sentence the World actually wrote: the payroll failed, so the bakery
@@ -600,7 +607,7 @@ pub(crate) fn briefing_from(
     }
 
     // Counters travel with the briefing but are marked Status, not Beat:
-    // "Harbor Bakery had customers · 40 purchases · 400 revenue" answers "was
+    // "Harbour Bakery had customers · 40 purchases · 400 revenue" answers "was
     // anything happening at all?", never "what happened?". Keeping them here
     // costs nothing now that the distinction is carried in the projection, and
     // dropping them would throw away the one number that makes a quiet stretch
@@ -681,9 +688,9 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
         "support_repaid" => "Jonas repaid Leo after returning to sea",
         "fish_sold" => "Jonas's catch reached the mainland",
         "boat_repaired" => "Sea Finch returned to the water",
-        "bakery_reopened_lean" => "Mara reopened Harbor Bakery as an owner-run counter",
-        "bakery_reopened" => "Mara reopened Harbor Bakery",
-        "bakery_closed" => "Harbor Bakery closed its doors",
+        "bakery_reopened_lean" => "Mara reopened Harbour Bakery as an owner-run counter",
+        "bakery_reopened" => "Mara reopened Harbour Bakery",
+        "bakery_closed" => "Harbour Bakery closed its doors",
         "bread_budget_cut" if event.actor == Some(LEO) => "Leo started protecting his savings",
         "bread_budget_cut" if event.actor == Some(EMMA) => "Emma started protecting her savings",
         "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
@@ -861,7 +868,8 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     KINDS.get_or_init(|| {
         // hands::is_hands, and the calendar's one day told.
-        const HANDS: [&str; 12] = [
+        const HANDS: [&str; 13] = [
+            "plot_cleared",
             "built_by_hand",
             "decorated_by_hand",
             "planted_by_hand",
@@ -924,9 +932,9 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
 /// then the commands underneath.
 fn harbor_today(world: &World) -> BriefingItem {
     let bakery = match component_text(world, BAKERY, OPERATING_STATUS).as_deref() {
-        Some("open") => "Harbor Bakery is open".to_string(),
-        Some("closed") => "Harbor Bakery is closed".to_string(),
-        _ => "Harbor Bakery".to_string(),
+        Some("open") => "Harbour Bakery is open".to_string(),
+        Some("closed") => "Harbour Bakery is closed".to_string(),
+        _ => "Harbour Bakery".to_string(),
     };
     let bakery_cash = component_integer(world, BAKERY, CASH)
         .map(|cash| format!(" · till {cash}"))
@@ -947,7 +955,7 @@ fn harbor_today(world: &World) -> BriefingItem {
     BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(BAKERY)),
-        title: "Harbor today".into(),
+        title: "Harbour today".into(),
         detail: format!("{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash}"),
         tone: world_projection::Tone::Neutral,
     }
@@ -990,7 +998,7 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
-        title: "Harbor Bakery had customers".into(),
+        title: "Harbour Bakery had customers".into(),
         detail: format!(
             "{people} bought bread · {} {purchase_label} · {total_revenue} earned · last on day {}",
             purchases.len(),
@@ -1099,10 +1107,17 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
             } else {
                 "The pub on the square".into()
             };
+            // "the harbour" in a sentence, "The harbour" on its label.
+            let label = entity_title(entity);
+            let mut letters = label.chars();
+            let label = letters
+                .next()
+                .map(|first| first.to_uppercase().chain(letters).collect())
+                .unwrap_or(label);
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
                 kind: CanvasItemKind::Place,
-                label: entity_title(entity),
+                label,
                 detail,
                 x,
                 y,
@@ -1426,10 +1441,13 @@ mod tests {
         let snapshot = snapshot_since(branch.world(), Some(cut_position));
         let briefing = snapshot.briefing.expect("Tiny Society has a briefing");
 
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Leo started protecting his savings"));
+        assert!(
+            briefing
+                .items
+                .iter()
+                .any(|item| item.title == "Leo started protecting his savings"),
+            "{briefing:#?}"
+        );
         assert!(briefing
             .items
             .iter()
@@ -1442,13 +1460,13 @@ mod tests {
         society.run_story().unwrap();
         let fresh = snapshot(society.world());
         let first = &fresh.briefing.expect("briefing").items[0];
-        assert_eq!(first.title, "Harbor today");
-        assert!(first.detail.starts_with("Harbor Bakery"));
+        assert_eq!(first.title, "Harbour today");
+        assert!(first.detail.starts_with("Harbour Bakery"));
         assert!(first.detail.contains("Jonas"));
 
         let quiet = snapshot_since(society.world(), Some(society.world().events().len()));
         let items = quiet.briefing.expect("briefing").items;
-        assert_eq!(items[0].title, "Harbor today");
+        assert_eq!(items[0].title, "Harbour today");
         assert_eq!(items[1].title, "A quiet stretch");
     }
 }
@@ -1567,7 +1585,7 @@ mod running_out_tests {
         // A stretch long enough that the bakery and the shifts both have
         // something to total up.
         let briefing = visit(&mut branch, 8);
-        for title in ["Harbor today", "Harbor Bakery had customers"] {
+        for title in ["Harbour today", "Harbour Bakery had customers"] {
             let item = briefing
                 .items
                 .iter()
@@ -1580,7 +1598,7 @@ mod running_out_tests {
             );
         }
         assert!(
-            !beat_titles(&briefing).contains(&"Harbor Bakery had customers".to_string()),
+            !beat_titles(&briefing).contains(&"Harbour Bakery had customers".to_string()),
             "a counter must never reach the visitor as a beat"
         );
     }

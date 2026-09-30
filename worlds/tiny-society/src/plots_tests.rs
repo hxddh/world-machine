@@ -69,17 +69,21 @@ fn thirty_odd_works_can_be_built_on_plots_each_drawn_its_own_way() {
     let branch = opened();
     let snapshot = branch.projection_snapshot();
     let canvas = &snapshot.canvas;
-    assert!(canvas.plots.len() >= 15, "{}", canvas.plots.len());
+    // Since v0.24 the plots open in stages over three years: eight as a
+    // new harbour begins, some on every stretch. What they all offer
+    // is counted from every plot the harbour will have.
+    let all = plots::plots(branch.world().state());
+    assert!(all.len() >= 15, "{}", all.len());
+    assert_eq!(canvas.plots.len(), plots::STAGES.first, "open at first");
     let districts = canvas
         .plots
         .iter()
         .map(|plot| plot.district.as_str())
         .collect::<BTreeSet<_>>();
     assert_eq!(districts.len(), 3, "plots on every stretch");
-    let offered = canvas
-        .plots
+    let offered = all
         .iter()
-        .flat_map(|plot| plot.offers.iter().map(|offer| offer.label.as_str()))
+        .flat_map(|plot| plot.offers.iter().copied())
         .collect::<BTreeSet<_>>();
     assert!(offered.len() >= 30, "{offered:?}");
     for plot in &canvas.plots {
@@ -196,29 +200,58 @@ fn a_bandstand_on_a_plot_is_finished_and_draws_a_musician() {
 #[test]
 fn a_plot_takes_what_it_offers_and_nothing_else() {
     let mut branch = opened();
-    // A quay work is not built on the square, nor on a plot that is not.
+    // The square's plots open as a new harbour begins (they open in stages
+    // since v0.24, so which ones is read from the scene), and one that has
+    // not opened yet.
+    let snapshot = branch.projection_snapshot();
+    let square = snapshot
+        .canvas
+        .plots
+        .iter()
+        .filter(|plot| {
+            plot.offers
+                .iter()
+                .any(|offer| offer.command.contains(".bandstand."))
+        })
+        .map(|plot| plot.id.clone())
+        .collect::<Vec<_>>();
+    assert!(square.len() >= 3, "{square:?}");
+    let closed = plots::plots(branch.world().state())
+        .into_iter()
+        .find(|plot| {
+            plot.offers.contains(&"bandstand")
+                && !snapshot.canvas.plots.iter().any(|open| open.id == plot.id)
+        })
+        .map(|plot| plot.id)
+        .expect("a square plot not open yet");
+    let deed = |work: &str, plot: &str| format!("tiny-society.hand.plot.{work}.{plot}");
+    // A quay work is not built on the square, nor on a plot that is not,
+    // nor on one not open yet.
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.boathouse.p9")
+        .invoke_projection_command(&deed("boathouse", &square[0]))
         .is_err());
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.bandstand.p2")
+        .invoke_projection_command(&deed("bandstand", "p2"))
         .is_err());
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.bandstand.p9")
+        .invoke_projection_command(&deed("bandstand", &closed))
+        .is_err());
+    assert!(branch
+        .invoke_projection_command(&deed("bandstand", &square[0]))
         .is_ok());
     // Taken, and the bandstand is built once.
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.clock_tower.p9")
+        .invoke_projection_command(&deed("clock_tower", &square[0]))
         .is_err());
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.bandstand.p10")
+        .invoke_projection_command(&deed("bandstand", &square[1]))
         .is_err());
     // Two deeds a day, plots or not.
     assert!(branch
-        .invoke_projection_command("tiny-society.hand.plot.clock_tower.p10")
+        .invoke_projection_command(&deed("clock_tower", &square[1]))
         .is_ok());
     let err = branch
-        .invoke_projection_command("tiny-society.hand.plot.bookshop.p12")
+        .invoke_projection_command(&deed("bookshop", &square[2]))
         .unwrap_err();
     assert!(err.to_string().contains("enough for today"), "{err}");
 }

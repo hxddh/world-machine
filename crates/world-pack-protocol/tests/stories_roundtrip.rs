@@ -11,7 +11,7 @@ use world_pack_protocol::{
 };
 use world_projection::{
     Almanac, BookEntry, Calendar, Legend, LegendLine, Moment, MomentKind, Mood, Named, Panel,
-    PanelBeat, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+    PanelBeat, ProjectionSnapshot, Prop, SelectionId, StoryPage, StoryRequest,
 };
 
 fn someone(id: u64) -> SelectionId {
@@ -25,6 +25,7 @@ fn moment(id: u64) -> Moment {
         place: Some(someone(100)),
         mood: Some(Mood::Happy),
         beat,
+        props: vec![Prop::Bunting, Prop::Bouquet],
     };
     Moment {
         id: format!("moment-{id}"),
@@ -144,6 +145,7 @@ fn the_snapshot_carries_the_latest_three_moments_the_almanac_and_the_books_faces
         title: "Harbour".into(),
         moments: (1..=5).map(moment).collect(),
         almanac: Some(almanac()),
+        almanac_years: vec![1, 2],
         calendar: Some(Calendar {
             unit: "Day".into(),
             length: 10,
@@ -169,13 +171,14 @@ fn the_snapshot_carries_the_latest_three_moments_the_almanac_and_the_books_faces
     .unwrap();
     assert_eq!(back.moments, (3..=5).map(moment).collect::<Vec<_>>());
     assert_eq!(back.almanac, snapshot.almanac);
+    assert_eq!(back.almanac_years, vec![1, 2]);
     assert_eq!(back.book, snapshot.book);
     assert_eq!(back.calendar.unwrap().year, Some(120));
 
     // An older Pack's snapshot has none of it, and reads as it always did.
     let mut older = serde_json::to_value(&wire).unwrap();
     let fields = older.as_object_mut().unwrap();
-    for field in ["moments", "almanac"] {
+    for field in ["moments", "almanac", "almanac_years"] {
         assert!(fields.remove(field).is_some());
     }
     for entry in fields["book"].as_array_mut().unwrap() {
@@ -189,6 +192,7 @@ fn the_snapshot_carries_the_latest_three_moments_the_almanac_and_the_books_faces
     )
     .unwrap();
     assert!(older.moments.is_empty() && older.almanac.is_none());
+    assert!(older.almanac_years.is_empty());
     assert_eq!(older.book[0].moment, None);
     assert_eq!(older.calendar.unwrap().year, None);
 }
@@ -204,4 +208,37 @@ fn a_moment_without_its_three_panels_is_not_drawn() {
     let drawn = odd.into_moment().unwrap();
     assert_eq!(drawn.kind, MomentKind::Other);
     assert_eq!(drawn.panels[0].mood, None);
+}
+
+/// A panel's props cross the boundary by id, each one; an id this build
+/// does not know is left out, and a panel from an older Pack has none.
+#[test]
+fn a_panels_props_cross_the_boundary() {
+    for prop in Prop::ALL {
+        assert_eq!(Prop::from_id(prop.id()), Some(prop));
+    }
+    let mut wire = world_pack_protocol::MomentWire::from(&moment(2));
+    assert_eq!(wire.panels[1].props, vec!["bunting", "bouquet"]);
+    let json = serde_json::to_string(&wire).unwrap();
+    let back: world_pack_protocol::MomentWire = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.into_moment(), Some(moment(2)));
+
+    wire.panels[0].props = vec!["ferry".into(), "a-zeppelin".into()];
+    wire.panels[1].props.clear();
+    let told = wire.into_moment().unwrap();
+    assert_eq!(told.panels[0].props, vec![Prop::Ferry]);
+    assert!(told.panels[1].props.is_empty());
+
+    let mut older =
+        serde_json::to_value(world_pack_protocol::MomentWire::from(&moment(3))).unwrap();
+    for panel in older["panels"].as_array_mut().unwrap() {
+        assert!(panel.as_object_mut().unwrap().remove("props").is_some());
+    }
+    let older: world_pack_protocol::MomentWire = serde_json::from_value(older).unwrap();
+    assert!(older
+        .into_moment()
+        .unwrap()
+        .panels
+        .iter()
+        .all(|panel| panel.props.is_empty()));
 }

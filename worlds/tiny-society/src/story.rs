@@ -62,6 +62,58 @@ struct Spec {
     line: &'static str,
     answers: Vec<Answer>,
     lapse: Said,
+    /// For a want: how it goes when someone else takes it up after the
+    /// player let it down.
+    taken_up: Option<Said>,
+}
+
+/// Where the name of whoever took a want up goes in how it is told.
+const HELPER: &str = "{helper}";
+
+/// Who takes up a want the player let down: one of the harbour's own,
+/// never the asker, the same one each time for the same want.
+fn helper_for(id: &str, asker: EntityId) -> EntityId {
+    let others = crate::talk::RESIDENTS
+        .into_iter()
+        .filter(|who| *who != asker)
+        .collect::<Vec<_>>();
+    others[(text_hash(id) as usize) % others.len()]
+}
+
+/// A want let down, seen to by someone else: what its granting answer does
+/// without the money, told as their doing.
+fn taken_up_said(answers: &[Answer]) -> Option<Said> {
+    let without_money = |said: &Said| {
+        said.effects
+            .iter()
+            .filter(|effect| !matches!(effect, Effect::Add { key, .. } if *key == CASH))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let granting = answers
+        .iter()
+        .filter(|answer| !answer.refuses)
+        .find(|answer| !without_money(&answer.said).is_empty())?;
+    let said = &granting.said;
+    let told = match said.told.split_once(' ') {
+        Some(("The" | "A" | "An" | "Work", _)) => lowered(said.told),
+        _ => said.told.to_string(),
+    };
+    Some(Said {
+        event: leak(format!("{}_taken_up", said.event)),
+        told: leak(format!("{HELPER} took it on, and {told}")),
+        line: said.line,
+        // Seeing to it themselves, the harbour grows readier to get on
+        // with things of its own.
+        effects: without_money(said)
+            .into_iter()
+            .chain([initiative(TAKEN_UP_READINESS)])
+            .collect(),
+        remembered: said.remembered,
+        chapter: None,
+        title: None,
+        behind: Some(said.behind.unwrap_or(said.event)),
+    })
 }
 
 fn pay(from: EntityId, to: EntityId, amount: i64) -> [Effect; 2] {
@@ -361,6 +413,17 @@ fn spec(
     }
     let mut requires = shape.requires;
     requires.extend(settled_by(id));
+    // Someone else sees to a want the player let down, and to a part of a
+    // work the player let go by.
+    let builds = answers.iter().any(|answer| {
+        answer
+            .said
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Advance(_)))
+    });
+    let taken_up = (want || builds).then(|| taken_up_said(&answers)).flatten();
+    let helper = helper_for(id, shape.asker);
     Spec {
         storylet: Storylet {
             id,
@@ -382,11 +445,28 @@ fn spec(
             weight: shape.weight,
             eases: shape.eases,
             timely: shape.timely,
+            taken_up: taken_up.as_ref().map(|said| storylets::TakenUp {
+                by: helper,
+                outcome: outcome(said, 0),
+                // A part of one of the harbour's works is taken up only
+                // while the player has lately been here: making things or
+                // answering people sets the harbour building.
+                requires: if said
+                    .effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Advance(_)))
+                {
+                    vec![Condition::MarkedWithin(LENT_MARK, LENT_LATELY)]
+                } else {
+                    Vec::new()
+                },
+            }),
         },
         told,
         line,
         answers,
         lapse,
+        taken_up,
     }
 }
 
@@ -719,7 +799,25 @@ fn wants() -> Vec<Spec> {
     ]
 }
 
+/// An incident (a storm coming, a quarrel, a loss) waits until a new
+/// player's first days have passed.
+fn after_first_days(mut spec: Spec) -> Spec {
+    spec.storylet.requires.push(Condition::Since(
+        HARBOR,
+        crate::arrival::ARRIVED,
+        crate::arrival::FIRST_DAYS,
+    ));
+    spec
+}
+
 fn incidents() -> Vec<Spec> {
+    incidents_at_any_time()
+        .into_iter()
+        .map(after_first_days)
+        .collect()
+}
+
+fn incidents_at_any_time() -> Vec<Spec> {
     vec![
         spec(
             "storm_warning",
@@ -2319,7 +2417,14 @@ const OWN_PARTS: i64 = 2;
 pub(crate) const INITIATIVE: &str = "story.initiative";
 /// How much the harbour must have been let down before it starts
 /// something of its own.
-const INITIATIVE_TO_START: i64 = 3;
+const INITIATIVE_TO_START: i64 = 2;
+/// What someone else taking up a want the player let down adds to the
+/// harbour's readiness to get on with things itself.
+const TAKEN_UP_READINESS: i64 = 2;
+/// What each part of one of its own works takes from the harbour's
+/// readiness. Since v0.24 nobody asks the same thing again and again, so
+/// the harbour is let down less often, and a part takes less.
+const OWN_PART_COST: i64 = 1;
 
 fn initiative(by: i64) -> Effect {
     Effect::Add {
@@ -2736,6 +2841,8 @@ fn retired_rungs() -> &'static [Rung] {
 
 /// "A bandstand on the square" as "the bandstand on the square".
 pub(crate) fn the(label: &str) -> String {
+    // "The bandstand painted red and gold" is the bandstand.
+    let label = painted(label).map_or(label, |(thing, _)| thing);
     let rest = label
         .strip_prefix("A ")
         .or_else(|| label.strip_prefix("An "))
@@ -2747,6 +2854,25 @@ pub(crate) fn the(label: &str) -> String {
         .map(|first| first.to_lowercase().chain(chars).collect::<String>())
         .unwrap_or_default();
     format!("the {lower}")
+}
+
+/// A work's label that tells what was done to a thing ("The bandstand
+/// painted red and gold"): the thing, and how it was painted.
+fn painted(label: &str) -> Option<(&str, &str)> {
+    let (thing, how) = label.split_once(" painted")?;
+    // "A painted map" is a map.
+    (thing.split_whitespace().count() > 1 || !matches!(thing, "A" | "An" | "The"))
+        .then_some((thing, how.trim()))
+}
+
+/// What finishing a work was, for "We've finished …": "painting the
+/// bandstand red and gold", or the work itself.
+fn the_job(label: &str) -> String {
+    match painted(label) {
+        Some((_, "")) => format!("painting {}", the(label)),
+        Some((_, how)) => format!("painting {} {how}", the(label)),
+        None => the(label),
+    }
 }
 
 fn lowered(label: &str) -> String {
@@ -2820,6 +2946,7 @@ const IN_USE_LINES: [&str; 6] = [
 fn opening(rung: &Rung, index: usize) -> Spec {
     use Condition::{Finished, Unmarked};
     let the = the(rung.label);
+    let job = the_job(rung.label);
     let named = {
         let mut chars = the.chars();
         chars
@@ -2847,8 +2974,8 @@ fn opening(rung: &Rung, index: usize) -> Spec {
             timely: true,
         },
         (
-            leak(format!("The harbour finished {the}")),
-            leak(format!("We've finished {the}! How shall we open it?")),
+            leak(format!("The harbour finished {job}")),
+            leak(format!("We've finished {job}! How shall we open it?")),
         ),
         vec![
             yes(
@@ -2972,20 +3099,20 @@ fn works() -> Vec<Spec> {
 }
 
 /// The harbour's own works as storylets: each comes up once the harbour
-/// has been let down often enough, and the one before it is done. Every
+/// has been let down often enough and has taken it up next. Every
 /// way it goes builds a part; what the answer changes is who pays, and
 /// who grows closer doing it.
 fn own_works() -> Vec<Spec> {
-    use Condition::{Finished, Unfinished};
+    use Condition::Unfinished;
     let mut specs = Vec::new();
     for (index, work) in OWN_WORKS.iter().enumerate() {
-        let mut requires = vec![
+        // Whichever the harbour has taken up next: what the player made
+        // or built decides it (see [`next_own_work`]).
+        let requires = vec![
             Unfinished(work.id),
             Condition::AtLeast(STORY, INITIATIVE, INITIATIVE_TO_START),
+            Condition::Is(STORY, OWN_NEXT, work.id),
         ];
-        if index > 0 {
-            requires.push(Finished(OWN_WORKS[index - 1].id));
-        }
         let lower = lowered(work.label);
         let (champion, helper) = (work.champion, work.helper);
         let closer = |by: i64| {
@@ -3036,7 +3163,7 @@ fn own_works() -> Vec<Spec> {
                         spend(HARBOR, work.cost).into_iter().chain([
                             Effect::Advance(work.id),
                             mood(1),
-                            initiative(-2),
+                            initiative(-OWN_PART_COST),
                         ]),
                     )
                     .remembered(PART_REMEMBERED[(index + 2) % PART_REMEMBERED.len()]),
@@ -3051,7 +3178,7 @@ fn own_works() -> Vec<Spec> {
                             "Work went on at {lower}, by the harbour's own hands"
                         )),
                         PART_LINES[(index + 9) % PART_LINES.len()],
-                        [Effect::Advance(work.id), initiative(-2)]
+                        [Effect::Advance(work.id), initiative(-OWN_PART_COST)]
                             .into_iter()
                             .chain(closer(6)),
                     ),
@@ -3061,7 +3188,7 @@ fn own_works() -> Vec<Spec> {
                 leak(format!("{}_went_on", work.id)),
                 leak(format!("{} went on without anyone asking", work.label)),
                 OWN_LAPSE_LINES[index % OWN_LAPSE_LINES.len()],
-                [Effect::Advance(work.id), initiative(-3)]
+                [Effect::Advance(work.id), initiative(-OWN_PART_COST)]
                     .into_iter()
                     .chain(closer(3)),
             ),
@@ -3144,12 +3271,22 @@ pub(crate) fn register_actions(
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
     actions.register(LendsAHand)?;
+    actions.register(TakesUpOwnWork)?;
     actions.register(SpiritsSettle)
 }
 
 /// When the player last lent a hand with one of the harbour's own works,
 /// in periods.
 const LENT: &str = "story.lent";
+/// The storyteller's mark for the player having lately been here: made
+/// something, lent a hand, or answered someone. While it is recent, the
+/// harbour takes up the works the player let wait; a harbour its player
+/// has left alone lets them wait.
+pub(crate) const LENT_MARK: &str = "player_seen";
+/// How many days the player being here keeps the harbour building.
+const LENT_LATELY: u64 = 30;
+/// How stale the mark may grow before a deed renews it.
+const SEEN_EVERY: u64 = 7;
 /// The fewest days between two hands lent.
 const LEND_EVERY: i64 = 12;
 
@@ -3167,13 +3304,196 @@ fn own_work_under_way(state: &world_core::WorldState) -> Option<&'static OwnWork
     );
     begun.or_else(|| {
         let_down
-            .then(|| {
-                OWN_WORKS
-                    .iter()
-                    .find(|work| !storylets::finished(state, deck, work.id))
-            })
+            .then(|| own_next(state).filter(|work| !storylets::finished(state, deck, work.id)))
             .flatten()
     })
+}
+
+/// Which of the harbour's own works it has taken up next.
+pub(crate) const OWN_NEXT: &str = "story.own_next";
+/// When the harbour last took up one of its own works, in days.
+const OWN_SINCE: &str = "story.own_since";
+/// The fewest days between two of the harbour's own works it takes up:
+/// left to itself, and while the player is making things too.
+const OWN_GAP_ALONE: i64 = 60;
+const OWN_GAP_WITH_HANDS: i64 = 30;
+
+/// The own work the harbour has taken up next, if it has.
+fn own_next(state: &world_core::WorldState) -> Option<&'static OwnWork> {
+    match state.entity(STORY)?.component(OWN_NEXT)? {
+        Value::Text(id) => OWN_WORKS.iter().find(|work| work.id == id),
+        _ => None,
+    }
+}
+
+/// The harbour's own works each thing the player makes by hand, or builds
+/// on a plot, sets it thinking of: a bench made, and someone starts on a
+/// storytelling chair. Things made and plot works count toward the
+/// harbour's own ladder this way, so a maker's harbour goes its own way.
+fn inspired_by(thing: &str) -> &'static [&'static str] {
+    match thing {
+        "bench" | "picnic_tables" | "study_hut" => &["own_story_chair", "own_lookout"],
+        "lamp" | "lanterns" => &["own_jar_lanterns", "own_fire_pit"],
+        "stall" | "picnic" | "crab_shack" => &["own_skittle_alley", "own_fire_pit"],
+        "flagpole" | "harbour_flag" => &["own_weathervane", "own_flag_line"],
+        "bunting" | "swing" | "hilltop_swing" => &["own_kite_hill", "own_rope_swing"],
+        "vegetables" | "sheepfold" => &["own_hen_house", "own_herb_bed"],
+        "apple_tree" | "windmill" => &["own_apple_press", "own_bee_hives"],
+        "well" | "signpost" | "frog_pond" => &["own_tide_pools", "own_stepping_stones"],
+        "fountain" | "statue" => &["own_quay_mosaic", "own_cairn"],
+        "birdhouse" | "sunflowers" => &["own_bee_hives", "own_bird_table"],
+        "postbox" | "bookshop" => &["own_book_box", "own_notice_board"],
+        "rowboat" | "boathouse" | "slipway" | "boat_rack" => &["own_boat_planter", "own_net_rack"],
+        "flowerboxes" | "herbs" => &["own_shell_path", "own_window_boxes"],
+        "bandstand" | "pottery" | "gallery" => &["own_music_shed", "own_skittle_alley"],
+        "net_store" | "sail_loft" | "ice_house" => &["own_net_rack", "own_bait_shed"],
+        _ => &[],
+    }
+}
+
+/// What the player has made by hand or built on plots, the latest first.
+fn made_lately(world: &World) -> Vec<String> {
+    let state = world.state();
+    let mut made = world
+        .events_of_kind(&[
+            "built_by_hand",
+            "decorated_by_hand",
+            "planted_by_hand",
+            "plot_finished",
+        ])
+        .into_iter()
+        .filter_map(|event| {
+            let thing = event
+                .targets
+                .first()
+                .and_then(|made| state.entity(*made))
+                .and_then(|made| match made.component("hands.thing") {
+                    Some(Value::Text(thing)) => Some(thing.clone()),
+                    _ => None,
+                })?;
+            Some((event.id, thing))
+        })
+        .collect::<Vec<_>>();
+    made.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
+    made.into_iter().map(|(_, thing)| thing).collect()
+}
+
+/// The own work the harbour takes up next: one already begun; else one
+/// what the player made or built most lately set it thinking of; else the
+/// next not done, in turn.
+fn next_own_work(world: &World) -> Option<&'static OwnWork> {
+    let state = world.state();
+    let deck = deck();
+    let unfinished = |work: &&OwnWork| !storylets::finished(state, deck, work.id);
+    let begun = OWN_WORKS
+        .iter()
+        .filter(unfinished)
+        .find(|work| storylets::progress(state, deck, work.id) > 0);
+    begun
+        .or_else(|| {
+            made_lately(world).iter().find_map(|thing| {
+                inspired_by(thing).iter().find_map(|id| {
+                    OWN_WORKS
+                        .iter()
+                        .filter(unfinished)
+                        .find(|work| work.id == *id)
+                })
+            })
+        })
+        .or_else(|| OWN_WORKS.iter().find(unfinished))
+}
+
+/// The harbour takes up its next own work, once the one before is done and
+/// it has been let down at all.
+struct TakesUpOwnWork;
+
+impl world_core::Action for TakesUpOwnWork {
+    fn name(&self) -> &'static str {
+        "own_work_taken_up"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let deck = deck();
+        let id = match request.args.get("work") {
+            Some(Value::Text(id)) => id.as_str(),
+            _ => return Err(world_core::ActionError::Invalid("missing work".into())),
+        };
+        let work = OWN_WORKS
+            .iter()
+            .find(|work| work.id == id)
+            .ok_or_else(|| world_core::ActionError::Invalid(format!("no own work {id}")))?;
+        if own_next(state).is_some_and(|next| !storylets::finished(state, deck, next.id))
+            || storylets::finished(state, deck, work.id)
+        {
+            return Err(world_core::ActionError::Invalid(
+                "the harbour has its own work in hand".into(),
+            ));
+        }
+        // One at a time, and not too soon after the last: sooner while the
+        // player is making things too.
+        let now = storylets::period_index(state, deck) as i64;
+        let since = state
+            .entity(STORY)
+            .and_then(|story| match story.component(OWN_SINCE) {
+                Some(Value::Integer(at)) => Some(*at),
+                _ => None,
+            });
+        let hands = storylets::Condition::MarkedWithin(LENT_MARK, LENT_LATELY);
+        let gap = if storylets::holds(state, deck, &hands) {
+            OWN_GAP_WITH_HANDS
+        } else {
+            OWN_GAP_ALONE
+        };
+        if since.is_some_and(|since| now - since < gap) {
+            return Err(world_core::ActionError::Invalid(
+                "the harbour started something lately".into(),
+            ));
+        }
+        let mut draft = world_core::EventDraft::new("own_work_taken_up");
+        draft.payload.insert("work".into(), work.id.into());
+        draft.changes = vec![
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: OWN_NEXT.into(),
+                value: work.id.into(),
+            },
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: OWN_SINCE.into(),
+                value: now.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+/// Once the harbour has been let down at all and has no own work in hand,
+/// it takes up its next.
+pub(crate) fn take_up_own_work(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Option<EventId>, WorldError> {
+    let state = world.state();
+    let deck = deck();
+    let let_down = state.entity(STORY).is_some_and(
+        |story| matches!(story.component(INITIATIVE), Some(Value::Integer(at)) if *at >= 1),
+    );
+    if !let_down || own_next(state).is_some_and(|next| !storylets::finished(state, deck, next.id)) {
+        return Ok(None);
+    }
+    let Some(work) = next_own_work(world) else {
+        return Ok(None);
+    };
+    let request = world_core::ActionRequest::new("own_work_taken_up").arg("work", work.id);
+    match world.execute(actions, &request) {
+        Ok(event) => Ok(Some(event.id)),
+        Err(WorldError::Action(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// What someone says when the player turns up to help with what they
@@ -3237,9 +3557,23 @@ impl world_core::Action for LendsAHand {
                 key: LENT.into(),
                 value: now.into(),
             },
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: format!("story.mark.{LENT_MARK}"),
+                value: now.into(),
+            },
         ];
         Ok(draft)
     }
+}
+
+/// The harbour sees the player here (answering someone, or making
+/// something), when it has not lately: see [`LENT_MARK`].
+pub(crate) fn player_seen(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Option<EventId>, WorldError> {
+    storylets::mark_now(world, actions, LENT_MARK, SEEN_EVERY)
 }
 
 /// After the player makes something, they lend a hand with the harbour's
@@ -3248,9 +3582,20 @@ pub(crate) fn lend_a_hand(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
+    let mut taken = take_up_own_work(world, actions)?
+        .into_iter()
+        .collect::<Vec<_>>();
     match world.execute(actions, &world_core::ActionRequest::new("lend_a_hand")) {
-        Ok(event) => Ok(vec![event.id]),
-        Err(WorldError::Action(_)) => Ok(Vec::new()),
+        Ok(event) => {
+            taken.push(event.id);
+            Ok(taken)
+        }
+        Err(WorldError::Action(_)) => {
+            // Nothing to lend a hand with: the harbour still saw what the
+            // player made.
+            taken.extend(player_seen(world, actions)?);
+            Ok(taken)
+        }
         Err(error) => Err(error),
     }
 }
@@ -3397,7 +3742,7 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
         "regatta_won" => "Sea Finch won the regatta.",
         "fete_held" => "The harbour held a fête.",
         "quiz_night" => "The pub started a quiz night.",
-        "bakery_closed" => "Harbor Bakery closed its doors.",
+        "bakery_closed" => "Harbour Bakery closed its doors.",
         "bakery_reopened" | "bakery_reopened_lean" => "Mara reopened the bakery.",
         "boat_sold" => "Jonas sold Sea Finch.",
         "boat_repaired" => "Sea Finch went back to sea.",
@@ -3759,6 +4104,7 @@ pub(crate) fn tick(
         hold: waiting_for_the_player(world),
     };
     let mut events = settled;
+    let begins = world.state().entity(STORY).is_none();
     // What the year brings comes first, so the day's round of lives knows
     // whether the day has already brought something new.
     events.extend(crate::years::tick(world, actions)?);
@@ -3778,10 +4124,16 @@ pub(crate) fn tick(
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
+    events.extend(take_up_own_work(world, actions)?);
     let mut told = storylets::tick(world, actions, deck(), &reading)?;
     told.extend(storylets::bring_forward(world, actions, deck(), &reading)?);
     events.extend(mementos(world, actions, &told)?);
     events.extend(told);
+    // A harbour whose story begins now opens its plots over the years.
+    if begins {
+        let kit = crate::handwork::kit(world.state());
+        events.extend(hands::stage_plots(world, actions, &kit)?);
+    }
     Ok(events)
 }
 
@@ -3855,6 +4207,7 @@ pub(crate) fn storylet_kinds() -> impl Iterator<Item = &'static str> {
         std::iter::once("situation_arose")
             .chain(spec.answers.iter().map(|answer| answer.said.event))
             .chain(std::iter::once(spec.lapse.event))
+            .chain(spec.taken_up.iter().map(|taken| taken.event))
     })
 }
 
@@ -3899,7 +4252,13 @@ fn asked(spec: &Spec, times: i64, last: Option<&str>) -> String {
         }
     });
     match then {
-        Some(said) => format!("{opener} Last time: {}. {}", said.told, spec.line),
+        // Run on as one sentence: "Last time round, everyone pitched in",
+        // never "Last time: Everyone".
+        Some(said) => format!(
+            "{opener} Last time round, {}. {}",
+            world_projection::lowered(said.told, crate::legends::names()),
+            spec.line
+        ),
         None => format!("{opener} {}", spec.line),
     }
 }
@@ -4026,6 +4385,7 @@ pub(crate) fn outcome_kinds(storylets: &[&str]) -> Vec<&'static str> {
                 .iter()
                 .map(|answer| answer.said.event)
                 .chain([spec.lapse.event])
+                .chain(spec.taken_up.iter().map(|taken| taken.event))
         })
         .collect()
 }
@@ -4037,6 +4397,13 @@ fn outcome_of(event: &Event) -> Option<(&'static Spec, &'static Said)> {
     }
     if spec.lapse.event == event.kind {
         return Some((spec, &spec.lapse));
+    }
+    if let Some(taken) = spec
+        .taken_up
+        .as_ref()
+        .filter(|taken| taken.event == event.kind)
+    {
+        return Some((spec, taken));
     }
     let said = spec
         .answers
@@ -4065,7 +4432,7 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
             Some(Value::Text(title)) => title.clone(),
             _ => return None,
         };
-        return Some(format!("The chapter closed: {title}"));
+        return Some(format!("{title} came to an end"));
     }
     // Being greeted is the first thing that happens to a newcomer.
     if lives::is_news(event) || event.kind == "greeted" {
@@ -4087,13 +4454,21 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
         // more after that.
         let told = named(world, spec.told, who);
         return Some(match event.payload.get("times") {
+            // "…going again" is not told "again again".
+            Some(Value::Integer(2)) if told.ends_with(" again") => told,
             Some(Value::Integer(2)) => format!("{told} again"),
             Some(Value::Integer(times)) if *times > 2 => format!("{told} once more"),
             _ => told,
         });
     }
     let (_, said) = outcome_of(event)?;
-    Some(named(world, said.told, who))
+    let told = named(world, said.told, who);
+    Some(match event.payload.get("by") {
+        Some(Value::Entity(by)) if told.contains(HELPER) => {
+            told.replace(HELPER, &name_of(world, *by))
+        }
+        _ => told,
+    })
 }
 
 /// What the asker says at one of the storyteller's moments.
@@ -4252,19 +4627,15 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
     }
     // What the harbour made of its own accord: those done, and the one
     // under way.
-    for work in OWN_WORKS {
-        let Some(own) = goal(work.id, work.label, work.shape) else {
-            continue;
-        };
-        if own.done == 0 {
-            break;
-        }
-        let finished = own.done >= own.parts;
-        goals.push(own);
-        if !finished {
-            break;
-        }
-    }
+    let own = OWN_WORKS
+        .iter()
+        .filter_map(|work| goal(work.id, work.label, work.shape))
+        .filter(|own| own.done > 0)
+        .collect::<Vec<_>>();
+    let (done, under_way): (Vec<_>, Vec<_>) =
+        own.into_iter().partition(|own| own.done >= own.parts);
+    goals.extend(done);
+    goals.extend(under_way);
     goals
 }
 
@@ -6331,6 +6702,10 @@ pub(crate) fn weather(world: &World) -> world_projection::Weather {
     });
     if stormy || recent_storm {
         return Weather::Storm;
+    }
+    // A new player's first day is a fair one.
+    if crate::arrival::arrived(world.state()).is_some_and(|first| day <= first) {
+        return Weather::Clear;
     }
     let roll = storylets::mix(&[day, 17]) % 10;
     match (season(world), roll) {

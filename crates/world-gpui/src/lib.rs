@@ -13,9 +13,11 @@ pub mod panels;
 pub mod pointers;
 pub mod postcard;
 pub mod scene;
+pub mod setting;
 pub mod strip;
 pub mod text_input;
 pub mod ui;
+pub mod works;
 
 pub use macos::{
     is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,

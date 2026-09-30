@@ -322,6 +322,25 @@ pub(crate) const PLOT_PITCH: f32 = 0.16;
 /// The most a plot offers at once: everything that belongs on its stretch.
 const OFFERED: usize = 12;
 
+/// How a place's plots open: five as its story begins (some on every
+/// stretch), then four more in each year (periods after the story
+/// began), until all are open. A place
+/// begun before v0.24 keeps every plot open.
+pub(crate) const STAGES: hands::PlotStages = hands::PlotStages {
+    keeper: crate::story::STORY,
+    first: 5,
+    at: &[60, 120, 180, 270, 390, 480, 570, 660, 750, 840, 930, 1_020],
+    group: stretch_of,
+};
+
+/// Which stretch of the place a plot lies on, from where it lies.
+fn stretch_of(state: &WorldState, plot: &hands::Plot) -> usize {
+    match (Place::of(state), slot_of(&plot.id)) {
+        (Some(place), Some(slot)) => crate::town::stretch_at(place, plot_px(slot)),
+        _ => 0,
+    }
+}
+
 /// Where a plot slot lies along the place.
 pub(crate) fn plot_px(slot: usize) -> f32 {
     PLOT_OFFSET + (slot as f32 + 0.5) * PLOT_PITCH
@@ -481,6 +500,7 @@ pub(crate) fn canvas_plots(world: &World) -> Vec<world_projection::Plot> {
                             }),
                             cost: deed.cost,
                             unavailable: deed.unavailable,
+                            art: crate::drawings::art_of(place, what).map(Into::into),
                         }
                     })
                     .collect(),
@@ -598,6 +618,8 @@ pub(crate) fn dress(world: &World, items: &mut [CanvasItem]) {
         if hands::building(state, id) {
             item.detail = "Being built".into();
             item.built = None;
+            // Scaffolding stands round it until it is finished.
+            item.art = Some("scaffold".into());
         } else if let Some(finished) = hands::finished_at(state, &kit, id) {
             item.built = Some(finished as u32 + 1);
         }

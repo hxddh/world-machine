@@ -610,6 +610,11 @@ pub struct Palette {
     /// What a home is like besides its colours: its storeys, roof, door,
     /// chimney and what is built on, all from its id.
     pub seed: u32,
+    /// What it is drawn as, from the library of drawings, when its Pack
+    /// says; otherwise its shape is drawn in its setting's own way.
+    pub art: Option<crate::works::Art>,
+    /// The kind of place it stands in.
+    pub setting: Setting,
 }
 
 const ROOFS: [u32; 5] = [0xb5523b, 0x3f6a8a, 0x4a7a4f, 0x7a4b8a, 0x8a6a3a];
@@ -624,6 +629,119 @@ impl Palette {
             trim: hex(0x6b4a33),
             glass: if lit { hex(0xffd27a) } else { hex(0x5f7385) },
             seed: seed.wrapping_mul(0x9e37_79b9) ^ (seed >> 15),
+            art: None,
+            setting: Setting::Harbour,
+        }
+    }
+
+    /// The colours of something standing in `setting`: its walls and
+    /// roofs from that place's own few paints.
+    pub fn of_in(key: &str, lit: bool, setting: Setting) -> Self {
+        let mut palette = Self::of(key, lit);
+        let seed = seed_of(key);
+        let (walls, roofs, trim) = setting.paints();
+        palette.wall = hex(walls[(seed as usize) % walls.len()]);
+        palette.roof = hex(roofs[((seed >> 5) as usize) % roofs.len()]);
+        palette.trim = hex(trim);
+        palette.setting = setting;
+        palette
+    }
+
+    /// Drawn as `art` from the library, if the app has it.
+    pub fn drawn_as(mut self, art: Option<&str>) -> Self {
+        self.art = art.and_then(crate::works::Art::from_key);
+        self
+    }
+}
+
+/// The kind of place a World is, to look at: what its ground, sky,
+/// weather and props are, and how anything without a drawing of its own
+/// is drawn there.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum Setting {
+    /// A green shore on the sea: the look of a World that says nothing.
+    #[default]
+    Harbour,
+    /// Regolith under a butterscotch sky, domes and hab modules.
+    Mars,
+    /// A town street: storefronts, parked cars, wires and streetlamps.
+    Street,
+    /// Snow, ice shelves and sea ice.
+    Ice,
+}
+
+impl Setting {
+    pub const ALL: [Setting; 4] = [
+        Setting::Harbour,
+        Setting::Mars,
+        Setting::Street,
+        Setting::Ice,
+    ];
+
+    /// The setting a Pack names; one this app does not know is the plain
+    /// harbour.
+    pub fn from_key(key: Option<&str>) -> Self {
+        match key {
+            Some("mars") => Setting::Mars,
+            Some("street") => Setting::Street,
+            Some("ice") => Setting::Ice,
+            _ => Setting::Harbour,
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Setting::Harbour => "harbour",
+            Setting::Mars => "mars",
+            Setting::Street => "street",
+            Setting::Ice => "ice",
+        }
+    }
+
+    /// Whether its front is water: the harbour's sea and the sea beside the
+    /// ice are; Mars's regolith and a street's road are not. `None` leaves
+    /// it to the scenery's colours, for a World that says nothing.
+    pub fn water(self) -> Option<bool> {
+        match self {
+            Setting::Harbour => None,
+            Setting::Ice => Some(true),
+            Setting::Mars | Setting::Street => Some(false),
+        }
+    }
+
+    /// Whether gulls wheel over it.
+    pub fn has_gulls(self) -> bool {
+        self == Setting::Harbour
+    }
+
+    /// Whether chimneys smoke in it: only the harbour's cottages have them.
+    pub fn smokes(self) -> bool {
+        self == Setting::Harbour
+    }
+
+    /// The few paints its buildings take their walls and roofs from, and
+    /// the colour of their trim: a limited palette per place.
+    pub fn paints(self) -> (&'static [u32], &'static [u32], u32) {
+        match self {
+            Setting::Harbour => (&WALLS, &ROOFS, 0x6b4a33),
+            // Pale composite panels; burnt orange, slate and teal bands.
+            Setting::Mars => (
+                &[0xece6da, 0xe4ddd0, 0xf1ece3],
+                &[0xc8643a, 0x5d6470, 0x3f8f8a, 0xd9a441],
+                0x4a4f5a,
+            ),
+            // Brick, cream and painted clapboard; awning colours of 1987.
+            Setting::Street => (
+                &[0xa8553f, 0xe8dcc4, 0x8f4a3a, 0xc9b79a, 0x7f9aa0],
+                &[0x2bb3b1, 0xe0457b, 0xf2c14e, 0x3a6ea5, 0x2f6b4f],
+                0x2c2a3a,
+            ),
+            // Packed snow and blue ice; kelp, slate and a warm orange.
+            Setting::Ice => (
+                &[0xf4f8fb, 0xe8f1f6, 0xdcebf3],
+                &[0x7fb8d9, 0x2d3a4a, 0xe8963a, 0x5b8a8f],
+                0x2d3a4a,
+            ),
         }
     }
 }
@@ -952,6 +1070,9 @@ pub fn paint_building(
     shape: MarkShape,
     palette: &Palette,
 ) {
+    if crate::works::paint(window, x, base, w, h, shape, palette) {
+        return;
+    }
     let left = x - w / 2.0;
     let top = base - h;
     let door = |window: &mut dyn Brush, height: f32| {
@@ -1256,6 +1377,9 @@ pub fn paint_thing(
     palette: &Palette,
     sway: f32,
 ) {
+    if crate::works::paint_thing(window, x, base, w, shape, palette, sway) {
+        return;
+    }
     match shape {
         MarkShape::Rover => {
             let h = w * 0.45;

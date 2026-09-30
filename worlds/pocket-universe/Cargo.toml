@@ -22,9 +22,12 @@ world-projection = { path = "../../crates/world-projection" }
 [dev-dependencies]
 # The old full-history scans, to test what the index finds against.
 lives = { path = "../../systems/lives", features = ["scan-reference"] }
-world-gpui = { path = "../../crates/world-gpui" }
 world-compare = { path = "../../crates/world-compare" }
 world-library = { path = "../../crates/world-library" }
 world-document = { path = "../../crates/world-document" }
 world-i18n = { path = "../../crates/world-i18n" }
 serde_json = "1"
+# The library of drawings, for the contact sheets and the no-harbour test.
+world-gpui = { path = "../../crates/world-gpui" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+world-pack-protocol = { path = "../../crates/world-pack-protocol" }

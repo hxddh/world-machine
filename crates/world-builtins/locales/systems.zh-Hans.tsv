@@ -2085,3 +2085,11 @@ Built by you	你建的
 Made by you	你做的
 A rover	一辆漫游车
 A night bus	一辆夜班巴士
+A year ago today, {told}.	一年前的今天，{told}。
+{b}, an {trade} from {origin}, wants a room.	一位来自{origin}的{trade}{b}想要一个房间。
+{b}, an {trade} from {origin}, asked to stay	来自{origin}的{trade}{b}提出想留下来
+{b}, an {trade} from {origin}, stayed on, and nobody minded	来自{origin}的{trade}{b}留了下来，没人介意
+{b}, an {trade} from {origin}, came to stay	来自{origin}的{trade}{b}来定居了
+{name}, an {trade} from {origin}, came because of the {what} you built	来自{origin}的{trade}{name}因为你建的{what}而来
+An {thing}!	一个{thing}!
+An {thing} by {place}.	{place}旁的一个{thing}。

@@ -116,8 +116,96 @@ impl PanelBeat {
     }
 }
 
-/// One panel of a moment: who is in it, where, how they feel, and the
-/// World's caption beneath.
+/// Something a moment's panel shows besides its people and place, so the
+/// picture tells the event its caption names: the ferry that takes someone
+/// away, the bunting at a wedding, the cradle at a birth. The app draws
+/// each in the look of the World's setting (a ferry by the harbour, a
+/// shuttle on Mars); a prop it has no drawing for is left out.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Prop {
+    /// A boat at the quay that takes someone away or brings them.
+    Ferry,
+    /// A lander on its pad, for leaving or coming to a colony.
+    Shuttle,
+    /// A bus at the stop, for leaving or coming to a town.
+    Bus,
+    /// A sled on the ice, for leaving or coming over the ice.
+    Sled,
+    /// One bag, packed.
+    Suitcase,
+    /// A string of little flags overhead.
+    Bunting,
+    /// Flowers carried in the hand.
+    Bouquet,
+    /// A cradle, or a baby wrapped up.
+    Cradle,
+    /// A lamp lit in a window.
+    Lamp,
+    /// A wreath of flowers laid down.
+    Wreath,
+    /// Scaffolding and a ladder round what is going up.
+    Scaffold,
+    /// A ribbon across something new, to be cut.
+    Ribbon,
+    /// Rain slanting down and a dark sky.
+    Rain,
+    /// The tools of a trade.
+    Tools,
+    /// A long table laid for a party.
+    Table,
+    /// A bench to sit on.
+    Bench,
+}
+
+impl Prop {
+    pub const ALL: [Prop; 16] = [
+        Prop::Ferry,
+        Prop::Shuttle,
+        Prop::Bus,
+        Prop::Sled,
+        Prop::Suitcase,
+        Prop::Bunting,
+        Prop::Bouquet,
+        Prop::Cradle,
+        Prop::Lamp,
+        Prop::Wreath,
+        Prop::Scaffold,
+        Prop::Ribbon,
+        Prop::Rain,
+        Prop::Tools,
+        Prop::Table,
+        Prop::Bench,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Prop::Ferry => "ferry",
+            Prop::Shuttle => "shuttle",
+            Prop::Bus => "bus",
+            Prop::Sled => "sled",
+            Prop::Suitcase => "suitcase",
+            Prop::Bunting => "bunting",
+            Prop::Bouquet => "bouquet",
+            Prop::Cradle => "cradle",
+            Prop::Lamp => "lamp",
+            Prop::Wreath => "wreath",
+            Prop::Scaffold => "scaffold",
+            Prop::Ribbon => "ribbon",
+            Prop::Rain => "rain",
+            Prop::Tools => "tools",
+            Prop::Table => "table",
+            Prop::Bench => "bench",
+        }
+    }
+
+    /// The prop with this id; one this build does not know is none.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|prop| prop.id() == id)
+    }
+}
+
+/// One panel of a moment: who is in it, where, how they feel, what else
+/// it shows, and the World's caption beneath.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Panel {
     pub caption: String,
@@ -127,6 +215,9 @@ pub struct Panel {
     pub place: Option<SelectionId>,
     pub mood: Option<Mood>,
     pub beat: PanelBeat,
+    /// What else the panel shows, so it shows its event: a ferry at a
+    /// farewell, bunting at a wedding. Empty for a panel of people alone.
+    pub props: Vec<Prop>,
 }
 
 /// A key beat of a World's history told as three panels: before, the
@@ -314,6 +405,55 @@ pub fn latest_before<'a>(
 pub fn day_of(world_time: u64, day_length: u64) -> u32 {
     let day = world_time.div_ceil(day_length.max(1)).max(1);
     u32::try_from(day).unwrap_or(u32::MAX)
+}
+
+/// Whoever asked the question the player has just answered goes over to
+/// what the answer put on the scene (the first length of pier, a dome going
+/// up), so an answer is seen as well as told. `is_answer` says which Events
+/// are the Pack's answers; the asker is the answer's actor. Read from the
+/// answer's own Events, for this moment only; nothing is recorded.
+pub fn go_to_what_was_answered(
+    world: &World,
+    items: &mut [crate::CanvasItem],
+    is_answer: impl Fn(&Event) -> bool,
+) {
+    let now = world.world_time();
+    let Some(answer) = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time == now)
+        .find(|event| is_answer(event))
+    else {
+        return;
+    };
+    let Some(asker) = answer.actor else {
+        return;
+    };
+    // What the answer made, or what came of it at once.
+    let made = world
+        .events()
+        .iter()
+        .filter(|event| {
+            event.world_time == now
+                && (event.id == answer.id || event.caused_by.contains(&answer.id))
+        })
+        .flat_map(|event| event.changes.iter())
+        .filter_map(|change| match change {
+            world_core::StateChange::CreateEntity(entity) => Some(SelectionId::Entity(entity.id)),
+            _ => None,
+        })
+        .find(|made| items.iter().any(|item| item.id == *made));
+    let Some(made) = made else {
+        return;
+    };
+    if let Some(item) = items
+        .iter_mut()
+        .find(|item| item.id == SelectionId::Entity(asker))
+    {
+        item.at = Some(made);
+        item.day.clear();
+    }
 }
 
 /// A line's text with its first letter lowered, to follow a word such as

@@ -110,6 +110,8 @@ pub fn restyle(voice: &Voice, line: &str, seed: u64) -> String {
     for (never, instead) in voice.instead {
         line = replace_word(&line, never, instead);
     }
+    // "a broken promise" said as "a offline promise" is "an offline promise".
+    line = crate::articled(&line);
     if !voice.openers.is_empty() && seed.is_multiple_of(4) {
         // An opener stands on its own ("Aye.", "Oh!"), so the line after
         // it keeps its capital, names and all.
@@ -119,7 +121,23 @@ pub fn restyle(voice: &Voice, line: &str, seed: u64) -> String {
     if !voice.closers.is_empty() && seed % 5 == 1 {
         let closer = voice.closers[(seed / 5) as usize % voice.closers.len()];
         let end = line.trim_end_matches(['.', '!']).len();
-        if !line.ends_with('?') {
+        // "…sends their love" takes no ", love" after it.
+        let last = |text: &str| {
+            text.trim_end_matches(|c: char| !c.is_alphanumeric())
+                .rsplit(|c: char| !c.is_alphanumeric())
+                .next()
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        let first = |text: &str| {
+            text.split(|c: char| !c.is_alphanumeric())
+                .find(|word| !word.is_empty())
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        // Nor "…blow over" an ", over and out".
+        let ending = last(&line[..end]);
+        if !line.ends_with('?') && ending != last(closer) && ending != first(closer) {
             line = format!("{}{closer}", &line[..end]);
         }
     }

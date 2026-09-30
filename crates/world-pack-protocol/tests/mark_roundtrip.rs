@@ -53,6 +53,7 @@ fn snapshot() -> ProjectionSnapshot {
                         shape: MarkShape::Tent,
                         cost: Some("60".into()),
                         unavailable: None,
+                        art: None,
                     },
                     PlotOffer {
                         command: "pack.hand.plot.boathouse.p3".into(),
@@ -60,6 +61,7 @@ fn snapshot() -> ProjectionSnapshot {
                         shape: MarkShape::House,
                         cost: None,
                         unavailable: Some("That's enough for today".into()),
+                        art: None,
                     },
                 ],
             }],
