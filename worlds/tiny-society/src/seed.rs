@@ -29,8 +29,8 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
     }
 
     for (id, name, cash) in [
-        (HARBOR, "Harbor", 800_i64),
-        (BAKERY, "Harbor Bakery", 500),
+        (HARBOR, "the harbour", 800_i64),
+        (BAKERY, "Harbour Bakery", 500),
         (SCHOOL, "Island School", 1_000),
         (PUB, "Anchor Pub", 600),
     ] {

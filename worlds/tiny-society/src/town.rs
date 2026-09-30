@@ -143,16 +143,16 @@ fn home_stretch(founder: EntityId) -> usize {
 }
 
 /// A work the harbour can finish, as the scene draws it.
-struct Work {
-    id: &'static str,
-    label: &'static str,
-    shape: MarkShape,
+pub(crate) struct Work {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) shape: MarkShape,
 }
 
 /// Every work the harbour can finish, once each: its first goals, the
 /// ladder's works (not their second coats of paint), and what it made of
 /// its own accord.
-fn catalog() -> &'static [Work] {
+pub(crate) fn catalog() -> &'static [Work] {
     static CATALOG: std::sync::OnceLock<Vec<Work>> = std::sync::OnceLock::new();
     CATALOG.get_or_init(|| {
         [
@@ -417,6 +417,8 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         if let Some(item) = items.iter_mut().find(|item| item.id == selection) {
             let px = street.take(BACK, street.stretch_at(px), px).unwrap_or(px);
             item.px = Some(px);
+            // The row it stands in, for the app to stand it in.
+            item.y = ROW_Y[BACK];
             placed.insert(selection, px);
         }
     }
@@ -430,6 +432,7 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         if let Some(item) = items.iter_mut().find(|item| item.id == selection) {
             if let Some(px) = street.take(FRONT, street.stretch_at(near), near + 0.05) {
                 item.px = Some(px);
+                item.y = ROW_Y[FRONT];
                 placed.insert(selection, px);
             }
         }
@@ -508,12 +511,14 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
             *built,
         );
         item.drawing = None;
+        item.art = crate::drawings::art_of_work(work.id).map(Into::into);
         items.push(item);
     }
 
     // What the player built on plots stands on its plot, and everything
     // says what it can wear and be called.
     crate::plots::dress(world, &mut items);
+    crate::drawings::dress_art(world, &mut items);
     for item in items.iter().filter(|item| item.variant.is_some()) {
         if let Some(px) = item.px {
             placed.insert(item.id, px);
@@ -544,10 +549,11 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
             .map(|spot| spot * WIDTH)
             .or_else(|| item.at.and_then(|place| placed.get(&place).copied()))
             .unwrap_or(WIDTH / 2.0);
-        if let Some((_, px)) =
+        if let Some((row, px)) =
             street.take_first(&[FRONT, NEARER, MIDDLE], street.stretch_at(near), near)
         {
             items[at].px = Some(px);
+            items[at].y = ROW_Y[row];
             placed.insert(items[at].id, px);
         }
     }
@@ -615,6 +621,7 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         ground,
         ice,
         plots: crate::plots::canvas_plots(world),
+        setting: Some("harbour".into()),
     }
 }
 

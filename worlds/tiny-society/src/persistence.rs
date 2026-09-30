@@ -456,7 +456,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "Harbor Bakery had customers"));
+            .any(|item| item.title == "Harbour Bakery had customers"));
     }
 
     #[test]

@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use world_core::{EntityId, Event, EventId, StateChange, Value, World};
 use world_projection::{
     cause_in_words, day_of, latest_before, life_events, lowered, one_a_day, Almanac, Legend,
-    LegendLine, Moment, MomentKind, Mood, Named, Panel, PanelBeat, SelectionId,
+    LegendLine, Moment, MomentKind, Mood, Named, Panel, PanelBeat, Prop, SelectionId,
 };
 
 /// How a question of the Pack's own storyteller was settled.
@@ -188,6 +188,15 @@ pub fn cause_words(teller: &impl Teller, cause: &Event) -> Option<String> {
     match cause.kind.as_str() {
         "situation_answered" => answered_words(teller, cause),
         "festival_held" => text(cause, "name").map(|name| format!("at {name}")),
+        // A day two people spent together, which a change between them
+        // came of.
+        "lived" if !cause.targets.is_empty() => Some(
+            if text(cause, "told").is_some_and(|told| told.ends_with("they had words")) {
+                "after they had words".into()
+            } else {
+                "after a day spent together".into()
+            },
+        ),
         // A life beat is named by whose it was, in words of its own, so the
         // words stay whole in any language.
         "died" | "came_of_age" | "retired" | "left_home" => {
@@ -308,10 +317,33 @@ fn festival_that_day(teller: &impl Teller, event: &Event) -> Option<(EventId, St
     Some((held.id, cause_words(teller, held)?))
 }
 
+/// Why someone else took up a want: the player turned it down, or left
+/// its asker waiting. Only here is what the player let pass a reason,
+/// since it is the whole of this one.
+fn taken_up_because(teller: &impl Teller, event: &Event) -> Option<(EventId, String)> {
+    if event.payload.get("taken_up") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let cause = teller.world().event(*event.caused_by.first()?)?;
+    let words = match teller.storylet_answer(cause)? {
+        Answered::Said(words) => you_said(&words),
+        Answered::Refused(words) => format!("after you said “{words}”"),
+        Answered::Lapsed => format!("after {} was left waiting", name(teller, cause.actor?)),
+    };
+    Some((cause.id, words))
+}
+
 /// What brought `event` about, as a player would say it, and the recorded
 /// Event that says so; `None` when the record does not show.
 pub fn because(teller: &impl Teller, event: &Event) -> Option<(EventId, String)> {
-    cause_in_words(teller.world(), event, 4, |cause| cause_words(teller, cause))
+    taken_up_because(teller, event)
+        // What the player said to a pair comes before the day they spent.
+        .or_else(|| {
+            (event.kind == "bond_changed")
+                .then(|| between_pair(teller, event))
+                .flatten()
+        })
+        .or_else(|| cause_in_words(teller.world(), event, 4, |cause| cause_words(teller, cause)))
         .or_else(|| own_answer(teller, event))
         .or_else(|| between_pair(teller, event))
         .or_else(|| festival_that_day(teller, event))
@@ -495,6 +527,78 @@ pub fn legend(teller: &impl Teller, subject: SelectionId) -> Option<Legend> {
     })
 }
 
+/// The fewest lines a life is told in once there is enough of it: a
+/// person who has lived a year is never two lines long.
+pub const FEWEST_LIFE_LINES: usize = 5;
+
+/// A person's legend with too few lines of its own, told fuller from what
+/// happened around them while they were here: each festival the place held
+/// in their life, the first time it came round for them ("Bo's first
+/// Lantern Night"), until the life has [`FEWEST_LIFE_LINES`]. Every line
+/// is a festival the World recorded; nothing is made up.
+pub fn filled_life(teller: &impl Teller, mut legend: Legend) -> Legend {
+    let SelectionId::Entity(id) = legend.subject else {
+        return legend;
+    };
+    if !teller.is_person(id) || legend.lines.len() >= FEWEST_LIFE_LINES {
+        return legend;
+    }
+    let world = teller.world();
+    let state = world.state();
+    let first = lives::first_name(state, id);
+    let Some(since) = legend.lines.first().map(|line| line.day) else {
+        return legend;
+    };
+    if first.is_empty() {
+        return legend;
+    }
+    let born_here = world
+        .events_of_kind(&["born"])
+        .iter()
+        .any(|event| entity(event, "who") == Some(id) || creates(event, id));
+    // Until they left or died, if they did.
+    let until = world
+        .events_of_kind(&["died"])
+        .iter()
+        .filter(|event| entity(event, "who") == Some(id))
+        .map(|event| day_of(event.world_time, teller.day_length()))
+        .min()
+        .unwrap_or(u32::MAX);
+    let told = legend
+        .lines
+        .iter()
+        .filter_map(|line| line.event)
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut more = Vec::new();
+    for event in world.events_of_kind(&["festival_held"]) {
+        let day = day_of(event.world_time, teller.day_length());
+        if day <= since || day > until || told.contains(&event.id) {
+            continue;
+        }
+        let Some(festival) = text(event, "name") else {
+            continue;
+        };
+        if !seen.insert(festival.to_string()) {
+            continue;
+        }
+        let here = if born_here { "" } else { " here" };
+        more.push(LegendLine {
+            day,
+            text: format!("{first}'s first {festival}{here}"),
+            because: None,
+            event: Some(event.id),
+            cause: None,
+        });
+        if legend.lines.len() + more.len() >= FEWEST_LIFE_LINES {
+            break;
+        }
+    }
+    legend.lines.extend(more);
+    legend.lines.sort_by_key(|line| (line.day, line.event));
+    legend
+}
+
 /// A key beat, as a Pack describes it: which Event, what kind, who and
 /// where, and the three captions in the World's voice.
 #[derive(Clone, Debug)]
@@ -508,6 +612,9 @@ pub struct Beat<'a> {
     /// Before, the moment, after.
     pub captions: [String; 3],
     pub moods: [Option<Mood>; 3],
+    /// What else each panel shows, before, the moment and after: the
+    /// ferry at a farewell, the bunting at a wedding.
+    pub props: [Vec<Prop>; 3],
 }
 
 impl Beat<'_> {
@@ -520,26 +627,49 @@ impl Beat<'_> {
             .collect::<Vec<_>>();
         let place = self.place.map(SelectionId::Entity);
         let [before, moment, after] = self.captions;
-        let panel = |caption: String, beat: PanelBeat, mood: Option<Mood>| Panel {
-            caption,
-            cast: cast.clone(),
-            place,
-            mood,
-            beat,
-        };
+        let [props_before, props_moment, props_after] = self.props;
+        let panel =
+            |caption: String, beat: PanelBeat, mood: Option<Mood>, props: Vec<Prop>| Panel {
+                caption,
+                cast: cast.clone(),
+                place,
+                mood,
+                beat,
+                props,
+            };
         Moment {
             id: moment_id(self.event.id),
             day: day_of(self.event.world_time, day_length),
             kind: self.kind,
             title: self.title,
             panels: [
-                panel(before, PanelBeat::Before, self.moods[0]),
-                panel(moment, PanelBeat::Moment, self.moods[1]),
-                panel(after, PanelBeat::After, self.moods[2]),
+                panel(before, PanelBeat::Before, self.moods[0], props_before),
+                panel(moment, PanelBeat::Moment, self.moods[1], props_moment),
+                panel(after, PanelBeat::After, self.moods[2], props_after),
             ],
             event: Some(self.event.id),
         }
     }
+}
+
+/// What a panel shows besides its people: the props its caption's own
+/// words name (`words`, each a word or phrase in lower case and the prop
+/// it shows), after `always`, each once. A caption that says "the ferry"
+/// shows the ferry, so what is drawn is what is told.
+pub fn props_for(caption: &str, words: &[(&str, Prop)], always: &[Prop]) -> Vec<Prop> {
+    let lower = caption.to_lowercase();
+    let mut props: Vec<Prop> = Vec::new();
+    for prop in always.iter().copied().chain(
+        words
+            .iter()
+            .filter(|(word, _)| lower.contains(word))
+            .map(|(_, prop)| *prop),
+    ) {
+        if !props.contains(&prop) {
+            props.push(prop);
+        }
+    }
+    props
 }
 
 /// `cast`, and then whoever of `people` the captions name, up to `most`,

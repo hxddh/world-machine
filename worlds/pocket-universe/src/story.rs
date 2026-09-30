@@ -52,6 +52,56 @@ struct Spec {
     line: &'static str,
     answers: Vec<Answer>,
     lapse: Said,
+    /// For a want: how it goes when the other one takes it up after the
+    /// player let it down.
+    taken_up: Option<Said>,
+}
+
+/// The storyteller's mark for the player having lately been here: made
+/// something or answered someone. While it is recent, the place takes up
+/// the works the player let wait; a place left alone lets them wait.
+pub(crate) const HANDS_SEEN: &str = "player_seen";
+/// How many periods the player being here keeps the place building.
+const HANDS_LATELY: u64 = 30;
+/// How stale the mark may grow before a deed renews it.
+pub(crate) const HANDS_SEEN_EVERY: u64 = 7;
+
+/// Who takes up a want the player let down: the other of the pair.
+fn helper_for(asker: EntityId) -> Option<(EntityId, &'static str)> {
+    match asker {
+        SLOT_B => Some((SLOT_E, "{Explorer}")),
+        SLOT_E => Some((SLOT_B, "{Keeper}")),
+        _ => None,
+    }
+}
+
+/// A want let down, seen to by the other one: what its granting answer
+/// does, told as their doing.
+fn taken_up_said(answers: &[Answer], helper: &str) -> Option<Said> {
+    let granting = answers
+        .iter()
+        .find(|answer| !answer.refuses && !answer.said.effects.is_empty())?;
+    let said = &granting.said;
+    let told = match said.told.split_once(' ') {
+        Some(("The" | "A" | "An", _)) => {
+            let mut chars = said.told.chars();
+            chars
+                .next()
+                .map(|first| first.to_lowercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        }
+        _ => said.told.to_string(),
+    };
+    Some(Said {
+        event: leak(format!("{}_taken_up", said.event)),
+        told: leak(format!("{helper} took it on, and {told}")),
+        line: said.line,
+        by_other: said.by_other,
+        effects: said.effects.clone(),
+        remembered: said.remembered,
+        chapter: None,
+        title: None,
+    })
 }
 
 fn bond(trust: i64, tension: i64) -> Vec<Effect> {
@@ -211,6 +261,19 @@ fn spec(
     };
     let mut requires = shape.requires;
     requires.extend(settled_by(id));
+    let helper = helper_for(shape.asker);
+    // The other one sees to a want the player let down, and to a part of
+    // a work the player let go by.
+    let builds = answers.iter().any(|answer| {
+        answer
+            .said
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Advance(_)))
+    });
+    let taken_up = helper
+        .filter(|_| shape.want || builds)
+        .and_then(|(_, named)| taken_up_said(&answers, named));
     Spec {
         storylet: Storylet {
             id,
@@ -232,11 +295,30 @@ fn spec(
             weight: shape.weight,
             eases: shape.eases,
             timely: shape.timely,
+            taken_up: taken_up
+                .as_ref()
+                .zip(helper)
+                .map(|(said, (by, _))| storylets::TakenUp {
+                    by,
+                    outcome: outcome(said),
+                    // A part of one of the place's works is taken up only
+                    // while the player has lately been there.
+                    requires: if said
+                        .effects
+                        .iter()
+                        .any(|effect| matches!(effect, Effect::Advance(_)))
+                    {
+                        vec![Condition::MarkedWithin(HANDS_SEEN, HANDS_LATELY)]
+                    } else {
+                        Vec::new()
+                    },
+                }),
         },
         told,
         line,
         answers,
         lapse,
+        taken_up,
     }
 }
 
@@ -442,7 +524,25 @@ fn wants() -> Vec<Spec> {
     ]
 }
 
+/// An incident (weather coming, something failing, a row) waits until a
+/// new player's first days have passed.
+fn after_first_days(mut spec: Spec) -> Spec {
+    spec.storylet.requires.push(Condition::Since(
+        crate::UNIVERSE,
+        crate::arrival::ARRIVED,
+        crate::arrival::FIRST_DAYS,
+    ));
+    spec
+}
+
 fn incidents() -> Vec<Spec> {
+    incidents_at_any_time()
+        .into_iter()
+        .map(after_first_days)
+        .collect()
+}
+
+fn incidents_at_any_time() -> Vec<Spec> {
     vec![
         spec(
             "weather",
@@ -2131,7 +2231,98 @@ pub(crate) fn register_actions(
     hands::register_actions(actions, crate::handwork::kit)?;
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
+    actions.register(LendsToWork)?;
     actions.register(BondSettles)
+}
+
+/// When the player last lent a hand with the place's work under way, in
+/// periods.
+const LENT_WORK: &str = "story.lent_work";
+/// The fewest periods between two hands lent to the place's works.
+const LEND_WORK_EVERY: i64 = 30;
+
+/// The work of the place's ladder under way, once its first three goals
+/// are done.
+fn rung_under_way(state: &world_core::WorldState) -> Option<&'static Rung> {
+    let deck = deck_ref();
+    let first_done = ["second_home", "beacon", "survey"]
+        .iter()
+        .all(|goal| storylets::finished(state, deck, goal));
+    if !first_done {
+        return None;
+    }
+    ladder(crate::places::Place::of(state)?)
+        .iter()
+        .find(|rung| storylets::progress(state, deck, rung.id) < RUNG_PARTS)
+}
+
+/// The player, making something, lends a hand with the place's work under
+/// way, a month or more since they last did: what they make counts toward
+/// the place's own ladder, so a maker's place goes further than one left
+/// to itself.
+struct LendsToWork;
+
+impl world_core::Action for LendsToWork {
+    fn name(&self) -> &'static str {
+        "lend_to_work"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let deck = deck_ref();
+        let rung = rung_under_way(state)
+            .ok_or_else(|| world_core::ActionError::Invalid("no work under way".into()))?;
+        let now = storylets::period_index(state, deck) as i64;
+        let last = state
+            .entity(STORY)
+            .and_then(|story| match story.component(LENT_WORK) {
+                Some(Value::Integer(at)) => Some(*at),
+                _ => None,
+            });
+        if state.entity(STORY).is_none() || last.is_some_and(|last| now - last < LEND_WORK_EVERY) {
+            return Err(world_core::ActionError::Invalid(
+                "lent a hand lately".into(),
+            ));
+        }
+        let done = storylets::progress(state, deck, rung.id);
+        let mut draft = world_core::EventDraft::new("hand_lent");
+        draft.actor = Some(rung.work.champion);
+        draft.targets = vec![rung.work.champion];
+        draft.payload.insert("work".into(), rung.id.into());
+        draft.payload.insert(
+            "told".into(),
+            format!("You lent a hand with {}", the(rung.label)).into(),
+        );
+        draft.changes = vec![
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: format!("story.goal.{}", rung.id),
+                value: (done + 1).into(),
+            },
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: LENT_WORK.into(),
+                value: now.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+/// After the player makes something, they lend a hand with the place's
+/// work under way, if there is one and they have not lately.
+pub(crate) fn lend_to_work(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Option<EventId>, WorldError> {
+    match world.execute(actions, &world_core::ActionRequest::new("lend_to_work")) {
+        Ok(event) => Ok(Some(event.id)),
+        Err(WorldError::Action(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Nothing between two people stays near either end for long: a period
@@ -2631,6 +2822,7 @@ pub(crate) fn tick(
         return Ok(Vec::new());
     }
     let mut events = Vec::new();
+    let begins = world.state().entity(STORY).is_none();
     // Reaching an end is a turning point, even as it starts to ease.
     let ended = at_end(world);
     if unsettled(world) {
@@ -2666,6 +2858,11 @@ pub(crate) fn tick(
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, deck_ref(), &reading)?);
+    // A place whose story begins now opens its plots over the years.
+    if begins {
+        let kit = crate::handwork::kit(world.state());
+        events.extend(hands::stage_plots(world, actions, &kit)?);
+    }
     // Each season turning brings a gift, and a year on, someone remembers.
     events.extend(lives::season_turns(world, actions, &cast, SEASON_PERIODS)?);
     events.extend(lives::remember_a_year(world, actions, &cast, YEAR)?);
@@ -2751,7 +2948,13 @@ fn asked(spec: &Spec, times: i64, last: Option<&str>) -> String {
         }
     });
     match then {
-        Some(said) => format!("{opener} Last time: {}. {}", said.told, spec.line),
+        // Run on as one sentence: "Last time round, everyone pitched in",
+        // never "Last time: Everyone".
+        Some(said) => format!(
+            "{opener} Last time round, {}. {}",
+            world_projection::lowered(said.told, crate::legends::names()),
+            spec.line
+        ),
         None => format!("{opener} {}", spec.line),
     }
 }
@@ -2905,6 +3108,7 @@ pub(crate) fn outcome_kinds(storylets: &[&str]) -> Vec<&'static str> {
                 .iter()
                 .map(|answer| answer.said.event)
                 .chain([spec.lapse.event])
+                .chain(spec.taken_up.iter().map(|taken| taken.event))
         })
         .collect()
 }
@@ -2917,6 +3121,13 @@ fn outcome_of(event: &Event) -> Option<&'static Said> {
     if spec.lapse.event == event.kind {
         return Some(&spec.lapse);
     }
+    if let Some(taken) = spec
+        .taken_up
+        .as_ref()
+        .filter(|taken| taken.event == event.kind)
+    {
+        return Some(taken);
+    }
     spec.answers
         .iter()
         .map(|answer| &answer.said)
@@ -2925,9 +3136,15 @@ fn outcome_of(event: &Event) -> Option<&'static Said> {
 
 /// How one of the storyteller's moments is told.
 pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
+    if event.kind == "hand_lent" {
+        return match event.payload.get("told") {
+            Some(Value::Text(told)) => Some(told.clone()),
+            _ => None,
+        };
+    }
     if event.kind == "chapter_ended" {
         return match event.payload.get("title") {
-            Some(Value::Text(title)) => Some(format!("The chapter closed: {title}")),
+            Some(Value::Text(title)) => Some(format!("{title} came to an end")),
             _ => None,
         };
     }
@@ -2949,6 +3166,8 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
         // Told against the times it came before.
         let told = fill(world, spec.told);
         return Some(match event.payload.get("times") {
+            // "…going again" is not told "again again".
+            Some(Value::Integer(2)) if told.ends_with(" again") => told,
             Some(Value::Integer(2)) => format!("{told} again"),
             Some(Value::Integer(times)) if *times > 2 => format!("{told} once more"),
             _ => told,
@@ -5147,6 +5366,10 @@ pub(crate) fn weather(world: &World) -> world_projection::Weather {
     let period = world.world_time() / crate::BACKGROUND_PERIOD;
     let roll = storylets::mix(&[period, 23]) % 10;
     let season = season(world);
+    // A new player's first day is a fair one.
+    if !rough && crate::arrival::arrived(world.state()).is_some_and(|first| period <= first) {
+        return Weather::Clear;
+    }
     match seed_id(world) {
         "mars-colony" => match (rough, roll) {
             (true, _) | (false, 0) => Weather::Dust,

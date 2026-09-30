@@ -2,6 +2,69 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.24.0 (2026-09-30)
+
+**Worlds from `v0.23` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Saved Worlds from v0.22 and v0.23 are kept as test fixtures in both Packs; they replay event for event and play on. A World begun before this release keeps the old pace and keeps all its plots open.
+
+The [v0.23 review](docs/REVIEW_v0.23.md) found that a lot had been built but little of it felt made:
+- a crowded strip of works at year three;
+- Pocket Universe wearing the harbour's drawings;
+- a first five minutes that answered nothing;
+- a repetitive story for anyone who didn't say yes;
+- template seams in the words.
+
+This release is the first of three meant to make the product coherent, crafted and trustworthy, and it is about coherence.
+
+- **A place that composes at every age.**
+  - Four depth bands: the back row of buildings, a street climbing toward you, a stone quay in the lower third where people walk and stand, and the water.
+  - A cottage is 2.5–3 times a person (was about 1.5). Nothing overlaps: a work steps aside, comes forward onto the quay, or waits for a closer zoom.
+  - Zoomed right out, the panorama folds into a postcard of the whole town stacked up the hill, with its sky by day, at dusk and at night. It was a 175-pixel band on bare paper.
+  - The question card is a third shorter and stands aside from whoever asks, so they stay in view.
+- **Every work drawn as itself.**
+  - About 420 drawings, each a silhouette of its own, tested so that no two are alike: the clock tower has a face, the telescope stands on a tripod, the bandstand is open, and statues have faces.
+  - Seated people sit on a bench, a crate or a block of snow.
+  - Something going up shows scaffolding.
+- **Pocket Universe in its own clothes.**
+  - Ares: habitat modules, domes, regolith with craters and rover tracks, solar panels, and a butterscotch sky.
+  - Maple Street, 1987: row houses, a road with 1987 cars, overhead wires, and streetlamps that light at dusk.
+  - Icebridge: snow nests, ice blocks, an ice shelf with icicles, and floes on the sea.
+  - No harbour drawing appears in any of them, and Home's covers match.
+- **A first five minutes that answer.**
+  - A new World opens on Day 1 in fair weather, with Leo's welcome first.
+  - Your first answer puts something in the scene and the asker walks over to it.
+  - The first thing you build shows scaffolding and is finished the next day (it took five).
+  - Nobody quarrels, is laid off or falls on hard times in the first five days: 0 sad lines, down from 23.
+- **A story for every player, not just one who says yes.**
+  - Every storylet rests after it is told, answered or not.
+  - A want you let down never comes back as it was: someone else takes it up, and their legend says why ("after Evan was left waiting"), or it is dropped.
+  - Measured over three years for five scripted players:
+    - no storylet title is told more than three times (the players who didn't say yes saw 4–8 titles 16 times each);
+    - legends name a cause for 45–61% of lines for those who didn't say yes (was 4–28%);
+    - a maker's town and an absent player's town now differ in what they built (Jaccard 0.85, was 0.00).
+  - What you make by hand chooses which of the town's own works comes next.
+  - Plots open in stages across three years instead of all at once.
+  - Letters come in a weekly rhythm (about 1.3 a week, was 2 every week), and quiet days return.
+- **Words without seams.**
+  - A test reads every line both Packs can say and fails on leaked slots, doubled clauses, glued-on colons, repeated words and wrong articles. It found 79 seams in Tiny Society and 82 in Pocket Universe, and now finds none.
+  - The harbour is no longer "Harbor", and letter writers speak for themselves ("I'm grown now").
+  - Anyone who has lived a year has a legend of at least five lines.
+  - Moment strips carry what happened: a ferry for a farewell in the harbour, a shuttle on Ares, a bus on Maple Street, a sled on Icebridge, bunting for a wedding, a cradle for a birth.
+- **The drawer is a book.**
+  - The story, what was built, and what was kept, on paper leaves. Every year's almanac sits at the top of the story leaf, and Y opens it any time.
+  - Chapters are grouped by year with a short summary, and builds are grouped by season and kind.
+  - Keepsakes are counted once, and captions never cover a figure.
+- **One way to build.**
+  - The plot card and the + card are one card, with the old hands list as its tabs.
+  - Every gauge shows its number, and what you can't afford is greyed with the reason.
+- **Sound is on for new installs,** softly. Existing settings are kept.
+- **Cards darken after dusk** so they don't glare on the night scene.
+- **Chinese:**
+  - Home's Open button is 打开, and the day counter reads 第1082天.
+  - The header, Settings → Display, the build tabs, and "Sol" and "Night" are translated.
+  - A test walks every window in Chinese: 646 lines laid out, no English word.
+- **Temporary files:** a copy of a Pack's program that a crash or forced quit left behind is swept away the next time the app starts a Pack (it was about 110 MB each).
+- **Protocol:** snapshots may carry the place's setting, an art key per item and per offer, moment props, and the list of almanac years. All of it is optional.
+
 ## v0.23.0 (2026-09-29)
 
 **Worlds from `v0.22` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. A World saved by `v0.22.0` opens, replays event for event and plays on.

@@ -734,6 +734,9 @@ pub(crate) fn kit(state: &WorldState) -> Kit {
         plots: crate::plots::plots,
         wears: crate::plots::wears,
         naming: crate::plots::naming,
+        plot_stages: Some(crate::plots::STAGES),
+        // A new player's first build is finished the next day.
+        first_growing: crate::arrival::arrived(state).map(|_| 1),
     }
 }
 

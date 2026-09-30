@@ -75,6 +75,15 @@ pub(crate) fn almanac(world: &World, year: u32, moments: &[Moment]) -> Option<Al
     ))
 }
 
+/// Every year whose almanac can be asked for now: each one that has
+/// ended, oldest first. A year's page is kept from its New Year on.
+pub(crate) fn years(world: &World) -> Vec<u32> {
+    let now = year_of(world.world_time());
+    (1..now)
+        .filter_map(|year| u32::try_from(year).ok())
+        .collect()
+}
+
 /// On New Year's day, the page for the year just ended.
 pub(crate) fn new_year(world: &World, moments: &[Moment]) -> Option<Almanac> {
     let day = world.world_time() / WORLD_DAY_TICKS;

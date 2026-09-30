@@ -72,12 +72,25 @@ pub(crate) fn storm_kinds() -> &'static [&'static str] {
     })
 }
 
-fn names() -> &'static [&'static str] {
+pub(crate) fn names() -> &'static [&'static str] {
     static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
     NAMES.get_or_init(|| {
         crate::people_names()
             .into_iter()
             .flat_map(|name| name.split_whitespace())
+            // The places and things each place begins with, named as
+            // written wherever a line begins with one.
+            .chain([
+                "Ares",
+                "Aurora",
+                "Fish Vault",
+                "Hydroponics",
+                "Icebridge",
+                "K-88",
+                "Kestrel",
+                "Maple",
+                "Night Bus",
+            ])
             .collect()
     })
 }
@@ -122,7 +135,7 @@ impl Teller for Place<'_> {
         Some(if is_person(self.0, subject) {
             lives::name(self.0.state(), subject)
         } else {
-            world_projection::entity_title(entity)
+            crate::story::fill(self.0, &world_projection::entity_title(entity))
         })
     }
 
@@ -184,5 +197,6 @@ impl Teller for Place<'_> {
 
 /// The legend of a person, place or thing.
 pub(crate) fn legend(world: &World, subject: SelectionId) -> Option<Legend> {
-    chronicle::legend(&Place(world), subject)
+    let teller = Place(world);
+    chronicle::legend(&teller, subject).map(|legend| chronicle::filled_life(&teller, legend))
 }

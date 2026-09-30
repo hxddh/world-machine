@@ -1155,6 +1155,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             _ => crate::voices::mars,
         },
         kin: crate::places::Place::of(state).map(crate::kin::of),
+        kind: crate::arrival::first_days,
     }
 }
 

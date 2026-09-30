@@ -35,6 +35,16 @@ pub struct Subject {
 pub struct QuietDays {
     /// The most letters in any seven periods, if there is a limit.
     pub letters_a_week: Option<usize>,
+    /// The most letters each week may bring (a week being seven periods
+    /// from the World's start), picked week by week from these in a mixed
+    /// order: some weeks two, some one, some none, so letters come in no
+    /// set rhythm. Never more than `letters_a_week`. Empty: every week
+    /// may bring `letters_a_week`.
+    pub letter_weeks: &'static [usize],
+    /// One day in this many is left quiet, once the first stretch of that
+    /// many has passed: no letter, nothing shown and nothing spoken of for
+    /// the first time. None: no day is.
+    pub still_every: Option<u64>,
     /// Corners of the Pack's places a quiet day can show.
     pub corners: &'static [Corner],
     /// What people can speak of for the first time, besides each other.
@@ -227,9 +237,66 @@ fn pushed(mut list: Vec<String>, item: String, most: usize) -> Value {
     Value::List(list.into_iter().skip(skip).map(Value::Text).collect())
 }
 
+/// A line about the writer, as the writer would write it: "Greta is
+/// grown now, with a trade of their own" in Greta's own letter is "I'm
+/// grown now, with a trade of my own"; "Leo and Greta made it up" is "Leo
+/// and I made it up"; "Leo gave Greta a gift" is "Leo gave me a gift".
+pub(crate) fn in_own_words(told: &str, first: &str) -> String {
+    if first.is_empty()
+        || !told
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|word| word == first)
+    {
+        return told.to_string();
+    }
+    let mut line = told.to_string();
+    let subject = if let Some(rest) = line.strip_prefix(&format!("{first} and ")) {
+        // "Greta and Leo walked out": "Leo and I walked out".
+        let (other, rest) = rest.split_once(' ').unwrap_or((rest, ""));
+        Some(format!("{other} and I {rest}"))
+    } else if let Some(rest) = line.strip_prefix(&format!("{first}'s ")) {
+        Some(format!("My {rest}"))
+    } else {
+        line.strip_prefix(&format!("{first} ")).map(|rest| {
+            let rest = rest
+                .strip_prefix("is ")
+                .map(|rest| format!("'m {rest}"))
+                .or_else(|| rest.strip_prefix("has ").map(|rest| format!("'ve {rest}")))
+                .unwrap_or_else(|| format!(" {rest}"));
+            format!("I{rest}")
+        })
+    };
+    let by_self = subject.is_some();
+    if let Some(subject) = subject {
+        line = subject;
+    }
+    // "Leo and Greta became friends": "Leo and I".
+    let pair = format!(" and {first} ");
+    if let Some(at) = line.find(&pair) {
+        if !line[..at].contains(' ') {
+            line.replace_range(at..at + pair.len(), " and I ");
+        }
+    }
+    line = line
+        .replace(&format!("{first}'s "), "my ")
+        .replace(&format!(" {first} "), " me ")
+        .replace(&format!(" {first}."), " me.")
+        .replace(&format!(" {first},"), " me,");
+    if line.ends_with(&format!(" {first}")) {
+        let cut = line.len() - first.len();
+        line.replace_range(cut.., "me");
+    }
+    if by_self {
+        line = line
+            .replace(" their own", " my own")
+            .replace(" of their ", " of my ");
+    }
+    line
+}
+
 /// "The harbour held its Regatta" as it reads inside a sentence: an
 /// opening article or everyone-word lowered, a name left as it is.
-fn inside(told: &str) -> String {
+pub(crate) fn inside(told: &str) -> String {
     let first = told.split(' ').next().unwrap_or("");
     if matches!(
         first,
@@ -508,6 +575,25 @@ fn next_first(
     (0..4).find_map(|offset| kinds[(start + offset) % 4]())
 }
 
+/// The most letters this week may bring: the Pack's week-by-week pattern,
+/// never more than `most`.
+pub(crate) fn letters_this_week(quiet: &QuietDays, now: u64, most: usize) -> usize {
+    if quiet.letter_weeks.is_empty() {
+        return most;
+    }
+    let week = now / 7;
+    let at = (mix(&[week, 137]) % quiet.letter_weeks.len() as u64) as usize;
+    quiet.letter_weeks[at].min(most)
+}
+
+/// Whether today is one of the days left quiet: never in a World's first
+/// stretch of days, while everything is new.
+pub(crate) fn still_day(quiet: &QuietDays, now: u64) -> bool {
+    quiet
+        .still_every
+        .is_some_and(|every| every > 1 && now > every && now % every == every / 2)
+}
+
 /// The letters written lately: how many in the last seven periods, and how
 /// many periods since the last. Only the week's tail of the history is read.
 fn letters_lately(world: &World, cast: &Cast) -> (usize, u64) {
@@ -559,6 +645,10 @@ pub(crate) fn memory<'a>(
 /// as told.
 fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, ActionRequest)> {
     let state = world.state();
+    let writer_name = first_name(state, writer);
+    // "Nia Chen shared supper" in Nia's own letter is "I shared supper".
+    let full_name = name(state, writer);
+    let own = |told: &str| in_own_words(&told.replace(&full_name, &writer_name), &writer_name);
     let now = period(state, cast);
     let span = cast.period.max(1);
     let seed = mix(&[writer.0, now, 101]);
@@ -576,7 +666,7 @@ fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, 
         .arg("letter", "yes");
     if let Some(news) = news {
         let lead = pick(&NEWS_LEADS, seed)?;
-        let body = fill_owned(lead, &[("told", inside(&news))]);
+        let body = fill_owned(lead, &[("told", own(&inside(&news)))]);
         return Some((body, request.arg("news", news)));
     }
     let memory = memory(
@@ -587,7 +677,7 @@ fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, 
     );
     if let Some(memory) = memory {
         let lead = pick(&MEMORY_LEADS, seed)?;
-        let body = fill_owned(lead, &[("told", inside(&memory))]);
+        let body = fill_owned(lead, &[("told", own(&inside(&memory)))]);
         return Some((body, request.arg("recalled", memory)));
     }
     // With no news and nothing yet to look back on, what the writer did
@@ -602,7 +692,7 @@ fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, 
         .find_map(crate::told)
         .filter(|told| !told_news.contains(told))?;
     let lead = pick(&EVERYDAY_LEADS, seed / 3)?;
-    let body = fill_owned(lead, &[("told", inside(&everyday))]);
+    let body = fill_owned(lead, &[("told", own(&inside(&everyday)))]);
     Some((body, request.arg("news", everyday)))
 }
 
@@ -683,6 +773,11 @@ pub(crate) fn quiet_day(
     most: usize,
     people: &[EntityId],
 ) -> Result<Option<EventId>, WorldError> {
+    let now = period(world.state(), cast);
+    if !away && still_day(quiet, now) {
+        return Ok(None);
+    }
+    let most = letters_this_week(quiet, now, most);
     let (lately, ago) = letters_lately(world, cast);
     // While the player is away, one of the week's letters is kept for
     // their return, in case nobody has room to leave them anything.
@@ -724,6 +819,8 @@ pub fn welcome_back(
     if let Some(id) = leave_keepsake(world, actions, cast, why)? {
         return Ok(Some(id));
     }
+    // A return always may bring a letter, whatever this week's rhythm: only
+    // the week's most holds it back.
     let Some(most) = quiet.letters_a_week else {
         return Ok(None);
     };
@@ -738,4 +835,98 @@ pub fn welcome_back(
         .collect::<Vec<_>>();
     let request = letter(world, cast, &people);
     Ok(request.and_then(|request| world.execute(actions, &request).ok().map(|event| event.id)))
+}
+
+#[cfg(test)]
+mod rhythm {
+    use super::*;
+
+    const QUIET: QuietDays = QuietDays {
+        letters_a_week: Some(2),
+        letter_weeks: &[2, 1, 1, 0, 2, 1, 1, 2],
+        still_every: Some(40),
+        corners: &[],
+        subjects: &[],
+    };
+
+    #[test]
+    fn letters_vary_week_by_week_and_some_days_are_left_quiet() {
+        let weeks = (0..52)
+            .map(|week| letters_this_week(&QUIET, week * 7, 2))
+            .collect::<Vec<_>>();
+        let mean = weeks.iter().sum::<usize>() as f64 / weeks.len() as f64;
+        assert!(weeks.contains(&0) && weeks.contains(&1) && weeks.contains(&2));
+        assert!(mean <= 1.5, "{mean}");
+        // Never more than the Pack's most, and the same week the same.
+        assert!((0..52).all(|week| letters_this_week(&QUIET, week * 7, 1) <= 1));
+        assert_eq!(
+            letters_this_week(&QUIET, 70, 2),
+            letters_this_week(&QUIET, 76, 2)
+        );
+        let still = (0..360)
+            .filter(|now| still_day(&QUIET, *now))
+            .collect::<Vec<_>>();
+        assert!(still.iter().all(|now| *now > 40), "{still:?}");
+        assert!((3..=9).contains(&still.len()), "{still:?}");
+        // A Pack that asks for none keeps every day and week as before.
+        let before = QuietDays {
+            letters_a_week: Some(2),
+            ..QuietDays::default()
+        };
+        assert!((0..360).all(|now| !still_day(&before, now)));
+        assert!((0..52).all(|week| letters_this_week(&before, week * 7, 2) == 2));
+    }
+}
+
+#[cfg(test)]
+mod own_words {
+    use super::in_own_words;
+
+    /// A writer never writes of themselves by name.
+    #[test]
+    fn a_letter_tells_of_its_writer_in_the_first_person() {
+        for (told, written) in [
+            (
+                "Greta is grown now, with a trade of their own: cheesemaker",
+                "I'm grown now, with a trade of my own: cheesemaker",
+            ),
+            ("Greta and Leo walked out", "Leo and I walked out"),
+            ("Leo and Greta made it up", "Leo and I made it up"),
+            ("Leo gave Greta a gift", "Leo gave me a gift"),
+            ("Greta's boat was mended", "My boat was mended"),
+            (
+                "Greta mended the nets at the quay",
+                "I mended the nets at the quay",
+            ),
+            (
+                "Leo and Mara became firm friends",
+                "Leo and Mara became firm friends",
+            ),
+            (
+                "Tomas Vale shared supper with Greta",
+                "Tomas Vale shared supper with me",
+            ),
+        ] {
+            assert_eq!(in_own_words(told, "Greta"), written);
+        }
+    }
+}
+
+#[cfg(test)]
+mod articles {
+    #[test]
+    fn a_word_that_starts_with_a_vowel_takes_an() {
+        assert_eq!(
+            crate::articled("Yusuf, a engineer from Phobos, wants a room. A orchard!"),
+            "Yusuf, an engineer from Phobos, wants a room. An orchard!"
+        );
+        assert_eq!(
+            crate::articled("a banana, a unicorn"),
+            "a banana, a unicorn"
+        );
+        assert_eq!(
+            crate::articled("Mixtape: side A is loud."),
+            "Mixtape: side A is loud."
+        );
+    }
 }

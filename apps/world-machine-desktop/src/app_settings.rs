@@ -42,8 +42,10 @@ pub struct AppSettings {
     /// environment still wins over it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_model: Option<String>,
-    /// Whether a World's window plays its landscape's quiet sound. Off
-    /// unless somebody turns it on, and omitted from the file while off.
+    /// Whether a World's window plays its landscape's quiet sound. On for
+    /// a new install (see [`AppSettings::first_launch`]); a settings file
+    /// written before that omits it while off, so a player who never turned
+    /// it on keeps the quiet they had.
     #[serde(default, skip_serializing_if = "is_off")]
     pub ambient_sound: bool,
     /// The player's level for each sound (music, ambience, voices,
@@ -155,6 +157,21 @@ impl AppSettings {
             .min(100)
     }
 
+    /// What a new install starts with: nothing chosen yet, and sound on at
+    /// a gentle level, so the first World is heard without being loud. Only
+    /// a missing settings file reads this way; an existing file keeps the
+    /// player's own choice, sound off included.
+    pub fn first_launch() -> Self {
+        let mut settings = Self::empty();
+        settings.ambient_sound = true;
+        for channel in crate::ambience::Channel::ALL {
+            settings
+                .sound_levels
+                .insert(sound_key(channel).to_string(), channel.gentle_level());
+        }
+        settings
+    }
+
     pub fn empty() -> Self {
         Self {
             version: SETTINGS_VERSION,
@@ -260,7 +277,7 @@ pub fn settings_path(root: &Path) -> PathBuf {
 pub fn load(root: &Path) -> Result<AppSettings, AppSettingsError> {
     let path = settings_path(root);
     if !path.exists() {
-        return Ok(AppSettings::empty());
+        return Ok(AppSettings::first_launch());
     }
     let mut file = File::open(&path).map_err(|error| {
         AppSettingsError::Io(format!(
@@ -491,7 +508,31 @@ mod tests {
     #[test]
     fn absent_file_loads_defaults() {
         let fixture = Fixture::new();
-        assert_eq!(load(&fixture.root).unwrap(), AppSettings::empty());
+        assert_eq!(load(&fixture.root).unwrap(), AppSettings::first_launch());
+    }
+
+    #[test]
+    fn a_new_install_hears_its_world_gently_and_an_old_one_keeps_its_quiet() {
+        let fixture = Fixture::new();
+        let fresh = load(&fixture.root).unwrap();
+        assert!(fresh.ambient_sound);
+        for channel in crate::ambience::Channel::ALL {
+            let level = fresh.sound_level(channel);
+            assert!(
+                level > 0 && level < channel.default_level(),
+                "{channel:?} at {level}"
+            );
+        }
+        // The first thing a new player changes keeps the sound on.
+        save_language(&fixture.root, Some("en".into())).unwrap();
+        assert!(load(&fixture.root).unwrap().ambient_sound);
+        // Someone who had a settings file with sound off keeps it off.
+        let old = Fixture::new();
+        save(&old.root, &AppSettings::empty()).unwrap();
+        assert!(!load(&old.root).unwrap().ambient_sound);
+        // And turning it off sticks.
+        save_ambient_sound(&fixture.root, false).unwrap();
+        assert!(!load(&fixture.root).unwrap().ambient_sound);
     }
 
     #[test]

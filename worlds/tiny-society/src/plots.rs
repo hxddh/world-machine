@@ -370,6 +370,21 @@ pub(crate) const PLOT_PITCH: f32 = 0.16;
 /// The most a plot offers at once: everything that belongs on its stretch.
 const OFFERED: usize = 12;
 
+/// How the harbour's plots open: eight as a new harbour begins (some on
+/// every stretch), then four more in each year (days after the story
+/// began), the last in the third year. A harbour begun before v0.24 keeps every plot open.
+pub(crate) const STAGES: hands::PlotStages = hands::PlotStages {
+    keeper: crate::story::STORY,
+    first: 8,
+    at: &[60, 120, 180, 270, 390, 480, 570, 660, 750, 840, 930, 1_020],
+    group: stretch_of,
+};
+
+/// Which stretch a plot lies on, from where it lies.
+fn stretch_of(_: &WorldState, plot: &hands::Plot) -> usize {
+    slot_of(&plot.id).map_or(0, |slot| stretch_at(plot_px(slot)))
+}
+
 /// The plot slots: two in every three along the row, so works stand in
 /// pairs with a gap for a path between each pair.
 fn slots() -> impl Iterator<Item = usize> {
@@ -547,6 +562,7 @@ pub(crate) fn canvas_plots(world: &World) -> Vec<world_projection::Plot> {
                             }),
                             cost: deed.cost,
                             unavailable: deed.unavailable,
+                            art: crate::drawings::art_of(what).map(Into::into),
                         }
                     })
                     .collect(),
@@ -641,6 +657,8 @@ pub(crate) fn dress(world: &World, items: &mut [CanvasItem]) {
         if building {
             item.detail = "Being built".into();
             item.built = None;
+            // Scaffolding stands round it until it is finished.
+            item.art = Some("scaffold".into());
         } else if let Some(finished) = hands::finished_at(state, &kit, id) {
             item.built = Some(day(finished as i64));
         }

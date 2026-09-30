@@ -493,7 +493,7 @@ impl WorldDocumentView {
                 self.status = Some(DocumentStatus::success(format!(
                     "Reloaded {} · {}",
                     self.document_name,
-                    snapshot.moment_label(snapshot.world_time)
+                    world_gpui::i18n::moment_label(&snapshot, snapshot.world_time)
                 )));
             }
             Err(error) => {
@@ -543,7 +543,7 @@ impl WorldDocumentView {
                         this.status = Some(DocumentStatus::success(format!(
                             "Saved As {} · {}",
                             this.document_name,
-                            snapshot.moment_label(snapshot.world_time)
+                            world_gpui::i18n::moment_label(&snapshot, snapshot.world_time)
                         )));
                     }
                     Err(error) => {
@@ -715,7 +715,7 @@ impl Render for WorldDocumentView {
                     .text_base()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .truncate()
-                    .child(self.document_name.clone()),
+                    .child(ui::t(self.document_name.clone())),
             )
             .when_some(keeps_going, |identity, line| {
                 identity.child(
@@ -3545,17 +3545,12 @@ const WORLD_COVER_HEIGHT: f32 = 196.0;
 /// How long a World has been living without you, in its own unit:
 /// "1 sol has passed", "3 nights have passed".
 fn time_waiting_line(periods: u64, unit: &str) -> String {
-    let verb = if periods == 1 { "has" } else { "have" };
-    format!("{} {verb} passed", count_of(periods, unit))
+    world_gpui::i18n::time_passed(periods, unit)
 }
 
 /// "1 sol", "3 nights".
 fn count_of(count: u64, unit: &str) -> String {
-    if count == 1 {
-        format!("1 {unit}")
-    } else {
-        format!("{count} {unit}s")
-    }
+    world_gpui::i18n::count_of(count, unit)
 }
 
 /// The line under a World's name on Home.
@@ -3568,18 +3563,20 @@ fn world_card_meta(
 ) -> String {
     // The World's own count ("Sol 5"), the way its window says it.
     let age = if world_time == 0 {
-        "just begun".to_string()
+        ui::t("just begun").to_string()
     } else {
-        world_projection::ProjectionSnapshot {
-            calendar: calendar.cloned(),
-            ..world_projection::ProjectionSnapshot::default()
-        }
-        .moment_label(world_time)
+        world_gpui::i18n::moment_label(
+            &world_projection::ProjectionSnapshot {
+                calendar: calendar.cloned(),
+                ..world_projection::ProjectionSnapshot::default()
+            },
+            world_time,
+        )
     };
     if title == pack_title {
         age
     } else {
-        format!("{pack_title} · {age}")
+        format!("{} · {age}", ui::t(pack_title.to_string()))
     }
 }
 
@@ -3739,15 +3736,7 @@ fn unix_now() -> Option<u64> {
 /// one line, with the one number that makes it true.
 #[cfg(target_os = "macos")]
 fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
-    if remaining_seconds == 0 {
-        return format!("Keeps going without you · a new {unit} waits for your next visit");
-    }
-    let wait = if remaining_seconds >= 3600 {
-        format!("{} h", remaining_seconds.div_ceil(3600))
-    } else {
-        format!("{} min", remaining_seconds.div_ceil(60).max(1))
-    };
-    format!("Keeps going without you · next {unit} in {wait}")
+    world_gpui::i18n::keeps_going(remaining_seconds, unit)
 }
 
 #[cfg(target_os = "macos")]
@@ -4341,6 +4330,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         world_i18n::install(catalog);
     }
     world_i18n::install(&world_builtins::zh_hans_voices());
+    // The app's own words last: where a Pack translates the same English
+    // for its scene ("Open" as a shop is, 营业中), the app's buttons keep
+    // theirs ("Open" a World, 打开).
+    world_i18n::install(world_gpui::i18n::APP_ZH_HANS);
     world_machine_desktop::display::apply(saved.as_ref());
     install_pointers(saved.as_ref());
     ambience::set_enabled(

@@ -80,13 +80,13 @@ pub(crate) fn storm_kinds() -> &'static [&'static str] {
     })
 }
 
-fn names() -> &'static [&'static str] {
+pub(crate) fn names() -> &'static [&'static str] {
     static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
     NAMES.get_or_init(|| {
         crate::people_names()
             .into_iter()
             .flat_map(|name| name.split_whitespace())
-            .chain(["Harbor", "Anchor Pub", "Island School", "Sea Finch"])
+            .chain(["Harbour Bakery", "Anchor Pub", "Island School", "Sea Finch"])
             .collect()
     })
 }
@@ -199,5 +199,6 @@ impl Teller for Harbour<'_> {
 
 /// The legend of a person, place or thing in the harbour.
 pub(crate) fn legend(world: &World, subject: SelectionId) -> Option<Legend> {
-    chronicle::legend(&Harbour(world), subject)
+    let teller = Harbour(world);
+    chronicle::legend(&teller, subject).map(|legend| chronicle::filled_life(&teller, legend))
 }

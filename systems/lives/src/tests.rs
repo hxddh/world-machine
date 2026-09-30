@@ -147,6 +147,7 @@ fn cast() -> Cast {
         most_open: 2,
         voice: |_| None,
         kin: None,
+        kind: crate::never,
     }
 }
 

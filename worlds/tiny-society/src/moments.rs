@@ -8,7 +8,7 @@ use crate::{HARBOR, PUB};
 use chronicle::{fill, text, Beat};
 use std::collections::{BTreeMap, BTreeSet};
 use world_core::{EntityId, Event, StateChange, Value, World};
-use world_projection::{BookEntry, MarkShape, Moment, MomentKind, Mood, SelectionId};
+use world_projection::{BookEntry, MarkShape, Moment, MomentKind, Mood, Prop, SelectionId};
 
 use Mood::{Content, Happy, Sad, Thinking};
 
@@ -26,7 +26,25 @@ struct Voice {
     before: &'static [&'static str],
     after: &'static [&'static str],
     moods: [Mood; 3],
+    /// What each panel shows besides its people, whatever its words.
+    props: [&'static [Prop]; 3],
 }
+
+/// Words a caption can say that a panel shows: a caption that names the
+/// ferry has the ferry drawn in it.
+const PROP_WORDS: &[(&str, Prop)] = &[
+    ("ferry", Prop::Ferry),
+    ("bag", Prop::Suitcase),
+    ("lamp stayed lit", Prop::Lamp),
+    ("a light in the window", Prop::Lamp),
+    ("chapel", Prop::Bouquet),
+    ("danced", Prop::Bunting),
+    ("tables", Prop::Table),
+    ("storm", Prop::Rain),
+    ("the wind got up", Prop::Rain),
+    ("went dark", Prop::Rain),
+    ("sit on the quay", Prop::Bench),
+];
 
 const WEDDING: Voice = Voice {
     title: "{a} and {b}'s wedding",
@@ -39,6 +57,7 @@ const WEDDING: Voice = Voice {
         "{a} and {b} danced on the quay till the lamps went out.",
     ],
     moods: [Content, Happy, Happy],
+    props: [&[], &[Prop::Bunting, Prop::Bouquet], &[]],
 };
 
 const COUPLE: Voice = Voice {
@@ -52,6 +71,7 @@ const COUPLE: Voice = Voice {
         "{b} smiled for a week, and {a} for longer.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[], &[], &[]],
 };
 
 const SETTLED: Voice = Voice {
@@ -65,6 +85,7 @@ const SETTLED: Voice = Voice {
         "{a} unpacked the bag at last, and so did the others.",
     ],
     moods: [Thinking, Happy, Content],
+    props: [&[Prop::Suitcase], &[], &[]],
 };
 
 const TEACHER: Voice = Voice {
@@ -78,6 +99,7 @@ const TEACHER: Voice = Voice {
         "{a} walked home from {place} with chalk on every sleeve.",
     ],
     moods: [Thinking, Happy, Content],
+    props: [&[], &[], &[]],
 };
 
 const PARTY: Voice = Voice {
@@ -91,6 +113,11 @@ const PARTY: Voice = Voice {
         "Nobody left {place} before {a} and {b} did.",
     ],
     moods: [Content, Happy, Happy],
+    props: [
+        &[Prop::Table],
+        &[Prop::Bunting, Prop::Table],
+        &[Prop::Bunting],
+    ],
 };
 
 const BIRTH: Voice = Voice {
@@ -104,6 +131,7 @@ const BIRTH: Voice = Voice {
         "{b} carried {a} along the quay for everyone to see.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[], &[Prop::Cradle], &[Prop::Cradle]],
 };
 
 const GROWN: Voice = Voice {
@@ -118,6 +146,7 @@ const GROWN: Voice = Voice {
         "{a} went to work at {place} the next morning, grown at last.",
     ],
     moods: [Content, Happy, Content],
+    props: [&[], &[], &[Prop::Tools]],
 };
 
 const RETIRED: Voice = Voice {
@@ -131,6 +160,7 @@ const RETIRED: Voice = Voice {
         "{a} had time at last to sit on the quay in the {season} sun.",
     ],
     moods: [Thinking, Content, Happy],
+    props: [&[Prop::Tools], &[], &[Prop::Bench]],
 };
 
 const FAREWELL: Voice = Voice {
@@ -144,6 +174,7 @@ const FAREWELL: Voice = Voice {
         "{a}'s window at {place} stayed dark that night.",
     ],
     moods: [Thinking, Sad, Content],
+    props: [&[Prop::Suitcase], &[Prop::Ferry], &[]],
 };
 
 const DEATH: Voice = Voice {
@@ -157,6 +188,7 @@ const DEATH: Voice = Voice {
         "The boats stayed in the day after {a} died.",
     ],
     moods: [Content, Sad, Sad],
+    props: [&[], &[Prop::Wreath], &[]],
 };
 
 const STORM: Voice = Voice {
@@ -172,6 +204,7 @@ const STORM: Voice = Voice {
         "{a} helped sweep the quay clear before breakfast.",
     ],
     moods: [Thinking, Thinking, Content],
+    props: [&[Prop::Rain], &[Prop::Rain], &[]],
 };
 
 const WORK: Voice = Voice {
@@ -185,6 +218,7 @@ const WORK: Voice = Voice {
         "{a} walked round {work} twice, just to look.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[Prop::Scaffold], &[Prop::Ribbon], &[]],
 };
 
 const FESTIVAL: Voice = Voice {
@@ -198,6 +232,7 @@ const FESTIVAL: Voice = Voice {
         "{a} talked about {festival} for days.",
     ],
     moods: [Content, Happy, Happy],
+    props: [&[Prop::Bunting], &[Prop::Bunting], &[]],
 };
 
 const ARRIVAL: Voice = Voice {
@@ -211,6 +246,7 @@ const ARRIVAL: Voice = Voice {
         "{a} had a key to a door in the harbour before the week was out.",
     ],
     moods: [Thinking, Happy, Content],
+    props: [&[], &[Prop::Suitcase], &[]],
 };
 
 fn is_person(world: &World, id: EntityId) -> bool {
@@ -366,6 +402,7 @@ fn beat<'a>(
         title: capitalized(&fill(voice.title, &all)),
         cast,
         place: Some(place),
+        props: [0, 1, 2].map(|at| chronicle::props_for(&captions[at], PROP_WORDS, voice.props[at])),
         captions,
         moods: voice.moods.map(Some),
     })

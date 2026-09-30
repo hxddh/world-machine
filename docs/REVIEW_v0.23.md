@@ -381,6 +381,35 @@ Three stages, each a release. Bars are measured the same way as here.
    - Japanese;
    - a desktop widget and Quick Look once a Developer ID exists.
 
+## What v0.24.0 did
+
+The first stage, "coherent".
+
+| Bar | v0.24.0 |
+|---|---|
+| No overlaps at day 1,080 | 0 overlaps, tested at 4 hours and 2 window sizes |
+| Lower third used | every person out at noon stands on the quay in the lower third |
+| Whole-town view fills at least 70% of the window | the scene fills the window, the town 74% of its height, with sky and night |
+| Cottage 2.5–3 times a person | 2.75, tested at 3 window sizes |
+| No two works share a silhouette | 0 collisions among 424 drawings |
+| No harbour drawing in Pocket Universe | 0 on a builder's lived year in each place |
+| First-session behaviour | Day 1, fair, welcome first; the first answer is seen; the first build is finished the next day; 0 sad lines in 5 days (was 23) |
+| No storylet title more than 3 times, five players | 0 in Tiny Society and every Pocket Universe place (was 4–8 titles ×16) |
+| Legend causes of at least 30% for Last and Never | 45–61% |
+| Never and Absent works at a Jaccard distance of at least 0.5 | 0.85 in Tiny Society; 0.61–0.64 in Pocket Universe |
+| Plots opening in each of three years | [12, 4, 3] in Tiny Society; [9, 4, 2–5] in Pocket Universe |
+| Zero seams | 0 of 79 and 82 left |
+| Zero English in the zh-Hans interface | 0 in 646 lines, walked in a test |
+| Almanac reachable after the first New Year | from the drawer and with Y |
+
+![Day 1,082 at noon](review/v24-noon.png)
+![The whole town at dusk](review/v24-postcard.png)
+![Ares](review/v24-ares.png)
+![Icebridge](review/v24-icebridge.png)
+![The drawer](review/v24-drawer.png)
+
+Next is v0.25: a crafted and trusted product, with the speed back.
+
 ## Decisions only you can make
 
 1. **Apple Developer Program** ($99 a year). It unlocks notarization, the widget, Quick Look, iCloud and any store. Everything in v0.26's second part waits on it.

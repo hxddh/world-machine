@@ -74,7 +74,13 @@ pub(crate) fn snapshot_since(
         scenery: seeded
             .then(|| seed_scenery(seed_id(world)))
             .flatten()
-            .map(|scenery| scenery.in_season(crate::story::season(world) as u64)),
+            // Only Maple Street has green hills to turn gold and frost:
+            // Mars keeps its butterscotch and the ice its blue all year, and
+            // their seasons show on the ground.
+            .map(|scenery| match seed_id(world) {
+                "1980s-town" => scenery.in_season(crate::story::season(world) as u64),
+                _ => scenery,
+            }),
         calendar: seeded.then(|| world_projection::Calendar {
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
@@ -96,12 +102,17 @@ pub(crate) fn snapshot_since(
         book: crate::book::book(world),
         moments: Vec::new(),
         almanac: None,
+        almanac_years: crate::almanac_page::years(world),
     };
     // The place's moments: the latest few, and every one in the book.
     let moments = crate::moments::moments(world);
     snapshot.almanac = crate::almanac_page::new_year(world, &moments);
     snapshot.book.extend(crate::moments::book_entries(&moments));
     snapshot.moments = world_projection::latest_moments(&moments);
+    // Whoever asked what was just answered goes over to what it made.
+    world_projection::go_to_what_was_answered(world, &mut snapshot.canvas.items, |event| {
+        matches!(crate::story::answer_words(world, event), Some(Some(_)))
+    });
     snapshot.tell_events_as_history_does();
     snapshot.keep_voices_in_view();
     snapshot
@@ -423,7 +434,7 @@ fn collection(world: &World) -> CollectionProjection {
             .filter(|entity| entity.id != UNIVERSE)
             .map(|entity| CollectionItem {
                 id: SelectionId::Entity(entity.id),
-                title: entity_title(entity),
+                title: crate::story::fill(world, &entity_title(entity)),
                 subtitle: entity.kind.replace('_', " "),
             })
             .collect(),
@@ -470,7 +481,7 @@ fn canvas(world: &World) -> CanvasProjection {
             Some(CanvasItem {
                 id: SelectionId::Entity(*id),
                 kind: canvas_kind(entity),
-                label: entity_title(entity),
+                label: crate::story::fill(world, &entity_title(entity)),
                 detail: canvas_detail(entity),
                 x: *x,
                 y: *y,
@@ -514,7 +525,7 @@ fn canvas(world: &World) -> CanvasProjection {
         items.push(CanvasItem {
             id: SelectionId::Entity(id),
             kind: CanvasItemKind::Actor,
-            label: entity_title(entity),
+            label: crate::story::fill(world, &entity_title(entity)),
             detail: canvas_detail(entity),
             x: 0.2 + 0.12 * (index % 6) as f32 + 0.06 * (index / 6 % 2) as f32,
             y: 0.55 + 0.08 * (index % 2) as f32 + 0.1 * (index / 6 % 2) as f32,
@@ -812,9 +823,10 @@ fn integer_entity_component(entity: Option<&Entity>, key: &str) -> Option<i64> {
     }
 }
 
-/// What each place looks like from a distance: red dust and a pale sun for
-/// Ares, a sodium-lit street at dusk for Maple Street, ice under the aurora
-/// for Icebridge.
+/// What each place looks like from a distance, by day (the app grades it
+/// for dusk and night): red dust under a pale butterscotch sky for Ares, a
+/// hazy summer sky over lilac hills and asphalt for Maple Street, a cold
+/// clear sky over the ice and a dark sea for Icebridge.
 pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
     let scenery = |sky_top, sky_bottom, far, near, sun| world_projection::Scenery {
         sky_top,
@@ -825,8 +837,8 @@ pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
     };
     match seed {
         "mars-colony" => Some(scenery(0xe7b089, 0xf5d9bd, 0xc2663f, 0x8a3a22, 0xfff3dc)),
-        "1980s-town" => Some(scenery(0x241d45, 0x6b4a7a, 0x3a2f55, 0x1b1630, 0xf4bf5c)),
-        "penguin-civilization" => Some(scenery(0x14305a, 0x3f8f95, 0xa9cbdb, 0xe6f1f6, 0xb9f3d3)),
+        "1980s-town" => Some(scenery(0x7ca6d6, 0xeedfcc, 0x857e9c, 0x46465a, 0xffd98a)),
+        "penguin-civilization" => Some(scenery(0x8fbcd8, 0xeaf3f7, 0xbcd4e4, 0x2f6f8a, 0xfff6dc)),
         _ => None,
     }
 }

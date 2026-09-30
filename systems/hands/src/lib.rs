@@ -22,8 +22,8 @@ use world_core::{
 mod mark;
 pub use mark::{
     building, design_parts, design_request, finished_at, name_request, named, offers, on_plots,
-    pattern_of, plot_key, plot_of, plot_work, tidy_name, was_called, Plot, BUILDING, NAMED,
-    PATTERN, PLOT, WAS,
+    open_plots, pattern_of, plot_key, plot_of, plot_work, plots_open_now, stage_plots, tidy_name,
+    was_called, Plot, BUILDING, NAMED, PATTERN, PLOT, WAS,
 };
 
 /// What the player can do.
@@ -174,6 +174,30 @@ pub struct Kit {
     /// What something the player can name is, in a word for how naming it
     /// is told ("You named the boat …"), if it can be named.
     pub naming: fn(&WorldState, EntityId) -> Option<String>,
+    /// How the plots open over the years, if they open in stages; with
+    /// none, every plot is open from the start.
+    pub plot_stages: Option<PlotStages>,
+    /// How many periods the first work built on a plot takes, when the
+    /// Pack makes a new player's first build a short one; the rest take
+    /// [`Kit::growing`]. What a work takes is kept on it when it is begun,
+    /// so a World's history never changes with the Kit.
+    pub first_growing: Option<u64>,
+}
+
+/// How a Pack's plots open over the years: `first` from the start, then
+/// one more at each of `at` (periods after the start), a stretch at a time
+/// in turn, until every plot is open. What is open is kept on `keeper`, an
+/// entity the Pack's World always has; a World begun before plots opened
+/// in stages keeps every plot open.
+#[derive(Clone, Copy, Debug)]
+pub struct PlotStages {
+    pub keeper: EntityId,
+    pub first: usize,
+    pub at: &'static [u64],
+    /// Which stretch of the place a plot lies on, from where it lies (never
+    /// from what it offers, which can change): plots open a stretch at a
+    /// time in turn, so every stretch has one from the start.
+    pub group: fn(&WorldState, &Plot) -> usize,
 }
 
 /// A Kit's plots when the Pack has none.
@@ -372,7 +396,7 @@ fn by_hand(state: &WorldState) -> Vec<EntityId> {
 pub fn plot_deeds(world: &World, kit: &Kit) -> Vec<(Plot, Vec<Deed>)> {
     let state = world.state();
     let cost_words = |cost: i64| (kit.purse.is_some() && cost > 0).then(|| cost.to_string());
-    (kit.plots)(state)
+    open_plots(state, kit)
         .into_iter()
         .filter(|plot| state.entity(plot.at).is_some())
         .map(|plot| {
@@ -481,6 +505,21 @@ impl Action for Does {
                     key: "hands.last".into(),
                     value: (id.0 as i64).into(),
                 });
+                // A new player's first build goes up quickly.
+                if let Some(first) = kit.first_growing {
+                    if integer(state, kit.notes, mark::FIRST_BUILT).is_none() {
+                        changes.push(StateChange::SetComponent {
+                            entity: id,
+                            key: mark::GROWING.into(),
+                            value: (first as i64).into(),
+                        });
+                        changes.push(StateChange::SetComponent {
+                            entity: kit.notes,
+                            key: mark::FIRST_BUILT.into(),
+                            value: (id.0 as i64).into(),
+                        });
+                    }
+                }
                 (
                     "built_by_hand",
                     thing.cost,
@@ -810,6 +849,8 @@ pub fn register_actions(
     registry.register(mark::Finishes(kit))?;
     registry.register(mark::Designs(kit))?;
     registry.register(mark::Names(kit))?;
+    registry.register(mark::StagesPlots(kit))?;
+    registry.register(mark::ClearsPlot(kit))?;
     Ok(())
 }
 
@@ -1138,6 +1179,7 @@ pub fn tick(
     kit: &Kit,
 ) -> Result<Vec<EventId>, WorldError> {
     let mut events = mark::finish(world, actions, kit)?;
+    events.extend(mark::clear_plot(world, actions, kit)?);
     for plant in made(world.state()) {
         if due_stage(world.state(), kit, plant).is_some() {
             let request = ActionRequest::new("hands_grow").arg("plant", Value::Entity(plant));
@@ -1294,6 +1336,7 @@ pub fn is_hands(event: &Event) -> bool {
             | "undone_by_hand"
             | "enjoyed"
             | "plot_finished"
+            | "plot_cleared"
             | "designed"
             | "named"
     )

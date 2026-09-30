@@ -1,10 +1,15 @@
 mod almanac;
 mod almanac_page;
+mod arrival;
+#[cfg(test)]
+mod art_tests;
 mod book;
 #[cfg(test)]
 mod density;
 mod drawings;
 mod eras;
+#[cfg(test)]
+mod first_minutes;
 mod firsts;
 mod handwork;
 mod kin;
@@ -13,12 +18,16 @@ mod life;
 mod moments;
 pub mod narrator;
 mod places;
+#[cfg(test)]
+mod players;
 mod plots;
 #[cfg(test)]
 mod plots_tests;
 mod projection;
 #[cfg(test)]
 mod red_team;
+#[cfg(test)]
+mod seams_tests;
 mod speech;
 #[cfg(test)]
 mod stories_tests;
@@ -296,10 +305,19 @@ impl PocketUniverse {
         }
 
         if let Some((storylet, choice)) = story::parse_command(command_id) {
-            return Ok(self
+            let chosen = self
                 .world
                 .execute(&self.actions, &storylets::choose_request(storylet, choice))?
-                .id);
+                .id;
+            // The place sees the player here: it takes up the works they
+            // let wait.
+            storylets::mark_now(
+                &mut self.world,
+                &self.actions,
+                story::HANDS_SEEN,
+                story::HANDS_SEEN_EVERY,
+            )?;
+            return Ok(chosen);
         }
 
         if let Some(deed) = handwork::parse_command(command_id) {
@@ -313,6 +331,15 @@ impl PocketUniverse {
                 .world
                 .execute(&self.actions, &hands::do_request(deed))?
                 .id;
+            // The place sees the player making something: it takes up
+            // the works they let wait.
+            storylets::mark_now(
+                &mut self.world,
+                &self.actions,
+                story::HANDS_SEEN,
+                story::HANDS_SEEN_EVERY,
+            )?;
+            story::lend_to_work(&mut self.world, &self.actions)?;
             // Someone nearby says what they make of it, and in a new World
             // the first question follows. Moving things about is only
             // remarked on now and then: nobody comments on every shuffle.
@@ -890,6 +917,7 @@ fn seed_draft(
             key: years::STORES.into(),
             value: 40_i64.into(),
         },
+        arrival::marked(state),
     ];
     draft
         .changes

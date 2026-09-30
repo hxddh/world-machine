@@ -80,7 +80,32 @@ pub struct Storylet {
     /// Tied to the calendar (a market day, a birthday): comes up first when
     /// its day comes, since the day will not wait.
     pub timely: bool,
+    /// Who sees to it when the player turns it down or lets it lapse with
+    /// nothing built, and what their seeing to it does. A want let down
+    /// never comes up again as it was: once it has rested, someone else
+    /// takes it up ([`TakenUp`]), or, with nobody to, it is dropped.
+    /// Anything else with someone to see to it (a part of a work, say) is
+    /// let down the same way.
+    pub taken_up: Option<TakenUp>,
 }
+
+/// Someone else seeing to a want the player let down: who, and what it
+/// does (recorded as `outcome.event`, caused by the letting down).
+#[derive(Clone, Debug)]
+pub struct TakenUp {
+    pub by: EntityId,
+    pub outcome: Outcome,
+    /// What has to be true for them to take it up; until it is, the want
+    /// stays let down.
+    pub requires: Vec<Condition>,
+}
+
+/// How a storylet last ended when someone else took it up.
+pub const TAKEN_UP: &str = "taken_up";
+/// On whoever took a want up: the last one they took on.
+pub const TOOK_UP: &str = "story.took_up";
+/// On whoever's want someone else took up: who, the last time.
+pub const SEEN_TO_BY: &str = "story.seen_to_by";
 
 /// A gauge a storylet tends to move, and which way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,6 +218,8 @@ pub enum Condition {
     Marked(&'static str, u64),
     /// Something never marked, or forgotten.
     Unmarked(&'static str),
+    /// Something marked no more than `periods` ago.
+    MarkedWithin(&'static str, u64),
     /// An entity is in the World.
     Present(EntityId),
     /// An entity is not in the World.
@@ -204,6 +231,10 @@ pub enum Condition {
     /// A storylet has come up before this time: an answer only a place
     /// that remembers the last time can give.
     RaisedBefore(&'static str),
+    /// At least this many periods since the period an entity records
+    /// under a key, or nothing recorded there: a new player's first days
+    /// passed ("arrived" on the harbour, five periods).
+    Since(EntityId, &'static str, u64),
 }
 
 /// Something a World is building toward, part by part.
@@ -379,7 +410,8 @@ pub fn finished(state: &WorldState, deck: &Deck, goal: &str) -> bool {
         .is_some_and(|spec| progress(state, deck, goal) >= spec.parts)
 }
 
-fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
+/// Whether a condition holds now.
+pub fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
     let period = period_index(state, deck);
     match condition {
         Condition::AtLeast(entity, key, n) => integer(state, *entity, key).unwrap_or(0) >= *n,
@@ -396,11 +428,15 @@ fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
         Condition::Marked(mark, periods) => integer(state, deck.story, &key("mark", mark))
             .is_some_and(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
         Condition::Unmarked(mark) => integer(state, deck.story, &key("mark", mark)).is_none(),
+        Condition::MarkedWithin(mark, periods) => integer(state, deck.story, &key("mark", mark))
+            .is_some_and(|at| period <= (at.max(0) as u64).saturating_add(*periods)),
         Condition::Pressure(which) => pressure(state, deck).as_deref() == Some(*which),
         Condition::ChapterEnding(left) => period + left >= chapter_ends(state, deck),
         Condition::Present(entity) => state.entity(*entity).is_some(),
         Condition::Absent(entity) => state.entity(*entity).is_none(),
         Condition::RaisedBefore(id) => times_raised(state, deck, id) >= 2,
+        Condition::Since(entity, key, periods) => integer(state, *entity, key)
+            .is_none_or(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
     }
 }
 
@@ -492,9 +528,74 @@ pub fn answers<'a>(
         .collect()
 }
 
+/// Whether a want, or anything someone else could see to, was let down
+/// (turned down, or left to lapse, with nothing built) and has not been
+/// taken up since: it does not come up again as it was.
+pub fn let_down(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    can_be_let_down(storylet) && integer(state, deck.story, &key("letdown", storylet.id)).is_some()
+}
+
+/// Whether a storylet is one that can be let down: a want, or something
+/// someone else would see to.
+fn can_be_let_down(storylet: &Storylet) -> bool {
+    storylet.want || storylet.taken_up.is_some()
+}
+
+/// How many times someone else took a want up.
+pub fn times_taken_up(state: &WorldState, deck: &Deck, id: &str) -> i64 {
+    integer(state, deck.story, &key("taken", id)).unwrap_or(0)
+}
+
+/// Whether the last time a storylet ended it built a part of a goal (an
+/// answer, a lapse that goes on anyway, or someone else taking it up):
+/// only then does what builds toward it keep its own pace.
+fn built_last(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    let Some(last) = last_outcome(state, deck, storylet.id) else {
+        return true;
+    };
+    let outcome = match last {
+        "lapse" => Some(&storylet.lapse),
+        TAKEN_UP => storylet.taken_up.as_ref().map(|taken| &taken.outcome),
+        choice => storylet
+            .choices
+            .iter()
+            .find(|known| known.id == choice)
+            .map(|known| &known.outcome),
+    };
+    outcome.is_some_and(builds_a_part)
+}
+
+/// Whether an outcome builds a part of a goal.
+fn builds_a_part(outcome: &Outcome) -> bool {
+    outcome
+        .effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Advance(_)))
+}
+
+/// The change that remembers a want was let down, and when: turned down
+/// or left, with nothing built. A want that goes on its own way anyway (a
+/// work built slower, without the player) was not let down: it comes
+/// round again as its next part.
+fn letting_down_change(
+    state: &WorldState,
+    deck: &Deck,
+    storylet: &Storylet,
+    outcome: &Outcome,
+) -> Vec<StateChange> {
+    if !can_be_let_down(storylet) || builds_a_part(outcome) {
+        return Vec::new();
+    }
+    vec![StateChange::SetComponent {
+        entity: deck.story,
+        key: key("letdown", storylet.id),
+        value: (state.world_time() as i64).into(),
+    }]
+}
+
 /// Whether a storylet could come up now.
 pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
-    if opened_at(state, deck, storylet.id).is_some() {
+    if opened_at(state, deck, storylet.id).is_some() || let_down(state, deck, storylet) {
         return false;
     }
     let rested = match integer(state, deck.story, &key("last", storylet.id)) {
@@ -511,14 +612,17 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
 
 /// Whether a storylet that has come round before has rested as long as
 /// coming round again asks ([`Deck::rarer`]).
+///
+/// Every storylet rests after it is told, however it ended. What last
+/// ended by building a part of a goal not yet finished comes round part
+/// by part, as it always has; everything else (let lapse or turned down
+/// with nothing built, or answered some other way) grows rarer each time
+/// it comes round.
 fn rested_from_before(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
     let times = times_raised(state, deck, storylet.id).max(0) as u64;
-    // What builds toward a goal not yet finished comes round part by part,
-    // as it always has.
-    // A want nobody answered last time did not really happen: the asker
-    // asks again at their own pace.
-    let unanswered = storylet.want && last_outcome(state, deck, storylet.id) == Some("lapse");
-    if deck.rarer == 0 || times < 2 || unanswered || advances_goal(state, deck, storylet).is_some()
+    if deck.rarer == 0
+        || times < 2
+        || (built_last(state, deck, storylet) && advances_goal(state, deck, storylet).is_some())
     {
         return true;
     }
@@ -533,6 +637,7 @@ fn rested_from_before(state: &WorldState, deck: &Deck, storylet: &Storylet) -> b
 /// what the storyteller brings forward when nothing at all is open.
 fn can_arise_early(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
     opened_at(state, deck, storylet.id).is_none()
+        && !let_down(state, deck, storylet)
         && rested_from_before(state, deck, storylet)
         && !asked_enough_this_year(state, deck, storylet.id)
         && all_hold(state, deck, &storylet.requires)
@@ -547,6 +652,7 @@ fn can_arise_rare(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool 
     // Never past its fourth time this way: rare stays rare.
     times_raised(state, deck, storylet.id) < RAREST
         && opened_at(state, deck, storylet.id).is_none()
+        && !let_down(state, deck, storylet)
         && !asked_enough_this_year(state, deck, storylet.id)
         && all_hold(state, deck, &storylet.requires)
 }
@@ -1038,6 +1144,10 @@ impl Action for Arises {
             )));
         }
         let mut draft = EventDraft::new("situation_arose");
+        // Brought forward only because nothing else at all could come up.
+        if rare && !early && !can_arise(state, &deck, storylet) {
+            draft.payload.insert("rare".into(), true.into());
+        }
         draft.actor = Some(storylet.asker);
         draft.targets = vec![storylet.asker];
         draft.payload.insert("storylet".into(), storylet.id.into());
@@ -1123,6 +1233,16 @@ impl Action for Chosen {
             key: key("outcome", storylet.id),
             value: choice.id.into(),
         });
+        if choice.refuses {
+            draft
+                .changes
+                .extend(letting_down_change(state, &deck, storylet, &choice.outcome));
+        } else if integer(state, deck.story, &key("letdown", storylet.id)).is_some() {
+            draft.changes.push(StateChange::RemoveComponent {
+                entity: deck.story,
+                key: key("letdown", storylet.id),
+            });
+        }
         if storylet.want && choice.refuses {
             draft.changes.push(grudge(state, &deck, storylet.asker));
         } else if storylet.want {
@@ -1173,11 +1293,212 @@ impl Action for Lapsed {
             key: key("outcome", storylet.id),
             value: "lapse".into(),
         });
+        draft
+            .changes
+            .extend(letting_down_change(state, &deck, storylet, &storylet.lapse));
         if storylet.want {
             draft.changes.push(grudge(state, &deck, storylet.asker));
         }
         Ok(draft)
     }
+}
+
+/// The storyteller marks something as happening now (see
+/// [`Condition::MarkedWithin`]), unless it marked it within `every`
+/// periods: a Pack notes what the player did, at most so often.
+struct Marks(DeckSource);
+
+impl Action for Marks {
+    fn name(&self) -> &'static str {
+        "story_marks"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = self.0.get();
+        let mark = arg_text(request, "mark")?;
+        let every = match request.args.get("every") {
+            Some(Value::Integer(every)) => (*every).max(0) as u64,
+            _ => 0,
+        };
+        if state.entity(deck.story).is_none() {
+            return Err(ActionError::Invalid("the story has not begun".into()));
+        }
+        let now = period_index(state, &deck);
+        if integer(state, deck.story, &key("mark", mark))
+            .is_some_and(|at| now < (at.max(0) as u64).saturating_add(every))
+        {
+            return Err(ActionError::Invalid(format!("{mark} marked lately")));
+        }
+        let mut draft = EventDraft::new("story_marked");
+        draft.payload.insert("mark".into(), mark.into());
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: key("mark", mark),
+            value: (now as i64).into(),
+        });
+        Ok(draft)
+    }
+}
+
+/// Marks `mark` as happening now, unless it was marked within `every`
+/// periods: an Event only when it changes something.
+pub fn mark_now(
+    world: &mut World,
+    actions: &ActionRegistry,
+    mark: &str,
+    every: u64,
+) -> Result<Option<EventId>, WorldError> {
+    let request = ActionRequest::new("story_marks")
+        .arg("mark", mark)
+        .arg("every", every as i64);
+    match world.execute(actions, &request) {
+        Ok(event) => Ok(Some(event.id)),
+        Err(WorldError::Action(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Someone else takes up a want the player let down, once it has rested:
+/// it is seen to their way, and it is no longer let down.
+struct TakesUp(DeckSource);
+
+impl Action for TakesUp {
+    fn name(&self) -> &'static str {
+        "storylet_taken_up"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = self.0.get();
+        let storylet = find(&deck, arg_text(request, "storylet")?)?;
+        if !can_take_up(state, &deck, storylet) {
+            return Err(ActionError::Invalid(format!(
+                "nobody can take {} up now",
+                storylet.id
+            )));
+        }
+        let taken = storylet.taken_up.as_ref().expect("checked");
+        let mut draft = EventDraft::new(taken.outcome.event);
+        draft.actor = Some(taken.by);
+        draft.targets = vec![storylet.asker, taken.by];
+        draft.payload.insert("storylet".into(), storylet.id.into());
+        draft.payload.insert(TAKEN_UP.into(), true.into());
+        draft.payload.insert("by".into(), Value::Entity(taken.by));
+        draft.changes = applied(state, &deck, &taken.outcome.effects);
+        draft.changes.extend([
+            StateChange::RemoveComponent {
+                entity: deck.story,
+                key: key("letdown", storylet.id),
+            },
+            StateChange::SetComponent {
+                entity: deck.story,
+                key: key("last", storylet.id),
+                value: (state.world_time() as i64).into(),
+            },
+            StateChange::SetComponent {
+                entity: deck.story,
+                key: key("outcome", storylet.id),
+                value: TAKEN_UP.into(),
+            },
+            StateChange::SetComponent {
+                entity: deck.story,
+                key: key("taken", storylet.id),
+                value: (times_taken_up(state, &deck, storylet.id) + 1).into(),
+            },
+            // It is part of both their lives: what the helper took on,
+            // and who saw to what the asker wanted.
+            StateChange::SetComponent {
+                entity: taken.by,
+                key: TOOK_UP.into(),
+                value: storylet.id.into(),
+            },
+            StateChange::SetComponent {
+                entity: storylet.asker,
+                key: SEEN_TO_BY.into(),
+                value: Value::Entity(taken.by),
+            },
+        ]);
+        Ok(draft)
+    }
+}
+
+/// Whether someone can take up a let-down want now: they and the asker are
+/// both still there, and it has rested since it was let down.
+fn can_take_up(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    let Some(taken) = &storylet.taken_up else {
+        return false;
+    };
+    let rested = integer(state, deck.story, &key("last", storylet.id)).is_none_or(|last| {
+        state.world_time() >= (last.max(0) as u64).saturating_add(storylet.rests * deck.period)
+    });
+    let_down(state, deck, storylet)
+        && opened_at(state, deck, storylet.id).is_none()
+        && taken.by != storylet.asker
+        && state.entity(taken.by).is_some()
+        && state.entity(storylet.asker).is_some()
+        && rested
+        && all_hold(state, deck, &taken.requires)
+}
+
+/// The Event that let a want down last: its lapse, or an answer turning it
+/// down.
+fn letting_down(world: &World, storylet: &Storylet) -> Option<EventId> {
+    let index = world.history_index();
+    std::iter::once(storylet.lapse.event)
+        .chain(
+            storylet
+                .choices
+                .iter()
+                .filter(|choice| choice.refuses)
+                .map(|choice| choice.outcome.event),
+        )
+        .filter_map(|kind| {
+            // The latest of each kind that was this storylet's.
+            index.of_kind(kind).iter().rev().copied().find(|id| {
+                world.event(*id).is_some_and(|event| {
+                    event.payload.get("storylet") == Some(&Value::Text(storylet.id.into()))
+                })
+            })
+        })
+        .max()
+}
+
+/// Someone takes up a let-down want that has rested, if one has: at most
+/// one a period, the longest let down first.
+fn take_up(
+    world: &mut World,
+    actions: &ActionRegistry,
+    deck: &Deck,
+) -> Result<Option<EventId>, WorldError> {
+    let state = world.state();
+    let Some(storylet) = deck
+        .storylets
+        .iter()
+        .filter(|storylet| can_take_up(state, deck, storylet))
+        .min_by_key(|storylet| {
+            (
+                integer(state, deck.story, &key("letdown", storylet.id)).unwrap_or(0),
+                storylet.id,
+            )
+        })
+    else {
+        return Ok(None);
+    };
+    let taken = storylet.taken_up.as_ref().expect("can be taken up");
+    let mut request = ActionRequest::new("storylet_taken_up")
+        .actor(taken.by)
+        .arg("storylet", storylet.id);
+    if let Some(cause) = letting_down(world, storylet) {
+        request = request.caused_by(cause);
+    }
+    Ok(Some(world.execute(actions, &request)?.id))
 }
 
 /// A chapter ends, told in the Pack's words, and the next begins.
@@ -1285,6 +1606,8 @@ fn register(registry: &mut ActionRegistry, deck: DeckSource) -> Result<(), Actio
     registry.register(Arises(deck))?;
     registry.register(Chosen(deck))?;
     registry.register(Lapsed(deck))?;
+    registry.register(TakesUp(deck))?;
+    registry.register(Marks(deck))?;
     registry.register(ChapterTurns(deck))?;
     registry.register(ChapterHastens(deck))?;
     Ok(())
@@ -1433,6 +1756,10 @@ pub fn tick(
                 .arg("storylet", storylet.id);
             events.push(world.execute(actions, &request)?.id);
         }
+    }
+    // A want let down and rested is seen to by someone else.
+    if !reading.hold {
+        events.extend(take_up(world, actions, deck)?);
     }
     let (_, started) = chapter(world.state(), deck);
     let ends = chapter_ends(world.state(), deck);
@@ -1628,6 +1955,7 @@ mod tests {
 
     const STORY: EntityId = EntityId::new(1);
     const ANN: EntityId = EntityId::new(2);
+    const BO: EntityId = EntityId::new(3);
 
     fn deck() -> Deck {
         let coins = |by: i64| Effect::Add {
@@ -1668,6 +1996,16 @@ mod tests {
                         up: false,
                     }],
                     timely: false,
+                    // Let down, Ann's roof is seen to by Bo: a deck this
+                    // small would otherwise run dry once it is dropped.
+                    taken_up: Some(TakenUp {
+                        by: BO,
+                        outcome: Outcome {
+                            event: "bo_mended_the_roof",
+                            effects: vec![Effect::Advance("house")],
+                        },
+                        requires: Vec::new(),
+                    }),
                 },
                 Storylet {
                     id: "market",
@@ -1692,6 +2030,7 @@ mod tests {
                     weight: 1,
                     eases: Vec::new(),
                     timely: true,
+                    taken_up: None,
                 },
                 Storylet {
                     id: "chat",
@@ -1716,6 +2055,7 @@ mod tests {
                     weight: 0,
                     eases: Vec::new(),
                     timely: false,
+                    taken_up: None,
                 },
             ],
             goals: vec![Goal {
@@ -1740,6 +2080,7 @@ mod tests {
         state
             .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
             .unwrap();
+        state.seed_entity(Entity::new(BO, "person")).unwrap();
         let mut actions = ActionRegistry::new();
         register_actions(&mut actions, deck).unwrap();
         let mut world = World::new(state);
@@ -1984,6 +2325,7 @@ mod tests {
         state
             .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
             .unwrap();
+        state.seed_entity(Entity::new(BO, "person")).unwrap();
         let mut actions = ActionRegistry::new();
         register_actions(&mut actions, long).unwrap();
         let mut world = World::new(state);
@@ -2189,6 +2531,7 @@ mod tests {
             state
                 .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
                 .unwrap();
+            state.seed_entity(Entity::new(BO, "person")).unwrap();
             let mut actions = ActionRegistry::new();
             let source: fn() -> Deck = if rarer == 0 { deck } else { rare_deck };
             register_actions(&mut actions, source).unwrap();
@@ -2202,8 +2545,13 @@ mod tests {
                 world.advance_to(&actions, next).unwrap();
                 for id in tick(&mut world, &actions, &source(), &reading()).unwrap() {
                     let event = world.event(id).unwrap();
+                    // What came up only because nothing else at all could
+                    // (at most RAREST times) is not what this counts: with
+                    // a want let down now dropped until someone takes it
+                    // up, this tiny deck runs dry for a while.
                     if event.kind == "situation_arose"
                         && event.payload.get("storylet") == Some(&Value::Text("market".into()))
+                        && event.payload.get("rare") != Some(&Value::Bool(true))
                     {
                         came.push(day);
                     }
@@ -2293,6 +2641,7 @@ mod tests {
             weight: 9,
             eases: Vec::new(),
             timely: false,
+            taken_up: None,
         });
         deck.most_open = 3;
         deck
@@ -2341,6 +2690,277 @@ mod tests {
         assert!(asked_again, "the roof waited behind the visit");
         assert!(advances_goal(world.state(), &deck, &deck.storylets[0]).is_some());
         assert!(advances_goal(world.state(), &deck, &deck.storylets[3]).is_none());
+    }
+
+    /// Ann's year, where Bo sees to the roof when nobody else will.
+    fn helped_deck() -> Deck {
+        deck()
+    }
+
+    fn world_of(source: fn() -> Deck) -> (World, ActionRegistry) {
+        let mut state = WorldState::default();
+        for (who, coins) in [(ANN, 10_i64), (BO, 0)] {
+            state
+                .seed_entity(Entity::new(who, "person").with_component("coins", coins))
+                .unwrap();
+        }
+        let mut actions = ActionRegistry::new();
+        register_actions(&mut actions, source).unwrap();
+        let mut world = World::new(state);
+        world
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
+        (world, actions)
+    }
+
+    fn roofs_asked(world: &World) -> usize {
+        world
+            .events_of_kind(&["situation_arose"])
+            .iter()
+            .filter(|event| event.payload.get("storylet") == Some(&Value::Text("roof".into())))
+            .count()
+    }
+
+    #[test]
+    fn a_want_let_down_is_taken_up_by_someone_else_and_never_returns_as_it_was() {
+        let (mut world, actions) = world_of(helped_deck);
+        let deck = helped_deck();
+        world
+            .execute(
+                &actions,
+                &ActionRequest::new("storylet_arises").arg("storylet", "roof"),
+            )
+            .unwrap();
+        let mut taken = None;
+        for step in 1..12 {
+            world.advance_to(&actions, step * 10).unwrap();
+            for id in tick(&mut world, &actions, &deck, &reading()).unwrap() {
+                let event = world.event(id).unwrap();
+                if event.kind == "bo_mended_the_roof" {
+                    taken = Some(event.clone());
+                }
+            }
+            if taken.is_none() && step > 2 {
+                assert!(let_down(world.state(), &deck, &deck.storylets[0]));
+            }
+            if taken.is_some() {
+                break;
+            }
+        }
+        let taken = taken.expect("Bo took the roof up");
+        // It was never asked again as it was, before Bo saw to it.
+        assert_eq!(roofs_asked(&world), 1);
+        let leaked = world.events_of_kind(&["roof_leaked"])[0].id;
+        assert_eq!(taken.caused_by, vec![leaked]);
+        assert_eq!(taken.actor, Some(BO));
+        assert_eq!(taken.targets, vec![ANN, BO]);
+        let state = world.state();
+        assert_eq!(progress(state, &deck, "house"), 1);
+        assert!(!let_down(state, &deck, &deck.storylets[0]));
+        assert_eq!(last_outcome(state, &deck, "roof"), Some(TAKEN_UP));
+        assert_eq!(times_taken_up(state, &deck, "roof"), 1);
+        // It is in both their histories.
+        let index = world.history_index();
+        assert!(index.changes_of(BO).contains(&taken.id));
+        assert!(index.changes_of(ANN).contains(&taken.id));
+        assert_eq!(world.replay().unwrap().state(), world.state());
+    }
+
+    #[test]
+    fn a_want_turned_down_with_nobody_to_take_it_up_is_dropped() {
+        let mut refusing = deck();
+        refusing.storylets[0].taken_up = None;
+        refusing.storylets[0].choices.push(Choice {
+            id: "no",
+            requires: Vec::new(),
+            refuses: true,
+            outcome: Outcome {
+                event: "roof_left",
+                effects: Vec::new(),
+            },
+        });
+        fn source() -> Deck {
+            let mut deck = deck();
+            deck.storylets[0].taken_up = None;
+            deck.storylets[0].choices.push(Choice {
+                id: "no",
+                requires: Vec::new(),
+                refuses: true,
+                outcome: Outcome {
+                    event: "roof_left",
+                    effects: Vec::new(),
+                },
+            });
+            deck
+        }
+        let (mut world, actions) = world_of(source);
+        world
+            .execute(
+                &actions,
+                &ActionRequest::new("storylet_arises").arg("storylet", "roof"),
+            )
+            .unwrap();
+        world
+            .execute(&actions, &choose_request("roof", "no"))
+            .unwrap();
+        for step in 1..40 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &refusing, &reading()).unwrap();
+            bring_forward(&mut world, &actions, &refusing, &reading()).unwrap();
+        }
+        assert_eq!(roofs_asked(&world), 1, "the roof never came up again");
+        assert!(let_down(world.state(), &refusing, &refusing.storylets[0]));
+    }
+
+    /// Bo takes the roof up only once Ann has lately sold at market.
+    fn waiting_deck() -> Deck {
+        let mut deck = deck();
+        if let Some(taken) = deck.storylets[0].taken_up.as_mut() {
+            taken.requires = vec![Condition::MarkedWithin("sold", 2)];
+        }
+        deck.storylets[1].choices[0]
+            .outcome
+            .effects
+            .push(Effect::Mark("sold"));
+        deck
+    }
+
+    #[test]
+    fn a_want_let_down_waits_to_be_taken_up_until_what_it_needs_holds() {
+        let (mut world, actions) = world_of(waiting_deck);
+        let deck = waiting_deck();
+        world
+            .execute(
+                &actions,
+                &ActionRequest::new("storylet_arises").arg("storylet", "roof"),
+            )
+            .unwrap();
+        let taken = |world: &World| !world.events_of_kind(&["bo_mended_the_roof"]).is_empty();
+        for step in 1..10 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &deck, &reading()).unwrap();
+        }
+        assert!(!taken(&world), "nobody sold, so Bo waits");
+        assert!(let_down(world.state(), &deck, &deck.storylets[0]));
+        let mut step = 10;
+        while !taken(&world) && step < 30 {
+            if opened_at(world.state(), &deck, "market").is_some() {
+                world
+                    .execute(&actions, &choose_request("market", "sell"))
+                    .unwrap();
+            }
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &deck, &reading()).unwrap();
+            step += 1;
+        }
+        assert!(taken(&world), "once Ann sold, Bo took the roof up");
+        assert!(holds(
+            world.state(),
+            &deck,
+            &Condition::MarkedWithin("sold", 30)
+        ));
+    }
+
+    /// Ann's year with a beam for the house that nobody puts up unless
+    /// asked: left, it builds nothing.
+    fn beam_deck() -> Deck {
+        let mut deck = Deck { rarer: 6, ..deck() };
+        deck.storylets[0]
+            .requires
+            .push(Condition::Marked("never", 0));
+        deck.storylets.push(Storylet {
+            id: "beam",
+            asker: ANN,
+            want: false,
+            requires: vec![Condition::Unfinished("house")],
+            choices: vec![Choice {
+                id: "raise",
+                requires: Vec::new(),
+                refuses: false,
+                outcome: Outcome {
+                    event: "beam_raised",
+                    effects: vec![Effect::Advance("house")],
+                },
+            }],
+            lapse: Outcome {
+                event: "beam_left",
+                effects: Vec::new(),
+            },
+            lasts: 1,
+            rests: 1,
+            weight: 5,
+            eases: Vec::new(),
+            timely: false,
+            taken_up: None,
+        });
+        deck
+    }
+
+    #[test]
+    fn what_builds_toward_a_goal_but_is_left_grows_rarer_like_everything_else() {
+        let (mut world, actions) = world_of(beam_deck);
+        let deck = beam_deck();
+        let beams = |world: &World| {
+            world
+                .events_of_kind(&["situation_arose"])
+                .iter()
+                .filter(|event| event.payload.get("storylet") == Some(&Value::Text("beam".into())))
+                .map(|event| (event.world_time / 10, event.payload.contains_key("rare")))
+                .collect::<Vec<_>>()
+        };
+        for step in 1..60 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &deck, &reading()).unwrap();
+        }
+        let left = beams(&world);
+        // Never raised: the second time follows the first, and after that
+        // it waits its rest, coming sooner only when nothing else at all
+        // can (at most RAREST times in all). At the house's own pace it
+        // would have come every few periods.
+        assert!(left.len() >= 2 && left.len() <= RAREST as usize, "{left:?}");
+        assert!(left.iter().skip(2).all(|(_, rare)| *rare), "{left:?}");
+        // Raised each time it comes, it keeps the house's own pace.
+        let (mut built, actions) = world_of(beam_deck);
+        let mut raised = 0;
+        for step in 1..8 {
+            if opened_at(built.state(), &deck, "beam").is_some()
+                && built
+                    .execute(&actions, &choose_request("beam", "raise"))
+                    .is_ok()
+            {
+                raised += 1;
+            }
+            built.advance_to(&actions, step * 10).unwrap();
+            tick(&mut built, &actions, &deck, &reading()).unwrap();
+        }
+        assert_eq!(raised, 2, "{:?}", beams(&built));
+        assert!(finished(built.state(), &deck, "house"));
+    }
+
+    /// Ann's roof mends itself slowly when nobody answers.
+    fn slow_roof_deck() -> Deck {
+        let mut deck = Deck { rarer: 6, ..deck() };
+        deck.storylets[0]
+            .lapse
+            .effects
+            .push(Effect::Advance("house"));
+        deck
+    }
+
+    #[test]
+    fn a_want_that_goes_on_its_own_way_is_not_let_down() {
+        let (mut world, actions) = world_of(slow_roof_deck);
+        let deck = slow_roof_deck();
+        for step in 1..30 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &deck, &reading()).unwrap();
+            assert!(!let_down(world.state(), &deck, &deck.storylets[0]));
+        }
+        // Left twice, it built both parts at its own pace, and nobody had
+        // to take it up.
+        assert!(finished(world.state(), &deck, "house"));
+        assert!(world.events_of_kind(&["bo_mended_the_roof"]).is_empty());
+        assert_eq!(world.events_of_kind(&["roof_leaked"]).len(), 2);
     }
 
     #[test]

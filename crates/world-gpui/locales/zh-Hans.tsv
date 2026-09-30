@@ -414,7 +414,7 @@ Voices	人声
 Everyone's own babble as they speak	每个人说话时各自的絮语
 Ticks and bells	滴答声与钟声
 Cards turning, turns passing, things built	翻牌、回合流转、建造完成
-Only an API key sends anything off this Mac: what a World has recorded, once per return.	只有使用 API 密钥时，才会有内容离开这台 Mac:每次回归发送一次世界所记录的内容。
+Only an API key sends anything off this Mac: what a World has recorded, once per return.	只有使用 API 密钥时，才会有内容离开这台 Mac：每次回归发送一次世界所记录的内容。
 Worlds already open keep the voice they opened with.	已经打开的世界会保留它们打开时所用的声音。
 Sound	声音
 The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.	当前的世界会播放它的音乐与风景之声，每个人都用自己的声音说话，翻牌、回合与建造也各有一点声响。
@@ -575,10 +575,10 @@ Bench	长椅
 3 of 10	3 / 10
 Safe	安全
 Trust ↑	信任 ↑
-Ares Habitat · rebuilt	阿瑞斯栖息地 · 已重建
+Ares Habitat · rebuilt	阿瑞斯基地 · 已重建
 Trust	信任
 World direction	世界走向
-Ares Habitat	阿瑞斯栖息地
+Ares Habitat	阿瑞斯基地
 Keepsakes	纪念品
 People	人物
 Made	制作
@@ -750,3 +750,48 @@ Chestnut	栗色
 Sand	沙色
 Slate	石板灰
 Peat	泥炭褐
+# Settings → Display.
+Display	显示
+Language	语言
+Text size	文字大小
+Follow the Mac	跟随 Mac
+The app and the Worlds that come with it.	应用本身，以及随附的世界。
+Everything written, from cards to speech.	所有文字，从卡片到对话。
+Increase contrast	增强对比度
+Quiet text and outlines drawn stronger.	浅色文字和轮廓画得更清楚。
+# The drawer, kept as a book.
+The drawer	抽屉
+The story	故事
+Kept	珍藏
+The book	图书
+Book	图书
+Letters	信件
+Chapters	章节
+The story so far	到目前为止的故事
+Not found yet	尚未找到
+The almanac	年鉴
+Almanac	年鉴
+New	新
+Each year, who came and went and what was built (Y)	每一年，谁来了、谁走了、建起了什么（Y）
+Under way	正在建造
+Kinds	种类
+Buildings	房屋
+By the water	水边
+Lights	灯火
+Gardens	花园
+On the square	广场上
+Small things	小物件
+Added to what stands	为已有之物添上的
+a friend	一位朋友
+and	和
+# One way to build.
+Make something	动手做点什么
+What to do	做什么
+Build here	在这里建
+Bigger things are built on a plot: choose one in the scene.	大一些的东西要建在空地上：在画面里选一块。
+What could stand here	这里可以建什么
+Something small	小东西
+Earlier	更早
+Notes and ticks	提示音
+The sea, the wind, rain and the life of the place	海、风、雨，还有这里的日常声响
+A note in the World's key for every card, letter and thing placed	每张卡片、每封信、每放下一样东西，都有一声合着世界调子的音符

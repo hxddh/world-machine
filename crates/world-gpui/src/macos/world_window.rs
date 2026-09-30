@@ -9,16 +9,18 @@
 use super::*;
 use crate::art::{self, Figure};
 use crate::diorama::{self, Camera, Glows, Stage};
+use crate::mark;
 use crate::pointers::{self, Pointer};
 use gpui::{canvas, Focusable, Hsla, KeyDownEvent, Role, Stateful};
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
+use world_projection::MarkShape;
 
 /// How tall the bar a World window puts above this view is.
 pub(crate) const CHROME: f32 = 52.0;
 /// How wide the card and the drawer are.
 const CARD_WIDTH: f32 = 560.0;
-const DRAWER_WIDTH: f32 = 360.0;
+pub(crate) const DRAWER_WIDTH: f32 = 380.0;
 /// How often a living World redraws while its window is in front.
 /// How often a window behind others checks whether it has come to the
 /// front again. In front, it draws at the display's own rate.
@@ -57,7 +59,7 @@ const LINE_SECONDS: f32 = 4.6;
 const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How many letters the drawer shows, newest first.
-const LETTERS_SHOWN: usize = 12;
+pub(crate) const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
@@ -225,6 +227,71 @@ pub(crate) struct Looking {
     pub(crate) marking: super::marking::Marking,
     /// When the last pointer went away.
     pub(crate) pointer_gone: Option<Instant>,
+    /// The drawer's leaf open, the years folded or opened against their
+    /// usual way, and the kind of work shown.
+    pub(crate) leaf: super::drawer::Leaf,
+    pub(crate) years: BTreeSet<u32>,
+    pub(crate) kind: Option<usize>,
+}
+
+/// Something the player's hands can make or do, for the build card.
+#[derive(Clone, Debug)]
+pub(crate) struct HandThing {
+    pub(crate) key: String,
+    pub(crate) label: String,
+    pub(crate) cost: Option<String>,
+    pub(crate) possible: bool,
+    pub(crate) reason: Option<String>,
+    pub(crate) shape: MarkShape,
+    pub(crate) command: String,
+}
+
+/// How a thing of the hands is drawn on its tile: by the name its deed
+/// gives it ("hands.build.bench.12" is a bench), else as its verb makes
+/// things (a garden planted, bunting hung, a parcel given).
+pub(crate) fn hand_shape(command: &str, verb: &str) -> MarkShape {
+    use MarkShape::*;
+    // The thing comes after the verb: "tiny-society.hand.build.bench.12".
+    let parts = command.split('.').collect::<Vec<_>>();
+    let verb_id = verb.to_lowercase();
+    let thing = parts
+        .iter()
+        .position(|part| *part == verb_id)
+        .and_then(|at| parts.get(at + 1))
+        .copied()
+        .unwrap_or(command);
+    let named = [
+        ("bench", Bench),
+        ("picnic", Bench),
+        ("lantern", Lantern),
+        ("lamp", Lantern),
+        ("stall", Stall),
+        ("flag", Flag),
+        ("bunting", Bunting),
+        ("tree", Tree),
+        ("well", Well),
+        ("swing", Swing),
+        ("fountain", Fountain),
+        ("signpost", Signpost),
+        ("birdhouse", Birdhouse),
+        ("statue", Statue),
+        ("postbox", Postbox),
+        ("boat", Boat),
+        ("flowerbox", Planter),
+        ("planter", Planter),
+        ("tent", Tent),
+        ("rover", Rover),
+        ("dome", Dome),
+    ];
+    if let Some((_, shape)) = named.iter().find(|(name, _)| thing.contains(name)) {
+        return *shape;
+    }
+    match verb {
+        "Plant" => Garden,
+        "Decorate" => Bunting,
+        "Build" => Parcel,
+        _ => Parcel,
+    }
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -242,7 +309,7 @@ pub(crate) struct Hands {
 const VERBS: [&str; 6] = ["Build", "Decorate", "Plant", "Move", "Give", "Invite"];
 
 /// Verbs done to someone rather than somewhere.
-fn to_someone(verb: &str) -> bool {
+pub(crate) fn to_someone(verb: &str) -> bool {
     matches!(verb, "Give" | "Invite")
 }
 
@@ -284,7 +351,7 @@ fn since(at: Option<Instant>) -> f32 {
 
 /// The time of year, in the drawer: the season, and what is coming up in
 /// the next few days. At rest the scene's colours say the season.
-fn coming_label(snapshot: &ProjectionSnapshot) -> Option<String> {
+pub(crate) fn coming_label(snapshot: &ProjectionSnapshot) -> Option<String> {
     let calendar = snapshot.calendar.as_ref()?;
     match (&calendar.season, &calendar.coming) {
         (Some(season), Some(coming)) => Some(format!("{season} · {coming}")),
@@ -304,7 +371,7 @@ pub(crate) fn resting_text(snapshot: &ProjectionSnapshot) -> Vec<String> {
         .map(|gauge| gauge.label.clone())
         .collect::<Vec<_>>();
     if snapshot.world_time > 0 {
-        text.push(snapshot.moment_label(snapshot.world_time));
+        text.push(crate::i18n::moment_label(snapshot, snapshot.world_time));
     }
     let first = card_order(snapshot).into_iter().next();
     let asking_question = first
@@ -387,7 +454,7 @@ pub(crate) fn word_count(texts: &[String]) -> usize {
         .count()
 }
 
-fn label_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Option<String> {
+pub(crate) fn label_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Option<String> {
     snapshot
         .canvas
         .items
@@ -397,7 +464,7 @@ fn label_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Option<String> {
 }
 
 /// A phrase as it starts a line: "a pressed flower" as "A pressed flower".
-fn capitalized(phrase: &str) -> String {
+pub(crate) fn capitalized(phrase: &str) -> String {
     let mut chars = phrase.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -405,7 +472,7 @@ fn capitalized(phrase: &str) -> String {
     }
 }
 
-fn first_name(name: &str) -> String {
+pub(crate) fn first_name(name: &str) -> String {
     name.split_whitespace().next().unwrap_or(name).to_string()
 }
 
@@ -513,11 +580,23 @@ pub(crate) struct Likeness {
 
 pub(crate) fn likeness_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Likeness {
     let item = snapshot.canvas.items.iter().find(|item| item.id == id);
+    let figure = Figure::of(&id.stable_key(), item.and_then(|item| item.look));
     Likeness {
-        figure: Figure::of(&id.stable_key(), item.and_then(|item| item.look)),
-        drawing: item.and_then(|item| snapshot.drawing_of(item)).cloned(),
+        // A baby's or a small child's portrait is the app's own young face,
+        // never a grown-up's drawing (its hat, its beard) made small.
+        drawing: item
+            .and_then(|item| snapshot.drawing_of(item))
+            .filter(|_| !young(&figure))
+            .cloned(),
+        figure,
         mood: item.and_then(|item| item.mood).unwrap_or_default(),
     }
+}
+
+/// Whether someone is a baby or a small child, drawn as the app draws the
+/// young rather than in a grown-up's drawing.
+pub(crate) fn young(figure: &Figure) -> bool {
+    matches!(figure.age, crate::age::Age::Baby | crate::age::Age::Child) && !figure.bird
 }
 
 /// Whether a mouth is open now, for someone speaking: in bursts of a few
@@ -943,7 +1022,7 @@ impl ProjectionView {
         }
     }
 
-    fn toggle_drawer(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_drawer(&mut self, cx: &mut Context<Self>) {
         if self.looking.drawer {
             self.looking.drawer = false;
         } else {
@@ -1136,8 +1215,9 @@ impl ProjectionView {
                     self.open_moment(&id, cx);
                 }
             }
+            // Any year's almanac, once a year has ended: the newest.
             "y" if !command && self.retelling.is_none() => {
-                if let Some(year) = self.snapshot.almanac.as_ref().map(|almanac| almanac.year) {
+                if let Some(year) = super::drawer::almanac_years(&self.snapshot).last().copied() {
                     self.open_almanac(year, cx);
                 }
             }
@@ -1663,6 +1743,7 @@ impl ProjectionView {
             }
         };
         self.looking.asking = None;
+        self.looking.marking.offers = None;
         cx.notify();
     }
 
@@ -2044,10 +2125,13 @@ impl ProjectionView {
 
         // Buildings: named when pointed at, opening the drawer on a click.
         for spot in &stage.buildings {
+            if !stage.shows(spot.index, camera.zoom) {
+                continue;
+            }
             let item = &self.snapshot.canvas.items[spot.index];
             let (x, base) = camera.at(&stage, spot.x, spot.y);
-            let w = stage.building_w * camera.zoom;
-            let h = stage.building_h * camera.zoom;
+            let w = spot.w * camera.zoom;
+            let h = stage.height_of(spot, item.shape.unwrap_or_default()) * camera.zoom;
             let selection = item.id;
             let group = SharedString::from(format!("place-{}", selection.stable_key()));
             let named = frame_glows(&frame, spot.index);
@@ -2308,8 +2392,15 @@ impl ProjectionView {
                 _ => card,
             });
             if let Some(card) = card {
+                // The card stands aside from whoever asks, so they and the
+                // quay they stand on stay in view above and beside it.
+                let asker_x = card_people
+                    .iter()
+                    .find_map(|who| heads.iter().find(|(id, ..)| id == who))
+                    .map(|(_, x, _)| *x)
+                    .filter(|_| self.retelling.is_none());
                 root = root.child(
-                    bottom_card(card, room)
+                    bottom_card(card, card_dock(room, asker_x))
                         .when(self.looking.drawer, |card| card.right(px(DRAWER_WIDTH))),
                 );
             }
@@ -2482,7 +2573,7 @@ impl ProjectionView {
             .gap_1()
             .p_1()
             .rounded_full()
-            .bg(color(tokens::SURFACE).opacity(0.86))
+            .bg(scene_paper().opacity(0.86))
             .shadow_sm()
             .child(
                 zoom_button("zoom-in", "+", "Zoom in (+)", closest)
@@ -2530,11 +2621,9 @@ impl ProjectionView {
         }
         let mut right = div().flex().items_center().gap_2();
         if self.snapshot.world_time > 0 {
-            right = right.child(
-                pill()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(self.snapshot.moment_label(self.snapshot.world_time)),
-            );
+            right = right.child(pill().font_weight(FontWeight::SEMIBOLD).child(
+                crate::i18n::moment_label(&self.snapshot, self.snapshot.world_time),
+            ));
         }
         // A pointer at one of these handles hangs just under it.
         let hint_under = |handle: Stateful<Div>, pointers: &[Pointer], cx: &mut Context<Self>| {
@@ -2643,19 +2732,84 @@ impl ProjectionView {
             .child(right)
     }
 
-    /// The player's hands, open: the verbs, and for the one picked what can
-    /// be made, then where it goes or who it is for.
-    fn render_hands(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let hands = self.looking.hands.clone()?;
-        let verbs = VERBS
+    /// What the player's hands can make or do with `verb`, each thing
+    /// once: its name (a second of the same told apart by a number), what
+    /// it costs, and why it cannot be done now if it cannot.
+    pub(crate) fn hand_things(&self, verb: &str) -> Vec<HandThing> {
+        let mut things = Vec::<HandThing>::new();
+        for (_, command, hand) in self
+            .snapshot
+            .deeds()
+            .filter(|(_, _, hand)| hand.verb == verb)
+        {
+            let key = which(command, hand);
+            if things.iter().any(|thing| thing.key == key) {
+                continue;
+            }
+            let possible = self.snapshot.deeds().any(|(_, other_command, other)| {
+                other.verb == verb
+                    && which(other_command, other) == key
+                    && other_command.unavailable.is_none()
+            });
+            // Two benches the player made are two tiles: the second one is
+            // told apart by a number.
+            let same_name = self
+                .snapshot
+                .deeds()
+                .filter(|(_, _, other)| other.verb == verb && other.thing == hand.thing)
+                .map(|(_, other_command, other)| which(other_command, other))
+                .fold(Vec::<String>::new(), |mut keys, other| {
+                    if !keys.contains(&other) {
+                        keys.push(other);
+                    }
+                    keys
+                });
+            let label = match same_name.iter().position(|other| *other == key) {
+                Some(index) if index > 0 => format!("{} {}", hand.thing, index + 1),
+                _ => hand.thing.clone(),
+            };
+            things.push(HandThing {
+                key,
+                label,
+                cost: hand.cost.clone(),
+                reason: (!possible).then(|| command.unavailable.clone()).flatten(),
+                possible,
+                shape: hand_shape(&command.id, verb),
+                command: command.id.clone(),
+            });
+        }
+        things
+    }
+
+    /// The hand verbs there is anything to do with, in their order.
+    pub(crate) fn hand_verbs(&self) -> Vec<&'static str> {
+        VERBS
             .into_iter()
             .filter(|verb| self.snapshot.deeds().any(|(_, _, hand)| hand.verb == *verb))
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    /// The town's purse, as the World counts it, for weighing a cost: its
+    /// gauge named "money", read as a number.
+    pub(crate) fn purse(&self) -> Option<String> {
+        self.snapshot
+            .gauges
+            .iter()
+            .find(|gauge| gauge.id == "money")
+            .map(|gauge| format!("{} · {}", gauge.label, gauge.reading))
+    }
+
+    /// The player's hands, open: the same drawn card a plot opens, with
+    /// the verbs as tabs, and for the one picked what can be made, each
+    /// as it would stand with what it costs; then where it goes or who it
+    /// is for.
+    fn render_hands(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let hands = self.looking.hands.clone()?;
         let mut tabs = ui::region("hands-verbs", Role::TabList, "What to do")
             .flex()
             .flex_wrap()
             .gap_1();
-        for verb in verbs {
+        for verb in self.hand_verbs() {
             let chosen = hands.verb.as_deref() == Some(verb);
             tabs = tabs.child(verb_tab(verb, chosen).on_click(cx.listener(
                 move |this, _, _, cx| {
@@ -2667,7 +2821,8 @@ impl ProjectionView {
                 },
             )));
         }
-        let mut body = div().flex().flex_col().gap_1();
+        let mut body = div().flex().flex_col().gap_2();
+        let mut wide = false;
         match (hands.verb.as_deref(), hands.thing.as_deref()) {
             (Some(verb), Some(thing)) => {
                 let named = self
@@ -2677,10 +2832,10 @@ impl ProjectionView {
                     .map(|(_, _, hand)| hand.thing.clone())
                     .unwrap_or_else(|| thing.to_string());
                 let hint = match (verb, thing) {
-                    ("Give", "*") => "Choose who to give a present to.".to_string(),
-                    (_, "*") => "Choose who to invite out.".to_string(),
-                    ("Move", _) => format!("Choose where the {} goes now.", named.to_lowercase()),
-                    _ => format!("Choose where the {} goes.", named.to_lowercase()),
+                    ("Give", "*") => ui::t("Choose who to give a present to.").to_string(),
+                    (_, "*") => ui::t("Choose who to invite out.").to_string(),
+                    ("Move", _) => crate::i18n::choose_where(&named, true),
+                    _ => crate::i18n::choose_where(&named, false),
                 };
                 body = body.child(div().text_sm().text_color(color(tokens::TEXT)).child(hint));
                 if self
@@ -2695,7 +2850,12 @@ impl ProjectionView {
                         })
                         .and_then(|(_, command, _)| command.unavailable.clone())
                     {
-                        body = body.child(ui::caption(reason));
+                        body = body.child(
+                            div()
+                                .text_xs()
+                                .text_color(color(tokens::WARNING))
+                                .child(reason),
+                        );
                     }
                 }
                 if !to_someone(verb) {
@@ -2708,7 +2868,7 @@ impl ProjectionView {
                             .text_sm()
                             .text_color(color(tokens::ACCENT_TEXT))
                             .cursor_pointer()
-                            .child("Something else")
+                            .child(ui::t("Something else"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.looking.hands = Some(Hands {
                                     verb: Some(verb.clone()),
@@ -2720,100 +2880,81 @@ impl ProjectionView {
                 }
             }
             (Some(verb), None) => {
-                let mut seen = Vec::<String>::new();
-                for (_, command, hand) in self
-                    .snapshot
-                    .deeds()
-                    .filter(|(_, _, hand)| hand.verb == verb)
-                {
-                    let key = which(command, hand);
-                    if seen.contains(&key) {
-                        continue;
-                    }
-                    seen.push(key.clone());
-                    let possible = self.snapshot.deeds().any(|(_, other_command, other)| {
-                        other.verb == verb
-                            && which(other_command, other) == key
-                            && other_command.unavailable.is_none()
-                    });
-                    // Two benches the player made are two rows: the second
-                    // one is told apart by a number.
-                    let same_name = self
-                        .snapshot
-                        .deeds()
-                        .filter(|(_, _, other)| other.verb == verb && other.thing == hand.thing)
-                        .map(|(_, other_command, other)| which(other_command, other))
-                        .fold(Vec::<String>::new(), |mut keys, other| {
-                            if !keys.contains(&other) {
-                                keys.push(other);
-                            }
-                            keys
-                        });
-                    let thing_name = match same_name.iter().position(|other| *other == key) {
-                        Some(index) if index > 0 => format!("{} {}", hand.thing, index + 1),
-                        _ => hand.thing.clone(),
-                    };
-                    let label = match &hand.cost {
-                        Some(cost) => format!("{thing_name} · {cost}"),
-                        None => thing_name,
-                    };
-                    let (verb, thing) = (verb.to_string(), key);
-                    let mut row = div()
-                        .id(SharedString::from(format!("hands-thing-{}", command.id)))
-                        .role(Role::Button)
-                        .aria_label(label.clone())
-                        .when_some(
-                            command.unavailable.clone().filter(|_| !possible),
-                            |row, reason| row.aria_description(reason),
-                        )
-                        .px_2()
-                        .py(px(5.0))
-                        .rounded_md()
-                        .text_sm()
-                        .flex()
-                        .justify_between()
-                        .child(label);
-                    row = if possible {
-                        row.text_color(color(tokens::TEXT))
-                            .cursor_pointer()
-                            .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.looking.hands = Some(Hands {
-                                    verb: Some(verb.clone()),
-                                    thing: Some(thing.clone()),
-                                });
-                                cx.notify();
-                            }))
+                wide = true;
+                let mut grid = div()
+                    .id("hands-things")
+                    .role(Role::List)
+                    .aria_label(ui::t("Make something"))
+                    .max_h(px(430.0))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2();
+                for thing in self.hand_things(verb) {
+                    let (verb, key) = (verb.to_string(), thing.key.clone());
+                    let tile = super::marking::offer_tile(
+                        SharedString::from(format!("hands-thing-{}", thing.command)),
+                        &thing.label,
+                        thing
+                            .reason
+                            .clone()
+                            .or(thing.cost.clone())
+                            .unwrap_or_default(),
+                        thing.possible,
+                        false,
+                        thing.shape,
+                        None,
+                    );
+                    grid = grid.child(if thing.possible {
+                        tile.on_click(cx.listener(move |this, _, _, cx| {
+                            this.looking.hands = Some(Hands {
+                                verb: Some(verb.clone()),
+                                thing: Some(key.clone()),
+                            });
+                            cx.notify();
+                        }))
                     } else {
-                        row.text_color(color(tokens::TEXT_TERTIARY))
-                    };
-                    body = body.child(row);
-                    if !possible {
-                        if let Some(reason) = &command.unavailable {
-                            body = body.child(ui::caption(reason.clone()));
-                            break;
-                        }
-                    }
+                        tile
+                    });
+                }
+                body = body.child(grid);
+                if verb == "Build" && !mark::plots_of(&self.snapshot).is_empty() {
+                    body = body.child(ui::caption(
+                        "Bigger things are built on a plot: choose one in the scene.",
+                    ));
                 }
             }
             _ => {}
         }
+        let columns = if wide { 3.0 } else { 2.0 };
+        let width = columns * super::marking::OFFER_W + (columns - 1.0) * 8.0 + 32.0 + 6.0;
         Some(
             div()
                 .absolute()
                 .top(px(64.0))
                 .right(px(16.0))
-                .w(px(260.0))
+                .w(px(width))
                 .child(
-                    ui::card()
+                    div()
                         .id("hands")
                         .role(Role::Group)
                         .aria_label(ui::t("Make something"))
-                        .p_3()
+                        .p_4()
+                        .rounded_xl()
+                        .bg(scene_paper())
+                        .border_1()
+                        .border_color(color(tokens::BORDER))
                         .flex()
                         .flex_col()
-                        .gap_2()
-                        .shadow_md()
+                        .gap_3()
+                        .shadow_lg()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(ui::row_title("Make something"))
+                                .children(self.purse().map(ui::caption)),
+                        )
                         .child(tabs)
                         .child(body),
                 ),
@@ -2836,41 +2977,41 @@ impl ProjectionView {
         let face = if people.is_empty() {
             div()
                 .flex_shrink_0()
-                .size(px(64.0))
+                .size(px(44.0))
                 .rounded_full()
                 .bg(color(tokens::ACCENT_SOFT))
-                .p(px(16.0))
+                .p(px(11.0))
                 .child(clock_glyph().size_full())
         } else {
             let mut stack = div()
                 .relative()
                 .flex_shrink_0()
-                .h(px(64.0))
-                .w(px(64.0 + 34.0 * (people.len().min(2) - 1) as f32));
+                .h(px(44.0))
+                .w(px(44.0 + 26.0 * (people.len().min(2) - 1) as f32));
             for (position, person) in people.iter().take(2).enumerate().rev() {
                 stack = stack.child(
                     div()
                         .absolute()
                         .top_0()
-                        .left(px(position as f32 * 34.0))
-                        .rounded(px(16.0))
+                        .left(px(position as f32 * 26.0))
+                        .rounded(px(12.0))
                         .border_2()
                         .border_color(color(tokens::SURFACE))
                         .child(portrait(
                             likeness_of(&self.snapshot, *person),
-                            60.0,
+                            40.0,
                             position == 0,
                         )),
                 );
             }
             stack
         };
-        let mut text = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
-        if !names.is_empty() {
-            text = text.child(ui::caption(names.join(" & ")));
-        }
+        let mut text = div().flex_1().min_w(px(0.0)).flex().flex_col().gap(px(2.0));
+        // Who asks, with the card's way round (the dots, More) beside it:
+        // one line for both keeps the card low over the quay.
+        let names_line = names.join(" & ");
         // A question's card says what is asked; a lone choice says itself.
-        text = text.child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+        text = text.child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(
             match &question {
                 Some(question) => question.prompt.clone(),
                 None => command.title.clone(),
@@ -2977,7 +3118,7 @@ impl ProjectionView {
         let mut replies = ui::region("answers", Role::Group, "Answers")
             .flex()
             .flex_col()
-            .gap_2();
+            .gap(px(4.0));
         if question.is_some() {
             for (position, answer) in answers.iter().enumerate() {
                 let Some(reply) = self.snapshot.commands.get(*answer) else {
@@ -3019,26 +3160,34 @@ impl ProjectionView {
             } else {
                 format!("{}: {prompt}", names.join(" & "))
             })
-            .p_5()
+            .px_4()
+            .py_3()
             .rounded_2xl()
-            .bg(color(tokens::SURFACE))
+            .bg(scene_paper())
             .shadow_lg()
             .border_1()
             .border_color(color(tokens::BORDER))
             .flex()
             .flex_col()
-            .gap_4()
-            .child(div().flex().items_center().gap_4().child(face).child(text))
-            .when(question.is_some(), |card| card.child(replies))
+            .gap_2()
             .child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .child(dots)
-                    .child(actions),
-            );
+                    .child(div().min_w(px(0.0)).child(ui::caption(names_line)))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(dots)
+                            .child(actions),
+                    ),
+            )
+            .child(div().flex().items_center().gap_3().child(face).child(text))
+            .when(question.is_some(), |card| card.child(replies));
         Some(div().child(ui::spring_in(
             card,
             format!("card-{}-{index}", self.revision()),
@@ -3055,7 +3204,7 @@ impl ProjectionView {
         let card = div()
             .p_6()
             .rounded_2xl()
-            .bg(color(tokens::SURFACE))
+            .bg(scene_paper())
             .shadow_lg()
             .border_1()
             .border_color(color(tokens::BORDER))
@@ -3090,252 +3239,6 @@ impl ProjectionView {
                 ),
             );
         Some(div().child(ui::arrive(card, format!("chapter-{number}"), 0)))
-    }
-
-    /// The story so far, chapter by chapter, and what the World is building,
-    /// for the drawer.
-    pub(crate) fn render_chapters(&self) -> Option<Stateful<Div>> {
-        if self.snapshot.chapters.is_empty() && self.snapshot.goals.is_empty() {
-            return None;
-        }
-        let mut book = ui::region("drawer-story", Role::Group, "The story so far")
-            .flex()
-            .flex_col()
-            .gap_4();
-        if !self.snapshot.goals.is_empty() {
-            let mut goals = ui::region("drawer-goals", Role::List, "Building")
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(ui::section_label("Building".to_string()));
-            for goal in &self.snapshot.goals {
-                let mut pips = div().flex().gap_1();
-                for part in 0..goal.parts {
-                    pips = pips.child(div().size(px(7.0)).rounded_full().bg(color(
-                        if part < goal.done {
-                            tokens::ACCENT
-                        } else {
-                            tokens::BORDER_STRONG
-                        },
-                    )));
-                }
-                goals = goals.child(
-                    list_entry(
-                        SharedString::from(format!("goal-{}", goal.label)),
-                        format!("{}: {} of {}", goal.label, goal.done, goal.parts),
-                    )
-                    .px_3()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().text_sm().child(goal.label.clone()))
-                    .child(pips),
-                );
-            }
-            book = book.child(goals);
-        }
-        if !self.snapshot.chapters.is_empty() {
-            let heading = format!("Chapters · {}", self.snapshot.chapters.len());
-            let mut chapters = ui::region("drawer-chapters", Role::List, heading.clone())
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(ui::section_label(heading));
-            for chapter in self.snapshot.chapters.iter().rev() {
-                chapters = chapters.child(
-                    list_entry(
-                        SharedString::from(format!("chapter-{}", chapter.number)),
-                        format!(
-                            "Chapter {}: {}. {}",
-                            chapter.number, chapter.title, chapter.summary
-                        ),
-                    )
-                    .px_3()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(ui::caption(format!("Chapter {}", chapter.number)))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(chapter.title.clone()),
-                    )
-                    .child(ui::detail(chapter.summary.clone())),
-                );
-            }
-            book = book.child(chapters);
-        }
-        Some(book)
-    }
-
-    /// What people have given the player to keep, newest first, for the
-    /// drawer: what it is, who from, and what they said with it.
-    pub(crate) fn render_keepsakes(&self) -> Option<Stateful<Div>> {
-        if self.snapshot.keepsakes.is_empty() {
-            return None;
-        }
-        let heading = format!("Keepsakes · {}", self.snapshot.keepsakes.len());
-        let mut kept = ui::region("drawer-keepsakes", Role::List, heading.clone())
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(ui::section_label(heading));
-        for (index, keepsake) in self.snapshot.keepsakes.iter().enumerate().rev() {
-            let from = label_of(&self.snapshot, keepsake.from)
-                .map(|name| format!("From {}", first_name(&name)))
-                .unwrap_or_else(|| "From a friend".into());
-            let said = if keepsake.note.is_empty() {
-                String::new()
-            } else {
-                format!(": “{}”", keepsake.note)
-            };
-            kept = kept.child(
-                list_entry(
-                    SharedString::from(format!("keepsake-{index}")),
-                    format!("{}. {from}{said}", capitalized(&keepsake.what)),
-                )
-                .px_3()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(ui::caption(from))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(capitalized(&keepsake.what)),
-                )
-                .children(
-                    (!keepsake.note.is_empty()).then(|| ui::detail(format!("“{}”", keepsake.note))),
-                ),
-            );
-        }
-        Some(kept)
-    }
-
-    /// The letter box: what people have written the player, newest first,
-    /// kept apart from keepsakes so a keepsake still means something.
-    pub(crate) fn render_letters(&self) -> Option<Stateful<Div>> {
-        if self.snapshot.letters.is_empty() {
-            return None;
-        }
-        let heading = format!("Letters · {}", self.snapshot.letters.len());
-        let mut letters = ui::region("drawer-letters", Role::List, heading.clone())
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(ui::section_label(heading));
-        for (index, letter) in self
-            .snapshot
-            .letters
-            .iter()
-            .enumerate()
-            .rev()
-            .take(LETTERS_SHOWN)
-        {
-            let from = label_of(&self.snapshot, letter.from)
-                .map(|name| format!("From {}", first_name(&name)))
-                .unwrap_or_else(|| "From a friend".into());
-            letters = letters.child(
-                list_entry(
-                    SharedString::from(format!("letter-{index}")),
-                    format!("{from}: {}", letter.note),
-                )
-                .px_3()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(ui::caption(from))
-                .children((!letter.note.is_empty()).then(|| ui::detail(letter.note.clone()))),
-            );
-        }
-        Some(letters)
-    }
-
-    /// The book of everything to find: a shelf each for keepsakes, people,
-    /// things made and festival days, what has been found drawn in colour
-    /// and what is still to come as a silhouette with a hint.
-    pub(crate) fn render_book(
-        &self,
-        open: Option<gpui::WeakEntity<Self>>,
-    ) -> Option<Stateful<Div>> {
-        let book = &self.snapshot.book;
-        if book.is_empty() {
-            return None;
-        }
-        let found = book.iter().filter(|entry| entry.found).count();
-        let heading = format!("Book · {found} of {}", book.len());
-        let mut section = ui::region("drawer-book", Role::Group, heading.clone())
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(ui::section_label(heading));
-        let mut shelves = Vec::<&str>::new();
-        for entry in book {
-            if !shelves.contains(&entry.shelf.as_str()) {
-                shelves.push(&entry.shelf);
-            }
-        }
-        for shelf in shelves {
-            let entries = book
-                .iter()
-                .filter(|entry| entry.shelf == shelf)
-                .collect::<Vec<_>>();
-            let found = entries.iter().filter(|entry| entry.found).count();
-            let mut grid = div().flex().flex_wrap().gap_2();
-            for (index, entry) in entries.into_iter().enumerate() {
-                let look = entry
-                    .found
-                    .then(|| book_look(&self.snapshot, entry))
-                    .flatten();
-                let look = match (&entry.moment, entry.found) {
-                    (Some(id), true) => self
-                        .snapshot
-                        .moments
-                        .iter()
-                        .find(|moment| &moment.id == id)
-                        .and_then(|moment| {
-                            let scene = super::stories::panel_scenes(&self.snapshot, moment)
-                                .into_iter()
-                                .nth(1)?;
-                            Some(BookLook::Moment(moment.id.clone(), Box::new(scene)))
-                        })
-                        .or(look),
-                    _ => look,
-                };
-                let mut tile = book_tile(entry, index, look);
-                // A moment opens in its panels; someone, somewhere or
-                // something opens their story.
-                if let (Some(open), true) = (open.clone(), entry.found) {
-                    let moment = entry.moment.clone();
-                    let subject = entry.cast.first().copied();
-                    if moment.is_some() || subject.is_some() {
-                        tile = tile.cursor_pointer().on_click(move |_, _, cx| {
-                            let _ = open.update(cx, |this, cx| match (&moment, subject) {
-                                (Some(moment), _) => this.open_moment(moment, cx),
-                                (None, Some(subject)) => this.open_legend(subject, cx),
-                                _ => {}
-                            });
-                        });
-                    }
-                }
-                grid = grid.child(tile);
-            }
-            let heading = format!("{shelf} · {found} of {}", shelf_len(book, shelf));
-            section = section.child(
-                ui::region(
-                    SharedString::from(format!("shelf-{shelf}")),
-                    Role::List,
-                    heading.clone(),
-                )
-                .px_3()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(ui::caption(heading))
-                .child(grid),
-            );
-        }
-        Some(section)
     }
 
     /// What someone can be asked, beside them: their questions, and once
@@ -3639,70 +3542,6 @@ impl ProjectionView {
         }
         conversation
     }
-
-    /// Everything a page used to show, one ⌘I away: a closer look at what
-    /// is selected, what happened, how things stand, who is here, history.
-    fn render_drawer(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut body = div().flex().flex_col().gap_6().px_2().py_4();
-        body = body.child(
-            div()
-                .px_3()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(ui::heading(self.snapshot.title.clone()))
-                        .children(coming_label(&self.snapshot).map(ui::caption)),
-                )
-                .child(arrow_button(
-                    "drawer-close",
-                    "×",
-                    "Close the drawer",
-                    cx.listener(|this, _, _, cx| this.toggle_drawer(cx)),
-                )),
-        );
-        // The story so far comes first: what the World is building and the
-        // chapters it has closed.
-        for part in [
-            self.render_chapters().map(IntoElement::into_any_element),
-            self.render_almanac_letter(cx)
-                .map(IntoElement::into_any_element),
-            self.render_letters().map(IntoElement::into_any_element),
-            self.render_keepsakes().map(IntoElement::into_any_element),
-            self.render_book(Some(cx.entity().downgrade()))
-                .map(IntoElement::into_any_element),
-            self.render_closer_look(cx)
-                .map(IntoElement::into_any_element),
-            self.render_story(cx).map(IntoElement::into_any_element),
-            self.render_standing(cx).map(IntoElement::into_any_element),
-            self.render_cast(cx).map(IntoElement::into_any_element),
-            self.render_history(cx).map(IntoElement::into_any_element),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            body = body.child(div().px_1().child(part));
-        }
-        div()
-            .id("world-drawer")
-            .role(Role::Complementary)
-            .aria_label(ui::t("The drawer"))
-            .absolute()
-            .top_0()
-            .right_0()
-            .bottom_0()
-            .w(px(DRAWER_WIDTH))
-            .bg(color(tokens::SIDEBAR))
-            .border_l_1()
-            .border_color(color(tokens::BORDER))
-            .shadow_lg()
-            .overflow_y_scroll()
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(body)
-    }
 }
 
 fn frame_glows(frame: &diorama::Frame, index: usize) -> bool {
@@ -3719,12 +3558,35 @@ pub(crate) fn name_tag(name: String) -> Div {
         .px_2()
         .py(px(1.0))
         .rounded_full()
-        .bg(gpui::white().opacity(0.88))
+        .bg(scene_paper().opacity(0.88))
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
         .text_color(color(tokens::TEXT))
         .whitespace_nowrap()
         .child(name)
+}
+
+/// The paper that cards and buttons over the scene are cut from: white
+/// by day, and after dusk a dimmer, warmer sheet, as if lit by a lamp, so
+/// nothing glares over a night sky. The dark appearance has its own.
+pub(crate) fn scene_paper() -> gpui::Rgba {
+    // The tests' pictures keep to the day's paper whatever the clock says,
+    // unless an hour is pinned.
+    if cfg!(test) && std::env::var_os("WORLD_MACHINE_HOUR").is_none() {
+        return paper_at(scene::Daylight::Day, world_theme::is_dark());
+    }
+    paper_at(scene::daylight_now(), world_theme::is_dark())
+}
+
+pub(crate) fn paper_at(daylight: scene::Daylight, dark: bool) -> gpui::Rgba {
+    if dark {
+        return color(tokens::SURFACE);
+    }
+    match daylight {
+        scene::Daylight::Night => gpui::rgb(0xd8cfbd),
+        scene::Daylight::Dusk => gpui::rgb(0xece3d2),
+        _ => color(tokens::SURFACE),
+    }
 }
 
 /// A soft pill over the sky.
@@ -3733,7 +3595,7 @@ fn pill() -> Div {
         .px_3()
         .py(px(6.0))
         .rounded_full()
-        .bg(color(tokens::SURFACE).opacity(0.86))
+        .bg(scene_paper().opacity(0.86))
         .shadow_sm()
         .text_sm()
         .text_color(color(tokens::TEXT))
@@ -3744,7 +3606,7 @@ fn pill() -> Div {
 
 /// A gauge as a pill: its name and a short bar, and while a choice is on
 /// the table which way the choice would move it and where it would end.
-fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Div {
+fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Stateful<Div> {
     const BAR: f32 = 64.0;
     let fill: Hsla = color(scene::tone_token(gauge.tone)).into();
     let now = shown.clamp(0.0, 1.0);
@@ -3782,14 +3644,28 @@ fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Di
                 .bg(color(tokens::ACCENT).opacity(0.55)),
         );
     }
+    // The reading in the World's own words, a number where it counts
+    // one ("11,485"), so a cost can be weighed against it.
     let mut pill = pill()
+        .id(SharedString::from(format!("gauge-{}", gauge.id)))
+        .role(Role::Meter)
+        .aria_label(format!("{}: {}", gauge.label, gauge.reading))
         .child(
             div()
                 .text_xs()
                 .text_color(color(tokens::TEXT_SECONDARY))
                 .child(gauge.label.clone()),
         )
-        .child(bar);
+        .child(bar)
+        .when(!gauge.reading.trim().is_empty(), |pill| {
+            pill.child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color(tokens::TEXT))
+                    .child(gauge.reading.clone()),
+            )
+        });
     if let Some(by) = by.filter(|by| *by != 0) {
         pill = pill.child(
             div()
@@ -4001,16 +3877,24 @@ fn drawer_glyph() -> gpui::Canvas<()> {
 
 /// One entry in a list a screen reader reads out whole: a letter, a
 /// keepsake, a chapter, a thing in the book.
-fn list_entry(id: impl Into<gpui::ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
+pub(crate) fn list_entry(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+) -> Stateful<Div> {
     div().id(id).role(Role::ListItem).aria_label(label)
 }
 
 /// One of the hands' verbs, as a tab: chosen or not.
-fn verb_tab(verb: &'static str, chosen: bool) -> Stateful<Div> {
+pub(crate) fn verb_tab(verb: &'static str, chosen: bool) -> Stateful<Div> {
+    labelled_tab(verb, verb, chosen)
+}
+
+/// A verb's tab under another name.
+pub(crate) fn labelled_tab(verb: &'static str, label: &'static str, chosen: bool) -> Stateful<Div> {
     div()
         .id(SharedString::from(format!("hands-verb-{verb}")))
         .role(Role::Tab)
-        .aria_label(ui::t(verb))
+        .aria_label(ui::t(label))
         .aria_selected(chosen)
         .px_2()
         .py(px(3.0))
@@ -4025,7 +3909,7 @@ fn verb_tab(verb: &'static str, chosen: bool) -> Stateful<Div> {
             tab.text_color(color(tokens::TEXT_SECONDARY))
                 .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
         })
-        .child(verb)
+        .child(ui::t(label))
 }
 
 /// One answer to the question on the card, the `position`th of `count`:
@@ -4045,9 +3929,9 @@ fn answer_button(
         .aria_label(title.clone())
         .aria_position_in_set(position + 1)
         .aria_size_of_set(count)
-        .px_4()
-        .py_2()
-        .rounded_xl()
+        .px_3()
+        .py(px(5.0))
+        .rounded_lg()
         .border_1()
         .text_sm();
     if let Some(reason) = unavailable {
@@ -4088,7 +3972,7 @@ fn answer_button(
         .child(title)
 }
 
-fn arrow_button(
+pub(crate) fn arrow_button(
     id: &'static str,
     glyph: &'static str,
     label: &'static str,
@@ -4113,24 +3997,78 @@ fn arrow_button(
         .on_click(on_click)
 }
 
-/// A card floating at the bottom of the World, centred.
-fn bottom_card(card: impl IntoElement, width: f32) -> Div {
-    div()
+/// Where the card floats at the bottom of the World: centred, or docked
+/// to one side with the width it takes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Dock {
+    pub(crate) side: DockSide,
+    pub(crate) w: f32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DockSide {
+    Centre,
+    Left,
+    Right,
+}
+
+/// How far the card keeps from the stage's edges.
+const CARD_MARGIN: f32 = 16.0;
+/// How far a docked card keeps from the middle of the stage.
+const CARD_CLEAR: f32 = 64.0;
+
+/// Where the card goes on a stage `width` wide, with whoever asks standing
+/// at `asker_x` on screen: on the far side from them, no wider than half
+/// the stage less its margins, so the half they stand in stays clear; with
+/// nobody asking, centred.
+pub(crate) fn card_dock(width: f32, asker_x: Option<f32>) -> Dock {
+    let full = (CARD_WIDTH * crate::text_scale().sqrt()).min(width - CARD_MARGIN * 2.0);
+    match asker_x {
+        Some(x) if width >= 720.0 => Dock {
+            side: if x > width / 2.0 {
+                DockSide::Left
+            } else {
+                DockSide::Right
+            },
+            // Clear of the middle by more than anyone's shoulders, so
+            // someone standing right at it is still in the open half.
+            w: full.min(width / 2.0 - CARD_CLEAR),
+        },
+        _ => Dock {
+            side: DockSide::Centre,
+            w: full,
+        },
+    }
+}
+
+impl Dock {
+    /// The span of the stage the card covers, left to right.
+    #[cfg(test)]
+    pub(crate) fn span(&self, width: f32) -> (f32, f32) {
+        match self.side {
+            DockSide::Left => (CARD_MARGIN, CARD_MARGIN + self.w),
+            DockSide::Right => (width - CARD_MARGIN - self.w, width - CARD_MARGIN),
+            DockSide::Centre => (width / 2.0 - self.w / 2.0, width / 2.0 + self.w / 2.0),
+        }
+    }
+}
+
+/// A card floating at the bottom of the World, where `dock` puts it.
+fn bottom_card(card: impl IntoElement, dock: Dock) -> Div {
+    let row = div()
         .absolute()
         .left_0()
         .right_0()
         .bottom_0()
-        .pb_5()
-        .px_4()
-        .flex()
-        .justify_center()
-        .child(
-            div()
-                .w(px(
-                    (CARD_WIDTH * crate::text_scale().sqrt()).min(width - 32.0)
-                ))
-                .child(card),
-        )
+        .pb_4()
+        .px(px(CARD_MARGIN))
+        .flex();
+    match dock.side {
+        DockSide::Centre => row.justify_center(),
+        DockSide::Left => row.justify_start(),
+        DockSide::Right => row.justify_end(),
+    }
+    .child(div().w(px(dock.w)).child(card))
 }
 
 /// How someone stands with the player: five small marks, as many filled as
@@ -4288,223 +4226,11 @@ pub(crate) fn postcard_paper(card: &crate::postcard::Postcard, width: f32, heigh
         )
 }
 
-fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
-    book.iter().filter(|entry| entry.shelf == shelf).count()
-}
-
-/// How a found entry of the book is drawn: someone as the scene draws
-/// them, or a place or thing in its own drawing.
-#[derive(Clone)]
-pub(crate) enum BookLook {
-    Someone(Likeness),
-    /// A moment kept in the book: its middle panel, as painted.
-    Moment(String, Box<crate::panels::PanelScene>),
-    Something {
-        drawing: Option<world_projection::Drawing>,
-        palette: art::Palette,
-    },
-}
-
-/// The book entry's own drawing, found by its name on the scene: the
-/// person, place or thing it is. Someone no longer on the scene is still
-/// drawn as themselves, in the colours their name gives them.
-pub(crate) fn book_look(
-    snapshot: &ProjectionSnapshot,
-    entry: &world_projection::BookEntry,
-) -> Option<BookLook> {
-    let name = entry.name.trim().to_lowercase();
-    let item = snapshot.canvas.items.iter().find(|item| {
-        let label = item.label.trim().to_lowercase();
-        !label.is_empty() && (label == name || label.split_whitespace().next() == Some(&name))
-    });
-    match (item, entry.shape) {
-        (Some(item), _) if item.kind == world_projection::CanvasItemKind::Actor => {
-            Some(BookLook::Someone(likeness_of(snapshot, item.id)))
-        }
-        (Some(item), _) => Some(BookLook::Something {
-            drawing: snapshot.drawing_of(item).cloned(),
-            palette: art::Palette::of(&item.id.stable_key(), false),
-        }),
-        (None, None) => Some(BookLook::Someone(Likeness {
-            figure: Figure::of(&entry.name, None),
-            drawing: None,
-            mood: world_projection::Mood::default(),
-        })),
-        (None, Some(_)) => None,
-    }
-}
-
-/// One entry of the book: drawn in colour with its name once found, in
-/// its own drawing (the person's or the thing's) when there is one, and a
-/// silhouette with a hint until then.
-fn book_tile(
-    entry: &world_projection::BookEntry,
-    index: usize,
-    look: Option<BookLook>,
-) -> Stateful<Div> {
-    let found = entry.found;
-    let shape = entry.shape;
-    let key = entry.name.clone();
-    let icon = canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| {
-            let x = f32::from(bounds.origin.x) + f32::from(bounds.size.width) / 2.0;
-            let base = f32::from(bounds.origin.y) + f32::from(bounds.size.height) - 2.0;
-            let w = f32::from(bounds.size.width) * 0.62;
-            let shadow: Hsla = gpui::black().opacity(0.28);
-            match (&look, shape, found) {
-                (Some(BookLook::Moment(id, scene)), _, true) => {
-                    let (w, h) = (60.0_f32, 45.0_f32);
-                    let dpr = window.scale_factor().max(1.0);
-                    let mut key = crate::painter::Key::new("book-moment");
-                    key.add(id).float(dpr);
-                    let key = key.finish();
-                    let at = gpui::Bounds::new(
-                        gpui::point(px(x - w / 2.0), px(base - h)),
-                        gpui::size(px(w), px(h)),
-                    );
-                    match crate::painter::ready(key) {
-                        Some(crate::painter::Ready::Image(image, _)) => {
-                            let _ = window.paint_image(
-                                at,
-                                at,
-                                gpui::Corners::all(px(3.0)),
-                                image,
-                                0,
-                                false,
-                            );
-                        }
-                        Some(crate::painter::Ready::Empty) => {}
-                        None => {
-                            let scene = (**scene).clone();
-                            crate::painter::want(
-                                window,
-                                key,
-                                crate::painter::synchronous(),
-                                Box::new(move || crate::panels::paint_panel(&scene, w, h, dpr)),
-                            );
-                            window.request_animation_frame();
-                        }
-                    }
-                }
-                (Some(BookLook::Someone(likeness)), _, true) => {
-                    let side = f32::from(bounds.size.height);
-                    art::paint_likeness(
-                        window,
-                        gpui::Bounds::new(
-                            gpui::point(px(x - side / 2.0), bounds.origin.y),
-                            gpui::size(px(side), px(side)),
-                        ),
-                        &likeness.figure,
-                        likeness.drawing.as_ref(),
-                        likeness.mood,
-                        false,
-                    );
-                }
-                (
-                    Some(BookLook::Something {
-                        drawing: Some(drawing),
-                        palette,
-                    }),
-                    _,
-                    true,
-                ) => {
-                    let h = (f32::from(bounds.size.height) - 4.0).min(w * 1.2 / drawing.aspect);
-                    art::paint_drawing(
-                        window,
-                        x,
-                        base,
-                        h * drawing.aspect,
-                        h,
-                        drawing,
-                        &art::Inks::of_place(palette),
-                        world_projection::Stance::Standing,
-                        world_projection::Mood::Content,
-                        0.0,
-                        0.0,
-                        1.0,
-                    );
-                }
-                (look, Some(shape), true) => {
-                    let palette = match look {
-                        Some(BookLook::Something { palette, .. }) => *palette,
-                        _ => art::Palette::of(&key, false),
-                    };
-                    art::paint_building(window, x, base, w, w * 0.8, shape, &palette);
-                }
-                (_, Some(shape), false) => {
-                    crate::ui::paint_mark(
-                        window,
-                        gpui::Bounds::new(
-                            gpui::point(px(x - w / 2.0), px(base - w * 0.8)),
-                            gpui::size(px(w), px(w * 0.8)),
-                        ),
-                        shape,
-                        shadow,
-                        shadow,
-                    );
-                }
-                (_, None, _) => {
-                    // Someone not met yet: a head and shoulders.
-                    let colour: Hsla = if found { art::hex(0x7a8fb0) } else { shadow };
-                    let r = w * 0.2;
-                    art::circle(window, x, base - w * 0.62, r, colour);
-                    art::rect(
-                        window,
-                        x - w * 0.3,
-                        base - w * 0.38,
-                        w * 0.6,
-                        w * 0.38,
-                        w * 0.2,
-                        colour,
-                    );
-                }
-            }
-        },
-    )
-    .w(px(64.0))
-    .h(px(48.0));
-    let label = if found {
-        capitalized(&entry.name)
-    } else {
-        format!("Not found yet: {}", entry.hint)
-    };
-    list_entry(SharedString::from(format!("book-{index}")), label)
-        .w(px(88.0))
-        .p_1()
-        .rounded_md()
-        .bg(color(if found {
-            tokens::SURFACE
-        } else {
-            tokens::SIDEBAR
-        }))
-        .flex()
-        .flex_col()
-        .items_center()
-        .gap_1()
-        .child(icon)
-        .child(
-            div()
-                .text_xs()
-                .text_center()
-                .text_color(color(if found {
-                    tokens::TEXT
-                } else {
-                    tokens::TEXT_TERTIARY
-                }))
-                .child(if found {
-                    capitalized(&entry.name)
-                } else {
-                    entry.hint.clone()
-                }),
-        )
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::drawer::tests::a_full_drawer;
     use super::*;
     use crate::ui::accessible;
-    use world_projection::{BookEntry, Chapter, Keepsake, Letter};
 
     #[test]
     fn a_world_nobody_can_see_asks_for_no_frames_and_keeps_no_clock() {
@@ -4591,106 +4317,6 @@ mod tests {
         assert_eq!(question_waits(&snapshot), LINE_SECONDS);
         snapshot.commands = vec![command(None)];
         assert_eq!(question_waits(&snapshot), 0.0, "only a question waits");
-    }
-
-    fn a_full_drawer() -> ProjectionSnapshot {
-        let mut snapshot = ProjectionSnapshot {
-            letters: vec![Letter {
-                from: someone(),
-                note: "The pier is mended.".into(),
-                moment: someone(),
-            }],
-            keepsakes: vec![Keepsake {
-                from: someone(),
-                what: "a pressed flower".into(),
-                note: "From the harbour".into(),
-                moment: someone(),
-            }],
-            chapters: vec![Chapter {
-                number: 1,
-                title: "The storm".into(),
-                summary: "The town came through.".into(),
-                moment: None,
-            }],
-            book: vec![
-                BookEntry {
-                    shelf: "Keepsakes".into(),
-                    name: "a pressed flower".into(),
-                    found: true,
-                    shape: None,
-                    hint: String::new(),
-                    ..Default::default()
-                },
-                BookEntry {
-                    shelf: "Keepsakes".into(),
-                    name: "a shell".into(),
-                    found: false,
-                    shape: None,
-                    hint: "Someone by the sea".into(),
-                    ..Default::default()
-                },
-            ],
-            ..ProjectionSnapshot::default()
-        };
-        snapshot.canvas.items.push(world_projection::CanvasItem {
-            id: someone(),
-            kind: world_projection::CanvasItemKind::Actor,
-            label: "Mara Quinn".into(),
-            detail: String::new(),
-            x: 0.5,
-            y: 0.5,
-            changes: Vec::new(),
-            shape: None,
-            at: None,
-            look: None,
-            drawing: None,
-            stance: None,
-            standing: None,
-            mood: None,
-            spot: None,
-            px: None,
-            home: None,
-            day: Vec::new(),
-            built: None,
-            ..Default::default()
-        });
-        snapshot
-    }
-
-    /// Each part of the drawer is a region a screen reader can find by
-    /// name, and what is in it is read out entry by entry.
-    #[test]
-    fn the_drawer_sections_are_named_lists() {
-        let view = ProjectionView::new(a_full_drawer());
-        let named = |part: Option<Stateful<Div>>| {
-            let (role, node) = accessible(&part.expect("a section"));
-            (role, node.label().map(str::to_string))
-        };
-        assert_eq!(
-            named(view.render_letters()),
-            (Some(Role::List), Some("Letters · 1".into()))
-        );
-        assert_eq!(
-            named(view.render_keepsakes()),
-            (Some(Role::List), Some("Keepsakes · 1".into()))
-        );
-        assert_eq!(
-            named(view.render_book(None)),
-            (Some(Role::Group), Some("Book · 1 of 2".into()))
-        );
-        assert_eq!(
-            named(view.render_chapters()),
-            (Some(Role::Group), Some("The story so far".into()))
-        );
-        let entry = accessible(&list_entry("letter-0", "From Mara: The pier is mended."));
-        assert_eq!(entry.0, Some(Role::ListItem));
-        assert_eq!(entry.1.label(), Some("From Mara: The pier is mended."));
-        let snapshot = a_full_drawer();
-        let (role, found) = accessible(&book_tile(&snapshot.book[0], 0, None));
-        assert_eq!(role, Some(Role::ListItem));
-        assert_eq!(found.label(), Some("A pressed flower"));
-        let (_, missing) = accessible(&book_tile(&snapshot.book[1], 1, None));
-        assert_eq!(missing.label(), Some("Not found yet: Someone by the sea"));
     }
 
     /// The answers on a question's card are buttons in a set, named by
@@ -4783,6 +4409,64 @@ mod tests {
         }
     }
 
+    /// After dusk the paper over the scene dims, so no card glares over a
+    /// night sky; by day it is the usual white, and the dark appearance
+    /// keeps its own.
+    #[test]
+    fn cards_over_a_night_scene_are_a_dimmer_paper() {
+        let bright = |colour: gpui::Rgba| colour.r + colour.g + colour.b;
+        let day = paper_at(scene::Daylight::Day, false);
+        let dusk = paper_at(scene::Daylight::Dusk, false);
+        let night = paper_at(scene::Daylight::Night, false);
+        assert!(bright(night) < bright(dusk) && bright(dusk) < bright(day));
+        assert!(bright(night) > 2.2, "still paper, dark text still reads");
+        assert_eq!(
+            paper_at(scene::Daylight::Night, true),
+            paper_at(scene::Daylight::Day, true)
+        );
+    }
+
+    /// A thing of the hands is drawn as what it is, by the name its deed
+    /// gives it, and as its verb makes things when nothing matches.
+    #[test]
+    fn a_thing_of_the_hands_is_drawn_as_itself() {
+        assert_eq!(
+            hand_shape("tiny-society.hand.build.bench.12", "Build"),
+            MarkShape::Bench
+        );
+        assert_eq!(
+            hand_shape("tiny-society.hand.build.rowboat.3", "Build"),
+            MarkShape::Boat
+        );
+        assert_eq!(
+            hand_shape("tiny-society.hand.plant.herbs.3", "Plant"),
+            MarkShape::Garden
+        );
+        assert_eq!(
+            hand_shape("tiny-society.hand.plant.apple_tree.3", "Plant"),
+            MarkShape::Tree
+        );
+        assert_eq!(
+            hand_shape("hands.decorate.bunting.1", "Decorate"),
+            MarkShape::Bunting
+        );
+    }
+
+    /// A gauge says its reading, a number where the World counts one.
+    #[test]
+    fn a_gauge_shows_its_number() {
+        let gauge = world_projection::Gauge {
+            id: "money".into(),
+            label: "Money in town".into(),
+            value: 0.4,
+            reading: "11,485".into(),
+            tone: world_projection::Tone::Good,
+        };
+        let (role, node) = accessible(&hud_gauge(&gauge, 0.4, None));
+        assert_eq!(role, Some(Role::Meter));
+        assert_eq!(node.label(), Some("Money in town: 11,485"));
+    }
+
     /// Every name an icon shows on hover is in the app's Chinese catalog.
     #[test]
     fn every_icon_name_is_translated() {
@@ -4870,6 +4554,59 @@ mod tests {
                 assert_eq!(role, Some(Role::Status));
                 assert_eq!(node.label(), Some(pointer.words()));
             }
+        }
+    }
+
+    /// The v0.24 bar: the question card never covers whoever asks it. On
+    /// the day-1,082 harbour at 1100 by 900 and 1440 by 900, for everyone
+    /// out on the quay at noon, looked at from anywhere along the place,
+    /// the card docked for them as asker covers no part of their figure.
+    #[test]
+    fn the_card_never_covers_its_asker() {
+        use crate::diorama::{self, Camera, Glows};
+        let snapshot = crate::diorama::tests::harbour_1082();
+        for (width, window_h) in [(1100.0_f32, 900.0_f32), (1440.0, 900.0)] {
+            let height = window_h - 52.0;
+            let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(12));
+            let lives = diorama::living(
+                &stage,
+                &snapshot,
+                0.0,
+                crate::scene::Daylight::Day,
+                &Default::default(),
+                None,
+            );
+            let mut askers = 0;
+            for pan in 0..=20 {
+                let camera =
+                    Camera::around(&stage, 1.0, stage.width * pan as f32 / 20.0, height / 2.0);
+                let frame = diorama::frame(
+                    &snapshot,
+                    &stage,
+                    &lives,
+                    camera,
+                    0.0,
+                    crate::scene::Daylight::Day,
+                    &Glows::new(),
+                    1.0,
+                );
+                for person in &frame.people {
+                    if person.x < 0.0 || person.x > width {
+                        continue;
+                    }
+                    askers += 1;
+                    let dock = card_dock(width, Some(person.x));
+                    let (left, right) = dock.span(width);
+                    let half = person.height * 0.4;
+                    assert!(
+                        person.x + half <= left || person.x - half >= right,
+                        "{width}: someone at {} covered by a card at {left}..{right}",
+                        person.x
+                    );
+                    assert!(dock.w >= 400.0, "{width}: a card {} wide", dock.w);
+                }
+            }
+            assert!(askers > 50, "{askers} askers seen");
         }
     }
 

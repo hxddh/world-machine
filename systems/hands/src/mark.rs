@@ -18,7 +18,7 @@ use world_core::{
     WorldError, WorldState,
 };
 
-use crate::{integer, made, name, period, text, Kit, Thing};
+use crate::{integer, made, name, period, text, Kit, PlotStages, Thing};
 
 /// Somewhere free the player can build, and which works could stand there.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +41,17 @@ pub const PATTERN: &str = "hands.pattern";
 pub const NAMED: &str = "hands.named";
 /// What something was called before the player named it.
 pub const WAS: &str = "hands.was";
+/// How many periods a work on a plot takes, when not the Kit's own.
+pub const GROWING: &str = "hands.growing";
+/// Set on the Kit's notes when the first work was begun on a plot, when
+/// the first goes up quickly: which work it was.
+pub(crate) const FIRST_BUILT: &str = "hands.first_built";
+
+/// How many periods a work on a plot takes to build: what was kept on it
+/// when it was begun, or the Kit's own.
+fn growing_of(state: &WorldState, kit: &Kit, fixture: EntityId) -> u64 {
+    integer(state, fixture, GROWING).map_or(kit.growing, |periods| periods.max(0) as u64)
+}
 
 /// A deed's key for building `work` on `plot`: `plot.<work>.<plot>`.
 pub fn plot_key(work: &str, plot: &str) -> String {
@@ -71,7 +82,7 @@ pub fn finished_at(state: &WorldState, kit: &Kit, fixture: EntityId) -> Option<u
         return None;
     }
     let since = integer(state, fixture, "hands.since")?.max(0) as u64;
-    Some(since + kit.growing)
+    Some(since + growing_of(state, kit, fixture))
 }
 
 /// Whether a work is still being built.
@@ -126,7 +137,7 @@ pub(crate) fn plot_refused(
     work_id: &str,
     plot_id: &str,
 ) -> Result<(&'static Thing, EntityId), ActionError> {
-    let plot = (kit.plots)(state)
+    let plot = open_plots(state, kit)
         .into_iter()
         .find(|plot| plot.id == plot_id)
         .ok_or_else(|| ActionError::Invalid(format!("no plot {plot_id}")))?;
@@ -159,7 +170,7 @@ fn due_finish(state: &WorldState, kit: &Kit) -> Vec<EntityId> {
         .filter(|id| building(state, *id))
         .filter(|id| {
             let since = integer(state, *id, "hands.since").unwrap_or(0).max(0) as u64;
-            now.saturating_sub(since) >= kit.growing
+            now.saturating_sub(since) >= growing_of(state, kit, *id)
         })
         .collect()
 }
@@ -411,4 +422,227 @@ pub fn was_called(state: &WorldState, target: EntityId) -> Option<&str> {
 /// ordinary deed's: it takes no room from what the player makes by hand.
 pub(crate) fn on_a_plot(state: &WorldState, fixture: EntityId) -> bool {
     plot_of(state, fixture).is_some()
+}
+
+/// How many plots are open, if they open in stages and have begun to: a
+/// World begun before they did keeps every plot open.
+pub fn plots_open_now(state: &WorldState, kit: &Kit) -> Option<usize> {
+    let stages = kit.plot_stages?;
+    integer(state, stages.keeper, PLOTS_OPEN).map(|open| open.max(0) as usize)
+}
+
+/// The order a place's plots open in, by their place in `plots`: a
+/// stretch at a time in turn (the stretches in the order the Pack numbers
+/// them), and along each stretch from its middle outward.
+pub(crate) fn opening_order(state: &WorldState, stages: &PlotStages, plots: &[Plot]) -> Vec<usize> {
+    let mut stretches = std::collections::BTreeMap::<usize, Vec<usize>>::new();
+    for (at, plot) in plots.iter().enumerate() {
+        stretches
+            .entry((stages.group)(state, plot))
+            .or_default()
+            .push(at);
+    }
+    let mut turns = stretches
+        .into_values()
+        .map(|along| {
+            // From the middle outward: middle, one after, one before, ...
+            let middle = along.len() / 2;
+            let mut out = Vec::with_capacity(along.len());
+            for step in 0..along.len() {
+                let offset = step.div_ceil(2);
+                let at = if step % 2 == 1 {
+                    middle + offset
+                } else {
+                    middle.wrapping_sub(offset)
+                };
+                if let Some(plot) = along.get(at) {
+                    out.push(*plot);
+                }
+            }
+            // What ran off either end, in order.
+            out.extend(
+                along
+                    .iter()
+                    .filter(|plot| !out.contains(plot))
+                    .copied()
+                    .collect::<Vec<_>>(),
+            );
+            out.into_iter()
+        })
+        .collect::<Vec<_>>();
+    let mut order = Vec::with_capacity(plots.len());
+    while order.len() < plots.len() {
+        for turn in &mut turns {
+            if let Some(plot) = turn.next() {
+                order.push(plot);
+            }
+        }
+    }
+    order
+}
+
+/// The plots open now, in the order the Pack lists them: every one, unless
+/// they open in stages, when only those opened so far.
+pub fn open_plots(state: &WorldState, kit: &Kit) -> Vec<Plot> {
+    let all = (kit.plots)(state);
+    let (Some(open), Some(stages)) = (plots_open_now(state, kit), kit.plot_stages) else {
+        return all;
+    };
+    let order = opening_order(state, &stages, &all);
+    let opened = order
+        .iter()
+        .take(open)
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    // Whatever stands on a plot keeps it, open or not.
+    let standing = on_plots(state)
+        .into_iter()
+        .map(|(plot, _)| plot)
+        .collect::<Vec<_>>();
+    all.into_iter()
+        .enumerate()
+        .filter(|(at, plot)| opened.contains(at) || standing.contains(&plot.id))
+        .map(|(_, plot)| plot)
+        .collect()
+}
+
+/// How many plots are open, kept on the Pack's keeper once they open in
+/// stages.
+const PLOTS_OPEN: &str = "hands.plots_open";
+/// The period the plots began to open in stages.
+const PLOTS_SINCE: &str = "hands.plots_since";
+
+/// How many plots should be open by now, when they open in stages.
+fn plots_due(state: &WorldState, kit: &Kit) -> Option<usize> {
+    let stages = kit.plot_stages?;
+    let since = integer(state, stages.keeper, PLOTS_SINCE)?.max(0) as u64;
+    let passed = period(state, kit).saturating_sub(since);
+    let reached = stages.at.iter().filter(|at| **at <= passed).count();
+    let count = (kit.plots)(state).len();
+    Some(if reached >= stages.at.len() {
+        count
+    } else {
+        (stages.first + reached).min(count)
+    })
+}
+
+/// A new World's plots begin to open in stages: the first few now, the
+/// rest over the years.
+pub(crate) struct StagesPlots(pub(crate) fn(&WorldState) -> Kit);
+
+impl Action for StagesPlots {
+    fn name(&self) -> &'static str {
+        "hands_stage_plots"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let kit = (self.0)(state);
+        let stages = kit
+            .plot_stages
+            .ok_or_else(|| ActionError::Invalid("plots do not open in stages".into()))?;
+        if state.entity(stages.keeper).is_none() {
+            return Err(ActionError::Invalid("nowhere to keep the plots".into()));
+        }
+        if plots_open_now(state, &kit).is_some() {
+            return Err(ActionError::Invalid("the plots have begun to open".into()));
+        }
+        let first = stages.first.min((kit.plots)(state).len());
+        let mut draft = EventDraft::new("plots_staged");
+        draft.payload.insert("open".into(), (first as i64).into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: stages.keeper,
+                key: PLOTS_OPEN.into(),
+                value: (first as i64).into(),
+            },
+            StateChange::SetComponent {
+                entity: stages.keeper,
+                key: PLOTS_SINCE.into(),
+                value: (period(state, &kit) as i64).into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+/// Another plot is cleared, when its time has come.
+pub(crate) struct ClearsPlot(pub(crate) fn(&WorldState) -> Kit);
+
+impl Action for ClearsPlot {
+    fn name(&self) -> &'static str {
+        "hands_clear_plot"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let kit = (self.0)(state);
+        let stages = kit
+            .plot_stages
+            .ok_or_else(|| ActionError::Invalid("plots do not open in stages".into()))?;
+        let open = plots_open_now(state, &kit)
+            .ok_or_else(|| ActionError::Invalid("every plot is open".into()))?;
+        if plots_due(state, &kit).is_none_or(|due| due <= open) {
+            return Err(ActionError::Invalid("no plot is due to open".into()));
+        }
+        let all = (kit.plots)(state);
+        let at = opening_order(state, &stages, &all)[open];
+        let plot = &all[at];
+        let mut draft = EventDraft::new("plot_cleared");
+        draft.payload.insert("plot".into(), plot.id.clone().into());
+        draft.payload.insert("at".into(), Value::Entity(plot.at));
+        draft.payload.insert(
+            "told".into(),
+            format!("A new plot was cleared by {}", name(state, plot.at)).into(),
+        );
+        draft.changes = vec![StateChange::SetComponent {
+            entity: stages.keeper,
+            key: PLOTS_OPEN.into(),
+            value: (open as i64 + 1).into(),
+        }];
+        Ok(draft)
+    }
+}
+
+/// A new World's plots begin to open in stages, if the Pack's do and they
+/// have not begun to: a Pack calls this as its World begins.
+pub fn stage_plots(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    kit: &Kit,
+) -> Result<Option<EventId>, WorldError> {
+    if kit.plot_stages.is_none() || plots_open_now(world.state(), kit).is_some() {
+        return Ok(None);
+    }
+    match world.execute(actions, &ActionRequest::new("hands_stage_plots")) {
+        Ok(event) => Ok(Some(event.id)),
+        Err(WorldError::Action(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// One period of plots opening: the next is cleared when its time comes.
+pub(crate) fn clear_plot(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    kit: &Kit,
+) -> Result<Option<EventId>, WorldError> {
+    let state = world.state();
+    let (Some(open), Some(due)) = (plots_open_now(state, kit), plots_due(state, kit)) else {
+        return Ok(None);
+    };
+    if due <= open {
+        return Ok(None);
+    }
+    Ok(Some(
+        world
+            .execute(actions, &ActionRequest::new("hands_clear_plot"))?
+            .id,
+    ))
 }

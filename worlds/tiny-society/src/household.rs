@@ -319,6 +319,6 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "Harbor Bakery closed its doors"));
+            .any(|item| item.title == "Harbour Bakery closed its doors"));
     }
 }

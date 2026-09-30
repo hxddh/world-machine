@@ -8,7 +8,7 @@ use crate::SLOT_A as HOME;
 use chronicle::{fill, text, Beat};
 use std::collections::{BTreeMap, BTreeSet};
 use world_core::{EntityId, Event, StateChange, Value, World};
-use world_projection::{BookEntry, MarkShape, Moment, MomentKind, Mood, SelectionId};
+use world_projection::{BookEntry, MarkShape, Moment, MomentKind, Mood, Prop, SelectionId};
 
 use Mood::{Content, Happy, Sad, Thinking};
 
@@ -26,6 +26,31 @@ struct Voice {
     before: &'static [&'static str],
     after: &'static [&'static str],
     moods: [Mood; 3],
+    /// What each panel shows besides its people, whatever its words.
+    props: [&'static [Prop]; 3],
+}
+
+/// Words a caption can say that a panel shows: a caption that names the
+/// bag has the bag drawn in it.
+const PROP_WORDS: &[(&str, Prop)] = &[
+    ("bag", Prop::Suitcase),
+    ("lamp stayed lit", Prop::Lamp),
+    ("a light in the window", Prop::Lamp),
+    ("danced", Prop::Bunting),
+    ("tables", Prop::Table),
+    ("storm", Prop::Rain),
+    ("the wind got up", Prop::Rain),
+    ("went dark", Prop::Rain),
+];
+
+/// How someone leaves this place, or comes to it: a shuttle from a
+/// colony, the bus from a town, a sled over the ice.
+fn transport(world: &World) -> Prop {
+    match crate::seed_id(world) {
+        "mars-colony" => Prop::Shuttle,
+        "penguin-civilization" => Prop::Sled,
+        _ => Prop::Bus,
+    }
 }
 
 const WEDDING: Voice = Voice {
@@ -39,6 +64,7 @@ const WEDDING: Voice = Voice {
         "{a} and {b} danced at {place} till the lights went out.",
     ],
     moods: [Content, Happy, Happy],
+    props: [&[], &[Prop::Bunting, Prop::Bouquet], &[]],
 };
 
 const COUPLE: Voice = Voice {
@@ -52,6 +78,7 @@ const COUPLE: Voice = Voice {
         "{b} smiled for a week, and {a} for longer.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[], &[], &[]],
 };
 
 const SETTLED: Voice = Voice {
@@ -65,6 +92,7 @@ const SETTLED: Voice = Voice {
         "{a} unpacked the bag at last, and so did the others.",
     ],
     moods: [Thinking, Happy, Content],
+    props: [&[Prop::Suitcase], &[], &[]],
 };
 
 const PARTY: Voice = Voice {
@@ -78,6 +106,11 @@ const PARTY: Voice = Voice {
         "Nobody left {place} before {a} and {b} did.",
     ],
     moods: [Content, Happy, Happy],
+    props: [
+        &[Prop::Table],
+        &[Prop::Bunting, Prop::Table],
+        &[Prop::Bunting],
+    ],
 };
 
 const BIRTH: Voice = Voice {
@@ -91,6 +124,7 @@ const BIRTH: Voice = Voice {
         "{b} carried {a} round {place} for everyone to see.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[], &[Prop::Cradle], &[Prop::Cradle]],
 };
 
 const GROWN: Voice = Voice {
@@ -105,6 +139,7 @@ const GROWN: Voice = Voice {
         "{a} went to work at {place} the next morning, grown at last.",
     ],
     moods: [Content, Happy, Content],
+    props: [&[], &[], &[Prop::Tools]],
 };
 
 const RETIRED: Voice = Voice {
@@ -118,6 +153,7 @@ const RETIRED: Voice = Voice {
         "{a} had time at last to sit in the {season} sun.",
     ],
     moods: [Thinking, Content, Happy],
+    props: [&[Prop::Tools], &[], &[Prop::Bench]],
 };
 
 const FAREWELL: Voice = Voice {
@@ -131,6 +167,7 @@ const FAREWELL: Voice = Voice {
         "{a}'s window at {place} stayed dark that night.",
     ],
     moods: [Thinking, Sad, Content],
+    props: [&[Prop::Suitcase], &[], &[]],
 };
 
 const DEATH: Voice = Voice {
@@ -144,6 +181,7 @@ const DEATH: Voice = Voice {
         "Nobody worked the day after {a} died.",
     ],
     moods: [Content, Sad, Sad],
+    props: [&[], &[Prop::Wreath], &[]],
 };
 
 const STORM: Voice = Voice {
@@ -159,6 +197,7 @@ const STORM: Voice = Voice {
         "{a} helped clear {place} before breakfast.",
     ],
     moods: [Thinking, Thinking, Content],
+    props: [&[Prop::Rain], &[Prop::Rain], &[]],
 };
 
 const WORK: Voice = Voice {
@@ -172,6 +211,7 @@ const WORK: Voice = Voice {
         "{a} walked round {work} twice, just to look.",
     ],
     moods: [Thinking, Happy, Happy],
+    props: [&[Prop::Scaffold], &[Prop::Ribbon], &[]],
 };
 
 const FESTIVAL: Voice = Voice {
@@ -185,6 +225,7 @@ const FESTIVAL: Voice = Voice {
         "{a} talked about {festival} for days.",
     ],
     moods: [Content, Happy, Happy],
+    props: [&[Prop::Bunting], &[Prop::Bunting], &[]],
 };
 
 const ARRIVAL: Voice = Voice {
@@ -198,6 +239,7 @@ const ARRIVAL: Voice = Voice {
         "{a} had a key to a door of their own before the week was out.",
     ],
     moods: [Thinking, Happy, Content],
+    props: [&[], &[Prop::Suitcase], &[]],
 };
 
 use crate::legends::is_person;
@@ -348,6 +390,18 @@ fn beat<'a>(
         title: capitalized(&fill(voice.title, &all)),
         cast,
         place: Some(place),
+        props: {
+            let mut props = [0, 1, 2]
+                .map(|at| chronicle::props_for(&captions[at], PROP_WORDS, voice.props[at]));
+            // Someone leaving goes, and someone new comes, the way people
+            // travel here.
+            if voice.title == FAREWELL.title {
+                props[1].push(transport(world));
+            } else if voice.title == ARRIVAL.title {
+                props[0].push(transport(world));
+            }
+            props
+        },
         captions,
         moods: voice.moods.map(Some),
     })

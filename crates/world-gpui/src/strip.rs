@@ -180,6 +180,7 @@ impl Rows {
             zoom: 1.0,
             x: start + self.w * (row as f32 + 0.5),
             y: stage.height / 2.0,
+            fold: 0.0,
         };
         (band, camera)
     }

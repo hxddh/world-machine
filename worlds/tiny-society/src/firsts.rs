@@ -1,4 +1,4 @@
-//! The harbour's quiet days: two letters a week at most, and on the other
+//! The harbour's quiet days: at most two letters a week and often fewer, and on the other
 //! quiet days a small first. Someone speaks of something they have never
 //! mentioned, or shows the player a corner of the harbour they have not
 //! seen.
@@ -8,6 +8,14 @@ use lives::{Corner, QuietDays, Subject};
 
 /// The most letters in any week.
 pub(crate) const LETTERS_A_WEEK: usize = 2;
+
+/// How many letters a week may bring, taken week by week in a mixed
+/// order: two some weeks, one most, and now and then none (about one and
+/// a quarter a week).
+const LETTER_WEEKS: &[usize] = &[2, 1, 1, 0, 2, 1, 1, 2];
+
+/// One day in this many is left quiet, with nothing new at all.
+const STILL_EVERY: u64 = 40;
 
 const CORNERS: &[Corner] = &[
     Corner {
@@ -1841,6 +1849,8 @@ fn subjects() -> &'static [Subject] {
 pub(crate) fn quiet_days() -> QuietDays {
     QuietDays {
         letters_a_week: Some(LETTERS_A_WEEK),
+        letter_weeks: LETTER_WEEKS,
+        still_every: Some(STILL_EVERY),
         corners: CORNERS,
         subjects: subjects(),
     }

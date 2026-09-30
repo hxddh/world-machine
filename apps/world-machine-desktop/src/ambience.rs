@@ -58,6 +58,18 @@ impl Channel {
         }
     }
 
+    /// The level a new install starts at: under the full default, so the
+    /// first sound a new player hears is quiet; on the Settings mixer's
+    /// own steps (each a quarter), so the mixer shows it as it is.
+    pub fn gentle_level(self) -> u8 {
+        match self {
+            Channel::Music => 25,
+            Channel::Ambience => 50,
+            Channel::Voices => 50,
+            Channel::Interface => 50,
+        }
+    }
+
     /// The level a channel starts at, as a percentage.
     pub fn default_level(self) -> u8 {
         match self {

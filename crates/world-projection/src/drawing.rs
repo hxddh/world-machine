@@ -602,20 +602,21 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
     ));
     parts.push(rect(-1.45, 5.7, 2.9, 1.0, Ink::Clothes).round(0.12));
     parts.push(rect(-0.35, 6.4, 0.7, 0.5, Ink::Skin));
-    // Sitting: the whole figure is drawn lower (see [`drop_of`]), so these
-    // legs run forward from the hem and down to the lowered ground.
+    // Sitting: the whole figure is drawn lower (see [`drop_of`]), on a
+    // seat at the height of a bench: thighs run forward from the hem, and
+    // the shins go down from the knee to the lowered ground.
     parts.push(
         rect(-0.6, 2.75, 3.0, 0.9, trousers)
             .round(0.1)
             .only(&[Sitting]),
     );
     parts.push(
-        rect(1.55, 2.55, 0.9, 1.0, trousers)
+        rect(1.55, 1.25, 0.9, 2.2, trousers)
             .round(0.08)
             .only(&[Sitting]),
     );
     parts.push(
-        rect(1.45, 2.4, 1.5, 0.42, shoes)
+        rect(1.45, 1.0, 1.5, 0.42, shoes)
             .round(0.06)
             .only(&[Sitting]),
     );
@@ -841,7 +842,7 @@ pub(crate) fn mix(value: u32) -> u32 {
 /// drops the hips to a seat.
 pub fn drop_of(stance: Stance) -> f32 {
     match stance {
-        Stance::Sitting => 0.24,
+        Stance::Sitting => 0.1,
         _ => 0.0,
     }
 }

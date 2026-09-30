@@ -606,3 +606,196 @@ fn festival_things(prefix: &str, colours: Festive) -> Vec<Drawing> {
 
     vec![flag, bunting, lanterns, stall, tent]
 }
+
+/// What the app draws each of the harbour's own works as, from its
+/// library of drawings: every work its own drawing, so no shape stands in
+/// for another.
+pub(crate) fn art_of_work(work: &str) -> Option<&'static str> {
+    Some(match work {
+        "pier" => "new-pier",
+        "lamp" => "point-lamp",
+        "bandstand" => "bandstand",
+        "sea_wall" => "sea-wall",
+        "school_garden" => "school-garden",
+        "harbour_clock" => "harbour-clock",
+        "boathouse" => "boathouse",
+        "fountain" => "square-fountain",
+        "fishers_statue" => "fishers-statue",
+        "new_well" => "roofed-well",
+        "postbox" => "pillar-box",
+        "birdhouses" => "birdhouses",
+        "signposts" => "fingerpost",
+        "quay_planters" => "quay-planters",
+        "school_swings" => "swing-set",
+        "lighthouse_paint" => "lighthouse",
+        "lifeboat_station" => "lifeboat-station",
+        "village_hall" => "village-hall",
+        "bathing_huts" => "bathing-huts",
+        "orchard" => "orchard",
+        "smokehouse" => "smokehouse",
+        "footbridge" => "footbridge",
+        "telescope" => "telescope",
+        "cliff_path" => "cliff-path",
+        "fish_market" => "fish-market",
+        "bread_oven" => "bread-oven",
+        "chapel_bell" => "bell-tower",
+        "puppet_theatre" => "puppet-theatre",
+        "glasshouse" => "glasshouse",
+        "rowing_club" => "rowing-club",
+        "duck_pond" => "duck-pond",
+        "cottages" => "row-cottages",
+        "beacon" => "hill-beacon",
+        "ferry_shelter" => "ferry-shelter",
+        "picnic_tables" => "picnic-tables",
+        "sundial" => "sundial",
+        "dovecote" => "dovecote",
+        "seal_hide" => "seal-hide",
+        "herb_garden" => "herb-garden",
+        "maypole" => "maypole",
+        "tide_gauge" => "tide-board",
+        "reading_room" => "reading-room",
+        "boat_yard" => "boat-yard",
+        "mural" => "harbour-mural",
+        "lookout_tower" => "lookout-tower",
+        "sea_pool" => "sea-pool",
+        "net_loft" => "net-loft",
+        "school_library" => "book-nook",
+        "tea_rooms" => "tea-rooms",
+        "bread_cart" => "bread-cart",
+        "pub_terrace" => "pub-terrace",
+        "workshop" => "workshop",
+        "gull_gate" => "bin-gate",
+        "paddling_pool" => "paddling-pool",
+        "lantern_walk" => "lantern-walk",
+        "bandstand_roof" => "roofed-bandstand",
+        "herring_shed" => "herring-shed",
+        "wind_break" => "windbreak",
+        "chapel_windows" => "chapel",
+        "jetty_ladder" => "jetty-ladder",
+        "own_driftwood_bench" => "driftwood-bench",
+        "own_rope_swing" => "oak-rope-swing",
+        "own_painted_stones" => "painted-stones",
+        "own_notice_board" => "notice-board",
+        "own_herb_bed" => "herb-bed",
+        "own_cairn" => "cairn",
+        "own_window_boxes" => "window-box-stand",
+        "own_bait_shed" => "bait-shed",
+        "own_sandpit" => "sandpit",
+        "own_bird_table" => "bird-table",
+        "own_stepping_stones" => "stepping-stones",
+        "own_book_box" => "book-box",
+        "own_flag_line" => "flag-line",
+        "own_net_rack" => "net-rack",
+        "own_wildflowers" => "wildflowers",
+        "own_fire_pit" => "fire-pit",
+        "own_hen_house" => "hen-house",
+        "own_lookout" => "lookout-seat",
+        "own_jar_lanterns" => "jar-lanterns",
+        "own_shell_path" => "shell-path",
+        "own_boat_planter" => "boat-planter",
+        "own_skittle_alley" => "skittle-alley",
+        "own_weathervane" => "weathervane",
+        "own_story_chair" => "story-chair",
+        "own_bee_hives" => "beehives",
+        "own_kite_hill" => "kites",
+        "own_tide_pools" => "pool-name-boards",
+        "own_quay_mosaic" => "pebble-mosaic",
+        "own_music_shed" => "music-shed",
+        "own_apple_press" => "apple-press",
+        _ => return None,
+    })
+}
+
+/// What the app draws something the player built on a plot or made by
+/// hand as, by what it is in the `hands` kit.
+pub(crate) fn art_of(thing: &str) -> Option<&'static str> {
+    Some(match thing {
+        // Plots on the quay.
+        "boathouse" => "boathouse",
+        "sail_loft" => "sail-loft",
+        "crab_shack" => "crab-shack",
+        "net_store" => "net-store",
+        "radio_hut" => "radio-hut",
+        "slipway" => "slipway",
+        "fishers_shelter" => "fishers-shelter",
+        "harbour_lamp" => "harbour-lamp",
+        "boat_rack" => "boat-rack",
+        "ice_house" => "ice-house",
+        "mooring_bench" => "mooring-bench",
+        // On the square.
+        "bandstand" => "bandstand",
+        "clock_tower" => "clock-tower",
+        "bookshop" => "bookshop",
+        "cheese_shop" => "cheese-shop",
+        "surgery" => "surgery",
+        "pottery" => "pottery",
+        "gallery" => "gallery",
+        "quilting_room" => "quilting-room",
+        "flower_stall" => "flower-stall",
+        "market_cross" => "market-cross",
+        // Up the hill.
+        "bee_garden" => "bee-garden",
+        "sheepfold" => "sheepfold",
+        "allotments" => "allotments",
+        "weaving_shed" => "weaving-shed",
+        "study_hut" => "study-hut",
+        "story_stone" => "story-stone",
+        "joinery" => "joinery",
+        "windmill" => "windmill",
+        "summer_house" => "summer-house",
+        "rose_arbour" => "rose-arbour",
+        "frog_pond" => "frog-pond",
+        "hilltop_swing" => "hilltop-swing",
+        // Made by hand.
+        "bench" => "park-bench",
+        "lamp" => "lamp-post",
+        "stall" => "market-stall",
+        "lanterns" => "paper-lanterns",
+        "vegetables" => "vegetable-patch",
+        "apple_tree" => "apple-tree",
+        "well" => "wellhead",
+        "swing" => "garden-swing",
+        "fountain" => "wall-fountain",
+        "signpost" => "signpost",
+        "birdhouse" => "birdhouse",
+        "statue" => "fisherman-statue",
+        "postbox" => "lamp-box",
+        "rowboat" => "rowing-boat",
+        "picnic" => "picnic-table",
+        "flowerboxes" => "flower-boxes",
+        "sunflowers" => "sunflowers",
+        "herbs" => "herb-pots",
+        // A flag, a sign and a line of washing wear a design, and keep
+        // the shape it is painted on.
+        _ => return None,
+    })
+}
+
+/// Says what everything the player built or made is drawn as: its art
+/// once it stands finished in its own shape (a sapling is still a
+/// sapling).
+pub(crate) fn dress_art(world: &World, items: &mut [world_projection::CanvasItem]) {
+    let state = world.state();
+    // What is still going up keeps the scaffold its plot says it has.
+    for item in items.iter_mut().filter(|item| item.art.is_none()) {
+        let world_projection::SelectionId::Entity(id) = item.id else {
+            continue;
+        };
+        let Some(entity) = state.entity(id) else {
+            continue;
+        };
+        let (Some(Value::Text(thing)), shape) =
+            (entity.component("hands.thing"), entity.component("shape"))
+        else {
+            continue;
+        };
+        if matches!(shape, Some(Value::Text(shape)) if shape == "sprouts") {
+            continue;
+        }
+        if let Some(art) = art_of(thing) {
+            item.art = Some(art.into());
+            // Its own drawing, not a festival's stall or lantern.
+            item.drawing = None;
+        }
+    }
+}

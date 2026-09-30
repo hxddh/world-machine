@@ -268,6 +268,7 @@ fn a_year_names_who_came_and_who_left_and_its_best_moment() {
         place: Some(SQUARE),
         captions: ["a".into(), "b".into(), "c".into()],
         moods: [None, Some(Mood::Happy), None],
+        props: [Vec::new(), vec![world_projection::Prop::Ferry], Vec::new()],
     };
     let all = moments(
         vec![
@@ -281,6 +282,8 @@ fn a_year_names_who_came_and_who_left_and_its_best_moment() {
     assert_eq!(all[0].id, "moment-8");
     assert_eq!(all[0].day, 20);
     assert_eq!(all[0].cast(), [SelectionId::Entity(BO)]);
+    assert_eq!(all[0].panels[1].props, [world_projection::Prop::Ferry]);
+    assert!(all[0].panels[0].props.is_empty());
     let year = Year::of(2, 120, DAY);
     assert!(year.holds(130 * DAY) && year.holds(120 * DAY) && !year.holds(119 * DAY));
     let page = almanac(&toy, year, "Year two".into(), &[ANA, BO, CY], vec![], &all);
@@ -308,4 +311,74 @@ fn a_variant_is_the_same_for_the_same_seed() {
         .map(|seed| pick(seed, &options))
         .collect::<BTreeSet<_>>();
     assert_eq!(seen.len(), 4);
+}
+
+/// A life with too few lines of its own is told fuller from the festivals
+/// held while they were here, each the first time it came round for them,
+/// each a festival the World recorded; a full life is left as it is.
+#[test]
+fn a_short_life_is_told_from_the_festivals_it_saw() {
+    let toy = world(vec![
+        // 1: Cy is born.
+        draft("born", 2)
+            .with("told", "Cy was born")
+            .changing(StateChange::CreateEntity(person(CY, "Cy"))),
+        // 2–5: festivals, one of them twice.
+        draft("festival_held", 4)
+            .to(SQUARE)
+            .with("name", "Lantern Night"),
+        draft("festival_held", 8).to(SQUARE).with("name", "May Day"),
+        draft("festival_held", 12)
+            .to(SQUARE)
+            .with("name", "Lantern Night"),
+        draft("festival_held", 16)
+            .to(SQUARE)
+            .with("name", "Harvest Home"),
+        draft("festival_held", 20)
+            .to(SQUARE)
+            .with("name", "Midwinter"),
+        draft("festival_held", 24)
+            .to(SQUARE)
+            .with("name", "Regatta"),
+    ]);
+    let cy = legend(&toy, SelectionId::Entity(CY)).unwrap();
+    assert_eq!(cy.lines.len(), 1);
+    let cy = filled_life(&toy, cy);
+    let lines = cy
+        .lines
+        .iter()
+        .map(|line| (line.day, line.text.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        [
+            (2, "Cy was born"),
+            (4, "Cy's first Lantern Night"),
+            (8, "Cy's first May Day"),
+            (16, "Cy's first Harvest Home"),
+            (20, "Cy's first Midwinter"),
+        ]
+    );
+    assert!(cy.lines.iter().all(|line| line.event.is_some()));
+    // Someone who came here is told as having come.
+    let ana = filled_life(
+        &toy,
+        Legend {
+            subject: SelectionId::Entity(ANA),
+            title: "Ana".into(),
+            lines: vec![LegendLine {
+                day: 10,
+                text: "Ana came to stay".into(),
+                ..LegendLine::default()
+            }],
+        },
+    );
+    assert_eq!(ana.lines[1].text, "Ana's first Lantern Night here");
+    // A full life, and a place, are left as they are.
+    let full = Legend {
+        subject: SelectionId::Entity(ANA),
+        title: "Ana".into(),
+        lines: vec![LegendLine::default(); FEWEST_LIFE_LINES],
+    };
+    assert_eq!(filled_life(&toy, full.clone()), full);
 }
