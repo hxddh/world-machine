@@ -1119,8 +1119,15 @@ fn a_three_year_world_never_waits_for_painting() {
             let before = ours();
             let usage = || {
                 let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+                // Only Linux can ask for this thread alone; elsewhere the
+                // whole process is counted, which only makes the report
+                // generous (it is a report, not the bar).
+                #[cfg(target_os = "linux")]
+                let whom = libc::RUSAGE_THREAD;
+                #[cfg(not(target_os = "linux"))]
+                let whom = libc::RUSAGE_SELF;
                 // SAFETY: `usage` is a valid rusage for getrusage to fill in.
-                unsafe { libc::getrusage(libc::RUSAGE_THREAD, &mut usage) };
+                unsafe { libc::getrusage(whom, &mut usage) };
                 (
                     usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 / 1e3,
                     usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 / 1e3,
