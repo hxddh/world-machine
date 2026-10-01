@@ -3541,7 +3541,7 @@ pub(super) const ARE_LIKE: &[&str] = &[
 ];
 
 /// Characters of a kind of shop, which name no one: 杂货, 面包, 渔具.
-pub(super) const TRADE_HAN: &str = "杂货面包理发药书花鱼肉酒茶布鞋服装五金小大老新旧这那一家个间裁缝修车渔具糕点早餐包子饺子面米粮油盐菜水果烟糖咖啡冰淇淋玩具唱片音像录像电器文具照相洗衣铁匠木船帆网绳灯蜡烛钟表眼镜首饰杂食品百货日用海产干货熟食卤味烧烤火锅吃快餐西点烘焙冷饮牛奶豆腐街角口镇上岛港村东西南北头边门前后";
+pub(super) const TRADE_HAN: &str = "零件配杂货面包理发药书花鱼肉酒茶布鞋服装五金小大老新旧这那一家个间裁缝修车渔具糕点早餐包子饺子面米粮油盐菜水果烟糖咖啡冰淇淋玩具唱片音像录像电器文具照相洗衣铁匠木船帆网绳灯蜡烛钟表眼镜首饰杂食品百货日用海产干货熟食卤味烧烤火锅吃快餐西点烘焙冷饮牛奶豆腐街角口镇上岛港村东西南北头边门前后";
 
 /// Chinese words after a name that say the name owns a place: 老陈开的.
 pub(super) const OWNED_HAN: &[&str] = &["开的"];

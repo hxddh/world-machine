@@ -389,3 +389,33 @@ fn people_keep_their_names() {
         }
     }
 }
+
+/// In Japanese, people's names are written in katakana, whole and first,
+/// the same in every line: every name has one in the Japanese catalogs.
+#[test]
+fn people_have_their_names_in_katakana_in_japanese() {
+    let catalog =
+        world_builtins::JA
+            .iter()
+            .fold(world_i18n::Catalog::default(), |mut all, text| {
+                all.extend(text);
+                all
+            });
+    let katakana = |text: &str| {
+        text.chars()
+            .all(|c| ('\u{30a0}'..='\u{30ff}').contains(&c) || "じいさんばあさん".contains(c))
+    };
+    for name in tiny_society::people_names()
+        .into_iter()
+        .chain(pocket_universe::people_names())
+    {
+        let first = name.split_whitespace().next().unwrap_or(name);
+        for name in [name, first] {
+            let shown = catalog.exact(name);
+            assert!(
+                shown.is_some_and(katakana),
+                "{name} is shown as {shown:?} in Japanese"
+            );
+        }
+    }
+}

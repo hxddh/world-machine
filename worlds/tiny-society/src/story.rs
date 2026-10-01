@@ -3368,6 +3368,8 @@ pub(crate) fn tick(
         let kit = crate::handwork::kit(world.state());
         events.extend(hands::stage_plots(world, actions, &kit)?);
     }
+    // Last of all, someone may ask the player a favour talk can do.
+    events.extend(crate::speech::favour_asked(world, actions, away)?);
     Ok(events)
 }
 

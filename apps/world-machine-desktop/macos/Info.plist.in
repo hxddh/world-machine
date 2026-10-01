@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>World Machine</string>
+    <string>@APP_NAME@</string>
     <key>CFBundleExecutable</key>
     <string>world-machine-desktop</string>
     <key>CFBundleIconFile</key>
@@ -13,11 +13,11 @@
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.hxddh.world-machine</string>
+    <string>@BUNDLE_ID@</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>World Machine</string>
+    <string>@APP_NAME@</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -35,7 +35,7 @@
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSHandlerRank</key>
-            <string>Owner</string>
+            <string>@HANDLER_RANK@</string>
             <key>LSItemContentTypes</key>
             <array>
                 <string>io.github.hxddh.world-machine.world</string>
@@ -47,7 +47,7 @@
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>LSHandlerRank</key>
-            <string>Owner</string>
+            <string>@HANDLER_RANK@</string>
             <key>LSItemContentTypes</key>
             <array>
                 <string>io.github.hxddh.world-machine.worldcode</string>
@@ -59,7 +59,7 @@
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>LSHandlerRank</key>
-            <string>Owner</string>
+            <string>@HANDLER_RANK@</string>
             <key>LSItemContentTypes</key>
             <array>
                 <string>io.github.hxddh.world-machine.worldpack</string>

@@ -9,3 +9,4 @@ publish = false
 world-core = { path = "../../crates/world-core" }
 lives = { path = "../lives" }
 world-projection = { path = "../../crates/world-projection" }
+serde_json = "1"

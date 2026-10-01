@@ -9,6 +9,8 @@ mod density;
 mod drawings;
 mod eras;
 #[cfg(test)]
+mod favours_tests;
+#[cfg(test)]
 mod first_minutes;
 mod firsts;
 mod handwork;
@@ -275,6 +277,7 @@ impl PocketUniverse {
         let request =
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
         let event = self.world.execute(&self.actions, &request)?.id;
+        speech::favour_done(&mut self.world, &self.actions, event)?;
         story::after_first_deed(&mut self.world, &self.actions)?;
         Ok(event)
     }
@@ -1695,6 +1698,7 @@ mod tests {
                         .handle(next_intent(&snapshot, turn), &registry, &library)
                         .unwrap();
                 }
+                session.flush().unwrap();
                 let bytes = std::fs::read(library.path(&id)).unwrap();
                 let _ = std::fs::remove_dir_all(root);
                 (snapshot, bytes)

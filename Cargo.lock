@@ -1021,6 +1021,7 @@ name = "conversation"
 version = "0.1.0"
 dependencies = [
  "lives",
+ "serde_json",
  "world-core",
  "world-projection",
 ]
@@ -7015,7 +7016,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "cpal",
  "gpui",

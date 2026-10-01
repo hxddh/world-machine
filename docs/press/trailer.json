@@ -1,0 +1,147 @@
+{
+  "about": "The trailer's cut list, read by scripts/make-trailer.py (run it with --shots scratchpad/v026/shots, or wherever the preview's frame folders are). Every picture is the app's own. Crops are in the source picture's pixels and keep the window's title bar (the top 52) and the cards along the bottom out of frame. Words appear only on paper: full cards at the start and end, and a quiet paper band (`title`) over a calm part of a shot.",
+  "shots": [
+    {
+      "card": [
+        "World Machine",
+        "Tiny worlds that keep living while you are away"
+      ],
+      "seconds": 3.6
+    },
+    {
+      "frames": "O-film/frame-*.png",
+      "fps": 10,
+      "crop": [
+        60,
+        115,
+        1040,
+        650
+      ],
+      "fallback": {
+        "still": "docs/review/v23-dusk.png",
+        "seconds": 6.0,
+        "from": [
+          60,
+          115,
+          1040,
+          650
+        ],
+        "to": [
+          300,
+          190,
+          900,
+          560
+        ]
+      }
+    },
+    {
+      "still": "docs/review/v25-night.png",
+      "seconds": 5.0,
+      "from": [
+        80,
+        320,
+        1100,
+        900
+      ],
+      "to": [
+        150,
+        330,
+        950,
+        900
+      ]
+    },
+    {
+      "still": "docs/review/v24-postcard.png",
+      "seconds": 6.0,
+      "from": [
+        180,
+        230,
+        800,
+        520
+      ],
+      "to": [
+        120,
+        60,
+        980,
+        520
+      ],
+      "title": [
+        "Answer what people ask",
+        "Build with your own hands · talk to them in your own words"
+      ]
+    },
+    {
+      "frames": "O-dusk/frame-*.png",
+      "fps": 10,
+      "crop": [
+        140,
+        200,
+        960,
+        640
+      ],
+      "fallback": {
+        "still": "docs/review/v20-night.png",
+        "seconds": 5.0,
+        "from": [
+          0,
+          90,
+          1100,
+          720
+        ],
+        "to": [
+          60,
+          250,
+          820,
+          640
+        ]
+      },
+      "title": [
+        "Close the window, and it keeps living"
+      ]
+    },
+    {
+      "still": "docs/review/v17-maple-street-dusk.png",
+      "seconds": 5.0,
+      "from": [
+        80,
+        52,
+        980,
+        600
+      ],
+      "to": [
+        100,
+        250,
+        760,
+        600
+      ],
+      "title": [
+        "Three more places in Pocket Universe",
+        "A colony on Mars · Maple Street, 1987 · Icebridge"
+      ],
+      "title_at": "top"
+    },
+    {
+      "still": "docs/review/v24-icebridge.png",
+      "seconds": 3.5,
+      "from": [
+        80,
+        90,
+        980,
+        600
+      ],
+      "to": [
+        150,
+        180,
+        850,
+        590
+      ]
+    },
+    {
+      "card": [
+        "World Machine",
+        "For Mac · the first hour is a free demo"
+      ],
+      "seconds": 3.8
+    }
+  ]
+}

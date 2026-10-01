@@ -12,7 +12,28 @@ cd "$ROOT_DIR"
 
 PROFILE="${WORLD_MACHINE_PROFILE:-release}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT_DIR/target}"
-APP_DIR="${WORLD_MACHINE_APP_DIR:-$TARGET_DIR/bundle/World Machine.app}"
+
+# WORLD_MACHINE_DEMO=1 builds the free demo (the `demo` feature, see
+# apps/world-machine-desktop/src/demo.rs): "World Machine Demo.app", with
+# Tiny Society alone, its own bundle identifier, and the full app left as
+# the owner of World files. It keeps its Worlds in the same Library, so the
+# full app opens a demo's World and carries it on. Signing is the same.
+DEMO="${WORLD_MACHINE_DEMO:-0}"
+if [[ "$DEMO" == "1" ]]; then
+    APP_NAME="World Machine Demo"
+    BUNDLE_ID="io.github.hxddh.world-machine.demo"
+    HANDLER_RANK="Alternate"
+    # The full app declares World files; the demo only knows them.
+    TYPE_DECLARATIONS="UTImportedTypeDeclarations"
+    FEATURE_FLAGS=(--features world-machine-desktop/demo)
+else
+    APP_NAME="World Machine"
+    BUNDLE_ID="io.github.hxddh.world-machine"
+    HANDLER_RANK="Owner"
+    TYPE_DECLARATIONS="UTExportedTypeDeclarations"
+    FEATURE_FLAGS=()
+fi
+APP_DIR="${WORLD_MACHINE_APP_DIR:-$TARGET_DIR/bundle/$APP_NAME.app}"
 PLIST_TEMPLATE="$SCRIPT_DIR/Info.plist.in"
 ICON_SOURCE="$SCRIPT_DIR/icon.png"
 ICONSET_DIR="$TARGET_DIR/bundle/AppIcon.iconset"
@@ -53,6 +74,15 @@ INCLUDED_PACK_NAMES=(
     pocket-universe
     tiny-society
 )
+# The demo is Tiny Society's first hour, and ships that Pack alone.
+DEMO_PACK_NAMES=(
+    tiny-society
+)
+if [[ "$DEMO" == "1" ]]; then
+    EMBEDDED_PACK_NAMES=("${DEMO_PACK_NAMES[@]}")
+else
+    EMBEDDED_PACK_NAMES=("${INCLUDED_PACK_NAMES[@]}")
+fi
 
 PACKAGES=(
     -p world-machine-desktop
@@ -86,7 +116,8 @@ esac
 UNIVERSAL_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 if [[ "${WORLD_MACHINE_UNIVERSAL:-0}" == "1" ]]; then
     for target in "${UNIVERSAL_TARGETS[@]}"; do
-        cargo build --locked "${PACKAGES[@]}" --target "$target" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+        cargo build --locked "${PACKAGES[@]}" --target "$target" \
+            ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"} ${FEATURE_FLAGS[@]+"${FEATURE_FLAGS[@]}"}
     done
     BIN_DIR="$TARGET_DIR/universal/$PROFILE_DIR"
     rm -rf "$BIN_DIR"
@@ -100,7 +131,8 @@ if [[ "${WORLD_MACHINE_UNIVERSAL:-0}" == "1" ]]; then
         echo "universal $binary: $(lipo -archs "$BIN_DIR/$binary")"
     done
 else
-    cargo build --locked "${PACKAGES[@]}" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+    cargo build --locked "${PACKAGES[@]}" \
+        ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"} ${FEATURE_FLAGS[@]+"${FEATURE_FLAGS[@]}"}
     BIN_DIR="$TARGET_DIR/$PROFILE_DIR"
 fi
 
@@ -139,7 +171,12 @@ mkdir -p \
     "$INCLUDED_PACK_DIR"
 cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BINARY_NAME"
-sed "s/@VERSION@/$VERSION/g" "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
+sed -e "s/@VERSION@/$VERSION/g" \
+    -e "s/@APP_NAME@/$APP_NAME/g" \
+    -e "s/@BUNDLE_ID@/$BUNDLE_ID/g" \
+    -e "s/@HANDLER_RANK@/$HANDLER_RANK/g" \
+    -e "s/UTExportedTypeDeclarations/$TYPE_DECLARATIONS/g" \
+    "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
 
 # The Dock, the Finder, the Cmd-Tab switcher and the About window all read
 # the icon from Contents/Resources/AppIcon.icns; without it macOS draws the
@@ -173,7 +210,7 @@ if [[ ! -s "$RESOURCES_DIR/AppIcon.icns" ]]; then
     exit 1
 fi
 
-for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
+for pack_name in "${EMBEDDED_PACK_NAMES[@]}"; do
     bundle="$INCLUDED_PACK_DIR/$pack_name.worldpack"
     "$BIN_DIR/$pack_name-pack" --write-bundle "$bundle"
     if [[ ! -s "$bundle" ]]; then
@@ -187,13 +224,15 @@ done
 plutil -lint "$APP_DIR/Contents/Info.plist"
 
 python3 - "$APP_DIR/Contents/Info.plist" "$INCLUDED_PACK_DIR" \
-    "${INCLUDED_PACK_NAMES[@]}" <<'PY'
+    "$APP_NAME" "$BUNDLE_ID" "$HANDLER_RANK" "$TYPE_DECLARATIONS" \
+    "${EMBEDDED_PACK_NAMES[@]}" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
 
 plist_path = Path(sys.argv[1])
 included_pack_dir = Path(sys.argv[2])
+app_name, bundle_id, handler_rank, type_declarations = sys.argv[3:7]
 with plist_path.open("rb") as file:
     plist = plistlib.load(file)
 
@@ -201,7 +240,9 @@ world_type = "io.github.hxddh.world-machine.world"
 code_type = "io.github.hxddh.world-machine.worldcode"
 pack_type = "io.github.hxddh.world-machine.worldpack"
 assert plist["CFBundleExecutable"] == "world-machine-desktop"
-assert plist["CFBundleIdentifier"] == "io.github.hxddh.world-machine"
+assert plist["CFBundleIdentifier"] == bundle_id
+assert plist["CFBundleName"] == app_name
+assert plist["CFBundleDisplayName"] == app_name
 assert plist["CFBundlePackageType"] == "APPL"
 assert plist["CFBundleIconFile"] == "AppIcon"
 icon = plist_path.parent / "Resources" / "AppIcon.icns"
@@ -215,11 +256,11 @@ assert set(document_types) == {world_type, code_type, pack_type}
 assert document_types[world_type]["CFBundleTypeRole"] == "Editor"
 assert document_types[code_type]["CFBundleTypeRole"] == "Viewer"
 assert document_types[pack_type]["CFBundleTypeRole"] == "Viewer"
-assert all(item["LSHandlerRank"] == "Owner" for item in document_types.values())
+assert all(item["LSHandlerRank"] == handler_rank for item in document_types.values())
 
 exported_types = {
     item["UTTypeIdentifier"]: item
-    for item in plist["UTExportedTypeDeclarations"]
+    for item in plist[type_declarations]
 }
 assert set(exported_types) == {world_type, code_type, pack_type}
 # A World is gzip-compressed, not JSON.
@@ -237,7 +278,7 @@ assert "public.data" in pack["UTTypeConformsTo"]
 assert "public.content" in pack["UTTypeConformsTo"]
 assert pack["UTTypeTagSpecification"]["public.filename-extension"] == ["worldpack"]
 
-expected_packs = {f"{name}.worldpack" for name in sys.argv[3:]}
+expected_packs = {f"{name}.worldpack" for name in sys.argv[7:]}
 assert expected_packs, "build-app.sh passed no included Pack names"
 actual_packs = {path.name for path in included_pack_dir.iterdir() if path.is_file()}
 assert actual_packs == expected_packs, (actual_packs, expected_packs)

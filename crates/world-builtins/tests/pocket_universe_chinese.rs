@@ -1,17 +1,21 @@
-//! Pocket Universe in Chinese: a year of each place, as a player sees it.
+//! Pocket Universe in Chinese and Japanese: a year of each place, as a
+//! player sees it.
 
 use std::collections::BTreeSet;
 use world_projection::ProjectionIntent::InvokeCommand;
 
 fn catalog() -> world_i18n::Catalog {
-    let mut catalog =
-        world_builtins::ZH_HANS
-            .iter()
-            .fold(world_i18n::Catalog::default(), |mut all, text| {
-                all.extend(text);
-                all
-            });
-    catalog.extend(&world_builtins::zh_hans_voices());
+    catalog_of(&world_builtins::ZH_HANS, &world_builtins::zh_hans_voices())
+}
+
+fn catalog_of(catalogs: &[&str], voices: &str) -> world_i18n::Catalog {
+    let mut catalog = catalogs
+        .iter()
+        .fold(world_i18n::Catalog::default(), |mut all, text| {
+            all.extend(text);
+            all
+        });
+    catalog.extend(voices);
     catalog
 }
 
@@ -142,6 +146,25 @@ fn a_year_of_pocket_universe_is_shown_in_chinese() {
         eprintln!("  {text}  =>  {translated}");
     }
     assert!(share >= 0.995, "only {:.1}% in Chinese", share * 100.0);
+}
+
+/// The same year of every place, in Japanese.
+#[test]
+fn a_year_of_pocket_universe_is_shown_in_japanese() {
+    let catalog = catalog_of(&world_builtins::JA, &world_builtins::ja_voices());
+    let (shown, names) = shown(100);
+    let left = left_in_english(&catalog, &shown, &names);
+    let share = 1.0 - left.len() as f64 / shown.len() as f64;
+    eprintln!(
+        "{} of {} shown texts fully in Japanese ({:.1}%)",
+        shown.len() - left.len(),
+        shown.len(),
+        share * 100.0
+    );
+    for (text, translated) in left.iter().take(40) {
+        eprintln!("  {text}  =>  {translated}");
+    }
+    assert!(share >= 0.995, "only {:.1}% in Japanese", share * 100.0);
 }
 
 /// Every text a year of each place shows that is not yet in Chinese, one

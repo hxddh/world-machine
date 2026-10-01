@@ -544,6 +544,22 @@ pub struct ProjectionSnapshot {
     /// ([`StoryRequest::Almanac`]), oldest first: each year that has ended.
     /// Empty before the first New Year, or from a Pack that keeps none.
     pub almanac_years: Vec<u32>,
+    /// A favour someone asked of the player that talk can do: the open
+    /// one, or one done this period. Presentation only: the drawer's note.
+    pub favour: Option<Favour>,
+}
+
+/// A favour someone asked of the player, in the World's words: who asked,
+/// whom it is for, the drawer's note ("Jonas asked you to look in on
+/// Mara."), how it is done ("Have a word with Mara."), and whether it is
+/// done.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Favour {
+    pub asker: SelectionId,
+    pub whom: SelectionId,
+    pub note: String,
+    pub hint: String,
+    pub done: bool,
 }
 
 /// One entry in a World's book of everything to find: a keepsake, a person

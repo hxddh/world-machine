@@ -287,17 +287,18 @@ mod tests {
         assert_eq!(later.shown.len(), 1);
     }
 
-    /// Every hint is in the app's Chinese catalog, whole.
+    /// Every hint is in each of the app's catalogs, whole.
     #[test]
     fn every_hint_is_translated() {
-        let catalog = world_i18n::Catalog::parse(crate::i18n::APP_ZH_HANS);
-        for pointer in Pointer::ORDER {
-            assert!(
-                catalog.exact(pointer.words()).is_some(),
-                "{:?} has no zh-Hans: {}",
-                pointer,
-                pointer.words()
-            );
+        for catalog in crate::i18n::app_catalogs() {
+            for pointer in Pointer::ORDER {
+                assert!(
+                    catalog.exact(pointer.words()).is_some(),
+                    "{:?} has no translation: {}",
+                    pointer,
+                    pointer.words()
+                );
+            }
         }
     }
 }

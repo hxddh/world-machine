@@ -24,6 +24,7 @@
 
 mod interface;
 mod light;
+mod lived;
 mod people;
 mod scene;
 mod works;

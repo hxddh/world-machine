@@ -6,7 +6,7 @@
 
 use crate::{TinySociety, TinySocietyBranch, JONAS, LEO, MARA};
 use world_core::EntityId;
-use world_pack_testkit::red_team::{self, Case, Proposes};
+use world_pack_testkit::red_team::{self, Case, Proposes, Said};
 
 const PACK: &str = "tiny-society";
 
@@ -36,15 +36,34 @@ fn spoken_to(branch: &TinySocietyBranch, speaker: &str, index: usize) -> EntityI
 /// Says each case's words, with its answer proposed, and returns for each
 /// whether the answer was taken, and why not if it was not.
 fn said(branch: &mut TinySocietyBranch, cases: &[Case]) -> Vec<Option<String>> {
+    said_fully(branch, cases)
+        .into_iter()
+        .map(|said| said.declined)
+        .collect()
+}
+
+/// The same, with what the checks found and the exact prompt a judge would
+/// be asked, for each case.
+fn said_fully(branch: &mut TinySocietyBranch, cases: &[Case]) -> Vec<Said> {
     cases
         .iter()
         .enumerate()
         .map(|(index, case)| {
             let who = spoken_to(branch, &case.speaker, index);
+            let world = branch.world();
+            let kit = crate::speech::kit(world.state());
+            let hearing = conversation::hearing_for(world, &kit, who, &case.asked)
+                .expect("the case can be said");
+            let checked = conversation::check(case.answer.trim(), &hearing);
+            let prompt = conversation::judge::judge_prompt(&hearing, &case.answer);
             branch
-                .say_with(who, &case.asked, &mut Proposes(case.answer.clone()))
+                .say_with(who, &case.asked, &mut Proposes(case.answer.clone(), None))
                 .unwrap();
-            red_team::verdict(branch.world(), case)
+            Said {
+                declined: red_team::verdict(branch.world(), case),
+                checked,
+                prompt,
+            }
         })
         .collect()
 }
@@ -71,4 +90,20 @@ fn the_later_blind_sets_are_measured() {
         let mut branch = opened();
         (said(&mut branch, out), said(&mut branch, kept))
     });
+}
+
+/// The development sets, check by check; run with `-- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn the_development_sets_are_measured() {
+    red_team::measure_the_development_sets(PACK, |cases| said_fully(&mut opened(), cases));
+}
+
+/// Writes the judge prompt and the strict outcome of every Tiny Society
+/// line of the files `WORLD_MACHINE_REDTEAM` names (comma-separated
+/// paths) into `WORLD_MACHINE_JUDGE_DIR`; run with `-- --ignored`.
+#[test]
+#[ignore]
+fn judge_prompts_are_written() {
+    red_team::write_judge_prompts(PACK, |cases| said_fully(&mut opened(), cases));
 }

@@ -26,6 +26,8 @@ impl Token {
     pub fn hex(self) -> u32 {
         if is_dark() {
             self.dark
+        } else if crate::is_lamp() {
+            crate::lamplit(self.light)
         } else {
             self.light
         }

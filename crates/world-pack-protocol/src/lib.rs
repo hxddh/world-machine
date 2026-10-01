@@ -1040,6 +1040,23 @@ pub struct ProjectionSnapshotWire {
     /// Optional both ways: every year whose almanac can be asked for now.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub almanac_years: Vec<u32>,
+    /// Optional both ways: a favour someone asked of the player, open or
+    /// done this period. An older Pack sends none, and the drawer shows no
+    /// note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favour: Option<FavourWire>,
+}
+
+/// A favour someone asked of the player, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FavourWire {
+    pub asker: SelectionIdWire,
+    pub whom: SelectionIdWire,
+    pub note: String,
+    #[serde(default)]
+    pub hint: String,
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// One entry in a World's book, as it crosses the boundary.
@@ -1776,6 +1793,13 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 .copied()
                 .take(MOST_ALMANAC_YEARS)
                 .collect(),
+            favour: snapshot.favour.as_ref().map(|favour| FavourWire {
+                asker: favour.asker.into(),
+                whom: favour.whom.into(),
+                note: favour.note.clone(),
+                hint: favour.hint.clone(),
+                done: favour.done,
+            }),
         }
     }
 }
@@ -1983,6 +2007,17 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 years.dedup();
                 years
             },
+            // A favour with no words to show is no favour.
+            favour: snapshot
+                .favour
+                .filter(|favour| !favour.note.trim().is_empty())
+                .map(|favour| world_projection::Favour {
+                    asker: favour.asker.into(),
+                    whom: favour.whom.into(),
+                    note: favour.note,
+                    hint: favour.hint,
+                    done: favour.done,
+                }),
         })
     }
 }
@@ -3549,6 +3584,7 @@ mod tests {
             moments: Vec::new(),
             almanac: None,
             almanac_years: Vec::new(),
+            favour: None,
         }
     }
 

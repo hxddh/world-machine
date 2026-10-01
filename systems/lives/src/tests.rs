@@ -624,6 +624,41 @@ fn what_was_said_is_noted_a_period_at_a_time() {
         .any(|key| key.starts_with(SAID_BEFORE)));
 }
 
+/// A trouble's rest that has run out is let go of when lines are forgotten,
+/// as nothing would come up any differently without it; one still running
+/// is kept.
+#[test]
+fn rests_that_have_run_out_are_let_go_of() {
+    let (world, _) = play(40, true);
+    let now = period(world.state(), &cast()) as i64;
+    let rests = [
+        ("lives.rest.feud.1.2", now - 40, false),
+        ("lives.rest.feud.1.3", now - 39, true),
+        ("lives.rest.party.1.2", now - 59, true),
+        ("lives.rest.learn.2", now - 30, false),
+        ("lives.rest.confide.1", now - 11, true),
+    ];
+    let state = applied(
+        world.state(),
+        rests
+            .iter()
+            .map(|(key, at, _)| StateChange::SetComponent {
+                entity: NOTES,
+                key: (*key).into(),
+                value: (*at).into(),
+            })
+            .collect(),
+    );
+    let mut world = World::from_history(state, &[]).unwrap();
+    world
+        .execute(&world_registry(), &ActionRequest::new("lives_forget"))
+        .unwrap();
+    let notes = world.state().entity(NOTES).unwrap();
+    for (key, _, kept) in rests {
+        assert_eq!(notes.component(key).is_some(), kept, "{key}");
+    }
+}
+
 /// A state with some changes made to it, as an event would make them.
 fn applied(state: &WorldState, changes: Vec<StateChange>) -> WorldState {
     let event = Event {

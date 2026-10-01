@@ -11,6 +11,8 @@ mod book;
 mod drawings;
 mod drift;
 #[cfg(test)]
+mod favours_tests;
+#[cfg(test)]
 mod first_minutes;
 mod firsts;
 mod fishing;
@@ -75,6 +77,9 @@ pub use persistence::{
 /// Tiny Society in Simplified Chinese: English, a tab, then the
 /// translation, a line each.
 pub const ZH_HANS: &str = include_str!("../locales/zh-Hans.tsv");
+
+/// Tiny Society in Japanese, the same way.
+pub const JA: &str = include_str!("../locales/ja.tsv");
 
 /// The core residents' own lines as templates and what fills them, for
 /// showing every one of them in another language.
@@ -478,6 +483,7 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         let event = self.world.execute(actions, &request)?.id;
         let mut events = vec![event];
+        events.extend(speech::favour_done(&mut self.world, actions, event)?);
         events.extend(story::after_first_deed(&mut self.world, actions)?);
         Ok(events)
     }

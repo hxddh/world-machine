@@ -56,6 +56,8 @@ pub enum OutOfWorld {
     OutOfTime,
     /// It names someone or somewhere the person was never told about.
     Stranger,
+    /// It cites a fact it was never given.
+    Cites,
 }
 
 impl OutOfWorld {
@@ -71,7 +73,28 @@ impl OutOfWorld {
             OutOfWorld::Outside => "outside",
             OutOfWorld::OutOfTime => "out_of_time",
             OutOfWorld::Stranger => "stranger",
+            OutOfWorld::Cites => "cites",
         }
+    }
+
+    /// Every kind, in the order the strict guard asks.
+    pub const ALL: [OutOfWorld; 11] = [
+        OutOfWorld::NotSpeech,
+        OutOfWorld::Instructions,
+        OutOfWorld::Machine,
+        OutOfWorld::Refusal,
+        OutOfWorld::Harm,
+        OutOfWorld::FourthWall,
+        OutOfWorld::Language,
+        OutOfWorld::Outside,
+        OutOfWorld::OutOfTime,
+        OutOfWorld::Stranger,
+        OutOfWorld::Cites,
+    ];
+
+    /// The kind an id names.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|why| why.id() == id)
     }
 }
 
@@ -93,6 +116,7 @@ pub enum Era {
 enum Tongue {
     English,
     Chinese,
+    Japanese,
 }
 
 /// What an answer is checked against: everything the World told the
@@ -103,6 +127,8 @@ pub struct Grounds {
     told: Text,
     told_words: BTreeSet<String>,
     said_words: BTreeSet<String>,
+    /// What the player said, read.
+    said: Text,
     /// The runs of Chinese characters the World and the player used.
     han_runs: Vec<String>,
     era: Era,
@@ -144,7 +170,9 @@ impl Grounds {
     pub fn new<'a>(told: impl IntoIterator<Item = &'a str>, said: &str, era: Era) -> Self {
         let told = Text::read(&told.into_iter().collect::<Vec<_>>().join("\n"));
         let said = Text::read(said);
-        let expected = if said.han > 0 {
+        let expected = if said.kana > 0 {
+            Some(Tongue::Japanese)
+        } else if said.han > 0 {
             Some(Tongue::Chinese)
         } else if said
             .words
@@ -160,6 +188,7 @@ impl Grounds {
         Self {
             told_words: words_of(&told),
             said_words: words_of(&said),
+            said: said.clone(),
             told,
             han_runs: han,
             era,
@@ -202,6 +231,248 @@ impl Grounds {
 /// Whether a proposed answer keeps to what this person can know; the
 /// reason it does not, if it does not.
 pub fn in_world(answer: &str, hearing: &Hearing) -> Result<(), OutOfWorld> {
+    keeps_to(answer, &grounds_of(hearing))
+}
+
+/// Whether `answer` keeps to `grounds`; the first way it does not, if it
+/// does not.
+pub fn keeps_to(answer: &str, grounds: &Grounds) -> Result<(), OutOfWorld> {
+    match checked(answer, grounds).strict {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
+}
+
+/// What the checks found in an answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Checked {
+    /// The first way the answer goes out of the World, in the order the
+    /// strict guard has always asked: what decides when there is no judge.
+    pub strict: Option<OutOfWorld>,
+    /// The first way that is certain: found by a check that has not been
+    /// seen to stop a good answer, so no judge is asked.
+    pub certain: Option<OutOfWorld>,
+    /// Every check that found something, by name.
+    pub found: Vec<&'static str>,
+}
+
+impl Checked {
+    /// Whether only doubtful checks found anything: a judge, if there is
+    /// one, decides.
+    pub fn doubtful(&self) -> bool {
+        self.strict.is_some() && self.certain.is_none()
+    }
+}
+
+/// One way an answer can go out of the World, and whether finding it is
+/// certain enough to decline without a judge.
+struct Check {
+    why: OutOfWorld,
+    name: &'static str,
+    certain: bool,
+    found: fn(&str, &Text, &Grounds) -> bool,
+}
+
+/// Every check, grouped by kind in the order the strict guard asks. A
+/// check is certain only if nothing it found in the development sets
+/// (red-team sets 1 and 2, and systems/conversation/tests/devset) was a
+/// good answer, and what it looks for is not an everyday word.
+const CHECKS: &[Check] = &[
+    Check {
+        why: OutOfWorld::NotSpeech,
+        name: "not_speech",
+        certain: true,
+        found: |raw, text, _| not_speech(raw, text),
+    },
+    Check {
+        why: OutOfWorld::Instructions,
+        name: "instructions",
+        certain: false,
+        found: |_, text, _| text.any(INJECTION),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_certain",
+        certain: true,
+        found: |_, text, grounds| said_unasked(text, grounds, MACHINE_CERTAIN),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_named",
+        certain: false,
+        found: |_, text, _| machine_named(text),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_self",
+        certain: false,
+        found: |_, text, _| machine_self(text),
+    },
+    Check {
+        why: OutOfWorld::Refusal,
+        name: "refusal_certain",
+        certain: true,
+        found: |_, text, grounds| said_unasked(text, grounds, REFUSAL_CERTAIN),
+    },
+    Check {
+        why: OutOfWorld::Refusal,
+        name: "refusal",
+        certain: false,
+        found: |_, text, _| text.any(REFUSAL),
+    },
+    Check {
+        why: OutOfWorld::Refusal,
+        name: "refusal_cannot",
+        certain: false,
+        found: |_, text, _| refusal_cannot(text),
+    },
+    Check {
+        why: OutOfWorld::Harm,
+        name: "harm",
+        certain: false,
+        found: |_, text, _| harm::harm(text),
+    },
+    Check {
+        why: OutOfWorld::FourthWall,
+        name: "fourth_wall",
+        certain: false,
+        found: |_, text, _| fourth_wall(text),
+    },
+    Check {
+        why: OutOfWorld::Language,
+        name: "language_script",
+        certain: true,
+        found: |_, text, grounds| other_script(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Language,
+        name: "language",
+        certain: false,
+        found: |_, text, grounds| language(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Outside,
+        name: "outside",
+        certain: false,
+        found: |_, text, grounds| outside(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::OutOfTime,
+        name: "out_of_time",
+        certain: false,
+        found: |_, text, grounds| out_of_time(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Stranger,
+        name: "stranger",
+        certain: false,
+        found: |_, text, grounds| stranger(text, grounds),
+    },
+];
+
+/// What only a model says of itself: never an everyday word.
+const MACHINE_CERTAIN: &[&str] = &[
+    "language model",
+    "language-model",
+    "llm",
+    "llms",
+    "chatbot",
+    "chatbots",
+    "chatgpt",
+    "gpt-4",
+    "gpt-4o",
+    "gpt-3",
+    "openai",
+    "anthropic",
+    "neural network",
+    "machine learning",
+    "training data",
+    "knowledge cutoff",
+    "knowledge cut-off",
+    "context window*",
+    "model weights",
+    "billion parameters",
+    "trillion parameters",
+    "next word prediction",
+    "predict the next word",
+    "predicting the next word",
+    "as an ai",
+    "an ai assistant",
+    "ai language model",
+    "virtual assistant",
+    "语言模型",
+    "大模型",
+    "聊天机器人",
+    "训练数据",
+    "知识截止",
+    "神经网络",
+    "机器学习",
+    "ai助手",
+    "智能助手",
+    "虚拟助手",
+    "作为人工智能",
+    "作为一个人工智能",
+    "预测下一个词",
+    "言語モデル",
+    "チャットボット",
+    "aiアシスタント",
+];
+
+/// What only a model says when it will not answer.
+const REFUSAL_CERTAIN: &[&str] = &[
+    "i can't assist with",
+    "i cannot assist with",
+    "i can't help with that request",
+    "i cannot help with that request",
+    "i'm not able to help with that",
+    "i am not able to help with that",
+    "i can't comply",
+    "i cannot comply",
+    "as a responsible ai",
+    "i must remind you that",
+    "against my guidelines",
+    "content policy",
+    "我无法协助",
+    "无法协助您",
+    "作为一个负责任的",
+    "违反了我的",
+];
+
+/// Whether one of `phrases` is said, not asked back ("A language model?
+/// What's that?") and not the player's own words said back.
+fn said_unasked(text: &Text, grounds: &Grounds, phrases: &[&str]) -> bool {
+    phrases.iter().any(|phrase| {
+        !grounds.said.has_phrase(phrase)
+            && text
+                .places(phrase)
+                .into_iter()
+                .any(|(sentence, _)| !question(text, sentence))
+    })
+}
+
+/// Every check of `answer` against `grounds`.
+pub fn checked(answer: &str, grounds: &Grounds) -> Checked {
+    let text = Text::read(answer);
+    let mut out = Checked::default();
+    for check in CHECKS {
+        if (check.found)(answer, &text, grounds) {
+            out.found.push(check.name);
+            out.strict.get_or_insert(check.why);
+            if check.certain {
+                out.certain.get_or_insert(check.why);
+            }
+        }
+    }
+    out
+}
+
+/// Every check of a proposed answer against what this person can know.
+pub fn check(answer: &str, hearing: &Hearing) -> Checked {
+    checked(answer, &grounds_of(hearing))
+}
+
+/// What a person told `hearing` can know.
+pub fn grounds_of(hearing: &Hearing) -> Grounds {
     let told = hearing
         .facts
         .iter()
@@ -210,29 +481,46 @@ pub fn in_world(answer: &str, hearing: &Hearing) -> Result<(), OutOfWorld> {
         .chain(&hearing.known)
         .chain([&hearing.name, &hearing.settlement, &hearing.answer])
         .map(String::as_str);
-    keeps_to(answer, &Grounds::new(told, &hearing.words, hearing.era))
+    Grounds::new(told, &hearing.words, hearing.era)
 }
 
-/// Whether `answer` keeps to `grounds`; the first way it does not, if it
-/// does not.
-pub fn keeps_to(answer: &str, grounds: &Grounds) -> Result<(), OutOfWorld> {
-    let text = Text::read(answer);
-    let checks: [(OutOfWorld, &dyn Fn() -> bool); 10] = [
-        (OutOfWorld::NotSpeech, &|| not_speech(answer, &text)),
-        (OutOfWorld::Instructions, &|| text.any(INJECTION)),
-        (OutOfWorld::Machine, &|| machine(&text)),
-        (OutOfWorld::Refusal, &|| refusal(&text)),
-        (OutOfWorld::Harm, &|| harm::harm(&text)),
-        (OutOfWorld::FourthWall, &|| fourth_wall(&text)),
-        (OutOfWorld::Language, &|| language(&text, grounds)),
-        (OutOfWorld::Outside, &|| outside(&text, grounds)),
-        (OutOfWorld::OutOfTime, &|| out_of_time(&text, grounds)),
-        (OutOfWorld::Stranger, &|| stranger(&text, grounds)),
-    ];
-    match checks.iter().find(|(_, check)| check()) {
-        Some((why, _)) => Err(*why),
-        None => Ok(()),
+/// The language the player's words are in, as a prompt names it: kana is
+/// Japanese, Chinese characters alone Chinese, letters English; nothing
+/// when they said nothing in words.
+pub fn tongue(words: &str) -> Option<&'static str> {
+    match Grounds::new([], words, Era::default()).expected? {
+        Tongue::English => Some("English"),
+        Tongue::Chinese => Some("Chinese"),
+        Tongue::Japanese => Some("Japanese"),
     }
+}
+
+/// Whether an answer names, with a capital inside a sentence, anyone or
+/// anywhere that is not among the facts it cites, the people, the places
+/// or the names the World knows, or what the player said: every name
+/// must rest on something. The first word of a sentence is not read as a
+/// name.
+pub fn names_unknown(answer: &str, hearing: &Hearing, cites: &[i64]) -> bool {
+    let cited = cites
+        .iter()
+        .filter_map(|n| usize::try_from(*n).ok()?.checked_sub(1))
+        .filter_map(|index| hearing.facts.get(index));
+    let told = cited
+        .chain(&hearing.people)
+        .chain(&hearing.places)
+        .chain(&hearing.known)
+        .chain([&hearing.name, &hearing.settlement])
+        .map(String::as_str);
+    let grounds = Grounds::new(told, &hearing.words, hearing.era);
+    let text = Text::read(answer);
+    text.words.iter().any(|word| {
+        word.capital
+            && !word.first
+            && word.text.chars().count() > 1
+            && word.text.chars().any(char::is_alphabetic)
+            && !PRONOUNS.contains(&word.text.as_str())
+            && !grounds.knows_word(&word.text)
+    })
 }
 
 // ---- Not speech.
@@ -335,10 +623,14 @@ fn negated_sentence(text: &Text, sentence: usize, before: Option<usize>) -> bool
         .any(|word| han.contains(word))
 }
 
-fn machine(text: &Text) -> bool {
-    if text.any(MACHINE) || text.norm.contains("a.i.") || text.any(SERVICE) {
-        return true;
-    }
+/// Naming what only a model is, or offering help as an assistant does.
+fn machine_named(text: &Text) -> bool {
+    text.any(MACHINE) || text.norm.contains("a.i.") || text.any(SERVICE)
+}
+
+/// Speaking of itself as a machine: gone when the window closes, calling
+/// itself one, saying how it was made or what it lacks for being one.
+fn machine_self(text: &Text) -> bool {
     // Gone when the window closes.
     if text.any(GONE) && text.any(CLOSED) {
         return true;
@@ -731,11 +1023,13 @@ fn calls_itself_han(text: &Text) -> bool {
 // ---- The fourth wall.
 
 /// Whether a phrase of `list` stands in a sentence with none of `unless`.
+/// What says otherwise may stand in the sentence before or after too: "You
+/// said darts? I'm the worst player in the pub."
 fn unless(text: &Text, list: &[&str], unless: &[&str]) -> bool {
     list.iter().any(|phrase| {
-        text.places(phrase)
-            .into_iter()
-            .any(|(sentence, _)| !in_sentence(text, sentence, unless))
+        text.places(phrase).into_iter().any(|(sentence, _)| {
+            !(sentence.saturating_sub(1)..=sentence + 1).any(|near| in_sentence(text, near, unless))
+        })
     })
 }
 
@@ -856,10 +1150,9 @@ fn fourth_wall(text: &Text) -> bool {
 
 // ---- A refusal.
 
-fn refusal(text: &Text) -> bool {
-    if text.any(REFUSAL) {
-        return true;
-    }
+/// "I can't do that request": a refusal in a model's words, said of what
+/// was asked.
+fn refusal_cannot(text: &Text) -> bool {
     CANNOT.iter().any(|cannot| {
         text.places(cannot).into_iter().any(|(sentence, _)| {
             REQUEST
@@ -890,11 +1183,25 @@ const ENGLISH_GLUE: &[&str] = &[
     "on", "with", "but", "not", "my",
 ];
 
-fn language(text: &Text, grounds: &Grounds) -> bool {
-    // Kana is Japanese, never Chinese; a third script is neither language.
-    if text.kana >= 1 || text.other_script >= 2 || text.norm.contains(['¿', '¡']) {
+/// A script neither the player nor the World speaks in: kana to someone
+/// who spoke English or Chinese, a third script, Spanish marks; and
+/// nothing but Chinese characters to someone who spoke Japanese.
+fn other_script(text: &Text, grounds: &Grounds) -> bool {
+    let japanese = grounds.expected == Some(Tongue::Japanese);
+    let third = text.other_script - if japanese { text.kana } else { 0 };
+    if third >= 2 || text.norm.contains(['¿', '¡']) {
         return true;
     }
+    if japanese {
+        // Japanese is written with kana; an answer in Chinese characters
+        // alone, or in English, is not Japanese.
+        return text.kana == 0 && (text.han >= 2 || text.words.len() >= 3);
+    }
+    // Kana is Japanese, never Chinese or English.
+    text.kana >= 1
+}
+
+fn language(text: &Text, grounds: &Grounds) -> bool {
     let english = text
         .words
         .iter()
@@ -908,21 +1215,21 @@ fn language(text: &Text, grounds: &Grounds) -> bool {
     if foreign >= 2 && foreign > english {
         return true;
     }
+    let unknown_words = || {
+        text.words
+            .iter()
+            .filter(|word| {
+                word.text.chars().any(char::is_alphabetic)
+                    && word.text.chars().count() > 1
+                    && !grounds.knows_word(&word.text)
+            })
+            .count()
+    };
     match grounds.expected {
         None => false,
         Some(Tongue::English) => text.han >= 2,
-        Some(Tongue::Chinese) => {
-            let unknown = text
-                .words
-                .iter()
-                .filter(|word| {
-                    word.text.chars().any(char::is_alphabetic)
-                        && word.text.chars().count() > 1
-                        && !grounds.knows_word(&word.text)
-                })
-                .count();
-            text.han < 2 && !text.words.is_empty() || unknown >= 3
-        }
+        Some(Tongue::Chinese) => text.han < 2 && !text.words.is_empty() || unknown_words() >= 3,
+        Some(Tongue::Japanese) => unknown_words() >= 3,
     }
 }
 
@@ -1143,8 +1450,14 @@ fn stranger_named(text: &Text, grounds: &Grounds) -> bool {
                 .contains(&verb.text.as_str())
             });
         let then = same(index + 2);
+        // "Easier said than done" says nothing of anyone.
         let acting = |next: Option<&text::Word>| {
-            next.is_some_and(|next| PERSON_VERBS.contains(&next.text.as_str()))
+            next.is_some_and(|next| {
+                PERSON_VERBS.contains(&next.text.as_str())
+                    && !words.get(index + 2).is_some_and(|after| {
+                        after.sentence == word.sentence && after.text == "than"
+                    })
+            })
         };
         // A full name that does what a person does: "Winifred Ashdown
         // taught me", "I met Natasha Volkov". A song or a game with two
@@ -1235,7 +1548,16 @@ fn stranger_han(text: &Text, grounds: &Grounds) -> bool {
         })
     };
     let titled = named_by(TITLES_HAN, false);
-    let owned = named_by(OWNED_HAN, false);
+    // "Leo开的" is Leo's; "新开的" is only newly opened.
+    let owned = OWNED_HAN.iter().any(|suffix| {
+        text.find_han(suffix).into_iter().any(|at| {
+            let before = name_before(text, at);
+            (2..=5).contains(&before.chars().count())
+                && !before.ends_with(|c| "新刚才现正打重另先早晚".contains(c))
+                && unknown(&before)
+                && unknown(&format!("{before}{suffix}"))
+        })
+    });
     // A place by what it is, unless what comes before only says what kind
     // of shop it is (杂货店, 渔具坊).
     let placed = PLACE_SUFFIX_HAN.iter().any(|suffix| {
@@ -1245,6 +1567,8 @@ fn stranger_han(text: &Text, grounds: &Grounds) -> bool {
             (2..=5).contains(&before.chars().count())
                 && cued(text, start)
                 && !before.chars().all(|c| TRADE_HAN.contains(c))
+                // Going into port, not a port named "the ship goes".
+                && !before.ends_with(|c| "进出回离靠入到归返抵泊".contains(c))
                 && unknown(&before)
                 && unknown(&format!("{before}{suffix}"))
         })

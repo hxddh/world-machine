@@ -67,6 +67,9 @@ fn ink(hex: u32) -> gpui::Rgba {
 }
 
 const RULE: u32 = 0xe2d5ba;
+
+/// What a favour's note says under it once it is done.
+pub(crate) const FAVOUR_DONE: &str = "Done, and thanked.";
 const TINT: u32 = 0xede2c9;
 
 /// The kinds of thing a World builds, as the drawer groups them, by the
@@ -215,14 +218,8 @@ fn names_list(names: &[String]) -> String {
     match names {
         [] => ui::t("a friend").to_string(),
         [one] => one.clone(),
-        [one, two] => format!("{one} {} {two}", ui::t("and")),
-        [one, two, rest @ ..] => {
-            if crate::i18n::is_chinese() {
-                format!("{one}、{two}等 {} 人", rest.len() + 2)
-            } else {
-                format!("{one}, {two} and {} others", rest.len())
-            }
-        }
+        [one, two] => crate::i18n::two_names(one, two),
+        [one, two, rest @ ..] => crate::i18n::names_and_others(one, two, rest.len()),
     }
 }
 
@@ -864,6 +861,67 @@ impl ProjectionView {
         Some(letters)
     }
 
+    /// A favour someone asked of the player, as a quiet note tucked under
+    /// the drawer's title: who asked for what, and how talk can do it; once
+    /// done, the same note with its dot gone quiet and a word of thanks.
+    pub(crate) fn render_favour_note(&self) -> Option<Stateful<Div>> {
+        let favour = self.snapshot.favour.as_ref()?;
+        let under = if favour.done {
+            ui::t(FAVOUR_DONE).to_string()
+        } else {
+            favour.hint.clone()
+        };
+        Some(
+            ui::region("drawer-favour", Role::Article, favour.note.clone())
+                .mx_4()
+                .mb_2()
+                .px_3()
+                .py_2()
+                .rounded(px(2.0))
+                .bg(ink(0xfbf7ee))
+                .border_1()
+                .border_color(ink(RULE))
+                .flex()
+                .items_start()
+                .gap_2()
+                .child(
+                    // A dab of paint, like the mark on a note left out.
+                    div()
+                        .mt(px(5.0))
+                        .size(px(7.0))
+                        .flex_shrink_0()
+                        .rounded_full()
+                        .when(favour.done, |dot| dot.bg(ink(RULE)))
+                        .when(!favour.done, |dot| dot.bg(color(tokens::ACCENT))),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .min_w(px(0.0))
+                        .child(
+                            div()
+                                .text_sm()
+                                .line_height(relative(1.35))
+                                .text_color(ink(if favour.done { INK_SOFT } else { INK }))
+                                .line_clamp(2)
+                                .child(favour.note.clone()),
+                        )
+                        .when(!under.is_empty(), |note| {
+                            note.child(
+                                div()
+                                    .text_xs()
+                                    .italic()
+                                    .text_color(ink(INK_SOFT))
+                                    .line_clamp(1)
+                                    .child(under),
+                            )
+                        }),
+                ),
+        )
+    }
+
     /// The book of everything to find: a shelf each for keepsakes, people,
     /// things made and festival days, what has been found drawn in colour
     /// and what is still to come as a silhouette with a hint.
@@ -1098,6 +1156,7 @@ impl ProjectionView {
             .flex_col()
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(header)
+            .children(self.render_favour_note())
             .child(tabs)
             .child(
                 div()

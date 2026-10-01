@@ -69,13 +69,16 @@ pub(crate) fn voice_on() -> bool {
         .is_some_and(|settings| settings.world_voice)
 }
 
-/// Asks the configured model `prompt`, the way a Pack would: its response,
-/// or nothing if no model is configured or it had nothing to say. Reads
-/// the key, so it belongs off the window's thread.
+/// Asks the configured model `prompt`, the way a Pack would, and then the
+/// configured judge about its answer: the response to hand the World, with
+/// the judge's verdict in it, or nothing if no model is configured or it
+/// had nothing to say. Reads the key and waits for both, so it belongs off
+/// the window's thread.
 pub(crate) fn ask_model(prompt: &str) -> Option<String> {
     let root = app_settings::application_support_root().ok()?;
     let settings = app_settings::load(&root).ok()?;
-    let voice = settings.configured_voice(key_store::load());
+    let key = key_store::load();
+    let voice = settings.configured_voice(key.clone());
     // This Mac's own model is asked only once it has been found working; its
     // probe is run here, off the window's thread, at most once a run.
     if voice == Some(ConfiguredVoice::OnDevice) && !::world_voice::fm::status().is_ready() {
@@ -83,7 +86,21 @@ pub(crate) fn ask_model(prompt: &str) -> Option<String> {
     }
     let mut completion =
         model_for(voice)?.completion_with_model(settings.voice_model.as_deref())?;
-    completion.complete(prompt)
+    let mut judge = judge_for(settings.configured_judge(key));
+    ::world_voice::answer_for_world(prompt, completion.as_mut(), judge.as_mut())
+}
+
+/// The judge a configured choice reaches: this Mac's own model only once
+/// it has been found working.
+pub(crate) fn judge_for(
+    judge: Option<app_settings::ConfiguredJudge>,
+) -> Option<::world_voice::ModelJudge> {
+    match judge? {
+        app_settings::ConfiguredJudge::Key(key) => Some(::world_voice::ModelJudge::api(key)),
+        app_settings::ConfiguredJudge::OnDevice => ::world_voice::fm::status()
+            .is_ready()
+            .then(|| ::world_voice::ModelJudge::on_device(::world_voice::fm::PROGRAM)),
+    }
 }
 
 /// The model a configured voice reaches.

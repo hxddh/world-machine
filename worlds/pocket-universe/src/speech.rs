@@ -124,27 +124,35 @@ fn elsewhere(unit: &str) -> &'static [&'static str] {
 
 fn aliases(name: &str) -> Vec<String> {
     let names: &[&str] = match name {
-        "Nia Chen" => &["妮娅"],
-        "Tomas Vale" => &["托马斯"],
-        "Ines Duarte" => &["伊内丝", "伊内斯"],
-        "Lena Ortiz" => &["莉娜", "蕾娜"],
-        "Max Park" => &["马克斯"],
-        "Ray Kowalski" => &["雷"],
-        "Piko" => &["皮可"],
-        "Miri" => &["米丽"],
-        "Tuk" => &["图克"],
-        "Ares Habitat" => &["the dome", "基地", "栖息地"],
-        "Hydroponics Bay" => &["hydroponics", "greenhouse", "温室", "水培"],
-        "Maple Arcade" => &["游戏厅", "街机厅"],
-        "K-88 Radio" => &["radio station", "the station", "电台", "广播站"],
-        "Icebridge" => &["the bridge", "冰桥"],
-        "Fish Vault" => &["鱼库", "鱼仓"],
+        "Nia Chen" => &["妮娅", "ニア"],
+        "Tomas Vale" => &["托马斯", "トマス"],
+        "Ines Duarte" => &["伊内丝", "伊内斯", "イネス"],
+        "Lena Ortiz" => &["莉娜", "蕾娜", "レナ"],
+        "Max Park" => &["马克斯", "マックス"],
+        "Ray Kowalski" => &["雷", "レイ"],
+        "Piko" => &["皮可", "ピコ"],
+        "Miri" => &["米丽", "ミリ"],
+        "Tuk" => &["图克", "トゥク"],
+        "Ares Habitat" => &["the dome", "基地", "栖息地", "居住区", "ドーム"],
+        "Hydroponics Bay" => &["hydroponics", "greenhouse", "温室", "水培", "水耕"],
+        "Maple Arcade" => &["游戏厅", "街机厅", "ゲームセンター", "ゲーセン"],
+        "K-88 Radio" => &[
+            "radio station",
+            "the station",
+            "电台",
+            "广播站",
+            "ラジオ局",
+            "放送局",
+        ],
+        "Icebridge" => &["the bridge", "冰桥", "氷の橋"],
+        "Fish Vault" => &["鱼库", "鱼仓", "魚の貯蔵庫", "魚倉"],
         _ => &[],
     };
     names
         .iter()
         .copied()
         .chain(in_chinese(include_str!("../locales/zh-Hans.tsv"), name))
+        .chain(in_chinese(include_str!("../locales/ja.tsv"), name))
         .map(str::to_string)
         .collect()
 }
@@ -231,6 +239,27 @@ pub(crate) fn say(
     conversation::say_with(world, &kit(world.state()), who, words, listener)
 }
 
+/// Records a favour done, if what the player just said (`spoken`) did it.
+pub(crate) fn favour_done(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    spoken: world_core::EventId,
+) -> Result<Option<world_core::EventId>, world_core::WorldError> {
+    let kit = kit(world.state());
+    conversation::favour::follow_up(world, actions, &kit, spoken)
+}
+
+/// At the end of a period the player was there for, someone may ask a
+/// favour.
+pub(crate) fn favour_asked(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    away: bool,
+) -> Result<Vec<world_core::EventId>, world_core::WorldError> {
+    let kit = kit(world.state());
+    conversation::favour::tick(world, actions, &kit, away)
+}
+
 /// Everyone asking the player something now.
 pub(crate) fn askers(world: &World) -> std::collections::BTreeSet<EntityId> {
     conversation::faces::askers(&crate::story::commands(world))
@@ -251,13 +280,28 @@ mod tests {
     use conversation::corpus;
 
     /// In every seed, everyday things a player types are heard as what
-    /// they mean, in English and Chinese.
+    /// they mean, in English, Chinese and Japanese.
     #[test]
     fn people_understand_everyday_phrases_in_every_seed() {
-        for (seed, other_zh, place) in [
-            (crate::SEED_MARS_COLONY_COMMAND, "托马斯", "hydroponics"),
-            (crate::SEED_1980S_TOWN_COMMAND, "马克斯", "radio"),
-            (crate::SEED_PENGUIN_CIVILIZATION_COMMAND, "米丽", "vault"),
+        for (seed, other_zh, other_ja, place) in [
+            (
+                crate::SEED_MARS_COLONY_COMMAND,
+                "托马斯",
+                "トマス",
+                "hydroponics",
+            ),
+            (
+                crate::SEED_1980S_TOWN_COMMAND,
+                "马克斯",
+                "マックス",
+                "radio",
+            ),
+            (
+                crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+                "米丽",
+                "ミリ",
+                "vault",
+            ),
         ] {
             let mut universe = crate::PocketUniverse::new().unwrap();
             universe.invoke_projection_command(seed).unwrap();
@@ -268,6 +312,13 @@ mod tests {
             let place_zh = aliases(&lives::name(state, SLOT_C))
                 .into_iter()
                 .find(|alias| !alias.is_ascii());
+            let place_ja = aliases(&lives::name(state, SLOT_C))
+                .into_iter()
+                .find(|alias| {
+                    alias
+                        .chars()
+                        .any(|c| ('\u{3040}'..='\u{30ff}').contains(&c))
+                });
             let occasion = crate::almanac::almanac(state)
                 .festivals
                 .first()
@@ -277,6 +328,8 @@ mod tests {
                 person_zh: Some(other_zh.into()),
                 place: place.into(),
                 place_zh,
+                person_ja: Some(other_ja.into()),
+                place_ja,
                 occasion,
             });
             let score = corpus::score(&phrases, |words| {

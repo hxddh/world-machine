@@ -1599,6 +1599,60 @@ fn a_wedding_a_birth_and_a_farewell_match_their_golden_pictures() {
     }
 }
 
+/// A moment at a place that wears the player's design is drawn with it:
+/// the bakery's painted sign hangs from its bracket in every panel, as it
+/// does on the scene.
+#[test]
+fn a_moment_at_a_designed_place_shows_the_design() {
+    use world_projection::MomentKind;
+    let mut snapshot = generations();
+    let sign = designed()
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.label == "Bakery")
+        .and_then(|item| item.pattern.clone())
+        .expect("the bakery's sign");
+    let bakery = snapshot
+        .canvas
+        .items
+        .iter_mut()
+        .find(|item| item.id == id(101))
+        .expect("the bakery");
+    bakery.shape = Some(MarkShape::Shop);
+    bakery.pattern = Some(sign);
+    let moment = moment_of(
+        MomentKind::Wedding,
+        "Mara and Leo marry",
+        [&[1, 3], &[1, 3], &[1, 3, 4]],
+    );
+    let scenes = crate::macos::panel_scenes(&snapshot, &moment);
+    assert!(
+        scenes.iter().all(|scene| scene
+            .place
+            .as_ref()
+            .is_some_and(|place| place.wears.is_some())),
+        "every panel's place wears the design"
+    );
+    let (width, height) = (900.0, 480.0);
+    let layout = crate::macos::strip_layout(width, height);
+    let image = draw(width, height, move || {
+        div()
+            .size_full()
+            .bg(gpui::rgb(0x6f7a70))
+            .relative()
+            .child(
+                div()
+                    .absolute()
+                    .left(px(layout.x))
+                    .top(px(layout.y))
+                    .child(crate::macos::moment_strip(&snapshot, &moment, layout)),
+            )
+            .into_any_element()
+    });
+    matches_golden("moment-design", &image);
+}
+
 /// A design drawn from a rule over its squares, in palette places.
 fn motif_of(colours: &[u8], rule: impl Fn(usize, usize) -> usize) -> world_projection::Pattern {
     let cells = (0..crate::mark::CELLS)
@@ -1974,6 +2028,8 @@ fn world_window(
                     .with_strip(|_, _| {});
                 view.looking.opening = None;
                 view.looking.photographing = !controls;
+                // With its controls, the drawer is open: what is read.
+                view.looking.drawer = controls;
                 view
             })
         })
@@ -1988,19 +2044,26 @@ fn luma(pixel: &image::Rgba<u8>) -> f32 {
     0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
 }
 
-/// The v0.25 bar for the night: after dark nothing the World window lays
-/// over its scene (the card, the gauges and handles, the zoom control, the
-/// pills) is brighter than the scene's own sky. The window is drawn with
-/// its controls and without (as a photo is taken); whatever differs is
-/// the interface, and it may be no brighter than the brightest of the sky
-/// (its stars and moon aside). The words on it are not drawn here, and may
-/// be: they are light on the night's dark cards.
+/// The v0.25 bar for the night, as v0.26 keeps it: after dark nothing the
+/// World window lays over its scene (the gauges and handles, the zoom
+/// control, the pills) is brighter than the scene's own sky. What the
+/// player reads (the drawer here; the cards and pages too) keeps the
+/// window's own light instead: paper under a lamp, warm and dimmer than by
+/// day, its words as dark as ever. The window is drawn with its controls
+/// and without (as a photo is taken), and with its reading surfaces lit and
+/// dark as the night; whatever differs between the first two is the
+/// interface, and whatever differs between the last two is what is read.
+/// The words are not drawn here: they are dark on the lamp-lit paper and
+/// light on the night's pills.
 #[test]
 fn at_night_nothing_over_the_scene_is_brighter_than_its_sky() {
     crate::scene::pin_hour(Some(23));
     let snapshot = crate::diorama::tests::harbour_1082();
     let (width, height) = (1100.0, 760.0);
     let with = world_window(&snapshot, (width, height), true);
+    world_theme::set_reading_light(false);
+    let all_dark = world_window(&snapshot, (width, height), true);
+    world_theme::set_reading_light(true);
     let without = world_window(&snapshot, (width, height), false);
     crate::scene::pin_hour(None);
     world_theme::set_dark(false);
@@ -2013,12 +2076,17 @@ fn at_night_nothing_over_the_scene_is_brighter_than_its_sky() {
         .collect::<Vec<_>>();
     sky.sort_by(f32::total_cmp);
     let brightest = sky[sky.len() * 995 / 1000];
-    let interface = with
-        .pixels()
-        .zip(without.pixels())
-        .filter(|(a, b)| a.0.iter().zip(b.0).any(|(x, y)| x.abs_diff(y) > 8))
-        .map(|(pixel, _)| luma(pixel))
-        .collect::<Vec<_>>();
+    let differs = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| {
+        a.0.iter().zip(b.0).any(|(x, y)| x.abs_diff(y) > 8)
+    };
+    let (mut interface, mut read) = (Vec::new(), Vec::new());
+    for ((pixel, dark), bare) in with.pixels().zip(all_dark.pixels()).zip(without.pixels()) {
+        if differs(pixel, dark) {
+            read.push(*pixel);
+        } else if differs(pixel, bare) {
+            interface.push(luma(pixel));
+        }
+    }
     assert!(
         interface.len() > 5_000,
         "the interface is drawn: {} pixels",
@@ -2036,5 +2104,34 @@ fn at_night_nothing_over_the_scene_is_brighter_than_its_sky() {
         glaring * 100 <= interface.len(),
         "{glaring} of {} interface pixels are brighter than the sky's brightest ({brightest:.0})",
         interface.len()
+    );
+    // The drawer is read on lamp-lit paper: warm, and dimmer than the
+    // day's white.
+    // `WORLD_GPUI_NIGHT_SHOT=<file>` keeps the window with its drawer, for
+    // looking at.
+    if let Ok(path) = std::env::var("WORLD_GPUI_NIGHT_SHOT") {
+        let _ = with.save(path);
+    }
+    if read.len() <= 20_000 {
+        let _ = with.save(std::env::temp_dir().join("world-gpui-night-lit.png"));
+        let _ = all_dark.save(std::env::temp_dir().join("world-gpui-night-dark.png"));
+    }
+    assert!(
+        read.len() > 20_000,
+        "the drawer keeps its light: {}",
+        read.len()
+    );
+    let mut lumas = read.iter().map(luma).collect::<Vec<_>>();
+    lumas.sort_by(f32::total_cmp);
+    let paper = read
+        .iter()
+        .find(|pixel| luma(pixel) >= lumas[lumas.len() / 2])
+        .expect("paper");
+    let [r, g, b, _] = paper.0;
+    assert!(r > g && g > b, "warm paper: {r} {g} {b}");
+    assert!(
+        (200.0..250.0).contains(&lumas[lumas.len() / 2]),
+        "paper under a lamp, not the day's white: {}",
+        lumas[lumas.len() / 2]
     );
 }

@@ -518,6 +518,9 @@ pub(super) fn paint_live(
     }
     paint_worn_places(window, frame, &screen, light);
 
+    // A harbour lived in whatever is built: washing, a cart, rowboats.
+    super::lived::paint_harbour_life(window, frame, &screen, &seen, light);
+
     // Things: carts, parcels, boats riding the swell.
     let mut things = frame.things.iter().collect::<Vec<_>>();
     things.sort_by(|a, b| a.base.total_cmp(&b.base).then(a.index.cmp(&b.index)));

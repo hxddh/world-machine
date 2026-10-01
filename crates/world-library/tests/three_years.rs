@@ -377,8 +377,9 @@ fn a_three_year_snapshot_takes_under_fifteen_milliseconds() {
 }
 
 /// A turn at three years as the app plays one: the World opened from its
-/// file, then each day an answer and the day let pass, each change saved to
-/// the file before it is kept, and the snapshot after it returned. In
+/// file, then each day an answer and the day let pass, each change handed
+/// to the World's writer (which makes and writes the file away from the
+/// turn, in order) as it is kept, and the snapshot after it returned. In
 /// release (see the top of this file).
 #[test]
 #[ignore]
@@ -390,7 +391,8 @@ fn a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds() {
     let path = dir.join("three.world");
     std::fs::write(&path, document.to_bytes().unwrap()).unwrap();
     let library = world_library::WorldLibrary::new(dir.join("library"));
-    let mut session = world_library::DurableWorldSession::open_file(path, &registry).unwrap();
+    let mut session =
+        world_library::DurableWorldSession::open_file(path.clone(), &registry).unwrap();
     let mut snapshot = session.snapshot();
     let count = std::env::var("WORLD_MACHINE_TURNS")
         .ok()
@@ -417,6 +419,18 @@ fn a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds() {
             .unwrap();
         turns.push(started.elapsed());
     }
+    // Written away from the turns (see `writer`): all of it is on disk
+    // once the World is flushed, as it is when it is closed.
+    let started = Instant::now();
+    session.flush().unwrap();
+    let flushed = started.elapsed();
+    let on_disk = WorldDocument::from_bytes(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(on_disk.archive.world_time, snapshot.world_time);
+    assert_eq!(
+        on_disk.archive.events.len(),
+        session.current_archive().unwrap().events.len()
+    );
+    eprintln!("the last turn's file on disk {flushed:?} after it");
     let _ = std::fs::remove_dir_all(&dir);
     turns.sort();
     let median = turns[turns.len() / 2];

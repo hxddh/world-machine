@@ -42,6 +42,11 @@ pub struct AppSettings {
     /// environment still wins over it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice_model: Option<String>,
+    /// Who gives a second opinion on each voice answer. Absent means the
+    /// cloud judge when a key is stored and none otherwise, so a settings
+    /// file written before it asks nothing new of a player without a key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_judge: Option<JudgeChoice>,
     /// Whether a World's window plays its landscape's quiet sound. On for
     /// a new install (see [`AppSettings::first_launch`]); a settings file
     /// written before that omits it while off, so a player who never turned
@@ -53,7 +58,7 @@ pub struct AppSettings {
     /// default level, and the field is omitted while all are.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub sound_levels: std::collections::BTreeMap<String, u8>,
-    /// The language the app is shown in ("en", "zh-Hans"); absent follows
+    /// The language the app is shown in ("en", "zh-Hans", "ja"); absent follows
     /// the Mac.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
@@ -147,7 +152,50 @@ pub enum VoiceSource {
     OnDevice,
 }
 
+/// Who gives a voice answer a second opinion before it is said.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JudgeChoice {
+    /// No judge: the World's strict checks alone decide.
+    Off,
+    /// The stored key's small cloud model (Claude Haiku 4.5 by default).
+    Cloud,
+    /// The model built into macOS, through `/usr/bin/fm`.
+    OnDevice,
+}
+
+/// A judge that can actually be asked.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConfiguredJudge {
+    Key(String),
+    OnDevice,
+}
+
 impl AppSettings {
+    /// The judge chosen, or the default: the cloud judge when a key is
+    /// stored, none otherwise.
+    pub fn judge_choice(&self, key_stored: bool) -> JudgeChoice {
+        self.voice_judge.unwrap_or(if key_stored {
+            JudgeChoice::Cloud
+        } else {
+            JudgeChoice::Off
+        })
+    }
+
+    /// The judge to ask about voice answers, if any: only while the voice
+    /// is on and what the judge needs is there.
+    pub fn configured_judge(&self, stored_key: Option<String>) -> Option<ConfiguredJudge> {
+        if !self.world_voice {
+            return None;
+        }
+        let key = stored_key.filter(|key| !key.trim().is_empty());
+        match self.judge_choice(key.is_some()) {
+            JudgeChoice::Off => None,
+            JudgeChoice::Cloud => key.map(ConfiguredJudge::Key),
+            JudgeChoice::OnDevice => Some(ConfiguredJudge::OnDevice),
+        }
+    }
+
     /// The player's level for a sound, or its default if never set.
     pub fn sound_level(&self, channel: crate::ambience::Channel) -> u8 {
         self.sound_levels
@@ -179,6 +227,7 @@ impl AppSettings {
             world_voice: false,
             world_voice_source: None,
             voice_model: None,
+            voice_judge: None,
             ambient_sound: false,
             sound_levels: Default::default(),
             language: None,
@@ -402,6 +451,11 @@ pub fn save_voice_model(root: &Path, model: Option<String>) -> Result<(), AppSet
     update_settings(root, move |settings| settings.voice_model = model)
 }
 
+/// Who judges voice answers.
+pub fn save_voice_judge(root: &Path, judge: JudgeChoice) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.voice_judge = Some(judge))
+}
+
 /// How a World shown as a strip is placed.
 pub fn save_strip(root: &Path, strip: StripSettings) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.strip = strip)
@@ -544,6 +598,7 @@ mod tests {
             world_voice: false,
             world_voice_source: None,
             voice_model: None,
+            voice_judge: None,
             ambient_sound: false,
             sound_levels: Default::default(),
             language: None,
@@ -613,6 +668,36 @@ mod tests {
             !loaded.world_voice,
             "a voice nobody asked for was switched on"
         );
+    }
+
+    #[test]
+    fn the_judge_is_the_keys_cloud_model_unless_chosen_otherwise() {
+        let mut settings = AppSettings::empty();
+        let key = || Some("sk-ant-test".to_string());
+        assert_eq!(settings.configured_judge(key()), None, "voice off");
+        settings.world_voice = true;
+        assert_eq!(
+            settings.configured_judge(key()),
+            Some(ConfiguredJudge::Key("sk-ant-test".into()))
+        );
+        assert_eq!(settings.configured_judge(None), None);
+        assert_eq!(settings.judge_choice(false), JudgeChoice::Off);
+        settings.voice_judge = Some(JudgeChoice::Off);
+        assert_eq!(settings.configured_judge(key()), None);
+        settings.voice_judge = Some(JudgeChoice::OnDevice);
+        assert_eq!(
+            settings.configured_judge(None),
+            Some(ConfiguredJudge::OnDevice)
+        );
+        settings.voice_judge = Some(JudgeChoice::Cloud);
+        assert_eq!(settings.configured_judge(Some("  ".into())), None);
+        // Absent from a file that never chose one.
+        let json = serde_json::to_string(&AppSettings::empty()).unwrap();
+        assert!(!json.contains("voice_judge"));
+        settings.voice_judge = Some(JudgeChoice::OnDevice);
+        assert!(serde_json::to_string(&settings)
+            .unwrap()
+            .contains("\"voice_judge\":\"on-device\""));
     }
 
     #[test]

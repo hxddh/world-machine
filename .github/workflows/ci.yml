@@ -105,6 +105,7 @@ jobs:
       - run: cargo test --locked -p pocket-universe-pack
       - run: cargo clippy --locked -p world-gpui -p world-machine-desktop --all-targets -- -D warnings
       - run: cargo test --locked -p world-machine-desktop
+      - run: cargo clippy --locked -p world-machine-desktop --features demo --all-targets -- -D warnings
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh
       - name: Archive World Machine.app

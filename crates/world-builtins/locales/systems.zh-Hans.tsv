@@ -2093,3 +2093,34 @@ A year ago today, {told}.	一年前的今天，{told}。
 {name}, an {trade} from {origin}, came because of the {what} you built	来自{origin}的{trade}{name}因为你建的{what}而来
 An {thing}!	一个{thing}!
 An {thing} by {place}.	{place}旁的一个{thing}。
+# Favours (conversation::favour): asked, heard, thanked, and the drawer's note.
+Have you seen {x} lately? Would you look in on them for me?	你最近见过{x}吗？能替我去看看{x}吗？
+If you pass {x}, would you ask how they are? I'd like to know.	要是碰见{x}，能帮我问问{x}近况吗？我想知道。
+{x} hardly gets out. Would you ask them along for a walk?	{x}很少出门。你能约{x}出去走走吗？
+Would you invite {x} out some evening? They'd say yes to you.	你能找个晚上约{x}出来吗？你开口的话，{x}会答应的。
+{x} seems a bit down. Would you find a kind word for them?	{x}好像有点消沉。你能对{x}说句暖心的话吗？
+Could you cheer {x} up a little? A kind word from you would do it.	你能让{x}开心一点吗？你一句好话就够了。
+If you see {x}, would you tell them I'm sorry? I can't find the words myself.	要是见到{x}，能替我说声对不起吗？我自己实在开不了口。
+Would you tell {x} I'm sorry? It would mean more coming from you.	你能替我向{x}道个歉吗？由你来说，分量更重。
+Did {y} ask after me? That's kind of them.	是{y}让你来问我的吗？{y}真有心。
+{y} put you up to this, didn't they? I'm glad.	是{y}让你来的吧？我很高兴。
+You always know what to say. That's cheered me up.	你总是知道该说什么。我心情好多了。
+{y} said that? Well. Tell them it's forgotten.	{y}这么说了？好吧。告诉{y}，这事就算过去了。
+You looked in on {x}? Thank you. That puts my mind at rest.	你去看过{x}了？谢谢你，我这下放心了。
+Thank you for seeing {x} for me. I feel better knowing.	谢谢你替我去看{x}。知道了情况，我心里踏实多了。
+{x} said yes? Thank you. I knew you'd manage it.	{x}答应了？谢谢你，我就知道你能行。
+You got {x} to come out! Thank you.	你把{x}约出来了！谢谢你。
+{x} is smiling again. Thank you for that.	{x}又笑起来了。谢谢你。
+Whatever you said to {x}, it worked. Thank you.	不管你对{x}说了什么，都管用了。谢谢你。
+You told {x}? Thank you. I feel lighter already.	你跟{x}说了？谢谢你，我心里轻松多了。
+Thank you for talking to {x} for me. I owe you one.	谢谢你替我去跟{x}说。我欠你一个人情。
+{y} asked you to look in on {x}.	{y}请你去看看{x}。
+{y} asked you to invite {x} out.	{y}请你约{x}出去走走。
+{y} asked you to cheer {x} up.	{y}请你让{x}开心起来。
+{y} asked you to tell {x} they're sorry.	{y}托你向{x}转达歉意。
+Have a word with {x}.	去和{x}聊几句吧。
+Ask {x} to come out with you.	约{x}和你一起出去吧。
+Say something kind to {x}.	对{x}说句暖心的话吧。
+Tell {x} what {y} said.	把{y}的话转告{x}吧。
+{y} asked you a favour	{y}请你帮个忙
+You did {y} a favour	你帮了{y}一个忙

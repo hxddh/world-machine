@@ -1773,41 +1773,42 @@ mod tests {
         assert!(narrow.cell >= 16.0, "{narrow:?}");
     }
 
-    /// Every word the player's mark shows is in the app's Chinese catalog.
+    /// Every word the player's mark shows is in each of the app's catalogs.
     #[test]
     fn every_word_of_the_mark_is_translated() {
-        let catalog = world_i18n::Catalog::parse(crate::i18n::APP_ZH_HANS);
-        let mut words = vec![
-            "A plot",
-            "What could stand here",
-            "What could stand here?",
-            "Design…",
-            "Name…",
-            "Name",
-            "More in the drawer",
-            "Names proposed",
-            "Enter to name it · Esc to leave it",
-            "Type a name, or pick one · Enter to name it",
-            "A name…",
-            "The design, sixteen squares by sixteen",
-            "Arrows move · Space paints · 1–8 colours · F fills",
-            "Cancel",
-            "Save",
-            "Colours",
-            "Colour",
-            "The palette",
-            "Tools",
-            "Mix the chosen colour",
-            "Undo",
-            "Redo",
-            "Clear",
-            "Close",
-        ];
-        words.extend(Tool::ALL.map(Tool::name));
-        words.extend([Wear::Flag, Wear::Sail, Wear::Sign, Wear::Quilt].map(Wear::title));
-        words.extend(PALETTE_NAMES);
-        for word in words {
-            assert!(catalog.exact(word).is_some(), "no zh-Hans for {word:?}");
+        for catalog in crate::i18n::app_catalogs() {
+            let mut words = vec![
+                "A plot",
+                "What could stand here",
+                "What could stand here?",
+                "Design…",
+                "Name…",
+                "Name",
+                "More in the drawer",
+                "Names proposed",
+                "Enter to name it · Esc to leave it",
+                "Type a name, or pick one · Enter to name it",
+                "A name…",
+                "The design, sixteen squares by sixteen",
+                "Arrows move · Space paints · 1–8 colours · F fills",
+                "Cancel",
+                "Save",
+                "Colours",
+                "Colour",
+                "The palette",
+                "Tools",
+                "Mix the chosen colour",
+                "Undo",
+                "Redo",
+                "Clear",
+                "Close",
+            ];
+            words.extend(Tool::ALL.map(Tool::name));
+            words.extend([Wear::Flag, Wear::Sail, Wear::Sign, Wear::Quilt].map(Wear::title));
+            words.extend(PALETTE_NAMES);
+            for word in words {
+                assert!(catalog.exact(word).is_some(), "no translation for {word:?}");
+            }
         }
     }
 }

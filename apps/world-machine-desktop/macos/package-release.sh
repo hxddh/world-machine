@@ -11,13 +11,27 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$ROOT_DIR"
 
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT_DIR/target}"
-APP_DIR="${WORLD_MACHINE_APP_DIR:-$TARGET_DIR/bundle/World Machine.app}"
-OUTPUT_DIR="${WORLD_MACHINE_RELEASE_DIR:-$TARGET_DIR/release-package}"
+# WORLD_MACHINE_DEMO=1 packages the demo that build-app.sh built with the
+# same variable: "World Machine Demo", in a directory of its own, named so
+# it can sit beside the full download on a release.
+if [[ "${WORLD_MACHINE_DEMO:-0}" == "1" ]]; then
+    APP_NAME="World Machine Demo"
+    FILE_PREFIX="World-Machine-Demo"
+    EDITION="demo"
+    DEFAULT_OUTPUT_DIR="$TARGET_DIR/release-package-demo"
+else
+    APP_NAME="World Machine"
+    FILE_PREFIX="World-Machine"
+    EDITION="full"
+    DEFAULT_OUTPUT_DIR="$TARGET_DIR/release-package"
+fi
+APP_DIR="${WORLD_MACHINE_APP_DIR:-$TARGET_DIR/bundle/$APP_NAME.app}"
+OUTPUT_DIR="${WORLD_MACHINE_RELEASE_DIR:-$DEFAULT_OUTPUT_DIR}"
 BINARY="$APP_DIR/Contents/MacOS/world-machine-desktop"
 PLIST="$APP_DIR/Contents/Info.plist"
 
 if [[ ! -d "$APP_DIR" || ! -x "$BINARY" || ! -f "$PLIST" ]]; then
-    echo "World Machine.app is missing; run build-app.sh first" >&2
+    echo "$APP_NAME.app is missing; run build-app.sh first" >&2
     exit 1
 fi
 
@@ -30,10 +44,10 @@ ARCH_LABEL="${ARCHS// /-}"
 TAG="${WORLD_MACHINE_RELEASE_TAG:-v${VERSION}-pre.0}"
 COMMIT="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 RELEASE_LABEL="${TAG#v}"
-ZIP_NAME="World-Machine-${RELEASE_LABEL}-macOS-${ARCH_LABEL}.zip"
+ZIP_NAME="${FILE_PREFIX}-${RELEASE_LABEL}-macOS-${ARCH_LABEL}.zip"
 ZIP_PATH="$OUTPUT_DIR/$ZIP_NAME"
 CHECKSUM_PATH="$ZIP_PATH.sha256"
-DMG_NAME="World-Machine-${RELEASE_LABEL}-macOS-${ARCH_LABEL}.dmg"
+DMG_NAME="${FILE_PREFIX}-${RELEASE_LABEL}-macOS-${ARCH_LABEL}.dmg"
 DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
 MANIFEST_PATH="$OUTPUT_DIR/release-manifest.json"
 
@@ -77,11 +91,12 @@ fi
 # note, so a user who never sees the Release page still learns why macOS
 # blocks the first open and what to do about it.
 STAGE_ROOT="$OUTPUT_DIR/stage"
-STAGE_DIR="$STAGE_ROOT/World Machine $RELEASE_LABEL"
+STAGE_DIR="$STAGE_ROOT/$APP_NAME $RELEASE_LABEL"
 mkdir -p "$STAGE_DIR"
-ditto "$APP_DIR" "$STAGE_DIR/World Machine.app"
+ditto "$APP_DIR" "$STAGE_DIR/$APP_NAME.app"
 if [[ "$NOTARIZED" != "true" ]]; then
-    sed "s|@TAG@|$TAG|g" "$SCRIPT_DIR/READ_ME_FIRST.txt" > "$STAGE_DIR/Read Me First.txt"
+    sed -e "s|@TAG@|$TAG|g" -e "s|\"World Machine\"|\"$APP_NAME\"|g" \
+        "$SCRIPT_DIR/READ_ME_FIRST.txt" > "$STAGE_DIR/Read Me First.txt"
 fi
 ditto -c -k --keepParent "$STAGE_DIR" "$ZIP_PATH"
 
@@ -89,12 +104,12 @@ ditto -c -k --keepParent "$STAGE_DIR" "$ZIP_PATH"
 # Applications shortcut, done. The zip stays for scripts and checksums.
 DMG_STAGE="$STAGE_ROOT/dmg"
 mkdir -p "$DMG_STAGE"
-ditto "$APP_DIR" "$DMG_STAGE/World Machine.app"
+ditto "$APP_DIR" "$DMG_STAGE/$APP_NAME.app"
 ln -s /Applications "$DMG_STAGE/Applications"
 if [[ "$NOTARIZED" != "true" ]]; then
     cp "$STAGE_DIR/Read Me First.txt" "$DMG_STAGE/Read Me First.txt"
 fi
-hdiutil create -volname "World Machine" -srcfolder "$DMG_STAGE" -ov -format UDZO -quiet "$DMG_PATH"
+hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE" -ov -format UDZO -quiet "$DMG_PATH"
 if [[ "$SIGNING" == "developer-id" ]]; then
     codesign --force --timestamp --sign "$WORLD_MACHINE_SIGNING_IDENTITY" "$DMG_PATH"
 fi
@@ -122,7 +137,8 @@ python3 - \
     "$SIGNING" \
     "$NOTARIZED" \
     "$DMG_NAME" \
-    "$DMG_SHA256" <<'PY'
+    "$DMG_SHA256" \
+    "$EDITION" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -141,6 +157,7 @@ from pathlib import Path
     notarized,
     dmg,
     dmg_sha256,
+    edition,
 ) = sys.argv[1:]
 
 pack_dir = Path(app_dir) / "Contents" / "Resources" / "World Packs"
@@ -163,6 +180,9 @@ manifest = {
     "dmg_sha256": dmg_sha256,
     "included_packs": included_packs,
 }
+# The full package's manifest is unchanged; a demo's says it is one.
+if edition != "full":
+    manifest["edition"] = edition
 Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 PY
 

@@ -4721,7 +4721,22 @@ pub fn met(world: &World) -> BTreeSet<EntityId> {
         .collect()
 }
 
-/// Lines said long enough ago are forgotten, so the notes stay small.
+/// Whether a rest note (`lives.rest.<family>`, the period the family's
+/// trouble last closed) has run out by `now`: the trouble may come up again,
+/// just as if the note were not there, so it is no longer worth keeping.
+fn rest_over(key: &str, value: &Value, now: u64) -> bool {
+    let Some(family) = key.strip_prefix("lives.rest.") else {
+        return false;
+    };
+    let kind = family.split('.').next().and_then(Kind::from_id);
+    match (kind, value) {
+        (Some(kind), Value::Integer(last)) => now as i64 - last >= kind.rests() as i64,
+        _ => false,
+    }
+}
+
+/// Lines said long enough ago are forgotten, and troubles' rests that have
+/// run out let go of, so the notes stay small.
 struct Forgets(fn(&WorldState) -> Cast);
 
 impl Action for Forgets {
@@ -4743,6 +4758,9 @@ impl Action for Forgets {
             .components
             .iter()
             .filter(|(key, value)| {
+                if rest_over(key, value, now) {
+                    return true;
+                }
                 // A period's lines, or, in a World from before, a line's.
                 let at = match said_period(key) {
                     Some(at) => at,

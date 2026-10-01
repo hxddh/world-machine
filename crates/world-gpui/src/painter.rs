@@ -301,6 +301,87 @@ impl Brush for Canvas {
             self.pixmap.fill_rect(rect, &paint, self.transform(), None);
         }
     }
+
+    /// A picture (a design's cloth) laid over the canvas, scaled to `rect`
+    /// and showing only within `clip`, as a window shows it: so a moment's
+    /// panel, painted here, carries the designs the scene shows.
+    fn picture(
+        &mut self,
+        image: &Arc<RenderImage>,
+        rect: crate::brush::Rect,
+        clip: crate::brush::Rect,
+    ) {
+        let (x, y, w, h) = rect;
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let Some(area) = sk::Rect::from_ltrb(
+            x.max(clip.0),
+            y.max(clip.1),
+            (x + w).min(clip.0 + clip.2),
+            (y + h).min(clip.1 + clip.3),
+        ) else {
+            return;
+        };
+        let Some(area) = self.on_canvas(area.x(), area.y(), area.width(), area.height()) else {
+            return;
+        };
+        let transform = self.transform();
+        with_pixmap_of(image, |pixmap| {
+            let fit = sk::Transform::from_row(
+                w / pixmap.width() as f32,
+                0.0,
+                0.0,
+                h / pixmap.height() as f32,
+                x,
+                y,
+            );
+            let paint = sk::Paint {
+                shader: sk::Pattern::new(
+                    pixmap.as_ref(),
+                    sk::SpreadMode::Pad,
+                    sk::FilterQuality::Bilinear,
+                    1.0,
+                    fit,
+                ),
+                anti_alias: true,
+                ..sk::Paint::default()
+            };
+            self.pixmap.fill_rect(area, &paint, transform, None);
+        });
+    }
+}
+
+/// Runs `paint` with `image` as a pixmap, made once for the latest image
+/// asked for (a flag or a quilt is laid strip by strip from one picture).
+fn with_pixmap_of(image: &Arc<RenderImage>, paint: impl FnOnce(&sk::Pixmap)) {
+    thread_local! {
+        static LAST: RefCell<Option<(Arc<RenderImage>, sk::Pixmap)>> = const { RefCell::new(None) };
+    }
+    LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        let fresh = !matches!(&*last, Some((kept, _)) if Arc::ptr_eq(kept, image));
+        if fresh {
+            *last = pixmap_of(image).map(|pixmap| (image.clone(), pixmap));
+        }
+        if let Some((_, pixmap)) = &*last {
+            paint(pixmap);
+        }
+    });
+}
+
+/// A GPUI image (straight BGRA) as a pixmap (premultiplied RGBA): the way
+/// back from [`image_of`].
+fn pixmap_of(image: &RenderImage) -> Option<sk::Pixmap> {
+    let bytes = image.as_bytes(0)?;
+    let size = image.size(0);
+    let (width, height) = (size.width.0.max(0) as u32, size.height.0.max(0) as u32);
+    let mut pixmap = sk::Pixmap::new(width, height)?;
+    for (to, from) in pixmap.pixels_mut().iter_mut().zip(bytes.as_chunks::<4>().0) {
+        let [b, g, r, a] = *from;
+        *to = sk::ColorU8::from_rgba(r, g, b, a).premultiply();
+    }
+    Some(pixmap)
 }
 
 /// A gradient between any number of stops, filling a shape: a sky, a

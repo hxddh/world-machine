@@ -27,15 +27,23 @@ ways to switch it on, which differ in exactly the way that matters here.
   in **Settings**. Where that program sends anything is
   between you and it; World Machine bundles no model and no key.
 - **An API key you give the app**, entered in **Settings** and kept in your login keychain rather than in any file this app writes — a backup of your Worlds folder never carries one, and you can inspect or delete it yourself in Keychain Access under "World Machine · World voice". This is the only case where World Machine
-  itself sends your World's contents anywhere. When you come back to a World,
-  one request goes to `api.anthropic.com` carrying the facts that World has
-  already recorded — its seed, which era it is, what just happened, and the
-  built-in sentence describing it — and nothing else: not your other Worlds,
-  not your library, not your file names, not the log. One request per return,
-  never one per period. Anthropic sees it under their terms. Turn the switch
-  off and no request is ever made.
+  itself sends your World's contents anywhere. Requests go to `api.anthropic.com`:
+  - when you come back to a World, one request carrying the facts that World has
+    already recorded (its seed, which era it is, what just happened, and the
+    built-in sentence describing it);
+  - when you talk to someone with the voice on, one request carrying what you
+    said and what that person knows from the World (how they are, the people and
+    places there, recent news), and, if the second opinion is on (it is by
+    default when a key is stored), one more carrying the same facts and the
+    answer, to check it.
 
-Whichever you choose, the model is only ever asked to put an already-recorded
-fact into words. It cannot decide what happens in a World, and a reply that
+  Nothing else is sent: not your other Worlds, not your library, not your file
+  names, not the log. Nothing is sent per period. Anthropic sees these requests
+  under their terms. Turn the switch off and no request is ever made. The
+  second opinion can also use this Mac's own model, which sends nothing, or be
+  turned off in Settings.
+
+Whichever you choose, the model is only ever asked to put what the World
+already holds into words, and a resident's answer is only a proposal. It cannot decide what happens in a World, and a reply that
 does not arrive, or does not make sense, leaves the World reading exactly as it
 does with no voice at all.

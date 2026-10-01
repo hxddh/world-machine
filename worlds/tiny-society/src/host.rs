@@ -301,6 +301,7 @@ mod tests {
             for _ in 0..20 {
                 session.handle(pass(), &registry, &library).unwrap();
             }
+            session.flush().unwrap();
             files.push((
                 library.load_document(&id).unwrap().unwrap(),
                 session.snapshot(),
@@ -337,6 +338,8 @@ mod tests {
             world_library::DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
         let pass = || ProjectionIntent::InvokeCommand(crate::story::WAIT_COMMAND.into());
         session.handle(pass(), &registry, &library).unwrap();
+        // The day is on disk before the file is taken away.
+        session.flush().unwrap();
         let archive_before = session.current_archive().unwrap();
         let snapshot_before = session.snapshot();
         // Where the World file goes, a folder stands: it cannot be written.
@@ -540,6 +543,7 @@ mod tests {
                     meaning: "greet".into(),
                     about: None,
                     answer: "The session's own model says hello.".into(),
+                    ..Default::default()
                 })
             }
         }

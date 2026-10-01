@@ -43,7 +43,7 @@ impl DurableWorldSession {
         // would save over its file.
         self.refuse_if_newer()?;
 
-        self.target.verify_revision(self.revision, library)?;
+        self.ready_to_change(library)?;
 
         match self.change(|session| session.advance_background(periods), true, library)? {
             Changed::Kept(snapshot) => return Ok(Some(*snapshot)),
@@ -75,8 +75,7 @@ impl DurableWorldSession {
             metadata: next_metadata.clone(),
         };
         next_document.settle_checkpoint();
-        self.target.verify_revision(self.revision, library)?;
-        let next_revision = self.target.persist(&next_document, library)?;
+        let next_revision = self.persist_whole(&next_document, library)?;
 
         self.revision = next_revision;
         self.metadata = next_metadata;
@@ -256,6 +255,7 @@ mod tests {
             own_title: Default::default(),
             opened_from: Default::default(),
             writer: Default::default(),
+            writes: Default::default(),
         }
     }
 

@@ -1,6 +1,7 @@
 mod change;
 mod revision;
 mod world_code;
+mod writer;
 
 use change::{Changed, Saved};
 
@@ -27,6 +28,8 @@ pub use world_code::{
     WorldCodeError, WorldVisit, MAX_CODE_NAME, MAX_CODE_TEXT, MAX_UNPACKED_BYTES, VISIT_TIMEOUT,
     WORLD_CODE_PREFIX, WORLD_CODE_SUFFIX,
 };
+
+pub use writer::{files_written, flush_all as flush_all_writes};
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
 pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
@@ -543,6 +546,15 @@ impl WorldDocumentTarget {
     }
 
     /// Writes a World file's bytes to where the document lives, atomically.
+    /// Where the document's file is written, and an older name of it that
+    /// is read if the file is not there and removed once it is written.
+    fn paths(&self, library: &WorldLibrary) -> (PathBuf, Option<PathBuf>) {
+        match self {
+            Self::Library(id) => (library.path(id), Some(library.legacy_path(id))),
+            Self::File(path) => (path.clone(), None),
+        }
+    }
+
     fn persist_bytes(
         &self,
         bytes: &[u8],
@@ -582,6 +594,16 @@ pub struct DurableWorldSession {
     /// Who wrote the file the World was opened from. A file from a newer
     /// World Machine is only looked at: nothing is saved over it.
     writer: FileWriter,
+    /// The World's file as its changes are written, away from the turns
+    /// that make them.
+    writes: writer::Writes,
+}
+
+impl Drop for DurableWorldSession {
+    fn drop(&mut self) {
+        // Everything handed over is written before the World is let go of.
+        let _ = self.writes.flush();
+    }
 }
 
 impl DurableWorldSession {
@@ -612,6 +634,7 @@ impl DurableWorldSession {
             own_title: RefCell::new(None),
             opened_from: RefCell::new(None),
             writer: FileWriter::current(),
+            writes: Default::default(),
         })
     }
 
@@ -644,7 +667,13 @@ impl DurableWorldSession {
             writer,
         } = file;
         let checkpoint = archive.checkpoint.clone();
-        let saved = history.and_then(|history| Saved::kept(&archive, history));
+        let writes = writer::Writes::default();
+        let saved = history
+            .and_then(|history| Saved::kept(&archive, history))
+            .map(|(saved, composer)| {
+                writes.start(composer);
+                saved
+            });
         let (session, lent) =
             registry.open_owned_archive_deflated(archive, WorldDocument::deflated_json(&bytes))?;
         Ok(Self {
@@ -657,6 +686,7 @@ impl DurableWorldSession {
             own_title: RefCell::new(None),
             opened_from: RefCell::new(lent),
             writer,
+            writes,
         })
     }
 
@@ -681,6 +711,7 @@ impl DurableWorldSession {
             own_title: RefCell::new(None),
             opened_from: RefCell::new(Some(archive)),
             writer: FileWriter::current(),
+            writes: Default::default(),
         }
     }
 
@@ -798,12 +829,67 @@ impl DurableWorldSession {
         Ok(())
     }
 
+    /// Waits until the World's file holds every change made to it, trying
+    /// once more a write that failed. A World's changes are written away
+    /// from its turns; this is for when the file itself is wanted: before
+    /// the World is closed or the app quits (dropping the session flushes
+    /// too), and before the file is read or copied.
+    pub fn flush(&self) -> Result<(), LibraryError> {
+        self.writes.flush()
+    }
+
+    /// Before a change: a write that failed is tried again, and the change
+    /// refused if it fails again. With nothing waiting to be written, the
+    /// file is checked to hold what was last written, so a World whose file
+    /// someone else wrote is not played on; while a write waits, its writer
+    /// checks that before it writes, and the next change hears of it.
+    pub(crate) fn ready_to_change(&self, library: &WorldLibrary) -> Result<(), LibraryError> {
+        if self.writes.failed() {
+            return self.writes.flush();
+        }
+        if self.writes.idle() {
+            // A look at the file's length and time does, if this World
+            // wrote it last; otherwise, or if they differ, its bytes.
+            let (path, _) = self.target.paths(library);
+            if self.writes.untouched(&path) != Some(true) {
+                self.target
+                    .verify_revision(self.expected_revision(), library)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// What the World's file holds, as far as this World knows.
+    pub(crate) fn expected_revision(&self) -> DocumentRevision {
+        self.writes.on_disk().unwrap_or(self.revision)
+    }
+
+    /// The World written whole, rather than a change handed to its writer:
+    /// everything handed over is written first, and the writer then carries
+    /// on from what this wrote.
+    pub(crate) fn persist_whole(
+        &mut self,
+        document: &WorldDocument,
+        library: &WorldLibrary,
+    ) -> Result<DocumentRevision, LibraryError> {
+        self.writes.flush()?;
+        self.target
+            .verify_revision(self.expected_revision(), library)?;
+        let revision = self.target.persist(document, library)?;
+        self.writes.start_from(revision);
+        Ok(revision)
+    }
+
     pub fn reload(
         &mut self,
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        // What was handed over is written if it can be; a write refused
+        // because the file changed is let go of, as the World is read anew.
+        let _ = self.writes.flush();
         let (document, revision, writer) = self.target.load_with_revision(library)?;
+        self.writes.start_from(revision);
         let replacement = open_document(registry, &document)?;
         let snapshot = replacement.snapshot();
 
@@ -838,7 +924,7 @@ impl DurableWorldSession {
         // freeing it beside the work below would slow that more.
         drop(self.opened_from.take());
         self.refuse_if_newer()?;
-        self.target.verify_revision(self.revision, library)?;
+        self.ready_to_change(library)?;
 
         let changed = self.change(|session| session.handle(intent.clone()), false, library)?;
         if let Changed::Kept(snapshot) = changed {
@@ -864,8 +950,7 @@ impl DurableWorldSession {
         next_document.archive.checkpoint = self.checkpoint.clone();
         next_document.settle_checkpoint();
 
-        self.target.verify_revision(self.revision, library)?;
-        let next_revision = self.target.persist(&next_document, library)?;
+        let next_revision = self.persist_whole(&next_document, library)?;
 
         self.revision = next_revision;
         self.metadata = next_metadata;
@@ -1393,6 +1478,18 @@ fn open_document(
 #[cfg(test)]
 fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
     Ok(read_document_file(path)?.archive)
+}
+
+/// What the file at `path` holds, or if there is none, what the file at
+/// `legacy` does.
+pub(crate) fn revision_at(
+    path: &Path,
+    legacy: Option<&Path>,
+) -> Result<Option<DocumentRevision>, LibraryError> {
+    match revision_if_exists(path)? {
+        Some(revision) => Ok(Some(revision)),
+        None => legacy.map_or(Ok(None), revision_if_exists),
+    }
 }
 
 fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryError> {

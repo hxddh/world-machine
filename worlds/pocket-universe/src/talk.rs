@@ -84,6 +84,10 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
 
 /// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
+    if let Some(said) = conversation::favour::said(world.state(), event) {
+        world.state().entity(said.0)?;
+        return Some(said);
+    }
     if let Some(said) = crate::story::line(world, event) {
         world.state().entity(said.0)?;
         return Some(said);
