@@ -678,4 +678,40 @@ mod tests {
         session.flush().unwrap();
         let _ = fs::remove_dir_all(root);
     }
+
+    /// A World saved as a new file goes on being saved there, turn after
+    /// turn, and the old file keeps what it had.
+    #[test]
+    fn turns_after_save_as_are_saved_in_the_new_file() {
+        let root = temp_root("after-save-as");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        drop(DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap());
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        session.handle(add(), &registry, &library).unwrap();
+        session.flush().unwrap();
+        let original = fs::read(library.path(&id)).unwrap();
+        let copy = root.join("copy.world");
+        session.save_as_file(copy.clone()).unwrap();
+        for _ in 0..3 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        session.flush().unwrap();
+        let last = session.handle(add(), &registry, &library).unwrap();
+        session.flush().unwrap();
+        let saved = WorldDocument::from_bytes(&fs::read(&copy).unwrap()).unwrap();
+        assert_eq!(
+            saved.archive.events,
+            session.current_archive().unwrap().events
+        );
+        assert_eq!(
+            saved.metadata.display_title.as_deref(),
+            Some(last.title.as_str())
+        );
+        assert_eq!(fs::read(library.path(&id)).unwrap(), original);
+        drop(session);
+        let _ = fs::remove_dir_all(root);
+    }
 }

@@ -34,6 +34,10 @@ impl DurableWorldSession {
         // the World goes on in the new one either way.
         let _ = self.flush();
         self.writes.start_from(revision);
+        // The new file is written whole on the next change, as after any
+        // other change of file; what was kept of the old one does not
+        // describe it.
+        self.saved = None;
         self.target = WorldDocumentTarget::File(destination);
         self.revision = revision;
         Ok(self.session.snapshot())

@@ -28,7 +28,7 @@ With World voice on, a model can word what the World says: a short account of wh
 - every name in it must be someone or something the World knows;
 - it must be plain, short speech in the player's language;
 - it must stay within a list of topics the game declines (for example harm, sexual content and talk about being an AI);
-- a second small model, the judge, may decline it; the judge can only decline, never let through an answer the checks refused.
+- a second small model, the judge, reads every answer the checks did not refuse outright. It can decline any of them, and can keep an answer the checks were only unsure about (an everyday word that also has another meaning), but never one the checks refused outright.
 
 An answer that fails any check is replaced by the game's own written line. If the model is slow or does not answer, the game uses its own line too. Each accepted or declined answer, with the judge's verdict and the model's name, is saved with the World, so replaying a World never asks a model again.
 
@@ -66,7 +66,7 @@ The model can only speak within the World's recorded facts and a closed set of m
 | On-device model | `crates/world-voice/src/fm.rs`, `apps/fm-helper` |
 | A closed set of meanings; a proposal only | `systems/conversation/src/lib.rs` (`Listener`, `Listened`) |
 | Cites, names, language and length checks; certain and doubtful declines | V's v0.26 work in `systems/conversation` |
-| The judge only declines; its verdict and model are recorded in the event | V's v0.26 work (the contract's rule 3) |
+| The judge never keeps what the checks refused outright; its verdict and model are recorded in the event | V's v0.26 work (the contract's rule 3) |
 | Replay never asks a model | AGENTS.md invariant 6; fixture replay tests in both Packs |
 | Text generated, then tested | docs/KNOWN_ISSUES.md ("Chinese is generated", "Every resident's lines and scenes were generated and are held by tests") |
 | Drawings made by code | docs/KNOWN_ISSUES.md ("The drawings are generated, not an illustrator's") |
