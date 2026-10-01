@@ -75,6 +75,8 @@ fn played_world(label: &str) -> (PathBuf, WorldRegistry, WorldLibrary, DurableWo
             .handle(ProjectionIntent::InvokeCommand(pick), &registry, &library)
             .unwrap();
     }
+    // Its file written, so what is on disk holds still from here.
+    session.flush().unwrap();
     (root, registry, library, session)
 }
 
@@ -295,6 +297,8 @@ fn an_old_world_file_still_opens_and_is_saved_anew() {
     let after = opened
         .handle(ProjectionIntent::InvokeCommand(pass), &registry, &library)
         .unwrap();
+    // Written away from the turn: waited for here.
+    opened.flush().unwrap();
     let bytes = fs::read(&old).unwrap();
     assert_eq!(bytes[..2], [0x1f, 0x8b], "gzipped");
     let saved = world_document::WorldDocument::from_bytes(&bytes).unwrap();

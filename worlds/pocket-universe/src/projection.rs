@@ -103,6 +103,7 @@ pub(crate) fn snapshot_since(
         moments: Vec::new(),
         almanac: None,
         almanac_years: crate::almanac_page::years(world),
+        favour: conversation::favour::shown(world, &crate::speech::kit(world.state())),
     };
     // The place's moments: the latest few, and every one in the book.
     let moments = crate::moments::moments(world);
@@ -300,7 +301,9 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
                     Some(Value::Text(text)) if !text.trim().is_empty() => Some(text.clone()),
                     _ => None,
                 });
-        if let Some(told) = conversation::told(event) {
+        if let Some(told) =
+            conversation::told(event).or_else(|| conversation::favour::told(world.state(), event))
+        {
             return world_projection::Telling::Routine(Some(told));
         }
         if event.kind == "festival_nears" {
@@ -345,7 +348,7 @@ pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
         !matches!(
             event.kind.as_str(),
             narrator::NARRATED | "keepsake_left" | "letter_written" | "reacted"
-        )
+        ) && !conversation::favour::is_favour(event)
     }) {
         if let Some((_, count)) = groups
             .iter_mut()

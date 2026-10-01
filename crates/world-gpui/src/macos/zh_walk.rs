@@ -258,6 +258,14 @@ fn a_chinese_world() -> (ProjectionSnapshot, Vec<String>) {
         deed("hands.invite.out.1", "Invite", "邀请", someone, None),
     ];
     snapshot.almanac_years = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    // A favour asked, as its note in the drawer.
+    snapshot.favour = Some(world_projection::Favour {
+        asker: someone,
+        whom: someone,
+        note: "港口的话：请你去看看她。".into(),
+        hint: "去和她聊几句吧。".into(),
+        done: false,
+    });
     (snapshot, names)
 }
 

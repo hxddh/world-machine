@@ -16,6 +16,10 @@ World Machine is not yet notarized by Apple, so the first launch adds one step, 
 
 On macOS 14 you can instead Control-click the app and choose **Open**. The `Read Me First.txt` next to the app in the download repeats these steps. Releases whose notes say "notarized by Apple" skip this section entirely.
 
+## The free demo
+
+**World Machine Demo** is the first hour of Tiny Society, published beside each release as `World-Machine-Demo-….dmg` and installed the same way. When its last day comes, it says so and keeps your harbour. It lives in the same place as the full app's Worlds, so installing World Machine later opens that harbour and carries on from there. The two apps can be installed side by side.
+
 ## Updating
 
 Download the new release and drag it onto Applications again, replacing the old copy. Your Worlds are kept: they live in `~/Library/Application Support/World Machine`, not inside the app. **Help → Check for Updates…** opens the Releases page.

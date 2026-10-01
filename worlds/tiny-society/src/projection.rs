@@ -108,6 +108,7 @@ pub(crate) fn snapshot_since(
         moments: Vec::new(),
         almanac: None,
         almanac_years: crate::almanac_page::years(world),
+        favour: conversation::favour::shown(world, &crate::speech::kit(world.state())),
     };
     // Whoever asked what was just answered goes over to what it made.
     world_projection::go_to_what_was_answered(world, &mut snapshot.canvas.items, |event| {
@@ -766,7 +767,9 @@ fn exchanges(world: &World, on_offer: &[String]) -> Vec<world_projection::Exchan
 }
 
 fn telling(world: &World, event: &Event) -> Telling {
-    if let Some(told) = conversation::told(event) {
+    if let Some(told) =
+        conversation::told(event).or_else(|| conversation::favour::told(world.state(), event))
+    {
         return Telling::Routine(Some(told));
     }
     if event.kind == "festival_nears" {

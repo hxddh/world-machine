@@ -1,13 +1,12 @@
 //! A change made to a durable World on the session that holds it: marked
-//! first, saved, and kept, or gone back from if it cannot be saved, so a
-//! change costs what it does and what it adds to the file, not the World
-//! opened again.
+//! first, handed to the World's writer, and kept, or gone back from if it
+//! fails, so a change costs what it does, not the World opened again nor its
+//! file written (see `writer`).
 
-use world_document::{DeflatedHistory, WorldDocument};
 use world_host::{HostError, WorldSession};
 use world_persistence::{
-    ArchiveHead, ArchivedEvent, ArchivedScheduledAction, CheckpointFit, CompactHistory,
-    WorldArchive, WorldPackRef,
+    ArchivedEvent, ArchivedScheduledAction, CheckpointFit, CompactHistory, WorldArchive,
+    WorldPackRef,
 };
 use world_projection::ProjectionSnapshot;
 
@@ -17,16 +16,14 @@ use crate::{
 };
 
 /// What the World file holds, kept so a change writes out only what the
-/// World recorded since it was last saved.
+/// World recorded since it was last saved. The history itself is kept by
+/// the World's writer (see [`crate::writer::Composer`]).
 #[derive(Debug)]
 pub(crate) struct Saved {
-    /// Every event saved, as the file writes them.
-    history: CompactHistory,
-    /// The same, deflated as the file packs them, piece by piece.
-    deflated: DeflatedHistory,
-    /// The history as it was when it was first kept, being deflated whole
-    /// away from the World being shown.
-    deflating: Option<std::thread::JoinHandle<Option<DeflatedHistory>>>,
+    /// How many events are saved.
+    count: usize,
+    /// The last event saved: its id and time.
+    last: Option<(u64, u64)>,
     /// The events saved after the file's checkpoint, which the checkpoint
     /// sums up as their season passes.
     season: Vec<ArchivedEvent>,
@@ -43,8 +40,11 @@ impl Saved {
     /// What a file holding `archive` keeps, its events written as `history`,
     /// when its checkpoint (if any) sums up the first of those events: the
     /// checkpoint is then carried on from season to season as the file's
-    /// own is.
-    pub(crate) fn kept(archive: &WorldArchive, history: CompactHistory) -> Option<Self> {
+    /// own is. The history goes to the World's writer.
+    pub(crate) fn kept(
+        archive: &WorldArchive,
+        history: CompactHistory,
+    ) -> Option<(Self, crate::writer::Composer)> {
         if history.len() != archive.events.len() {
             return None;
         }
@@ -55,21 +55,16 @@ impl Saved {
             }
             Some(_) => return None,
         };
-        let text = history.written_text().to_vec();
-        let deflating = std::thread::Builder::new()
-            .name("world-machine-deflate".into())
-            .spawn(move || DeflatedHistory::of(&text).ok())
-            .ok();
-        Some(Self {
-            history,
-            deflated: DeflatedHistory::default(),
-            deflating,
+        let saved = Self {
+            count: history.len(),
+            last: history.last_event(),
             season: archive.events[settled..].to_vec(),
             pack: archive.pack.clone(),
             world_time: archive.world_time,
             pending: archive.pending.clone(),
             drawn: Vec::new(),
-        })
+        };
+        Some((saved, crate::writer::Composer::new(history)))
     }
 
     /// Checks that `tail` carries on from what is saved.
@@ -87,7 +82,7 @@ impl Saved {
                 self.world_time, tail.world_time
             ));
         }
-        let mut last = self.history.last_event();
+        let mut last = self.last;
         for event in &tail.events {
             if let Some((id, time)) = last {
                 if event.id <= id || event.world_time < time {
@@ -128,9 +123,11 @@ pub(crate) enum Changed {
 
 impl DurableWorldSession {
     /// Makes `act` on the live session, after marking where it stands, and
-    /// saves what it recorded: the file is written before the change is
-    /// kept, and a change that fails, or cannot be saved, is gone back from,
-    /// leaving the World as it was. With `skip_unchanged`, a change that
+    /// saves what it recorded: it is handed to the World's writer as the
+    /// change is kept, and a change that fails is gone back from, leaving
+    /// the World as it was. The file is made and written away from the
+    /// turn; a write that fails is tried again before the next change,
+    /// which is refused if it fails again. With `skip_unchanged`, a change that
     /// records nothing is gone back from and not saved.
     pub(crate) fn change(
         &mut self,
@@ -146,10 +143,11 @@ impl DurableWorldSession {
             let mut archive = required_archive(self.session.as_ref())?;
             archive.checkpoint = self.checkpoint.clone();
             let history = CompactHistory::of(&archive.events);
-            self.saved = Saved::kept(&archive, history);
-            if self.saved.is_none() {
+            let Some((saved, composer)) = Saved::kept(&archive, history) else {
                 return Ok(Changed::CannotGoBack);
-            }
+            };
+            self.writes.start(composer);
+            self.saved = Some(saved);
         }
         let own_title_before = self.own_title();
         let snapshot = match act(self.session.as_mut()) {
@@ -176,8 +174,8 @@ impl DurableWorldSession {
         }
     }
 
-    /// Writes the World file with what the session recorded since it was
-    /// last saved, and takes on what was written; `false` when it recorded
+    /// Hands the World's writer what the session recorded since it was
+    /// last saved, and takes on what the file will hold; `false` when it recorded
     /// nothing and `skip_unchanged` asks for nothing to be written then.
     fn save_change(
         &mut self,
@@ -189,7 +187,7 @@ impl DurableWorldSession {
         let saved = self.saved.as_ref().expect("saved before any change");
         let tail = self
             .session
-            .archive_since(saved.history.len())?
+            .archive_since(saved.count)?
             .ok_or_else(|| LibraryError::ArchiveUnsupported(self.session.pack().id))?;
         saved.followed_by(&tail)?;
         if skip_unchanged
@@ -240,53 +238,34 @@ impl DurableWorldSession {
             }
         };
 
+        // Handed to the World's writer, which adds the events to the file's
+        // history and writes it away from the turn, in order.
+        let (path, legacy) = self.target.paths(library);
         let saved = self.saved.as_mut().expect("saved before any change");
-        if let Some(deflating) = saved.deflating.take() {
-            if let Ok(Some(deflated)) = deflating.join() {
-                saved.deflated = deflated;
-            }
+        saved.count += tail.events.len();
+        if let Some(event) = tail.events.last() {
+            saved.last = Some((event.id, event.world_time));
         }
-        let mark = saved.history.mark();
-        let text_before = saved.history.written_text().len();
-        saved.history.push(&tail.events);
-        let written = WorldDocument::file_from_deflated_history(
-            &metadata,
-            ArchiveHead {
-                pack: &tail.pack,
-                world_time: tail.world_time,
-                pending: &tail.pending,
-            },
-            &saved.history,
-            &mut saved.deflated,
-            checkpoint.as_ref(),
-        )
-        .map_err(LibraryError::from)
-        .and_then(|bytes| {
-            self.target.verify_revision(self.revision, library)?;
-            self.target.persist_bytes(&bytes, library)
-        });
-        let revision = match written {
-            Ok(revision) => revision,
-            Err(error) => {
-                saved.history.rewind(mark);
-                saved.deflated.go_back_to(text_before);
-                if new_drawings.is_none() {
-                    self.metadata.display_drawings = metadata.display_drawings;
-                }
-                return Err(error);
-            }
-        };
         if let Some(drawn) = new_drawings {
             saved.drawn = drawn;
         }
-
         season.drain(..settled);
         saved.season = season;
         saved.world_time = tail.world_time;
-        saved.pending = tail.pending;
+        saved.pending = tail.pending.clone();
+        let head = crate::writer::Head {
+            path,
+            legacy,
+            metadata: metadata.clone(),
+            pack: tail.pack,
+            world_time: tail.world_time,
+            pending: tail.pending,
+            checkpoint: checkpoint.clone(),
+        };
+        let on_disk = self.revision;
+        self.writes.queue(tail.events, head, on_disk);
         self.checkpoint = checkpoint;
         self.metadata = metadata;
-        self.revision = revision;
         Ok(true)
     }
 }
@@ -294,7 +273,7 @@ impl DurableWorldSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DurableWorldSession, WorldDocumentId, WRITES_FAIL};
+    use crate::{DurableWorldSession, WorldDocumentId};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -302,6 +281,7 @@ mod tests {
         Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, EventDraft,
         StateChange, Value, World, WorldState,
     };
+    use world_document::WorldDocument;
     use world_host::{SessionCheckpoint, WorldDescriptor, WorldRegistration, WorldRegistry};
     use world_projection::ProjectionIntent;
 
@@ -521,6 +501,7 @@ mod tests {
                     )
                     .unwrap()
             };
+            session.flush().unwrap();
             let file = library.load_document(&id).unwrap().unwrap();
             let live = session.current_archive().unwrap();
             assert_eq!(snapshot.world_time, live.world_time);
@@ -542,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_that_cannot_be_saved_leaves_the_world_as_it_was() {
+    fn a_change_whose_file_cannot_be_written_is_kept_and_written_when_it_can() {
         let root = temp_root("unsaved");
         let library = WorldLibrary::new(root.clone());
         let (registry, _) = registry();
@@ -551,38 +532,150 @@ mod tests {
         let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
         let add = || ProjectionIntent::InvokeCommand("add".into());
         session.handle(add(), &registry, &library).unwrap();
+        session.flush().unwrap();
         let file_before = fs::read(library.path(&id)).unwrap();
+
+        // The file cannot be written, as with a full disk, for any user:
+        // the turn is kept, and its write waits to be tried again.
+        session.writes.fail(true);
+        let kept = session.handle(add(), &registry, &library).unwrap();
+        assert_eq!(kept.title, "Counter 2");
+        assert!(matches!(session.flush(), Err(LibraryError::Io(_))));
+        assert_eq!(fs::read(library.path(&id)).unwrap(), file_before);
         let archive_before = session.current_archive().unwrap();
         let snapshot_before = session.snapshot();
 
-        // The file cannot be written, as with a full disk, for any user.
-        WRITES_FAIL.set(true);
-        let failed = session.handle(add(), &registry, &library);
-        let failed_background = session.advance_background(3, &registry, &library);
-        WRITES_FAIL.set(false);
-        assert!(matches!(failed, Err(LibraryError::Io(_))));
-        assert!(matches!(failed_background, Err(LibraryError::Io(_))));
+        // Nothing more is played while it cannot be written.
+        let refused = session.handle(add(), &registry, &library);
+        let refused_background = session.advance_background(3, &registry, &library);
+        assert!(matches!(refused, Err(LibraryError::Io(_))));
+        assert!(matches!(refused_background, Err(LibraryError::Io(_))));
         assert_eq!(session.current_archive().unwrap(), archive_before);
         assert_eq!(session.snapshot(), snapshot_before);
         assert_eq!(fs::read(library.path(&id)).unwrap(), file_before);
 
-        // A change that fails half-way is gone back from too.
+        // With the disk back, the next turn writes both.
+        session.writes.fail(false);
+        let next = session.handle(add(), &registry, &library).unwrap();
+        assert_eq!(next.title, "Counter 3");
+        session.flush().unwrap();
+        let file = library.load_document(&id).unwrap().unwrap();
+        let mut expected = session.current_archive().unwrap();
+        expected.checkpoint = file.archive.checkpoint.clone();
+        assert_eq!(file.archive, expected);
+
+        // A change that fails half-way is gone back from, and not saved.
+        let file_before = fs::read(library.path(&id)).unwrap();
+        let archive_before = session.current_archive().unwrap();
         let half = session.handle(
             ProjectionIntent::InvokeCommand("half".into()),
             &registry,
             &library,
         );
         assert!(half.is_err());
+        session.flush().unwrap();
         assert_eq!(session.current_archive().unwrap(), archive_before);
         assert_eq!(fs::read(library.path(&id)).unwrap(), file_before);
+        let _ = fs::remove_dir_all(root);
+    }
 
-        // And the World carries on from where it was.
-        let next = session.handle(add(), &registry, &library).unwrap();
-        assert_eq!(next.title, "Counter 2");
+    /// Turns come faster than their files are written: each is written in
+    /// order, the latest last, the file always whole with the save before it
+    /// kept beside it, and everything written by the time the World is let
+    /// go of.
+    #[test]
+    fn quick_turns_are_written_in_order_and_all_by_the_time_the_world_is_closed() {
+        let root = temp_root("quick");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        drop(DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap());
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        for step in 1..=60_i64 {
+            let snapshot = session
+                .handle(
+                    ProjectionIntent::InvokeCommand("add".into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+            assert_eq!(snapshot.title, format!("Counter {step}"));
+            // Whatever moment they are read at, the backup and then the
+            // file are whole Worlds, in order, no further on than the one
+            // open.
+            let backup = crate::backup_path(&library.path(&id));
+            let kept = fs::read(&backup)
+                .ok()
+                .map(|bytes| WorldDocument::from_bytes(&bytes).unwrap());
+            let file = library.load_document(&id).unwrap().unwrap();
+            assert!(file.archive.events.len() <= step as usize);
+            if let Some(kept) = kept {
+                assert!(kept.archive.events.len() <= file.archive.events.len());
+            }
+        }
+        let live = session.current_archive().unwrap();
+        drop(session);
         let file = library.load_document(&id).unwrap().unwrap();
-        let mut expected = session.current_archive().unwrap();
-        expected.checkpoint = file.archive.checkpoint.clone();
-        assert_eq!(file.archive, expected);
+        assert_eq!(file.archive.events, live.events);
+        assert_eq!(file.metadata.display_title.as_deref(), Some("Counter 60"));
+        let reopened = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        assert_eq!(reopened.snapshot().title, "Counter 60");
+        drop(reopened);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Someone else writes the file while a World is open: the next change
+    /// is refused rather than written over it, whether the World's writer
+    /// was resting or had a write waiting, and nothing it wrote is lost.
+    #[test]
+    fn a_file_someone_else_wrote_is_never_written_over() {
+        let root = temp_root("theirs");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        drop(DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap());
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        session.handle(add(), &registry, &library).unwrap();
+        session.flush().unwrap();
+        let theirs = b"someone else's file".to_vec();
+        fs::write(library.path(&id), &theirs).unwrap();
+        assert!(matches!(
+            session.handle(add(), &registry, &library),
+            Err(LibraryError::DocumentChanged(_))
+        ));
+        assert_eq!(fs::read(library.path(&id)).unwrap(), theirs);
+
+        drop(session);
+
+        // A write waiting (here, one that failed) when it happens is
+        // refused by the writer, and the change after it hears.
+        let second = WorldDocumentId::new("second").unwrap();
+        drop(DurableWorldSession::create(second.clone(), PACK, &registry, &library).unwrap());
+        let mut session = DurableWorldSession::open(second.clone(), &registry, &library).unwrap();
+        session.writes.fail(true);
+        session.handle(add(), &registry, &library).unwrap();
+        assert!(matches!(session.flush(), Err(LibraryError::Io(_))));
+        let theirs = fs::read(library.path(&second)).unwrap();
+        let mut changed = theirs.clone();
+        changed.extend_from_slice(b" ");
+        fs::write(library.path(&second), &changed).unwrap();
+        session.writes.fail(false);
+        assert!(matches!(
+            session.handle(add(), &registry, &library),
+            Err(LibraryError::DocumentChanged(_))
+        ));
+        assert!(matches!(
+            session.flush(),
+            Err(LibraryError::DocumentChanged(_))
+        ));
+        assert_eq!(fs::read(library.path(&second)).unwrap(), changed);
+        // Read again from its file, the World carries on from there.
+        drop(session);
+        fs::write(library.path(&second), &theirs).unwrap();
+        let mut session = DurableWorldSession::open(second.clone(), &registry, &library).unwrap();
+        session.handle(add(), &registry, &library).unwrap();
+        session.flush().unwrap();
         let _ = fs::remove_dir_all(root);
     }
 }

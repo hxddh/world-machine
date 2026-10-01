@@ -433,6 +433,30 @@ The second stage, "crafted and trusted".
 
 Next is v0.26: a layered World voice measured on a fresh blind set, then going out.
 
+## What v0.26.0 did
+
+The third stage, "the voice done right, and out into the world". The decisions in the next section were not made yet, so the judge offers both a cloud model and this Mac's own model, and notarization, the widget and Quick Look still wait.
+
+| Bar | v0.26.0 |
+|---|---|
+| On a fourth blind set, at least 95% declined, per language | not met: 91.9% en, 91.1% zh, 91.8% ja (strict rules alone: 66.9%, 67.7%, 32.7%) |
+| At most 1% wrongly declined, per language | 0.8% en, 0.0% zh, 0.8% ja |
+| Every verdict recorded, replay never asks | yes: the judge and its verdict are in the Says event |
+| Talk with a goal | favours in both Packs and every place; five players each get one by day 4 |
+| A free demo of the first hour | day 21 of Tiny Society (a slow player's hour ends on day 10, a fast one's on 18); built beside the full app |
+| Japanese | every catalog; zero English in the window; hearing in Japanese |
+| A turn with its save under 35 ms | 31 ms median on a busy machine (was 61) |
+| Store page and trailer | en / zh / ja text and a trailer script in docs/press |
+
+The judge's verdicts were given by Claude Haiku 4.5 reading the exact judge prompt, 25 lines to a batch with opaque ids, through an agent rather than the app's own request; no key was available. Nothing was tuned after the set was opened.
+
+![A favour, noted in the drawer](review/v26-favour.png)
+![Night, with the drawer as paper under a lamp](review/v26-night.png)
+![Day 1, with washing, a handcart and boats](review/v26-day1.png)
+![Where the demo ends](review/v26-demo-end.png)
+
+Next: a fresh review. The judge's recall, the decisions below and a Mac to test on decide what v0.27 is.
+
 ## Decisions only you can make
 
 1. **Apple Developer Program** ($99 a year). It unlocks notarization, the widget, Quick Look, iCloud and any store. Everything in v0.26's second part waits on it.

@@ -300,9 +300,10 @@ impl Text {
     }
 }
 
-/// Whether a phrase is written in Chinese characters rather than words.
+/// Whether a phrase is written in Chinese characters (or kana) rather than
+/// spaced words.
 pub(super) fn is_han_phrase(phrase: &str) -> bool {
-    phrase.chars().any(is_han)
+    phrase.chars().any(|c| is_han(c) || is_kana(c))
 }
 
 #[cfg(test)]

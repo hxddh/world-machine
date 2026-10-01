@@ -154,6 +154,7 @@ jobs:
           cargo test --locked -p pocket-universe-pack
           cargo test --locked -p tiny-society-pack
           cargo test --locked -p world-machine-desktop
+          cargo test --locked -p world-machine-desktop --features demo
 
       - name: Install universal build targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -244,12 +245,59 @@ jobs:
           fi
           python3 scripts/validate_release_package.py "${args[@]}" target/release-package
 
+      # The free demo (the `demo` feature, apps/world-machine-desktop/src/demo.rs):
+      # the first hour of Tiny Society. Built after the full package, from
+      # the same commit, with the same signing and notarization, and
+      # published beside it.
+      - name: Build and validate universal World Machine Demo.app
+        env:
+          WORLD_MACHINE_UNIVERSAL: "1"
+          WORLD_MACHINE_DEMO: "1"
+        run: bash apps/world-machine-desktop/macos/build-app.sh
+
+      - name: Package the demo
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          WORLD_MACHINE_DEMO: "1"
+        run: |
+          if [[ -n "$RELEASE_TAG" ]]; then
+              export WORLD_MACHINE_RELEASE_TAG="$RELEASE_TAG"
+          fi
+          bash apps/world-machine-desktop/macos/package-release.sh
+
+      - name: Validate the demo and put it beside the full package
+        env:
+          PUBLISH: ${{ steps.release.outputs.publish }}
+          REQUIRE_SIGNED: ${{ steps.policy.outputs.require_signed }}
+        run: |
+          args=()
+          if [[ "$PUBLISH" == "true" ]]; then
+              args+=(--publishing)
+          fi
+          if [[ "$REQUIRE_SIGNED" == "true" ]]; then
+              args+=(--require-signed)
+          fi
+          python3 scripts/validate_release_package.py ${args[@]+"${args[@]}"} target/release-package-demo
+          python3 - target/release-package/release-manifest.json target/release-package-demo/release-manifest.json <<'PY'
+          import json
+          import sys
+
+          full, demo = (json.load(open(path)) for path in sys.argv[1:])
+          assert demo.get("edition") == "demo", demo
+          for field in ("tag", "commit", "app_version", "signing", "notarized", "architectures"):
+              assert full[field] == demo[field], (field, full[field], demo[field])
+          assert demo["included_packs"] == ["tiny-society.worldpack"], demo["included_packs"]
+          PY
+          cp target/release-package-demo/World-Machine-Demo-* target/release-package/
+          cp target/release-package-demo/release-manifest.json target/release-package/release-manifest-demo.json
+
       - name: Render release notes
         if: steps.release.outputs.publish == 'true'
         run: |
           mkdir -p target/release-notes
           python3 scripts/render_release_notes.py \
             target/release-package/release-manifest.json \
+            --demo-manifest target/release-package/release-manifest-demo.json \
             --repository "$GITHUB_REPOSITORY" \
             > target/release-notes/RELEASE_NOTES.md
 
@@ -318,4 +366,5 @@ jobs:
             target/release-package/*.dmg.sha256 \
             target/release-package/*.zip \
             target/release-package/*.zip.sha256 \
-            target/release-package/release-manifest.json
+            target/release-package/release-manifest.json \
+            target/release-package/release-manifest-demo.json

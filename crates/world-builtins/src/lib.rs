@@ -10,12 +10,28 @@ pub const ZH_HANS: [&str; 3] = [
     include_str!("../../../worlds/pocket-universe/locales/zh-Hans.tsv"),
 ];
 
+/// The Japanese the built-in Worlds are shown in, the same way.
+pub const JA: [&str; 3] = [
+    include_str!("../locales/systems.ja.tsv"),
+    tiny_society::JA,
+    include_str!("../../../worlds/pocket-universe/locales/ja.tsv"),
+];
+
 /// Every line the core residents of Tiny Society and Pocket Universe can
 /// say of their own, in Simplified Chinese: their templates filled in
 /// every way, each word translated. Worked out from `ZH_HANS`, to install
 /// beside it.
 pub fn zh_hans_voices() -> String {
-    let catalog = ZH_HANS
+    voices(&ZH_HANS)
+}
+
+/// The same lines in Japanese, worked out from `JA`.
+pub fn ja_voices() -> String {
+    voices(&JA)
+}
+
+fn voices(catalogs: &[&str]) -> String {
+    let catalog = catalogs
         .iter()
         .fold(world_i18n::Catalog::default(), |mut all, text| {
             all.extend(text);
@@ -119,16 +135,22 @@ mod tests {
     /// is only names.
     #[test]
     fn a_year_of_tiny_society_is_shown_in_chinese() {
-        for catalog in ZH_HANS {
-            world_i18n::install(catalog);
-        }
-        let mut catalog = ZH_HANS
+        a_year_of_tiny_society_is_shown_in(&ZH_HANS, zh_hans_voices(), "Chinese");
+    }
+
+    /// The same sixteen months in Japanese.
+    #[test]
+    fn a_year_of_tiny_society_is_shown_in_japanese() {
+        a_year_of_tiny_society_is_shown_in(&JA, ja_voices(), "Japanese");
+    }
+
+    fn a_year_of_tiny_society_is_shown_in(catalogs: &[&str], voices: String, language: &str) {
+        let mut catalog = catalogs
             .iter()
             .fold(world_i18n::Catalog::default(), |mut all, text| {
                 all.extend(text);
                 all
             });
-        let voices = zh_hans_voices();
         assert!(voices.lines().count() >= 900, "{}", voices.lines().count());
         catalog.extend(&voices);
         let registry = registry().unwrap();
@@ -209,7 +231,7 @@ mod tests {
         }
         let share = 1.0 - left.len() as f64 / shown.len() as f64;
         eprintln!(
-            "{} of {} shown texts fully in Chinese ({:.1}%)",
+            "{} of {} shown texts fully in {language} ({:.1}%)",
             shown.len() - left.len(),
             shown.len(),
             share * 100.0
@@ -217,7 +239,7 @@ mod tests {
         for (text, translated) in left.iter().take(40) {
             eprintln!("  {text}  =>  {translated}");
         }
-        assert!(share >= 0.995, "only {:.1}% in Chinese", share * 100.0);
+        assert!(share >= 0.995, "only {:.1}% in {language}", share * 100.0);
     }
 
     /// Every person's name, which stays in Latin letters in Chinese.

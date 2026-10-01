@@ -14,13 +14,15 @@ use world_theme::tokens;
 use crate::scene;
 
 mod drawer;
+#[cfg(test)]
+mod ja_walk;
 mod marking;
 mod stories;
 mod world_window;
 #[cfg(test)]
 mod zh_walk;
 #[cfg(test)]
-pub(crate) use stories::{moment_strip, strip_layout};
+pub(crate) use stories::{moment_strip, panel_scenes, strip_layout};
 #[cfg(test)]
 pub(crate) use world_window::{pointer_hint, postcard_paper, zoom_button, Caret};
 pub use world_window::{scene_share, speech_pages, words_at_rest, RESTING_WORD_LIMIT};

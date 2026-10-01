@@ -13,7 +13,7 @@ use gpui::{
 };
 use world_gpui::ui;
 use world_machine_desktop::ambience;
-use world_machine_desktop::app_settings::{self, VoiceSource};
+use world_machine_desktop::app_settings::{self, JudgeChoice, VoiceSource};
 use world_machine_desktop::key_store;
 use world_theme::tokens;
 
@@ -44,7 +44,7 @@ struct SettingsView {
     sound_on: bool,
     /// The level of each sound, in `ambience::Channel::ALL` order.
     levels: [u8; 4],
-    /// The language chosen ("en", "zh-Hans"), or `None` to follow the Mac.
+    /// The language chosen ("en", "zh-Hans", "ja"), or `None` to follow the Mac.
     language: Option<String>,
     /// How large text is drawn, in percent.
     text_scale: u32,
@@ -58,6 +58,8 @@ struct SettingsView {
     /// Whether this Mac's own model (`/usr/bin/fm`) answers; `None` while
     /// that is still being found out, off this window's thread.
     on_device: Option<::world_voice::FmStatus>,
+    /// Who gives each voice answer a second opinion.
+    judge: JudgeChoice,
     status: Option<SharedString>,
 }
 
@@ -94,6 +96,7 @@ impl SettingsView {
             voice_model: None,
             model_input,
             on_device: ::world_voice::fm::status_if_known().cloned(),
+            judge: JudgeChoice::Off,
             status: None,
         };
         view.reload();
@@ -116,7 +119,11 @@ impl SettingsView {
                 self.text_scale = settings.text_scale.unwrap_or(100);
                 self.contrast = settings.increase_contrast;
                 self.source = settings.world_voice_source.unwrap_or_default();
-                self.program = settings.pi_program.map(|path| path.display().to_string());
+                self.program = settings
+                    .pi_program
+                    .as_ref()
+                    .map(|path| path.display().to_string());
+                self.judge = settings.judge_choice(self.key_stored);
                 self.voice_model = settings.voice_model;
             }
             None => {
@@ -129,6 +136,11 @@ impl SettingsView {
                 self.source = VoiceSource::Program;
                 self.program = None;
                 self.voice_model = None;
+                self.judge = if self.key_stored {
+                    JudgeChoice::Cloud
+                } else {
+                    JudgeChoice::Off
+                };
             }
         }
     }
@@ -235,6 +247,17 @@ impl SettingsView {
                     app_settings::application_support_root().map_err(|error| error.to_string())?;
                 app_settings::save_world_voice_source(&root, source)
                     .map_err(|error| error.to_string())
+            },
+            cx,
+        );
+    }
+
+    fn set_judge(&mut self, judge: JudgeChoice, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_voice_judge(&root, judge).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -643,6 +666,62 @@ impl Render for SettingsView {
                 ));
             }
             page = page.child(sources);
+
+            // A second opinion on each answer, before it is said.
+            let judge = self.judge;
+            let cloud_fact = if self.key_stored {
+                format!(
+                    "{} reads each answer with your key",
+                    ::world_voice::judge_model()
+                )
+            } else {
+                "Needs an API key, saved above".to_string()
+            };
+            let mut judges = div()
+                .flex()
+                .gap_3()
+                .child(
+                    source_tile(
+                        "world-voice-judge-off",
+                        "–",
+                        "No second opinion",
+                        "The World's own checks decide, strictly".to_string(),
+                        judge == JudgeChoice::Off,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.set_judge(JudgeChoice::Off, cx))),
+                )
+                .child(
+                    source_tile(
+                        "world-voice-judge-cloud",
+                        "↗",
+                        "The key's small model",
+                        cloud_fact,
+                        judge == JudgeChoice::Cloud,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.set_judge(JudgeChoice::Cloud, cx))),
+                );
+            if self.offers_on_device() {
+                judges = judges.child(
+                    source_tile(
+                        "world-voice-judge-on-device",
+                        "◎",
+                        "This Mac's own model",
+                        "Stays on this Mac · free".to_string(),
+                        judge == JudgeChoice::OnDevice,
+                    )
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.set_judge(JudgeChoice::OnDevice, cx)),
+                    ),
+                );
+            }
+            page = page.child(
+                group()
+                    .child(ui::section_label("A second opinion"))
+                    .child(judges)
+                    .child(ui::caption(
+                        "Before anyone says a model's answer, a second model checks that it keeps to the World. It can only turn an answer down; the World then answers in its own words, and the record keeps its verdict.",
+                    )),
+            );
         }
 
         let (state, sentence) = self.state();
@@ -802,6 +881,7 @@ impl SettingsView {
             (None, ui::t("Follow the Mac").to_string()),
             (Some("en"), "English".to_string()),
             (Some("zh-Hans"), "简体中文".to_string()),
+            (Some("ja"), "日本語".to_string()),
         ]
         .into_iter()
         .enumerate()

@@ -16,6 +16,7 @@ use crate::age::{self, Age};
 use crate::art::{self, Figure, Inks, Palette, Pose};
 use crate::brush::{Brush, Shape};
 use crate::diorama;
+use crate::mark::{self, Motif, Picture, Wear};
 use crate::painter::{self, Canvas};
 use crate::scene::Daylight;
 use gpui::Hsla;
@@ -127,6 +128,9 @@ pub struct Setting {
     pub drawing: Option<Drawing>,
     pub shape: MarkShape,
     pub palette: Palette,
+    /// The player's design it wears, and how: a shop's sign, a home's
+    /// quilt, a boat's sail or a flag, drawn on it as the scene draws it.
+    pub wears: Option<(Wear, std::sync::Arc<Motif>)>,
 }
 
 /// Everything one panel shows.
@@ -183,6 +187,9 @@ pub fn panel_scene(
         drawing: snapshot.drawing_of(item).cloned(),
         shape: item.shape.unwrap_or_default(),
         palette: Palette::of(&item.id.stable_key(), false),
+        wears: mark::wear_of(item)
+            .zip(mark::pattern_of(item))
+            .map(|(wear, motif)| (wear, std::sync::Arc::new(motif))),
     });
     let (stance, feeling) = occasion.pose(beat);
     let mood = mood.unwrap_or(feeling);
@@ -613,7 +620,7 @@ fn paint_place(canvas: &mut Canvas, scene: &PanelScene, layout: &PanelLayout) {
     let x = layout.place_x;
     let base = layout.base;
     let contact = gpui::black().opacity(0.22);
-    match &place.drawing {
+    let w = match &place.drawing {
         Some(drawing) => {
             let h = h.min(layout.building_h * 1.3 / drawing.aspect.max(0.4));
             let w = h * drawing.aspect;
@@ -632,11 +639,104 @@ fn paint_place(canvas: &mut Canvas, scene: &PanelScene, layout: &PanelLayout) {
                 0.0,
                 1.0,
             );
+            w
         }
         None => {
             let w = h * 1.1;
             canvas.soft(x, base, w * 0.6, h * 0.05, h * 0.07, contact);
             art::paint_building(canvas, x, base, w, h, place.shape, &place.palette);
+            w
+        }
+    };
+    if let Some((wear, motif)) = &place.wears {
+        paint_worn(
+            canvas,
+            place,
+            *wear,
+            motif,
+            (x, base, w, h),
+            lit,
+            scene.seed,
+        );
+    }
+}
+
+/// The player's design on the place a panel is set at, as the scene
+/// wears it: a shop's sign hanging from its bracket, a home's quilt on the
+/// line beside it (or in its lit window after dark), a flag or a sail
+/// flying from a pole. Painted in plain light: the panel's own light falls
+/// on it with the rest.
+fn paint_worn(
+    canvas: &mut Canvas,
+    place: &Setting,
+    wear: Wear,
+    motif: &Motif,
+    (x, base, w, h): (f32, f32, f32, f32),
+    lit: bool,
+    seed: u32,
+) {
+    let scale = canvas.scale;
+    // A home's first window, where a quilt is seen at night.
+    let pane = if place.shape == MarkShape::House && place.drawing.is_none() {
+        art::first_window(x, base, w, h, &place.palette)
+    } else {
+        (x - w * 0.3, base - h * 0.45, w * 0.16, h * 0.16)
+    };
+    let (cw, ch) = match wear {
+        Wear::Quilt if lit => (pane.2 * 0.8, pane.2 * 0.8 / Wear::Quilt.aspect()),
+        Wear::Flag | Wear::Sail => mark::cloth_size(wear, w * 0.62),
+        _ => mark::cloth_size(wear, w),
+    };
+    let size = mark::picture_size(cw, ch, scale);
+    let (light, grade) = if lit && wear == Wear::Quilt {
+        ([1.0, 0.84, 0.6], ((0xffffff, 0.0), (0x000000, 0.0)))
+    } else {
+        ([1.0; 3], ((0xffffff, 0.0), (0x000000, 0.0)))
+    };
+    let Some(cloth) = mark::paint_cloth(motif, wear, size, light, grade, false) else {
+        return;
+    };
+    let picture = Picture(painter::image_of(cloth));
+    // The same breeze in every panel of a moment: still enough to read.
+    let t = (seed % 97) as f32 * 0.37;
+    let breeze = 0.6;
+    match wear {
+        Wear::Sign => {
+            mark::paint_sign(
+                canvas,
+                &picture,
+                x + w * 0.4,
+                base - h * 0.64,
+                cw,
+                ch,
+                1.0,
+                0.0,
+            );
+        }
+        Wear::Quilt if lit => mark::paint_quilt_window(canvas, &picture, pane, art::hex(0xffd27a)),
+        Wear::Quilt => {
+            let span = cw * 1.7;
+            let ground = base + h * 0.02;
+            mark::paint_quilt_line(
+                canvas,
+                &picture,
+                x + w * 0.5 + span * 0.55,
+                ground - ch * 1.5,
+                ground,
+                cw,
+                ch,
+                t,
+                breeze,
+            );
+        }
+        Wear::Flag | Wear::Sail => {
+            let pole_x = x + w * 0.3;
+            let pole = w * 0.62 * 1.08;
+            let top = base - pole;
+            canvas.rect(pole_x - 1.1, top, 2.2, pole, 1.0, art::hex(0x5b5048));
+            canvas.rect(pole_x - 1.1, top, 0.8, pole, 0.4, art::hex(0x8a7d70));
+            art::circle(canvas, pole_x, top - 1.3, 2.2, art::hex(0xc9a24a));
+            mark::paint_flag(canvas, &picture, pole_x, top + 2.0, cw, ch, t, breeze);
         }
     }
 }
@@ -1713,6 +1813,7 @@ pub(crate) mod sketches {
                 drawing: None,
                 shape: MarkShape::House,
                 palette: Palette::of("quay", false),
+                wears: None,
             }),
             cast: vec![
                 person("ivo", Age::Adult, 0x3f6fb0),
@@ -1870,6 +1971,7 @@ pub(crate) mod sketches {
                         drawing: None,
                         shape: MarkShape::House,
                         palette: Palette::of("chapel", false),
+                        wears: None,
                     }),
                     cast,
                     pram: (occasion == Occasion::Birth && beat == Beat::After).then(|| {

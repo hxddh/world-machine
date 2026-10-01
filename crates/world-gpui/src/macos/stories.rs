@@ -261,7 +261,14 @@ fn panel_key(moment: &str, index: usize, scene: &PanelScene, w: f32, h: f32, dpr
         key.add(format!("{:?}", who.figure));
     }
     key.add(format!("{:?}", scene.pram))
-        .add(scene.season.map(|s| s as u8));
+        .add(scene.season.map(|s| s as u8))
+        .add(
+            scene
+                .place
+                .as_ref()
+                .and_then(|place| place.wears.as_ref())
+                .map(|(wear, motif)| (*wear, motif.key())),
+        );
     key.finish()
 }
 
@@ -1477,62 +1484,68 @@ mod tests {
         assert_eq!(node.label(), Some("Close (Esc)"));
     }
 
-    /// Every word the stories show is in the app's Chinese catalog.
+    /// Every word the stories show is in each of the app's catalogs.
     #[test]
     fn every_story_word_is_translated() {
-        let catalog = world_i18n::Catalog::parse(crate::i18n::APP_ZH_HANS);
-        for words in [
-            "Their story",
-            "Its story",
-            "No story to tell yet",
-            "Here since",
-            "Before",
-            "The moment",
-            "After",
-            "Kept in the book",
-            "Saved to Pictures",
-            "Save as a picture (S)",
-            "Close (Esc)",
-            "Back",
-            "Lines of the story",
-            "The year's moment",
-            "A quiet year.",
-            "Who came and went, and what was built",
-            "Came to live here",
-            "Moved away",
-            "Born",
-            "Died",
-            "Built",
-            "A year in the town",
-            "A day in the town",
-            "New to the town",
-            "A season in the town",
-            "Two seasons in the town",
-            "Three seasons in the town",
-            "A month in the town",
+        for catalog in crate::i18n::app_catalogs() {
+            for words in [
+                "Their story",
+                "Its story",
+                "No story to tell yet",
+                "Here since",
+                "Before",
+                "The moment",
+                "After",
+                "Kept in the book",
+                "Saved to Pictures",
+                "Save as a picture (S)",
+                "Close (Esc)",
+                "Back",
+                "Lines of the story",
+                "The year's moment",
+                "A quiet year.",
+                "Who came and went, and what was built",
+                "Came to live here",
+                "Moved away",
+                "Born",
+                "Died",
+                "Built",
+                "A year in the town",
+                "A day in the town",
+                "New to the town",
+                "A season in the town",
+                "Two seasons in the town",
+                "Three seasons in the town",
+                "A month in the town",
+            ] {
+                assert!(
+                    catalog.exact(words).is_some(),
+                    "no translation for {words:?}"
+                );
+            }
+            for beat in PanelBeat::ALL {
+                assert!(catalog.exact(beat_name(beat)).is_some());
+            }
+            for (heading, _) in almanac_sections(&Almanac {
+                arrived: vec!["a".into()],
+                left: vec!["a".into()],
+                born: vec!["a".into()],
+                died: vec!["a".into()],
+                built: vec!["a".into()],
+                ..Default::default()
+            }) {
+                assert!(catalog.exact(heading).is_some(), "{heading}");
+            }
+        }
+        let [chinese, japanese] = crate::i18n::app_catalogs();
+        for (english, zh, ja) in [
+            ("3 years in the town", "在镇上 3 年", "町で過ごした3年"),
+            ("12 days in the town", "在镇上 12 天", "町で過ごした12日"),
+            ("5 months in the town", "在镇上 5 个月", "町で過ごした5か月"),
+            ("The almanac · Year 2", "年鉴 · 第 2 年", "年鑑 · 2年目"),
         ] {
-            assert!(catalog.exact(words).is_some(), "no zh-Hans for {words:?}");
-        }
-        for beat in PanelBeat::ALL {
-            assert!(catalog.exact(beat_name(beat)).is_some());
-        }
-        for (heading, _) in almanac_sections(&Almanac {
-            arrived: vec!["a".into()],
-            left: vec!["a".into()],
-            born: vec!["a".into()],
-            died: vec!["a".into()],
-            built: vec!["a".into()],
-            ..Default::default()
-        }) {
-            assert!(catalog.exact(heading).is_some(), "{heading}");
-        }
-        for (english, chinese) in [
-            ("3 years in the town", "在镇上 3 年"),
-            ("12 days in the town", "在镇上 12 天"),
-            ("5 months in the town", "在镇上 5 个月"),
-            ("The almanac · Year 2", "年鉴 · 第 2 年"),
-        ] {
-            assert_eq!(catalog.translate(english).as_deref(), Some(chinese));
+            assert_eq!(chinese.translate(english).as_deref(), Some(zh));
+            assert_eq!(japanese.translate(english).as_deref(), Some(ja));
         }
     }
 }

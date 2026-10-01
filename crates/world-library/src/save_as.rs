@@ -30,6 +30,10 @@ impl DurableWorldSession {
         };
         let revision = write_new_document_file(&destination, &document)?;
 
+        // What was handed over for the old file is written if it can be;
+        // the World goes on in the new one either way.
+        let _ = self.flush();
+        self.writes.start_from(revision);
         self.target = WorldDocumentTarget::File(destination);
         self.revision = revision;
         Ok(self.session.snapshot())
@@ -193,6 +197,7 @@ mod tests {
             own_title: Default::default(),
             opened_from: Default::default(),
             writer: Default::default(),
+            writes: Default::default(),
         }
     }
 

@@ -1,0 +1,811 @@
+# Japanese for app: English, a tab, then the translation. Generated with a model and checked by tests; edit freely.
+World Machine	World Machine
+About World Machine…	World Machineについて…
+Settings…	設定…
+Services	サービス
+Hide World Machine	World Machineを隠す
+Hide Others	ほかを隠す
+Show All	すべてを表示
+Quit World Machine	World Machineを終了
+File	ファイル
+Import World…	ワールドを読み込む…
+Install World Pack…	ワールドパックをインストール…
+Refresh My Worlds	マイワールドを更新
+World	ワールド
+Branch This World	このワールドを分岐
+What If…	もしも…
+Save As…	別名で保存…
+Reload from Disk	ディスクから再読み込み
+Compare with Parent	分岐元と比べる
+Compare Saved Worlds…	保存したワールドを比べる…
+Lineage…	系譜…
+Analyze Saved Worlds (Experimental)…	保存したワールドを分析（実験的）…
+Window	ウインドウ
+Minimize	しまう
+Zoom	拡大/縮小
+Enter Full Screen	フルスクリーンにする
+Close Window	ウインドウを閉じる
+Help	ヘルプ
+Check for Updates…	アップデートを確認…
+Install Guide	インストールガイド
+Report a Problem…	問題を報告…
+Copy Diagnostics	診断情報をコピー
+Show Log in Finder	Finderでログを表示
+About World Machine	World Machineについて
+Copied	コピーしました
+Small worlds that keep living while you are away.	あなたがいない間も、小さな世界は暮らし続けます。
+Not yet notarized by Apple: the first launch asks once.	まだAppleの公証を受けていません。初回の起動時に一度だけ確認されます。
+Worlds: {library}	ワールド：{library}
+Log: {log}	ログ：{log}
+Ambience	環境音
+Only saved Library Worlds can be analyzed	分析できるのは、ライブラリに保存したワールドだけです
+Filter saved Worlds…	保存したワールドを絞り込む…
+Ask why these Worlds differ…	これらのワールドがなぜ違うのか尋ねる…
+World analyst needs at least two saved Worlds.	ワールドアナリストには、保存したワールドが2つ以上必要です。
+Create or import another saved World, then Recheck.	別のワールドを作るか読み込んでから、「再確認」を押してください。
+The selected left World is no longer saved.	左側に選んだワールドは、もう保存されていません。
+Choose another saved World for Left to continue.	続けるには、左側に別の保存済みワールドを選んでください。
+World analyst needs at least two distinct saved Worlds.	ワールドアナリストには、異なる保存済みワールドが2つ以上必要です。
+Choose a different World for Right.	右側には別のワールドを選んでください。
+Could not refresh saved Worlds: {error}	保存したワールドを更新できませんでした：{error}
+Choose {label} executable	{label}の実行ファイルを選ぶ
+Could not choose {label} executable: {error}	{label}の実行ファイルを選べませんでした：{error}
+{label} executable chooser was interrupted: {error}	{label}の実行ファイル選択が中断されました：{error}
+World analyst runtime is not ready.	ワールドアナリストの実行環境がまだ準備できていません。
+Recheck the runtime first.	先に実行環境を再確認してください。
+Enter a question before asking the analyst	アナリストに尋ねる前に、質問を入力してください
+World analyst session is not available	ワールドアナリストのセッションを利用できません
+Analysis cancelled by user	分析はユーザーが取り消しました
+World analyst session closed	ワールドアナリストのセッションが終了しました
+Analysis cancellation failed; recover before continuing	分析を取り消せませんでした。続ける前に復旧してください
+World analyst session could not close cleanly	ワールドアナリストのセッションを正しく終了できませんでした
+{label} · waiting for runtime check	{label} · 実行環境の確認待ち
+{label} · settings unavailable until runtime settings load	{label} · 実行環境の設定を読み込むまで設定は使えません
+Environment controlled	環境変数で指定済み
+Choose…	選択…
+Clear saved path	保存したパスを消去
+Left	左
+Right	右
+Saved World	保存したワールド
+{} · t={} · {} events	{} · t={} · イベント{}件
+No other saved Worlds match this filter	この条件に合う保存済みワールドはほかにありません
+Swap sides	左右を入れ替える
+Choose two distinct saved Worlds to compare.	比べる保存済みワールドを2つ選んでください。
+Recheck	再確認
+Refreshing saved Worlds…	保存したワールドを更新中…
+Checking analyst runtime readiness…	アナリストの実行環境を確認中…
+Analyst runtime ready · Node and Pi resolved	アナリストの実行環境の準備ができました · NodeとPiを確認済み
+Analyst runtime readiness is unavailable.	アナリストの実行環境の状態がわかりません。
+Recheck the runtime.	実行環境を再確認してください。
+Starting…	開始中…
+Saving runtime path…	実行環境のパスを保存中…
+Start analysis	分析を開始
+Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference.	何が変わったのか、なぜワールドが分かれたのか、どの証拠がその違いを説明するのかを尋ねてください。
+Analyzing…	分析中…
+Ask	尋ねる
+Cancelling…	取り消し中…
+Cancel analysis	分析を取り消す
+Read-only · fixed snapshot pair	読み取り専用 · 固定したスナップショットの組
+New comparison	新しく比べる
+Recover and recheck runtime	復旧して実行環境を再確認
+Analyst session ended: {message}	アナリストのセッションが終了しました：{message}
+World Analyst — World Machine	ワールドアナリスト — World Machine
+World Analyst	ワールドアナリスト
+Evidence-backed questions over two immutable saved-World snapshots	変更できない2つの保存済みワールドのスナップショットについて、証拠にもとづいて質問できます
+Failed question	失敗した質問
+Retry failed question	失敗した質問をやり直す
+Dismiss failed question	失敗した質問を閉じる
+Node	Node
+Pi	Pi
+Environment override	環境変数による上書き
+Saved path	保存したパス
+ID {id}	ID {id}
+Pack {} · {}	パック {} · {}
+The analyst returned no text answer.	アナリストから文章の回答がありませんでした。
+Question	質問
+Analyst	アナリスト
+Evidence calls · {}	証拠の呼び出し · {}
+Runtime error · {error}	実行環境のエラー · {error}
+World Machine analyst runtime is incomplete: missing {}	World Machineのアナリスト実行環境が不完全です：{}がありません
+World Machine analyst runtime is incomplete: {} is not a non-empty file	World Machineのアナリスト実行環境が不完全です：{}が空でないファイルではありません
+World Machine analyst runtime is incomplete: {} is not readable by the current user	World Machineのアナリスト実行環境が不完全です：{}を現在のユーザーが読み取れません
+World Machine analyst launcher needs `{launcher_program}`, but it is not executable in an absolute PATH directory.	World Machineのアナリスト起動には`{launcher_program}`が必要ですが、PATH上の絶対パスのディレクトリで実行できません。
+Ensure the standard macOS system executable directories are available on PATH.	macOS標準の実行ファイルのディレクトリがPATHに含まれているか確認してください。
+World Machine analyst needs Node, but `{}` is not executable or not available on PATH.	World MachineのアナリストにはNodeが必要ですが、`{}`は実行できないか、PATH上にありません。
+Set WORLD_MACHINE_NODE_PROGRAM to an executable Node path.	WORLD_MACHINE_NODE_PROGRAMに実行できるNodeのパスを設定してください。
+World Machine analyst needs Pi, but `{}` is not executable or not available on PATH.	World MachineのアナリストにはPiが必要ですが、`{}`は実行できないか、PATH上にありません。
+Set PI_PROGRAM to the Pi executable path.	PI_PROGRAMにPiの実行ファイルのパスを設定してください。
+World Machine analyst tool host is not configured.	World Machineのアナリスト用ツールホストが設定されていません。
+World Machine analyst tool host is not executable or unavailable: {}	World Machineのアナリスト用ツールホストが実行できないか、利用できません：{}
+World Analyst executable selection must be an absolute path: {}	ワールドアナリストの実行ファイルは絶対パスで選んでください：{}
+{} is controlled by an environment override; remove that override before saving a user path	{}は環境変数で上書きされています。ユーザーのパスを保存する前に、その上書きを外してください
+World Machine analyst runtime is unavailable.	World Machineのアナリスト実行環境を利用できません。
+Expected the bundled `Analyst Runtime` resource or set {RUNTIME_ROOT_ENV}.	同梱の`Analyst Runtime`リソースが必要です。または{RUNTIME_ROOT_ENV}を設定してください。
+{RUNTIME_ROOT_ENV} is relative, but the current directory could not be resolved.	{RUNTIME_ROOT_ENV}が相対パスですが、現在のディレクトリを特定できませんでした。
+Set it to an absolute analyst runtime path.	アナリスト実行環境の絶対パスを設定してください。
+World Analyst settings are malformed: {message}	ワールドアナリストの設定が壊れています：{message}
+World Analyst settings use unsupported format version {version}	ワールドアナリストの設定は未対応の形式バージョン{version}です
+World Analyst {field} path must be absolute: {}	ワールドアナリストの{field}のパスは絶対パスにしてください：{}
+World Analyst could not locate the user's home directory	ワールドアナリストがユーザーのホームディレクトリを見つけられませんでした
+World Analyst could not read settings at {}: {error}	ワールドアナリストが{}の設定を読み込めませんでした：{error}
+World Analyst could not create settings directory {}: {error}	ワールドアナリストが設定ディレクトリ{}を作れませんでした：{error}
+World Analyst could not replace settings at {}: {error}	ワールドアナリストが{}の設定を置き換えられませんでした：{error}
+World Analyst could not write temporary settings {}: {error}	ワールドアナリストが一時設定{}を書き込めませんでした：{error}
+World Analyst could not finish temporary settings {}: {error}	ワールドアナリストが一時設定{}を完了できませんでした：{error}
+World Analyst could not sync temporary settings {}: {error}	ワールドアナリストが一時設定{}を同期できませんでした：{error}
+World Machine {version} · build {commit} · {architecture}	World Machine {version} · ビルド {commit} · {architecture}
+Logs	ログ
+macOS {version} ({build}) · {arch}	macOS {version}（{build}） · {arch}
+macOS {version} · {arch}	macOS {version} · {arch}
+Copy diagnostics	診断情報をコピー
+World Machine diagnostics	World Machineの診断情報
+Build: {build_label}	ビルド：{build_label}
+Signing: ad-hoc, not notarized	署名：アドホック、公証なし
+Host: {host}	ホスト：{host}
+Worlds: {}	ワールド：{}
+Packs catalog: {}	パックカタログ：{}
+Included Packs: {}	同梱のパック：{}
+none found	見つかりません
+Log: {}	ログ：{}
+Recent log lines:	最近のログ：
+World Packs	ワールドパック
+Pocket Universe	ポケット・ユニバース
+Begin a tiny world, let the people in it live, and watch their choices, friendships and habits become what that place is known for.	小さな世界をはじめて、そこに住む人たちを暮らさせてみましょう。その選択や友情、習慣が、やがてその場所らしさになっていきます。
+Pick a place · Answer what they ask · Branch what happens next	場所を選ぶ · 頼まれごとに答える · その先を分岐させる
+Micro Company	マイクロ・カンパニー
+Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.	小さなプロダクト会社を経営します。2人の創業者が小さな決断を重ね、会社は顧客を見つけるか、資金が尽きるかのどちらかです。
+Choose a direction · Watch demand and cash · Adapt	方針を選ぶ · 需要と資金を見守る · 臨機応変に
+Tiny Society	タイニー・ソサエティ
+A harbour town that keeps living while you are away.	あなたがいない間も暮らし続ける港町。
+Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	町の人たちはあなたに頼みごとをし、海と暦は嵐やお祭りを運んできます。季節がひとつ巡るたびに、町の物語の一章が閉じます。
+Answer what people ask · Build the pier · See how the chapter ends	頼みごとに答える · 桟橋を造る · 章の結末を見届ける
+no key	キーなし
+World Machine · World voice	World Machine · ワールドの声
+a key with nothing in it is not a key	中身が空のキーは、キーとは言えません
+the app opens where I left it	前回終了したところからアプリが開きます
+document: {message}	書類：{message}
+Branched from …	分岐元 …
+What if · {left} vs {right} · {} periods	もしも · {left}と{right} · {}期間
+Opened {} · {error}	{}を開きました · {error}
+Reloaded {} · {}	{}を再読み込みしました · {}
+Reload failed: {error}	再読み込みに失敗しました：{error}
+Could not open Save As dialog: {error}	「別名で保存」ダイアログを開けませんでした：{error}
+Save As dialog was interrupted: {error}	「別名で保存」ダイアログが中断されました：{error}
+Saved As {} · {}	{}として保存しました · {}
+Save As failed: {error}	別名で保存できませんでした：{error}
+Branched as {} · {warning}	{}として分岐しました · {warning}
+Branched as {}	{}として分岐しました
+Could not branch: {error}	分岐できませんでした：{error}
+Comparing {left} with {right}	{left}と{right}を比べています
+Could not compare with parent: {error}	分岐元と比べられませんでした：{error}
+Choose another saved World to compare · {count} available	比べる保存済みワールドをもうひとつ選んでください · {count}件あります
+Could not compare saved Worlds: {error}	保存したワールドを比べられませんでした：{error}
+Opened Branches · {count} Worlds	分岐を開きました · ワールド{count}件
+Could not open Branches: {error}	分岐を開けませんでした：{error}
+The World Analyst needs Node and the Pi runtime installed on this Mac.	ワールドアナリストを使うには、このMacにNodeとPiの実行環境が必要です。
+Opened the World Analyst	ワールドアナリストを開きました
+Could not open the Analyst: {error}	アナリストを開けませんでした：{error}
+A new World	新しいワールド
+Ares Pocket Colony	アレス・ポケットコロニー
+Branch	分岐
+What if…	もしも…
+Could not open World file: {error}	ワールドのファイルを開けませんでした：{error}
+Could not open Installed Packs catalog {}: {error}	インストール済みパックのカタログ{}を開けませんでした：{error}
+Included Pack identity mismatch: expected {} @ {}, found {} @ {}	同梱パックの識別情報が一致しません：{} @ {}のはずが、{} @ {}でした
+Review {} @ {} before trusting its executable bytes	実行ファイルを信頼する前に、{} @ {}を確認してください
+Could not inspect {}: {error}	{}を調べられませんでした：{error}
+World Machine {} is available.	World Machine {}が利用できます。
+You have {}.	お使いのバージョンは{}です。
+Download	ダウンロード
+Later	あとで
+Could not prepare {}: {error}	{}を準備できませんでした：{error}
+Could not prepare {}: bundle contains {} @ {}, expected {} @ {}	{}を準備できませんでした：バンドルの中身は{} @ {}ですが、{} @ {}のはずでした
+Preparing {} for its first launch…	{}の初回起動を準備しています…
+Install World Pack	ワールドパックをインストール
+Could not open Install Pack dialog: {error}	「パックをインストール」ダイアログを開けませんでした：{error}
+Install Pack dialog was interrupted: {error}	「パックをインストール」ダイアログが中断されました：{error}
+Pack was not installed.	パックはインストールされませんでした。
+Re-open it to review current content: {error}	開き直して現在の内容を確認してください：{error}
+Testing this World before first launch…	初回起動の前に、このワールドをテストしています…
+Preparing {title} for its first launch…	{title}の初回起動を準備しています…
+Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…	信頼済みパック{} @ {}をテスト中 · 作成 → 保存 → 新しいプロセスで開く…
+Installed Packs catalog is unavailable	インストール済みパックのカタログを利用できません
+{title} is installed and ready.	{title}をインストールしました。すぐに使えます。
+Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}	パック{} @ {}は動作確認に合格しましたが、レジストリの再構築に失敗しました：{error}
+Pack {} @ {} passed its durable probe, but could not be enabled: {error}	パック{} @ {}は動作確認に合格しましたが、有効にできませんでした：{error}
+Installed and trusted {} @ {}, but its durable activation probe failed.	{} @ {}をインストールして信頼しましたが、有効化の動作確認に失敗しました。
+The Pack remains disabled: {error}	パックは無効のままです：{error}
+Start your first World	最初のワールドをはじめましょう
+Pack installation cancelled; no external code was installed.	パックのインストールを取り消しました。外部のコードは何もインストールされていません。
+Activated {} @ {} for new Worlds	{} @ {}を新しいワールドで使えるようにしました
+Changed active Pack to {} @ {}, but Registry rebuild failed: {error}	使用中のパックを{} @ {}に変更しましたが、レジストリの再構築に失敗しました：{error}
+Could not activate {} @ {}: {error}	{} @ {}を有効にできませんでした：{error}
+Enabled	有効
+Disabled	無効
+Updated {} @ {}, but Registry rebuild failed: {error}	{} @ {}を更新しましたが、レジストリの再構築に失敗しました：{error}
+Could not {} {} @ {}: {error}	「{}」を完了できませんでした：{} @ {}：{error}
+Could not open World: {} @ {} should be available, but is not registered	ワールドを開けませんでした：{} @ {}は利用できるはずですが、登録されていません
+Could not open World: {} @ {} is installed but disabled.	ワールドを開けませんでした：{} @ {}はインストールされていますが、無効になっています。
+Use Test & Enable under Installed Packs.	「インストール済みパック」の「テストして有効にする」を使ってください。
+Could not open World: {} @ {} is installed but no longer matches its approved content: {reason}	ワールドを開けませんでした：{} @ {}はインストールされていますが、承認時の内容と一致しません：{reason}
+Could not open World: it requires {} @ {}, but installed versions are {}.	ワールドを開けませんでした：{} @ {}が必要ですが、インストールされているバージョンは{}です。
+Install that exact Pack version.	そのバージョンのパックをインストールしてください。
+Could not open World: it requires {} @ {}, which is not installed.	ワールドを開けませんでした：{} @ {}が必要ですが、インストールされていません。
+Use Install Pack… to add that exact version.	「パックをインストール…」でそのバージョンを追加してください。
+Could not read World Library: {error}	ワールドライブラリを読み込めませんでした：{error}
+Could not show this World's branches: {error}	このワールドの分岐を表示できませんでした：{error}
+My Worlds · {count} World(s)	マイワールド · {count}件
+{title} lived {} while you were away	留守の間に、{title}では{}が過ぎました
+Opened {title}, but the time you were away could not be caught up: {error}	{title}を開きましたが、留守の間の時間を進められませんでした：{error}
+Could not open {title}: {error}	{title}を開けませんでした：{error}
+Could not create {title}: {error}	{title}を作れませんでした：{error}
+Could not open {}: choose a {} document or {} Pack	{}を開けませんでした：{}の書類か{}のパックを選んでください
+Could not open {}: {error}	{}を開けませんでした：{error}
+Could not import {}: choose a {} file	{}を読み込めませんでした：{}のファイルを選んでください
+Could not import {}: {error}	{}を読み込めませんでした：{error}
+Import World	ワールドを読み込む
+Could not open Import dialog: {error}	読み込みダイアログを開けませんでした：{error}
+Import dialog was interrupted: {error}	読み込みダイアログが中断されました：{error}
+Could not open Export dialog: {error}	書き出しダイアログを開けませんでした：{error}
+Export dialog was interrupted: {error}	書き出しダイアログが中断されました：{error}
+Exported {} to {}	{}を{}に書き出しました
+Could not export {document_id}: {error}	{document_id}を書き出せませんでした：{error}
+Order	並び順
+Could not rename this World: {error}	このワールドの名前を変更できませんでした：{error}
+Could not remove this World: {error}	このワールドを削除できませんでした：{error}
+Save name	名前を保存
+Cancel	キャンセル
+An empty name lists this World under its own title again.	名前を空にすると、このワールドは元のタイトルで表示されます。
+Remove {title}?	{title}を削除しますか？
+Its file moves to the {} folder inside your Worlds folder, so you can put it back.	ファイルはワールドフォルダ内の{}フォルダに移動するので、あとで戻せます。
+Remove	削除
+Keep	残す
+Rename	名前を変更
+Export…	書き出す…
+Where it branched from	分岐元
+Open	開く
+START HERE · A WORLD THAT KEEPS LIVING	ここからはじめる · 暮らし続けるワールド
+{identity} · Included external World · reviewed before it runs	{identity} · 同梱の外部ワールド · 実行前に確認します
+Review & Start	確認してはじめる
+{identity} · Included external Pack · review required	{identity} · 同梱の外部パック · 確認が必要です
+Review & Install	確認してインストール
+Create {}	{}を作成
+{title} is ready	{title}の準備ができました
+Start your first World.	最初のワールドをはじめましょう。
+It keeps living between visits, and you can always create another.	訪れていない間も暮らしは続きます。ワールドはいつでも新しく作れます。
+Not now	今はしない
+Before this World starts	このワールドをはじめる前に
+A new Pack wants to install	新しいパックがインストールを求めています
+Trust & Start	信頼してはじめる
+Install & Trust	インストールして信頼する
+Version	バージョン
+Runs as	実行形式
+Fingerprint	フィンガープリント
+From	提供元
+Identity	識別情報
+Nothing from this Pack has run yet.	このパックのものはまだ何も実行されていません。
+Trusting it approves exactly these bytes, then your World opens once its self-test passes.	信頼すると、まさにこの内容だけが承認され、自己テストに合格するとワールドが開きます。
+Trusting it approves exactly these bytes; any other version is refused.	信頼すると、まさにこの内容だけが承認されます。ほかのバージョンは拒否されます。
+Testing durable round-trip…	保存と復元をテスト中…
+Active	使用中
+Historical · available for saved Worlds	過去のバージョン · 保存したワールドで利用可能
+Disabled · trusted, not runnable until tested	無効 · 信頼済み、テストするまで実行不可
+Invalid · {reason}	無効 · {reason}
+Missing exact version	該当バージョンがありません
+Not installed	未インストール
+Activate	使用する
+Disable	無効にする
+Test & Enable	テストして有効にする
+Start a World →	ワールドをはじめる →
+No Worlds yet.	まだワールドがありません。
+Start one below; it keeps living while you are away.	下からひとつはじめてみましょう。留守の間も暮らしは続きます。
+No Worlds match this Pack filter.	このパックの絞り込みに合うワールドはありません。
+No Worlds match what you typed.	入力した内容に合うワールドはありません。
+All · {}	すべて · {}
+Start here	ここからはじめる
+More worlds	ほかのワールド
+Included Worlds	同梱のワールド
+Start a new World	新しいワールドをはじめる
+Packs · {} · hide	パック · {} · 隠す
+Packs · {} · show	パック · {} · 表示
+Dismiss	閉じる
+Recent	最近
+Name	名前
+My Worlds · {total}	マイワールド · {total}
+My Worlds · {visible}/{total}	マイワールド · {visible}/{total}
+{pack_title} — name this World	{pack_title} — このワールドに名前をつける
+If this World is open in a window, choose World → Reload there.	このワールドをウインドウで開いている場合は、そのウインドウで「ワールド」→「再読み込み」を選んでください。
+Renamed to {title}.	名前を{title}に変更しました。
+Name cleared; this World is listed as {pack_title} again.	名前を消去しました。このワールドは再び{pack_title}として表示されます。
+Removed {title}.	{title}を削除しました。
+Its file moved to the {} folder inside your Worlds folder.	ファイルはワールドフォルダ内の{}フォルダに移動しました。
+{named}, and {hidden} more	{named}ほか{hidden}件
+One file in your Worlds folder could not be read and is not listed: {names}.	ワールドフォルダ内のファイル1件を読み込めなかったため、一覧に表示していません：{names}。
+{} files in your Worlds folder could not be read and are not listed: {names}.	ワールドフォルダ内のファイル{}件を読み込めなかったため、一覧に表示していません：{names}。
+1 sol has passed	1ソルが過ぎました
+3 nights have passed	3夜が過ぎました
+{} {verb} passed	{}が過ぎました
+1 sol	1ソル
+3 nights	3夜
+1 {unit}	1{unit}
+{count} {unit}s	{count}{unit}
+Sol 5	5ソル目
+just begun	はじまったばかり
+Worlds	ワールド
+Packs	パック
+Keeps going without you · next sol in 5 h	留守のあいだも暮らしは続きます · あと5時間で次のソル
+Keeps going without you · a new {unit} waits for your next visit	留守のあいだも暮らしは続きます · 次に来たときには新しい{unit}
+{} min	{}分
+Keeps going without you · next {unit} in {wait}	留守のあいだも暮らしは続きます · あと{wait}で次の{unit}
+Sol	ソル
+Pocket Universe · Sol 5	ポケット・ユニバース · 5ソル目
+2 days	2日
+Keeps going without you · next sol in 6 h	留守のあいだも暮らしは続きます · あと6時間で次のソル
+Keeps going without you · next night in 20 min	留守のあいだも暮らしは続きます · あと20分で次の夜
+Keeps going without you · a new day waits for your next visit	留守のあいだも暮らしは続きます · 次に来たときには新しい一日
+Installed Packs were not activated: {error}	インストール済みのパックを有効にできませんでした：{error}
+Could not locate included World Packs: {error}	同梱のワールドパックが見つかりませんでした：{error}
+{} saved World(s) · {} included Pack(s)	保存したワールド{}件 · 同梱のパック{}件
+Find a World…	ワールドを探す…
+Observer	見守る人
+Only My Worlds documents can compare saved Worlds	保存したワールドを比べられるのは、マイワールドの書類だけです
+My Worlds needs at least two saved Worlds to compare	比べるには、マイワールドに保存したワールドが2つ以上必要です
+{} things have happened	{}件のできごとがありました
+Choose a World on the right	右側でワールドを選んでください
+Choose two different saved Worlds	異なる保存済みワールドを2つ選んでください
+Compare Saved Worlds — World Machine	保存したワールドを比べる — World Machine
+Compare Saved Worlds	保存したワールドを比べる
+Choose any two Worlds from My Worlds to see them side by side as they stand now.	マイワールドから好きなワールドを2つ選ぶと、今の状態を並べて見られます。
+Neither moves on while you compare them, and both need to come from the same version of their World Pack.	比べている間はどちらも進みません。また、どちらも同じバージョンのワールドパックで作られている必要があります。
+World A	ワールドA
+World B	ワールドB
+Choose two different saved Worlds.	異なる保存済みワールドを2つ選んでください。
+Compare current saved state	現在の保存状態を比べる
+Opened comparison · {left} ↔ {right}	比較を開きました · {left} ↔ {right}
+Could not compare: {error}	比べられませんでした：{error}
+Same saved World	同じ保存済みワールドです
+Ancestor → descendant · {ancestor} → {descendant}	祖先 → 子孫 · {ancestor} → {descendant}
+Sibling branches · parent {parent}	兄弟の分岐 · 分岐元 {parent}
+Related branches · common ancestor {common_ancestor}	関連する分岐 · 共通の祖先 {common_ancestor}
+Where these two came from is unclear · left {} · right {}	この2つの由来がはっきりしません · 左 {} · 右 {}
+Two unrelated Worlds	関係のない2つのワールド
+Could not tell how these two are related · {reason}	この2つの関係がわかりませんでした · {reason}
+Strategy · {choice_title} · {horizon} periods	方針 · {choice_title} · {horizon}期間
+Branch · {label}	分岐 · {label}
+Paste an API key…	APIキーを貼り付け…
+Off.	オフ。
+Worlds read from the app's own copy, and nothing leaves this Mac.	ワールドはアプリ内蔵の言葉で語り、このMacの外には何も送られません。
+On, through {}.	オン（{}を使用）。
+On, but no program is chosen, so Worlds still read from the app's copy.	オンですが、プログラムが選ばれていないため、ワールドはアプリ内蔵の言葉で語ります。
+On, through your API key.	オン（あなたのAPIキーを使用）。
+On, but no key is stored, so Worlds still read from the app's copy.	オンですが、キーが保存されていないため、ワールドはアプリ内蔵の言葉で語ります。
+World Machine Settings	World Machineの設定
+Let Worlds speak for themselves	ワールドに自分の言葉で語らせる
+Coming back, a World tells you what happened in its own words.	戻ってきたとき、何があったかをワールドが自分の言葉で話してくれます。
+World voice	ワールドの声
+Stays on this Mac · {}	このMacの中だけ · {}
+Stays on this Mac · choose one in Analyst settings	このMacの中だけ · アナリスト設定で選んでください
+Each return is sent to your provider · key stored	戻るたびにプロバイダへ送信されます · キー保存済み
+Each return is sent to your provider	戻るたびにプロバイダへ送信されます
+Where the voice comes from	声の出どころ
+A program on this Mac	このMac上のプログラム
+An API key	APIキー
+Save key	キーを保存
+Forget key	キーを削除
+The key goes into your login keychain, never into a file.	キーはファイルではなく、ログインキーチェーンに保存されます。
+This Mac's own model	このMacのモデル
+Stays on this Mac · free, and needs no key	このMacの中だけ · 無料で、キーも不要です
+On, through this Mac's own model.	オン（このMacのモデルを使用）。
+On, checking this Mac's own model…	オン · このMacのモデルを確認中…
+On, but this Mac's own model is not available, so Worlds still read from the app's copy.	オンですが、このMacのモデルが使えないため、ワールドはアプリ内蔵の言葉で語ります。
+Apple's model answers what people say to you, through /usr/bin/fm. When it cannot, they answer in the World's own words.	あなたに話しかけられた人たちの返事は、/usr/bin/fmを通じてAppleのモデルが考えます。使えないときは、ワールド自身の言葉で答えます。
+Apple's model answers what people say to you, through /usr/bin/fm.	あなたに話しかけられた人たちの返事は、/usr/bin/fmを通じてAppleのモデルが考えます。
+When it cannot, they answer in the World's own words.	使えないときは、ワールド自身の言葉で答えます。
+Claude model	Claudeのモデル
+Save model	モデルを保存
+Model: {}	モデル：{}
+Model: {}, set by WORLD_MACHINE_VOICE_MODEL	モデル：{}（WORLD_MACHINE_VOICE_MODELで指定）
+An empty field goes back to the default.	空欄にすると既定に戻ります。
+Music	音楽
+Chords, a morning tune and an evening one, by the hour and the weather	時刻と天気に合わせた和音、朝の曲と夜の曲
+Landscape	風景
+Wind and the hum of the place	風の音と、その土地のざわめき
+Voices	声
+Everyone's own babble as they speak	話すときの、ひとりひとりのおしゃべり
+Ticks and bells	効果音と鐘
+Cards turning, turns passing, things built	カードをめくる音、時が進む音、何かができあがる音
+Only an API key sends anything off this Mac: what a World has recorded, once per return.	このMacの外に何かを送るのはAPIキーを使うときだけです。送るのはワールドが記録した内容で、戻るたびに一度だけです。
+Worlds already open keep the voice they opened with.	すでに開いているワールドは、開いたときの声のままです。
+Sound	サウンド
+The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.	手前のワールドでは、その土地の音楽と風景の音が流れ、人々はそれぞれの声で話し、カードや時の進みや建設にもささやかな音がつきます。
+This World has one path right now.	このワールドには、今は道がひとつしかありません。
+Continue it and try again when it offers a choice.	先に進めて、選択肢が出たらもう一度試してください。
+Change choices…	選択肢を変更…
+{horizon} periods	{horizon}期間
+Left choice is no longer available	左の選択肢はもう選べません
+Right choice is no longer available	右の選択肢はもう選べません
+Choose two different futures	異なる未来を2つ選んでください
+Compare Futures — World Machine	未来を比べる — World Machine
+Compare Futures	未来を比べる
+Choose two possible actions from the same durable World, then decide how far each future should run.	同じワールドで取れる行動を2つ選び、それぞれの未来をどこまで進めるかを決めてください。
+Future A	未来A
+Future B	未来B
+Horizon	期間
+Choose two different futures before running the comparison.	比べる前に、異なる未来を2つ選んでください。
+Run comparison · {} periods	比べる · {}期間
+Opened comparison · {left} vs {right}	比較を開きました · {left}と{right}
+Future A has no durable archive	未来Aには保存できるアーカイブがありません
+Future B has no durable archive	未来Bには保存できるアーカイブがありません
+Saved {side_label} as {saved_id}	{side_label}を{saved_id}として保存しました
+Future A has not been saved	未来Aはまだ保存されていません
+Future B has not been saved	未来Bはまだ保存されていません
+Saved {label} · {saved}	{label}を保存しました · {saved}
+Opened saved {label} · {document}	保存した{label}を開きました · {document}
+Open failed: {error}	開けませんでした：{error}
+Save {label}	{label}を保存
+Save failed: {error}	保存できませんでした：{error}
+What if… — {}	もしも… — {}
+Choose from {count} choices in the setup window	設定ウインドウの{count}個の選択肢から選んでください
+{} or {}	{}か{}
+What if… · {} · {} periods ahead	もしも… · {} · {}期間先
+{label} is outside My Worlds or no longer matches this Pack	{label}はマイワールドの外にあるか、このパックと一致しなくなっています
+Branched from {parent}	{parent}から分岐
+Add this World to My Worlds before opening Branches	分岐を開く前に、このワールドをマイワールドに追加してください
+Advanced {} background period(s) · World time {}	留守の間に{}期間進みました · ワールドの時刻 {}
+Catch-up skipped: {error}	時間の追いつきを省きました：{error}
+this moment	この瞬間
+Branched before “{event_title}”	「{event_title}」の前で分岐しました
+Couldn't branch here: {error}	ここでは分岐できませんでした：{error}
+Couldn't continue: {error}	続けられませんでした：{error}
+While you were away · {} of {count}	留守の間のこと · {} / {count}
+Skip to your turn	自分の番まで飛ばす
+Your turn →	あなたの番です →
+Next →	次へ →
+What happened	何があったか
+What happened · {count}	何があったか · {count}
+Why?	なぜ？
+Begin here →	ここからはじめる →
+Where things stand	今の様子
+{hidden} earlier moments	それより前のできごと{hidden}件
+History	歴史
+Relationship	関係
+Connected to	つながり
+What changed it	変わったきっかけ
+Between	あいだ
+How it changed	どう変わったか
+What this changed	これで変わったこと
+Nothing anyone would notice has come of it yet.	まだ目に見える変化は何も起きていません。
+{visible} {} so far, up to {max_depth} {} removed.	今のところ{visible}{}、最大{max_depth}{}先まで。
+thing followed from it	件がここから起きました
+things followed from it	件がここから起きました
+What it led to	その結果
+{} steps in between	あいだに{}段階
+How it unfolded	どう展開したか
+Also because of it	これがきっかけで起きたこと
+{} more	ほか{}件
+Why it happened	なぜ起きたか
+Branch from before this	この前から分岐
+Directly	直接
+{depth} steps on	{depth}段階先
+Look closer	よく見る
+↑ Trust	↑ 信頼
+Sea Finch → repaired	シー・フィンチ号 → 修理済み
+Actor	行為者
+Targets	対象
+Trust ▲▲	信頼 ▲▲
+{label} {}	{label} {}
+{} → {value}	{} → {value}
+World Contents	ワールドの中身
+People and places	人と場所
+Everyday life	日々の暮らし
+Everyday life · {count} things	日々の暮らし · {count}件
+{hidden} more	ほか{hidden}件
+Build	建てる
+Decorate	飾る
+Plant	植える
+Move	動かす
+Give	贈る
+Invite	誘う
+{season} · {coming}	{season} · {coming}
+More	もっと見る
+Choose	選ぶ
+Keeps going without you · next	留守のあいだも暮らしは続きます · 次の
+Keeps going without you · next day in 6 h	留守のあいだも暮らしは続きます · あと6時間で新しい一日
+a pressed flower	押し花
+A pressed flower	押し花
+Say something…	何か話しかける…
+They	その人
+The moment passed before {name} could answer.	{name}が答える前に、その時は過ぎてしまいました。
+Couldn't say that: {error}	そう言えませんでした：{error}
+Undo	取り消す
+{from} gave you	{from}からの贈り物
+Photo saved to Pictures	写真を「ピクチャ」に保存しました
+↶ {title}	↶ {title}
+Photo	写真
+Choose who to give a present to.	贈り物をする相手を選んでください。
+Choose who to invite out.	誘う相手を選んでください。
+Choose where the {} goes now.	{}の移動先を選んでください。
+Choose where the {} goes.	{}を置く場所を選んでください。
+Something else	ほかのもの
+{thing_name} · {cost}	{thing_name} · {cost}
+Less	閉じる
+Chapter {number} ends	第{number}章の終わり
+Begin chapter {}	第{}章をはじめる
+Building	建設中
+Chapters · {}	章 · {}
+Chapter {}	第{}章
+Keepsakes · {}	思い出の品 · {}
+From {}	{}から
+From a friend	友だちから
+Book · {found} of {}	本 · {found} / {}
+{shelf} · {found} of {}	{shelf} · {found} / {}
+Do it	そうする
+Say	話す
+More about {}	{}についてもっと
+Pictures	ピクチャ
+{} moments · {}	{}個の瞬間 · {}
+→ repaired	→ 修理済み
+{} {difference}	{} {difference}
+Nia Chen	ニア・チェン
+NC	NC
+K-88 Radio	K-88ラジオ
+KR	KR
+Payload	中身
+Summary	概要
+Change	変化
+Changes	変化
+{summary} · {RECORDED_STATE}{}	{summary} · {RECORDED_STATE}{}
+· +{hidden} more recorded changes	· ほか{hidden}件の記録された変化
+{RECORDED_STATE}{}	{RECORDED_STATE}{}
+· {RECORDED_STATE}	· {RECORDED_STATE}
+Recorded state ·	記録された状態 ·
+{} {previous} → {}	{} {previous} → {}
+Recorded entity changes	記録された実体の変化
+Who	誰が
+With	誰と
+Caused by	きっかけ
+Recorded relation changes	記録された関係の変化
+Active relation endpoints	現在の関係の端点
+Relation identity endpoints	関係の識別端点
+My nets are more hole than	網が穴だらけで
+Buy him nets	網を買ってあげる
+Tell him to mend them	自分で繕うように言う
+Noah hasn't 30 to spare	ノアには30の余裕がありません
+Bench	ベンチ
+3 of 10	3 / 10
+Safe	無事
+Trust ↑	信頼 ↑
+Ares Habitat · rebuilt	アレス居住区 · 再建済み
+Trust	信頼
+World direction	ワールドの行方
+Ares Habitat	アレス居住区
+Keepsakes	思い出の品
+People	人々
+Made	作ったもの
+Days	日数
+a pressed flower from the Harbor	港から届いた押し花
+Rebuild	建て直す
+A bright summer	まぶしい夏
+Could you spare	少し分けてもらえる？
+Summer	夏
+Lantern Night in 3 days	ランタンの夜まであと3日
+world time	ワールドの時刻
+world state	ワールドの状態
+larger choice	大きな選択
+{banned}	{banned}
+The colony opened a new water-recovery loop	コロニーに新しい水再生ループができた
+Universe	宇宙
+Sol 4	4ソル目
+Time 40	時刻 40
+Sol 3	3ソル目
+Time 30	時刻 30
+The beginning	はじまり
+Time {world_time}	時刻 {world_time}
+Sol 2–5	2–5ソル目
+{} {first}–{last}	{} {first}–{last}
+Time {from}–{to}	時刻 {from}–{to}
+To	宛先
+Partnership	協力関係
+Entity #{id}	実体 #{id}
+{key}: {}	{key}：{}
+Entity #{other}	実体 #{other}
+State	状態
+Relations	関係
+World time {} · {}	ワールドの時刻 {} · {}
+Status	状態
+Removed	削除済み
+Relation	関係
+Properties	属性
+Relation #{} · {}	関係 #{} · {}
+Someone no longer here	もうここにいない人
+Entity #{actor}	実体 #{actor}
+Event #{id}	イベント #{id}
+Context	状況
+Time {}	時刻 {}
+Create entity	実体を作成
+Remove entity	実体を削除
+Entity #{entity}	実体 #{entity}
+Entity #{entity} · {}	実体 #{entity} · {}
+Create relation	関係を作成
+{} · Entity #{} → Entity #{}	{} · 実体 #{} → 実体 #{}
+Remove relation	関係を削除
+Relation #{relation}	関係 #{relation}
+Relation #{relation} · {}	関係 #{relation} · {}
+Show as Strip	ストリップで表示
+Strip	ストリップ
+Along the Bottom	下端に沿って
+Along the Top	上端に沿って
+Always in Front	常に手前に表示
+Down the Left	左端に沿って
+Down the Right	右端に沿って
+Click someone to say hello. Double-click to open the World	クリックであいさつ。ダブルクリックでワールドを開きます
+Hello!	こんにちは！
+Visiting from {from}	{from}から遊びに来ています
+Invite a Friend's Resident…	友だちの住人を招く…
+They stay a few days and bring a letter. Nothing is changed in their World.	数日滞在して、手紙を置いていきます。相手のワールドは何も変わりません。
+Move to Next Display	次のディスプレイへ移動
+Invite a Guest	お客さんを招く
+{name} came over from {from} with a letter	{name}が手紙を持って{from}からやって来ました
+Start another World first: a guest comes from one of your other Worlds	先に別のワールドをはじめてください。お客さんは、あなたのほかのワールドからやって来ます
+Make something (H)	何かを作る（H）
+Show as a strip along the edge of the screen (⌥⌘S)	画面の端にストリップとして表示（⌥⌘S）
+The drawer: story, letters, keepsakes and the book (⌘I)	引き出し：物語、手紙、思い出の品、本（⌘I）
+Zoom	拡大/縮小
+Zoom in (+)	拡大（+）
+Zoom out (−)	縮小（−）
+Previous card (↑)	前のカード（↑）
+Next card (↓)	次のカード（↓）
+Close the drawer	引き出しを閉じる
+Close	閉じる
+Close the strip	ストリップを閉じる
+Put the letter away	手紙をしまう
+A letter. {from}. Open it to read	手紙です。{from}。開いて読んでみましょう
+Dismiss this hint	このヒントを閉じる
+Turn the card over: what this would change (Space)	カードを裏返す：これで何が変わるか（スペース）
+Turn the card back (Space)	カードを表に戻す（スペース）
+Make something: build, plant, give or invite. Open your hands here, or press H.	何かを作りましょう。建てる、植える、贈る、誘う。ここで手を開くか、Hキーを押してください。
+More cards are waiting. ‹ and › leaf through them, and More turns one over (Space).	ほかにもカードが待っています。‹と›でめくれて、「もっと見る」で裏返せます（スペース）。
+The drawer keeps the story, keepsakes, the book and who is who. Open it here, or press ⌘I.	引き出しには、物語、思い出の品、本、そして誰が誰なのかがしまってあります。ここから開くか、⌘Iを押してください。
+Look closer with + and −, a pinch, or the scroll wheel.	+と−、ピンチ、スクロールホイールで近づいて見られます。
+A letter came for you. It waits in the drawer (⌘I).	あなた宛ての手紙が届きました。引き出しで待っています（⌘I）。
+Keep this World along the edge of your screen as a strip (⌥⌘S).	このワールドを画面の端にストリップとして置いておけます（⌥⌘S）。
+Share	共有
+Copy World Code	ワールドコードをコピー
+Save World Code…	ワールドコードを保存…
+Anyone can open a World code as a visit. A guest comes from another of your Worlds, or from a friend's World code.	ワールドコードは誰でも「訪問」として開けます。お客さんは、あなたのほかのワールドか、友だちのワールドコードからやって来ます。
+More for {title}	{title}のその他の操作
+Postcard	絵はがき
+Their story	その人の物語
+Its story	その物語
+No story to tell yet	まだ語れる物語はありません
+Here since	ここに来た日
+A year in the town	町で過ごした1年
+{} years in the town	町で過ごした{}年
+A day in the town	町で過ごした1日
+{} days in the town	町で過ごした{}日
+Before	前
+The moment	その瞬間
+After	後
+Kept in the book	本に記録
+Saved to Pictures	「ピクチャ」に保存しました
+Save as a picture (S)	画像として保存（S）
+Close (Esc)	閉じる（Esc）
+Back	戻る
+Lines of the story	物語の行
+The almanac · Year {}	年鑑 · {}年目
+The year's moment	その年の瞬間
+A quiet year.	静かな一年でした。
+Who came and went, and what was built	誰が来て誰が去り、何が建ったか
+Came to live here	ここに住みはじめた人
+Moved away	引っ越していった人
+Born	生まれた人
+Died	亡くなった人
+Built	建ったもの
+New to the town	町に来たばかり
+A season in the town	町で過ごした一季節
+Two seasons in the town	町で過ごした二季節
+Three seasons in the town	町で過ごした三季節
+A month in the town	町で過ごした1か月
+{} months in the town	町で過ごした{}か月
+A plot	区画
+What could stand here	ここに建てられるもの
+What could stand here?	ここに何を建てる？
+Design…	デザイン…
+Name…	名前をつける…
+More in the drawer	続きは引き出しで
+Names proposed	名前の候補
+Enter to name it · Esc to leave it	リターンキーで名前を決定 · Escでそのまま
+Type a name, or pick one · Enter to name it	名前を入力するか、候補から選んでください · リターンキーで決定
+A name…	名前…
+The design, sixteen squares by sixteen	16×16マスのデザイン
+Arrows move · Space paints · 1–8 colours · F fills	矢印キーで移動 · スペースで塗る · 1〜8で色 · Fで塗りつぶし
+Save	保存
+Colours	色
+Colour	色
+The palette	パレット
+Tools	道具
+Mix the chosen colour	選んだ色を調合する
+Redo	やり直す
+Clear	消去
+Pencil (P)	鉛筆（P）
+Fill (F)	塗りつぶし（F）
+Eyedropper (I)	スポイト（I）
+Design for the flag	旗のデザイン
+Design for the sail	帆のデザイン
+Design for the sign	看板のデザイン
+Design for the quilt	キルトのデザイン
+Chalk white	チョークの白
+Soot	すす色
+Signal red	信号の赤
+Marigold	マリーゴールド
+Buttercup	キンポウゲ
+Meadow	草原
+Bottle green	瓶の緑
+Sky	空色
+Harbour blue	港の青
+Navy	紺
+Heather	ヒース
+Rose	バラ
+Chestnut	栗色
+Sand	砂色
+Slate	スレート
+Peat	泥炭色
+# Settings → Display.
+Display	表示
+Language	言語
+Text size	文字の大きさ
+Follow the Mac	Macの設定に従う
+The app and the Worlds that come with it.	アプリと、同梱のワールド。
+Everything written, from cards to speech.	カードからせりふまで、すべての文字。
+Increase contrast	コントラストを上げる
+Quiet text and outlines drawn stronger.	控えめな文字や輪郭をくっきり描きます。
+# The drawer, kept as a book.
+The drawer	引き出し
+The story	物語
+Kept	とっておいたもの
+The book	本
+Book	本
+Letters	手紙
+Chapters	章
+The story so far	これまでの物語
+Not found yet	まだ見つかっていません
+The almanac	年鑑
+Almanac	年鑑
+New	新着
+Each year, who came and went and what was built (Y)	毎年、誰が来て誰が去り、何が建ったか（Y）
+Under way	進行中
+Kinds	種類
+Buildings	建物
+By the water	水辺
+Lights	あかり
+Gardens	庭
+On the square	広場
+Small things	小さなもの
+Added to what stands	建っているものに加えたもの
+a friend	友だち
+and	と
+# One way to build.
+Make something	何かを作る
+What to do	何をする？
+Build here	ここに建てる
+Bigger things are built on a plot: choose one in the scene.	大きなものは区画に建てます。景色の中から区画を選んでください。
+What could stand here	ここに建てられるもの
+Something small	小さなもの
+Earlier	以前
+Notes and ticks	音色と効果音
+The sea, the wind, rain and the life of the place	海、風、雨、そして土地の暮らしの音
+A note in the World's key for every card, letter and thing placed	カード、手紙、置いたものごとに、ワールドの調に合わせた音をひとつ
+Done, and thanked.	果たしました。お礼も言われました。
+This is where the demo ends	デモはここまでです
+The harbour keeps everything you did here. Open it in the full World Machine and it carries on from this evening, with the same people and all they remember.	ここであなたがしたことは、港がすべて覚えています。製品版のWorld Machineで開けば、同じ人たちと、彼らの思い出とともに、今夜の続きから暮らしが続きます。
+Your World is kept in My Worlds. Nothing is deleted, and nothing more is asked of you.	あなたのワールドは「マイワールド」に保存されています。何も消えませんし、これ以上何かを求めることもありません。
+Stay a while	もう少しここにいる
+About the full app	製品版について
+A second opinion	セカンドオピニオン
+Before anyone says a model's answer, a second model checks that it keeps to the World. It can only turn an answer down; the World then answers in its own words, and the record keeps its verdict.	モデルの答えを誰かが口にする前に、別のモデルがワールドから外れていないかを確かめます。できるのは答えを退けることだけで、そのときはワールドが自分の言葉で答え、判定は記録に残ります。
+No second opinion	セカンドオピニオンなし
+The World's own checks decide, strictly	ワールド自身のチェックだけで厳しく判断します
+The key's small model	キーの小型モデル
+{} reads each answer with your key	{}があなたのキーで答えをひとつずつ確かめます
+Needs an API key, saved above	上で保存したAPIキーが必要です
+Stays on this Mac · free	このMacの中だけ · 無料

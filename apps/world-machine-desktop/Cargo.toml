@@ -1,9 +1,14 @@
 [package]
 name = "world-machine-desktop"
-version = "0.25.0"
+version = "0.26.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
+
+[features]
+# The free demo: the first hour of Tiny Society, then an ending card that
+# keeps the World for the full app (src/demo.rs).
+demo = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

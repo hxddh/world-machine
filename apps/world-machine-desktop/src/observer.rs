@@ -52,7 +52,10 @@ fn catch_up_at(
         return Ok(None);
     }
 
-    let periods = claim.periods();
+    let periods = demo_periods(session, claim.periods());
+    if periods == 0 {
+        return Ok(None);
+    }
     match session.advance_background_if_changed(periods, registry, library) {
         Ok(Some(snapshot)) => Ok(Some(CatchUpOutcome {
             periods,
@@ -68,6 +71,20 @@ fn catch_up_at(
             Err(format!("background catch-up failed: {error}"))
         }
     }
+}
+
+/// How much of `periods` away a World lives through: all of it, except in
+/// the demo, which never carries a World past its last day.
+fn demo_periods(session: &DurableWorldSession, periods: u64) -> u64 {
+    if !world_machine_desktop::demo::ENABLED {
+        return periods;
+    }
+    let snapshot = session.snapshot();
+    let Some(calendar) = snapshot.calendar else {
+        return periods;
+    };
+    let day = world_machine_desktop::demo::day_of(snapshot.world_time, calendar.length);
+    world_machine_desktop::demo::periods_to_catch_up(&session.pack().id, day, periods)
 }
 
 /// How many seconds until this World next moves on its own: a period after

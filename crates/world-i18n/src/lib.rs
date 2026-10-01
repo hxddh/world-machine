@@ -14,8 +14,10 @@
 //! as a name or number, which reads the same in any language; anything no
 //! catalog knows is shown as it is.
 //!
-//! People's names are never translated: they are shown in Latin letters,
-//! as they are written, in every line. A catalog may also say which words
+//! People's names are translated only as a catalog says: the Chinese
+//! catalogs keep them in Latin letters, and the Japanese ones write them in
+//! katakana (`Mara<tab>マーラ`), which fills every slot a name is in. A
+//! catalog may also say which words
 //! a speaker uses in place of others (`=nest<tab>home`), so a line said in
 //! their own words is read as the plain one.
 
@@ -425,7 +427,13 @@ impl Catalog {
                                 value.replace(", ", "、")
                             }
                         };
-                        out = out.replace(&format!("{{{name}}}"), &shown);
+                        // Unnamed slots are filled in order, one each.
+                        let marker = format!("{{{name}}}");
+                        out = if name.is_empty() {
+                            out.replacen(&marker, &shown, 1)
+                        } else {
+                            out.replace(&marker, &shown)
+                        };
                     }
                     if clean {
                         return Some(out);
@@ -708,18 +716,27 @@ fn unescape(text: &str) -> String {
 }
 
 /// The languages the app can be shown in.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Language {
     #[default]
     English,
     SimplifiedChinese,
+    Japanese,
 }
 
 impl Language {
+    /// Every language, in the order a picker lists them.
+    pub const ALL: [Language; 3] = [
+        Language::English,
+        Language::SimplifiedChinese,
+        Language::Japanese,
+    ];
+
     pub fn id(self) -> &'static str {
         match self {
             Language::English => "en",
             Language::SimplifiedChinese => "zh-Hans",
+            Language::Japanese => "ja",
         }
     }
 
@@ -731,6 +748,8 @@ impl Language {
             || id.starts_with("zh_cn")
         {
             Some(Language::SimplifiedChinese)
+        } else if id == "ja" || id.starts_with("ja-") || id.starts_with("ja_") {
+            Some(Language::Japanese)
         } else if id.starts_with("en") {
             Some(Language::English)
         } else {
@@ -743,13 +762,21 @@ impl Language {
         match self {
             Language::English => "English",
             Language::SimplifiedChinese => "简体中文",
+            Language::Japanese => "日本語",
         }
+    }
+
+    /// Whether it is written without spaces between words, as Chinese and
+    /// Japanese are.
+    pub fn without_spaces(self) -> bool {
+        matches!(self, Language::SimplifiedChinese | Language::Japanese)
     }
 }
 
 struct State {
     language: Language,
-    catalog: Catalog,
+    /// A catalog for each language the app can be shown in but English.
+    catalogs: HashMap<Language, Catalog>,
 }
 
 fn state() -> &'static RwLock<State> {
@@ -757,23 +784,33 @@ fn state() -> &'static RwLock<State> {
     STATE.get_or_init(|| {
         RwLock::new(State {
             language: Language::English,
-            catalog: Catalog::default(),
+            catalogs: HashMap::new(),
         })
     })
 }
 
-fn memo() -> &'static Mutex<HashMap<String, Option<String>>> {
-    static MEMO: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+type Memo = HashMap<(Language, String), Option<String>>;
+
+fn memo() -> &'static Mutex<Memo> {
+    static MEMO: OnceLock<Mutex<Memo>> = OnceLock::new();
     MEMO.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Adds lines to the Simplified Chinese catalog.
 pub fn install(text: &str) {
+    install_for(Language::SimplifiedChinese, text);
+}
+
+/// Adds lines to the catalog of `language`.
+pub fn install_for(language: Language, text: &str) {
+    if language == Language::English {
+        return;
+    }
     if let Ok(mut state) = state().write() {
-        state.catalog.extend(text);
+        state.catalogs.entry(language).or_default().extend(text);
     }
     if let Ok(mut memo) = memo().lock() {
-        memo.clear();
+        memo.retain(|(shown_in, _), _| *shown_in != language);
     }
 }
 
@@ -808,24 +845,28 @@ pub fn language() -> Language {
 
 /// `text` in the language the app is shown in, as far as it is known.
 pub fn tr(text: &str) -> Cow<'_, str> {
-    if language() == Language::English || text.trim().is_empty() {
+    let shown_in = language();
+    if shown_in == Language::English || text.trim().is_empty() {
         return Cow::Borrowed(text);
     }
-    if let Some(found) = memo().lock().ok().and_then(|memo| memo.get(text).cloned()) {
+    let key = (shown_in, text.to_string());
+    if let Some(found) = memo().lock().ok().and_then(|memo| memo.get(&key).cloned()) {
         return match found {
             Some(found) => Cow::Owned(found),
             None => Cow::Borrowed(text),
         };
     }
-    let found = state()
-        .read()
-        .ok()
-        .and_then(|state| state.catalog.translate(text));
+    let found = state().read().ok().and_then(|state| {
+        state
+            .catalogs
+            .get(&shown_in)
+            .and_then(|catalog| catalog.translate(text))
+    });
     if let Ok(mut memo) = memo().lock() {
         if memo.len() > 20_000 {
             memo.clear();
         }
-        memo.insert(text.to_string(), found.clone());
+        memo.insert(key, found.clone());
     }
     match found {
         Some(found) => Cow::Owned(found),
@@ -954,6 +995,22 @@ id_like_this\tSKIP
         );
         assert_eq!(Language::from_id("en-GB"), Some(Language::English));
         assert_eq!(Language::from_id("fr"), None);
+        assert_eq!(Language::from_id("ja-JP"), Some(Language::Japanese));
+        assert_eq!(Language::from_id("ja"), Some(Language::Japanese));
+    }
+
+    #[test]
+    fn each_language_has_its_own_catalog() {
+        install("Bench\t长椅\n");
+        install_for(Language::Japanese, "Bench\tベンチ\nMorning!\tおはよう！\n");
+        set_thread_language(Some(Language::Japanese));
+        assert_eq!(tr("Bench"), "ベンチ");
+        assert_eq!(tr("Morning! Bench."), "おはよう！ベンチ。");
+        set_thread_language(Some(Language::SimplifiedChinese));
+        assert_eq!(tr("Bench"), "长椅");
+        set_thread_language(None);
+        assert!(Language::Japanese.without_spaces());
+        assert_eq!(Language::Japanese.name(), "日本語");
     }
 
     const WHOLE: &str = "\

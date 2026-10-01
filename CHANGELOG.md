@@ -2,6 +2,29 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.26.0 (2026-10-01)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.25 replays event for event in both Packs.
+
+This is the third of the three releases from the [v0.23 review](docs/REVIEW_v0.23.md): the voice done right, and the first steps out into the world.
+
+- **A layered World voice.**
+  - A model now answers in a fixed shape: what it heard, whom it is about, the reply, and which of the World's numbered facts it rests on. A citation of a fact it was not given declines the answer.
+  - Structural checks run on every answer. Some findings are certain (a model naming itself, a model's refusal, markup, a script nobody here writes) and always decline. The rest are doubtful.
+  - **A second opinion:** a judge reads the facts, the player's words and the answer, and says keep or decline. It is the same key's cloud model (Claude Haiku 4.5 by default), this Mac's own model, or off. A judge can only decline. With no judge, or one that does not answer in time, the strict rules decide as before.
+  - The verdict and the judge's name are recorded in the World, so replay never asks anything.
+  - **On a fourth red-team set** of 833 lines, written blind in English, Chinese and Japanese: 91.6% of out-of-world answers declined and 0.6% of good answers wrongly declined, against a bar of 95% and 1%. Per language 91.9% / 91.1% / 91.8% and 0.8% / 0.0% / 0.8%. The strict rules alone: 55.8% and 0.8%. The judge's verdicts were recorded with Claude Haiku 4.5 reading its exact prompt through an agent, not through the app with a real key; see [KNOWN_ISSUES](docs/KNOWN_ISSUES.md).
+  - The strict rules also wrongly decline less: on the second set, 2 good answers instead of 8.
+- **Talk with a goal.** Now and then someone asks you a favour you can do by talking: look in on someone, invite someone out, cheer someone up, pass on an apology. Talk to that person and the favour is done, thanked, and both think better of each other. One at a time, none in the first two days, and one not done in three days lapses quietly. A note in the drawer keeps it in mind.
+- **日本語.** The interface, both Packs and every story are in Japanese, picked in Settings. People are heard in Japanese too, and keep their names in katakana. The World voice answers a Japanese player in Japanese.
+- **A free demo.** World Machine Demo is the first hour of Tiny Society: everything the full app does, up to day 21, then a warm card. The World it made stays in My Worlds, and the full app opens it and carries on. Releases now carry the demo beside the full app.
+- **Saving no longer holds up a turn.** The file is written just after each turn by a writer of its own, in order, synced and with the `.bak` kept. Closing a World or quitting waits for it. A turn with its save went from 61 ms to 31 ms (median, busy machine).
+- **At night the drawer, cards and pages are paper under a lamp,** readable as by day, while what hangs over the scene stays as dark as the sky.
+- **Moment strips show your designs** (a shop sign, a quilt, a flag or a sail).
+- **Day 1 is less bare:** washing on a line, a handcart on the quay, rowboats moored.
+- **Press kit** in [docs/press](docs/press): store page text in English, Chinese and Japanese, the AI disclosure, and a script that cuts a trailer from the app's own scenes.
+- [PRIVACY](docs/PRIVACY.md) now lists every request the voice and its judge make.
+
 ## v0.25.0 (2026-09-30)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Worlds saved by v0.20, v0.21, v0.22, v0.23 and v0.24 are kept as fixtures for both Packs; each replays event for event and plays on, including through the app's own file-opening path.

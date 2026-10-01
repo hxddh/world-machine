@@ -2347,6 +2347,8 @@ pub(crate) fn tick(
     // Each season turning brings a gift, and a year on, someone remembers.
     events.extend(lives::season_turns(world, actions, &cast, SEASON_PERIODS)?);
     events.extend(lives::remember_a_year(world, actions, &cast, YEAR)?);
+    // Last of all, someone may ask the player a favour talk can do.
+    events.extend(crate::speech::favour_asked(world, actions, away)?);
     Ok(events)
 }
 

@@ -11,7 +11,7 @@ use crate::{
 };
 use std::collections::BTreeSet;
 use world_core::EntityId;
-use world_pack_testkit::red_team::{self, Case, Proposes};
+use world_pack_testkit::red_team::{self, Case, Proposes, Said};
 
 const PACK: &str = "pocket-universe";
 
@@ -63,6 +63,15 @@ fn which(places: &[Place], case: &Case) -> usize {
 }
 
 fn said(places: &mut [Place], cases: &[Case]) -> Vec<Option<String>> {
+    said_fully(places, cases)
+        .into_iter()
+        .map(|said| said.declined)
+        .collect()
+}
+
+/// Says each case in its place, and returns what came of it, what the
+/// checks found and the exact prompt a judge would be asked.
+fn said_fully(places: &mut [Place], cases: &[Case]) -> Vec<Said> {
     let at = cases
         .iter()
         .map(|case| which(places, case))
@@ -75,10 +84,19 @@ fn said(places: &mut [Place], cases: &[Case]) -> Vec<Option<String>> {
             let world = &mut places[at].world;
             let people = crate::life::people_in(world.world().state());
             let who: EntityId = people[index % people.len()];
+            let kit = crate::speech::kit(world.world().state());
+            let hearing = conversation::hearing_for(world.world(), &kit, who, &case.asked)
+                .expect("the case can be said");
+            let checked = conversation::check(case.answer.trim(), &hearing);
+            let prompt = conversation::judge::judge_prompt(&hearing, &case.answer);
             world
-                .say_with(who, &case.asked, &mut Proposes(case.answer.clone()))
+                .say_with(who, &case.asked, &mut Proposes(case.answer.clone(), None))
                 .unwrap();
-            red_team::verdict(world.world(), case)
+            Said {
+                declined: red_team::verdict(world.world(), case),
+                checked,
+                prompt,
+            }
         })
         .collect()
 }
@@ -115,4 +133,20 @@ fn the_later_blind_sets_are_measured() {
         let mut places = places();
         (said(&mut places, out), said(&mut places, kept))
     });
+}
+
+/// The development sets, check by check; run with `-- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn the_development_sets_are_measured() {
+    red_team::measure_the_development_sets(PACK, |cases| said_fully(&mut places(), cases));
+}
+
+/// Writes the judge prompt and the strict outcome of every Pocket Universe
+/// line of the files `WORLD_MACHINE_REDTEAM` names (comma-separated
+/// paths) into `WORLD_MACHINE_JUDGE_DIR`; run with `-- --ignored`.
+#[test]
+#[ignore]
+fn judge_prompts_are_written() {
+    red_team::write_judge_prompts(PACK, |cases| said_fully(&mut places(), cases));
 }

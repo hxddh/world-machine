@@ -17,6 +17,16 @@ thread_local! {
     /// Kept per thread so that tests drawing windows side by side, one of
     /// them dark, never see each other's.
     static DARK: Cell<bool> = const { Cell::new(false) };
+    /// The window's own appearance, whatever the hour: what its reading
+    /// surfaces keep (see [`reading`]).
+    static OWN_DARK: Cell<bool> = const { Cell::new(false) };
+    /// Whether the window is over a night scene.
+    static NIGHT: Cell<bool> = const { Cell::new(false) };
+    /// Whether light colours are drawn as paper under a lamp.
+    static LAMP: Cell<bool> = const { Cell::new(false) };
+    /// Whether reading surfaces keep their own light at night (they do;
+    /// tests turn it off to tell them from the rest).
+    static READING_LIGHT: Cell<bool> = const { Cell::new(true) };
 }
 
 /// Records whether windows currently render in the dark appearance.
@@ -25,14 +35,65 @@ thread_local! {
 /// reports, so either appearance can be checked on a machine that only
 /// offers one (the Linux preview under Xvfb reports light, always).
 pub fn set_dark(dark: bool) {
-    DARK.with(|dark_now| dark_now.set(forced_appearance().unwrap_or(dark)));
+    set_dark_or_night(dark, false);
 }
 
 /// Records the appearance of a window that also goes dark at night (a
 /// World's, over its night sky): dark if the system is (or is forced to
-/// be), and at `night` whatever it is.
+/// be), and at `night` whatever it is. What it lays over its scene is
+/// drawn so; what the player reads in it keeps the window's own
+/// appearance ([`reading`]).
 pub fn set_dark_or_night(dark: bool, night: bool) {
-    DARK.with(|dark_now| dark_now.set(night || forced_appearance().unwrap_or(dark)));
+    let own = forced_appearance().unwrap_or(dark);
+    OWN_DARK.with(|cell| cell.set(own));
+    NIGHT.with(|cell| cell.set(night));
+    LAMP.with(|cell| cell.set(false));
+    DARK.with(|dark_now| dark_now.set(night || own));
+}
+
+/// Builds a reading surface (a card, the drawer, a page) in the window's
+/// own appearance rather than the night's: at night in the light
+/// appearance it is paper under a lamp, warm and a little dimmer than by
+/// day, with its words as dark as ever, so it reads as easily as by day
+/// without glaring; in the dark appearance it is dark as always.
+pub fn reading<T>(build: impl FnOnce() -> T) -> T {
+    if !READING_LIGHT.with(Cell::get) {
+        return build();
+    }
+    let (dark, lamp) = (is_dark(), is_lamp());
+    let own = OWN_DARK.with(Cell::get);
+    DARK.with(|cell| cell.set(own));
+    LAMP.with(|cell| cell.set(!own && NIGHT.with(Cell::get)));
+    let built = build();
+    DARK.with(|cell| cell.set(dark));
+    LAMP.with(|cell| cell.set(lamp));
+    built
+}
+
+/// Whether reading surfaces keep their own light at night (on unless a
+/// test turns it off, to draw them as the rest of the night's interface).
+pub fn set_reading_light(on: bool) {
+    READING_LIGHT.with(|cell| cell.set(on));
+}
+
+/// Whether light colours are drawn now as paper under a lamp: while a
+/// reading surface is built at night in the light appearance.
+pub fn is_lamp() -> bool {
+    LAMP.with(Cell::get)
+}
+
+/// What lamplight does to a colour: each channel dimmed a little, blue the
+/// most, so white paper turns the warm cream of a page under a lamp and
+/// ink stays ink.
+pub const LAMPLIGHT: [f32; 3] = [0.9, 0.86, 0.78];
+
+/// A light-palette colour as it looks under a lamp.
+pub fn lamplit(hex: u32) -> u32 {
+    let channel = |shift: u32, by: f32| {
+        let value = ((hex >> shift) & 0xff) as f32 * by;
+        (value.round() as u32).min(255)
+    };
+    (channel(16, LAMPLIGHT[0]) << 16) | (channel(8, LAMPLIGHT[1]) << 8) | channel(0, LAMPLIGHT[2])
 }
 
 fn forced_appearance() -> Option<bool> {
@@ -54,6 +115,8 @@ pub fn is_dark() -> bool {
 pub fn adapt(hex: u32) -> u32 {
     if is_dark() {
         darken(hex)
+    } else if is_lamp() {
+        lamplit(hex)
     } else {
         hex
     }
@@ -142,6 +205,54 @@ mod tests {
 
     fn lightness(hex: u32) -> f32 {
         to_hsl(hex).2
+    }
+
+    /// Relative luminance, as WCAG has it.
+    fn luminance(hex: u32) -> f32 {
+        let linear = |shift: u32| {
+            let c = ((hex >> shift) & 0xff) as f32 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(16) + 0.7152 * linear(8) + 0.0722 * linear(0)
+    }
+
+    fn contrast(a: u32, b: u32) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// At night a World window's scene and what hangs over it go dark,
+    /// while its cards and drawer keep the player's own appearance: in the
+    /// light one, paper under a lamp with its words as easy to read as by
+    /// day; in the dark one, dark as ever.
+    #[test]
+    fn reading_surfaces_keep_their_own_light_at_night() {
+        set_dark_or_night(false, true);
+        assert!(is_dark(), "the night's interface is dark");
+        let paper = reading(|| tokens::SURFACE.hex());
+        let ink = reading(|| tokens::TEXT.hex());
+        let soft = reading(|| tokens::TEXT_SECONDARY.hex());
+        assert!(is_dark() && !is_lamp(), "and dark again after");
+        let (r, g, b) = ((paper >> 16) & 0xff, (paper >> 8) & 0xff, paper & 0xff);
+        assert!(r > g && g > b, "warm paper: {paper:06x}");
+        assert!(
+            luminance(paper) < luminance(tokens::SURFACE.light),
+            "dimmer than day"
+        );
+        assert!(contrast(paper, ink) >= 7.0, "{:.1}", contrast(paper, ink));
+        assert!(contrast(paper, soft) >= 4.5, "{:.1}", contrast(paper, soft));
+
+        // In the dark appearance it is dark, day or night.
+        set_dark_or_night(true, true);
+        assert_eq!(reading(|| tokens::SURFACE.hex()), tokens::SURFACE.dark);
+        // By day, nothing changes.
+        set_dark_or_night(false, false);
+        assert_eq!(reading(|| tokens::SURFACE.hex()), tokens::SURFACE.light);
+        set_dark(false);
     }
 
     #[test]

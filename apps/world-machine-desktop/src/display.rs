@@ -53,6 +53,8 @@ mod tests {
         let mut settings = AppSettings::empty();
         settings.language = Some("zh-Hans".into());
         assert_eq!(language(Some(&settings)), Language::SimplifiedChinese);
+        settings.language = Some("ja".into());
+        assert_eq!(language(Some(&settings)), Language::Japanese);
         settings.language = Some("en".into());
         assert_eq!(language(Some(&settings)), Language::English);
         settings.text_scale = Some(175);

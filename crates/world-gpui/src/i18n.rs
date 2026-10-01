@@ -8,6 +8,9 @@ use world_projection::{Almanac, Moment, ProjectionSnapshot, StoryPage};
 /// The app's own words in Simplified Chinese.
 pub const APP_ZH_HANS: &str = include_str!("../locales/zh-Hans.tsv");
 
+/// The app's own words in Japanese.
+pub const APP_JA: &str = include_str!("../locales/ja.tsv");
+
 fn put(text: &mut String) {
     if !text.is_empty() {
         *text = tr_owned(text);
@@ -116,6 +119,10 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     for letter in &mut snapshot.letters {
         put(&mut letter.note);
     }
+    if let Some(favour) = &mut snapshot.favour {
+        put(&mut favour.note);
+        put(&mut favour.hint);
+    }
     for entry in &mut snapshot.book {
         put(&mut entry.shelf);
         put(&mut entry.name);
@@ -155,8 +162,9 @@ fn put_almanac(almanac: &mut Almanac) {
     }
 }
 
-/// How a unit of a World's time is said in Chinese: the nth one, the next
-/// one, and a count of them. `None` for a unit this table does not know.
+/// How a unit of a World's time is said in Chinese or Japanese: the nth
+/// one, the next one, and a count of them. `None` for a unit this table
+/// does not know.
 struct ZhUnit {
     nth: &'static str,
     next: &'static str,
@@ -165,7 +173,11 @@ struct ZhUnit {
 
 fn zh_unit(unit: &str) -> Option<ZhUnit> {
     let unit = unit.trim().to_lowercase();
-    Some(match unit.strip_suffix('s').unwrap_or(&unit) {
+    let unit = unit.strip_suffix('s').unwrap_or(&unit);
+    if japanese() {
+        return ja_unit(unit);
+    }
+    Some(match unit {
         "day" | "日" | "天" => ZhUnit {
             nth: "第{n}天",
             next: "新的一天",
@@ -200,8 +212,48 @@ fn zh_unit(unit: &str) -> Option<ZhUnit> {
     })
 }
 
+fn ja_unit(unit: &str) -> Option<ZhUnit> {
+    Some(match unit {
+        "day" | "日" => ZhUnit {
+            nth: "{n}日目",
+            next: "新しい一日",
+            count: "{n}日",
+        },
+        "sol" | "ソル" => ZhUnit {
+            nth: "{n}ソル目",
+            next: "次のソル",
+            count: "{n}ソル",
+        },
+        "night" | "夜" => ZhUnit {
+            nth: "{n}夜目",
+            next: "次の夜",
+            count: "{n}夜",
+        },
+        "aurora" | "オーロラ" => ZhUnit {
+            nth: "{n}度目のオーロラ",
+            next: "次のオーロラ",
+            count: "オーロラ{n}回",
+        },
+        "week" | "週" => ZhUnit {
+            nth: "{n}週目",
+            next: "新しい一週間",
+            count: "{n}週間",
+        },
+        "time" => ZhUnit {
+            nth: "時刻 {n}",
+            next: "次のひととき",
+            count: "{n}刻",
+        },
+        _ => return None,
+    })
+}
+
 fn chinese() -> bool {
     language() == Language::SimplifiedChinese
+}
+
+fn japanese() -> bool {
+    language() == Language::Japanese
 }
 
 /// Whether the app is shown in Chinese now.
@@ -209,37 +261,49 @@ pub fn is_chinese() -> bool {
     chinese()
 }
 
-/// "Year 2", 第 2 年.
+/// Whether the app is shown in Japanese now.
+pub fn is_japanese() -> bool {
+    japanese()
+}
+
+/// "Year 2", 第 2 年, 2年目.
 pub fn year_label(year: u32) -> String {
     if chinese() {
         format!("第 {year} 年")
+    } else if japanese() {
+        format!("{year}年目")
     } else {
         format!("Year {year}")
     }
 }
 
-/// "Chapter 12", 第 12 章.
+/// "Chapter 12", 第 12 章, 第12章.
 pub fn chapter_label(number: u32) -> String {
     if chinese() {
         format!("第 {number} 章")
+    } else if japanese() {
+        format!("第{number}章")
     } else {
         format!("Chapter {number}")
     }
 }
 
-/// "12 chapters", 12 章.
+/// "12 chapters", 12 章, 全12章.
 pub fn chapters_count(count: usize) -> String {
-    match (chinese(), count) {
-        (true, _) => format!("{count} 章"),
-        (false, 1) => "1 chapter".into(),
-        (false, _) => format!("{count} chapters"),
+    match (chinese(), japanese(), count) {
+        (true, _, _) => format!("{count} 章"),
+        (_, true, _) => format!("全{count}章"),
+        (_, _, 1) => "1 chapter".into(),
+        _ => format!("{count} chapters"),
     }
 }
 
-/// "2 of 3 done", 已完成 2/3.
+/// "2 of 3 done", 已完成 2/3, 2/3 完了.
 pub fn parts_done(done: u32, parts: u32) -> String {
     if chinese() {
         format!("已完成 {done}/{parts}")
+    } else if japanese() {
+        format!("{done}/{parts} 完了")
     } else {
         format!("{done} of {parts} done")
     }
@@ -247,34 +311,38 @@ pub fn parts_done(done: u32, parts: u32) -> String {
 
 /// "3 of 10", 3 / 10.
 pub fn of_count(some: usize, all: usize) -> String {
-    if chinese() {
+    if chinese() || japanese() {
         format!("{some} / {all}")
     } else {
         format!("{some} of {all}")
     }
 }
 
-/// "All 18", 全部 18.
+/// "All 18", 全部 18, すべて 18.
 pub fn all_count(count: usize) -> String {
     if chinese() {
         format!("全部 {count}")
+    } else if japanese() {
+        format!("すべて {count}")
     } else {
         format!("All {count}")
     }
 }
 
-/// "Built · 18", 已建成 · 18.
+/// "Built · 18", 已建成 · 18, 完成 · 18.
 pub fn built_count(count: usize) -> String {
     if chinese() {
         format!("已建成 · {count}")
+    } else if japanese() {
+        format!("完成 · {count}")
     } else {
         format!("Built · {count}")
     }
 }
 
-/// "Spring, Year 2", 第 2 年 · 春.
+/// "Spring, Year 2", 第 2 年 · 春, 2年目 · 春.
 pub fn season_in_year(season: &str, year: u32) -> String {
-    if !chinese() {
+    if !chinese() && !japanese() {
         return format!("{season}, Year {year}");
     }
     let season = match season {
@@ -284,43 +352,72 @@ pub fn season_in_year(season: &str, year: u32) -> String {
         "Winter" => "冬".to_string(),
         other => tr_owned(other),
     };
-    format!("第 {year} 年 · {season}")
+    format!("{} · {season}", year_label(year))
 }
 
-/// "and 12 more", 还有 12 个.
+/// "and 12 more", 还有 12 个, ほか 12 件.
 pub fn more_kept(count: usize) -> String {
     if chinese() {
         format!("还有 {count} 个")
+    } else if japanese() {
+        format!("ほか {count} 件")
     } else {
         format!("and {count} more")
     }
 }
 
-/// "Choose where the bench goes.", 选择长椅放在哪里。
+/// "Choose where the bench goes.", 选择长椅放在哪里。, ベンチを置く場所を選んでください。
 pub fn choose_where(thing: &str, now: bool) -> String {
-    match (chinese(), now) {
-        (true, false) => format!("选择{thing}放在哪里。"),
-        (true, true) => format!("选择把{thing}挪到哪里。"),
-        (false, false) => format!("Choose where the {} goes.", thing.to_lowercase()),
-        (false, true) => format!("Choose where the {} goes now.", thing.to_lowercase()),
+    match (chinese(), japanese(), now) {
+        (true, _, false) => format!("选择{thing}放在哪里。"),
+        (true, _, true) => format!("选择把{thing}挪到哪里。"),
+        (_, true, false) => format!("{thing}を置く場所を選んでください。"),
+        (_, true, true) => format!("{thing}の移動先を選んでください。"),
+        (_, _, false) => format!("Choose where the {} goes.", thing.to_lowercase()),
+        (_, _, true) => format!("Choose where the {} goes now.", thing.to_lowercase()),
     }
 }
 
-/// "From Mara", 来自 Mara.
+/// "From Mara", 来自 Mara, マーラから.
 pub fn from_whom(names: &str) -> String {
     if chinese() {
         format!("来自{names}")
+    } else if japanese() {
+        format!("{names}から")
     } else {
         format!("From {names}")
     }
 }
 
-/// The `n`th of a World's `unit`: "Day 12", "Sol 5"; in Chinese the
-/// whole phrase in its own order, 第12天, 第5个火星日.
+/// "Mara and Leo", 2 names joined as the language joins them.
+pub fn two_names(one: &str, two: &str) -> String {
+    if chinese() {
+        format!("{one} 和 {two}")
+    } else if japanese() {
+        format!("{one}と{two}")
+    } else {
+        format!("{one} and {two}")
+    }
+}
+
+/// "Mara, Leo and 2 others".
+pub fn names_and_others(one: &str, two: &str, others: usize) -> String {
+    if chinese() {
+        format!("{one}、{two}等 {} 人", others + 2)
+    } else if japanese() {
+        format!("{one}、{two}ほか{others}人")
+    } else {
+        format!("{one}, {two} and {others} others")
+    }
+}
+
+/// The `n`th of a World's `unit`: "Day 12", "Sol 5"; in Chinese and
+/// Japanese the whole phrase in its own order, 第12天, 12日目.
 pub fn day_label(unit: &str, n: impl std::fmt::Display) -> String {
-    match zh_unit(unit).filter(|_| chinese()) {
+    let wide = chinese() || japanese();
+    match zh_unit(unit).filter(|_| wide) {
         Some(zh) => zh.nth.replace("{n}", &n.to_string()),
-        None if chinese() => format!("{} {n}", tr_owned(unit)),
+        None if wide => format!("{} {n}", tr_owned(unit)),
         None => format!("{unit} {n}"),
     }
 }
@@ -359,7 +456,7 @@ pub fn span_label(snapshot: &ProjectionSnapshot, from: u64, to: u64) -> String {
 /// "3 days", "1 sol": a count of a World's unit, lower case in English.
 pub fn count_of(count: u64, unit: &str) -> String {
     let unit = unit.to_lowercase();
-    match zh_unit(&unit).filter(|_| chinese()) {
+    match zh_unit(&unit).filter(|_| chinese() || japanese()) {
         Some(zh) => zh.count.replace("{n}", &count.to_string()),
         None if count == 1 => format!("1 {unit}"),
         None => format!("{count} {unit}s"),
@@ -372,28 +469,41 @@ pub fn time_passed(periods: u64, unit: &str) -> String {
     if chinese() {
         return format!("已过去 {}", count_of(periods, unit));
     }
+    if japanese() {
+        return format!("{}が過ぎました", count_of(periods, unit));
+    }
     let verb = if periods == 1 { "has" } else { "have" };
     format!("{} {verb} passed", count_of(periods, unit))
 }
 
 /// "Keeps going without you · next sol in 5 h": what the app is about, in
-/// one line, with the one number that makes it true. In Chinese, whole
-/// sentences in their own order.
+/// one line, with the one number that makes it true. In Chinese and
+/// Japanese, whole sentences in their own order.
 pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
     let unit = unit.to_lowercase();
-    let zh = zh_unit(&unit).filter(|_| chinese());
+    let zh = zh_unit(&unit).filter(|_| chinese() || japanese());
     if remaining_seconds == 0 {
         return match zh {
+            Some(zh) if japanese() => {
+                format!(
+                    "留守のあいだも暮らしは続きます · 次に来たときには{}",
+                    zh.next
+                )
+            }
             Some(zh) => format!("你不在时，这里照常继续 · {}在等你下次到访", zh.next),
             None => format!("Keeps going without you · a new {unit} waits for your next visit"),
         };
     }
-    let (count, english, chinese_unit) = if remaining_seconds >= 3600 {
-        (remaining_seconds.div_ceil(3600), "h", "小时")
+    let (count, english, chinese_unit, japanese_unit) = if remaining_seconds >= 3600 {
+        (remaining_seconds.div_ceil(3600), "h", "小时", "時間")
     } else {
-        (remaining_seconds.div_ceil(60).max(1), "min", "分钟")
+        (remaining_seconds.div_ceil(60).max(1), "min", "分钟", "分")
     };
     match zh {
+        Some(zh) if japanese() => format!(
+            "留守のあいだも暮らしは続きます · あと{count}{japanese_unit}で{}",
+            zh.next
+        ),
         Some(zh) => format!(
             "你不在时，这里照常继续 · {count} {chinese_unit}后便是{}",
             zh.next
@@ -406,6 +516,9 @@ pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
 pub fn here_since(unit: &str, day: u32) -> String {
     if chinese() {
         return format!("自{}起在这里", day_label(unit, day));
+    }
+    if japanese() {
+        return format!("{}からここに", day_label(unit, day));
     }
     format!("Here since {}", day_label(unit, day))
 }
@@ -428,6 +541,16 @@ pub fn localize_story(mut page: StoryPage) -> StoryPage {
         StoryPage::Almanac(almanac) => put_almanac(almanac),
     }
     page
+}
+
+/// The app's own catalogs, one for each language it is shown in but
+/// English, for tests that every word is in each of them.
+#[cfg(test)]
+pub(crate) fn app_catalogs() -> [world_i18n::Catalog; 2] {
+    [
+        world_i18n::Catalog::parse(APP_ZH_HANS),
+        world_i18n::Catalog::parse(APP_JA),
+    ]
 }
 
 #[cfg(test)]
@@ -472,6 +595,19 @@ mod tests {
         assert_eq!(line, "你不在时，这里照常继续 · 6 小时后便是新的一天");
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
         assert_eq!(here_since("Day", 703), "自第703天起在这里");
+        set_thread_language(Some(Language::Japanese));
+        assert_eq!(moment_label(&calendar("Day"), 10820), "1082日目");
+        assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
+        assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
+        assert_eq!(time_passed(5, "day"), "5日が過ぎました");
+        let line = keeps_going(6 * 3600, "day");
+        assert_eq!(
+            line,
+            "留守のあいだも暮らしは続きます · あと6時間で新しい一日"
+        );
+        assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
+        assert_eq!(year_label(2), "2年目");
+        assert_eq!(season_in_year("Spring", 2), "2年目 · 春");
         set_thread_language(None);
     }
 

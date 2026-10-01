@@ -15,10 +15,27 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="GitHub owner/name used to link the install guide at the release tag.",
     )
+    parser.add_argument(
+        "--demo-manifest",
+        type=Path,
+        help="The demo's manifest, when the release carries the demo beside the full app.",
+    )
     return parser.parse_args()
 
 
-def render(manifest: dict, repository: str) -> str:
+def demo_section(demo: dict | None) -> str:
+    """A short note on the free demo published beside the full app."""
+    if not demo:
+        return ""
+    download = demo.get("dmg") or demo["artifact"]
+    return f"""
+## The free demo
+
+`{download}` is **World Machine Demo**: the first hour of Tiny Society, signed the same way as the full app. When its last day comes, the harbour is kept in your Library, and the full app opens it and carries on from there. SHA-256 (zip): `{demo["sha256"]}`.
+"""
+
+
+def render(manifest: dict, repository: str, demo: dict | None = None) -> str:
     tag = str(manifest["tag"])
     signing = manifest.get("signing")
     notarized = manifest.get("notarized")
@@ -95,13 +112,14 @@ shasum -a 256 -c {artifact}.sha256
 ```
 
 Then open `release-manifest.json` and confirm the tag, commit, and checksum above.
-"""
+{demo_section(demo)}"""
 
 
 def main() -> None:
     args = parse_args()
     manifest = json.loads(args.manifest.read_text())
-    print(render(manifest, args.repository), end="")
+    demo = json.loads(args.demo_manifest.read_text()) if args.demo_manifest else None
+    print(render(manifest, args.repository, demo), end="")
 
 
 if __name__ == "__main__":

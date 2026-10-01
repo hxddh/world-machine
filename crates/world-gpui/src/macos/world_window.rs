@@ -2556,27 +2556,29 @@ impl ProjectionView {
             let from = label_of(&self.snapshot, keepsake.from).unwrap_or_default();
             // It rises in on a spring and fades away at the end.
             let fading = ((GIFT_SECONDS - age) / 0.6).clamp(0.0, 1.0);
-            let gift = div()
-                .id("gift-shown")
-                .role(gpui::Role::Status)
-                .aria_label(format!("{from} gave you {}", keepsake.what))
-                .max_w(px(420.0))
-                .px_4()
-                .py_2()
-                .rounded_xl()
-                .bg(color(tokens::SURFACE))
-                .shadow_md()
-                .flex()
-                .flex_col()
-                .items_center()
-                .child(ui::caption(format!("{from} gave you")))
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(color(tokens::TEXT))
-                        .child(capitalized(&keepsake.what)),
-                );
+            let gift = world_theme::reading(|| {
+                div()
+                    .id("gift-shown")
+                    .role(gpui::Role::Status)
+                    .aria_label(format!("{from} gave you {}", keepsake.what))
+                    .max_w(px(420.0))
+                    .px_4()
+                    .py_2()
+                    .rounded_xl()
+                    .bg(color(tokens::SURFACE))
+                    .shadow_md()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .child(ui::caption(format!("{from} gave you")))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(color(tokens::TEXT))
+                            .child(capitalized(&keepsake.what)),
+                    )
+            });
             root = root.child(
                 div()
                     .absolute()
@@ -2637,7 +2639,10 @@ impl ProjectionView {
                     .children(hint),
             );
         }
-        if let Some(beginning) = self.render_beginning(width >= 760.0, cx) {
+        // What the player reads (the cards, the drawer, the pages) keeps
+        // the window's own light at night; what hangs over the scene (the
+        // handles, the zoom, names and speech) is the night's.
+        if let Some(beginning) = lit(|| self.render_beginning(width >= 760.0, cx)) {
             root = root.child(
                 div()
                     .absolute()
@@ -2667,11 +2672,11 @@ impl ProjectionView {
             {
                 None
             } else if self.retelling.is_some() {
-                self.render_retelling(cx)
-            } else if let Some(chapter) = self.render_chapter_end(cx) {
+                lit(|| self.render_retelling(cx))
+            } else if let Some(chapter) = lit(|| self.render_chapter_end(cx)) {
                 Some(chapter)
             } else {
-                self.render_card(cx)
+                lit(|| self.render_card(cx))
             };
             // A pointer at the cards sits just above them, never on them.
             let card = card.map(|card| match pointing {
@@ -2703,12 +2708,12 @@ impl ProjectionView {
             .asking
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied())
         {
-            root = root.child(self.render_asking(who, x, y, &stage, cx));
+            root = root.child(lit_one(|| self.render_asking(who, x, y, &stage, cx)));
         }
-        if let Some(offers) = self.render_offers(&stage, camera, cx) {
+        if let Some(offers) = lit(|| self.render_offers(&stage, camera, cx)) {
             root = root.child(offers);
         }
-        if let Some(card) = self.render_mark_card(&stage, camera, cx) {
+        if let Some(card) = lit(|| self.render_mark_card(&stage, camera, cx)) {
             root = root.child(card);
         }
         let design_target = self.looking.marking.design.as_ref().and_then(|designing| {
@@ -2721,22 +2726,22 @@ impl ProjectionView {
             let (x, _, w, _) = stage.frame_of(index)?;
             Some(camera.at(&stage, x + w / 2.0, 0.0).0)
         });
-        if let Some(design) = self.render_design(width, height, design_target, cx) {
+        if let Some(design) = lit(|| self.render_design(width, height, design_target, cx)) {
             root = root.child(design);
         }
-        if let Some(hands) = self.render_hands(cx) {
+        if let Some(hands) = lit(|| self.render_hands(cx)) {
             root = root.child(hands);
         }
         if self.looking.drawer {
-            root = root.child(self.render_drawer(cx));
+            root = root.child(world_theme::reading(|| self.render_drawer(cx)));
         }
-        if let Some(strip) = self.render_moment_up(width, height, cx) {
+        if let Some(strip) = lit(|| self.render_moment_up(width, height, cx)) {
             root = root.child(strip);
         }
-        if let Some(page) = self.render_page(width, height, cx) {
+        if let Some(page) = lit(|| self.render_page(width, height, cx)) {
             root = root.child(page);
         }
-        if let Some(status) = self.render_status() {
+        if let Some(status) = lit(|| self.render_status()) {
             root = root.child(
                 div()
                     .absolute()
@@ -3916,6 +3921,18 @@ fn frame_glows(frame: &diorama::Frame, index: usize) -> bool {
         .any(|person| person.index == index && person.glow.is_some())
 }
 
+/// Something the player reads (a card, a page), built in the window's own
+/// light rather than the night's (see [`world_theme::reading`]), its
+/// words too.
+fn lit<E: Styled>(build: impl FnOnce() -> Option<E>) -> Option<E> {
+    world_theme::reading(|| build().map(|surface| surface.text_color(color(tokens::TEXT))))
+}
+
+/// [`lit`], for something always there.
+fn lit_one<E: Styled>(build: impl FnOnce() -> E) -> E {
+    world_theme::reading(|| build().text_color(color(tokens::TEXT)))
+}
+
 /// A name under something on the scene.
 pub(crate) fn name_tag(name: String) -> Div {
     div()
@@ -4862,28 +4879,29 @@ mod tests {
         assert_eq!(node.label(), Some("Money in town: 11,485"));
     }
 
-    /// Every name an icon shows on hover is in the app's Chinese catalog.
+    /// Every name an icon shows on hover is in each of the app's catalogs.
     #[test]
     fn every_icon_name_is_translated() {
-        let catalog = world_i18n::Catalog::parse(crate::i18n::APP_ZH_HANS);
-        for name in [
-            "Make something (H)",
-            "Show as a strip along the edge of the screen (⌥⌘S)",
-            "The drawer: story, letters, keepsakes and the book (⌘I)",
-            "Zoom",
-            "Zoom in (+)",
-            "Zoom out (−)",
-            "Previous card (↑)",
-            "Next card (↓)",
-            "Close the drawer",
-            "Close",
-            "Close the strip",
-            "Put the letter away",
-            "Dismiss this hint",
-            "Turn the card over: what this would change (Space)",
-            "Turn the card back (Space)",
-        ] {
-            assert!(catalog.exact(name).is_some(), "no zh-Hans for {name:?}");
+        for catalog in crate::i18n::app_catalogs() {
+            for name in [
+                "Make something (H)",
+                "Show as a strip along the edge of the screen (⌥⌘S)",
+                "The drawer: story, letters, keepsakes and the book (⌘I)",
+                "Zoom",
+                "Zoom in (+)",
+                "Zoom out (−)",
+                "Previous card (↑)",
+                "Next card (↓)",
+                "Close the drawer",
+                "Close",
+                "Close the strip",
+                "Put the letter away",
+                "Dismiss this hint",
+                "Turn the card over: what this would change (Space)",
+                "Turn the card back (Space)",
+            ] {
+                assert!(catalog.exact(name).is_some(), "no translation for {name:?}");
+            }
         }
     }
 

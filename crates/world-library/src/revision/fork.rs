@@ -20,7 +20,10 @@ impl DurableWorldSession {
     ) -> Result<WorldDocumentSummary, LibraryError> {
         // A copy written by this app would lose what a newer one wrote.
         self.refuse_if_newer()?;
-        self.target.verify_revision(self.revision, library)?;
+        // The parent as its file holds it: every change written first.
+        self.flush()?;
+        self.target
+            .verify_revision(self.expected_revision(), library)?;
 
         let archive = required_archive(self.session.as_ref())?;
         let lineage = WorldLineage {
@@ -43,7 +46,8 @@ impl DurableWorldSession {
 
         // Re-check after materializing the live archive so a concurrent source
         // edit cannot be ignored between the first revision check and creation.
-        self.target.verify_revision(self.revision, library)?;
+        self.target
+            .verify_revision(self.expected_revision(), library)?;
         library.create_from_document(document_id, &fork)
     }
 }

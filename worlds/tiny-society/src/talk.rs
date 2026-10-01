@@ -182,6 +182,10 @@ fn in_passing(world: &World, event: &Event, who: EntityId) -> String {
 
 /// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
+    if let Some((who, line)) = conversation::favour::said(world.state(), event) {
+        world.state().entity(who)?;
+        return Some((who, line));
+    }
     if let Some((who, line)) = crate::story::line(event) {
         world.state().entity(who)?;
         // A birthday's "Last time: {name} had a party" says whose.
@@ -265,8 +269,10 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
     for event in recent {
         // What someone makes of the player's deed is said to them, and
         // heard even from someone who has already spoken today.
-        let story =
-            crate::projection::narrated_title(world, event).is_some() || event.kind == "reacted";
+        // So is a favour asked of them, and the thanks for one done.
+        let story = crate::projection::narrated_title(world, event).is_some()
+            || event.kind == "reacted"
+            || conversation::favour::is_favour(event);
         if !story && event.world_time != latest {
             continue;
         }

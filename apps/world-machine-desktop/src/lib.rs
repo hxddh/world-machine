@@ -5,6 +5,7 @@
 
 pub mod ambience;
 pub mod app_settings;
+pub mod demo;
 pub mod display;
 pub mod key_store;
 pub mod window_state;

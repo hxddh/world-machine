@@ -70,6 +70,8 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_machine_desktop::ambience;
 #[cfg(target_os = "macos")]
+use world_machine_desktop::demo;
+#[cfg(target_os = "macos")]
 use world_machine_desktop::window_state::{self, StoredWindowBounds};
 #[cfg(target_os = "macos")]
 use world_pack_bundle::PACK_BUNDLE_SUFFIX;
@@ -237,7 +239,8 @@ pub(crate) fn mark_library_changed() {
 
 #[cfg(target_os = "macos")]
 fn library_change_revision() -> u64 {
-    LIBRARY_CHANGE_REVISION.load(Ordering::Relaxed)
+    // A World's file written away from its turn changes the library too.
+    LIBRARY_CHANGE_REVISION.load(Ordering::Relaxed) + world_library::files_written()
 }
 
 #[cfg(target_os = "macos")]
@@ -256,16 +259,39 @@ struct HostProjectionController {
     /// What the World held when last seen, for the sound to hear a letter
     /// that a turn brought.
     tally: std::cell::Cell<Option<ambience::Tally>>,
+    /// Set when the demo held back the day after its last: the window then
+    /// shows the ending card (see `demo`).
+    demo_ending: Rc<std::cell::Cell<bool>>,
 }
 
 #[cfg(target_os = "macos")]
 impl HostProjectionController {
-    fn new(document: SharedDocument) -> Self {
+    fn new(document: SharedDocument, demo_ending: Rc<std::cell::Cell<bool>>) -> Self {
         Self {
             document,
             tally: std::cell::Cell::new(None),
+            demo_ending,
         }
     }
+}
+
+/// Whether the demo holds `intent` back in this World: the day after its
+/// last, which it answers with the ending card instead.
+#[cfg(target_os = "macos")]
+fn demo_holds(session: &DurableWorldSession, intent: &world_gpui::ProjectionIntent) -> bool {
+    if !demo::ENABLED {
+        return false;
+    }
+    let world_gpui::ProjectionIntent::InvokeCommand(command) = intent else {
+        return false;
+    };
+    let snapshot = session.snapshot();
+    let day = snapshot
+        .calendar
+        .as_ref()
+        .map(|calendar| demo::day_of(snapshot.world_time, calendar.length))
+        .unwrap_or(1);
+    demo::gate(&session.pack().id, day, command) == demo::Gate::Ending
 }
 
 /// What a World shows that its sound listens for.
@@ -322,6 +348,10 @@ impl world_gpui::ProjectionController for HostProjectionController {
         intent: world_gpui::ProjectionIntent,
     ) -> Result<world_gpui::ProjectionSnapshot, String> {
         let mut document = self.document.borrow_mut();
+        if demo_holds(&document.session, &intent) {
+            self.demo_ending.set(true);
+            return Ok(world_gpui::i18n::localize(document.session.snapshot()));
+        }
         let registry = Arc::clone(&document.registry);
         let library = Arc::clone(&document.library);
         let is_library_world = document.session.document_id().is_some();
@@ -395,6 +425,9 @@ struct WorldDocumentView {
     next_move_at: Option<u64>,
     /// Whether the Share list under the title bar is open.
     share_open: bool,
+    /// Whether the demo's ending card is up (set by the controller when the
+    /// day after the demo's last is asked for; always false in the full app).
+    demo_ending: Rc<std::cell::Cell<bool>>,
 }
 
 /// A World's own view in its window: the scene with no title bar of its
@@ -439,7 +472,9 @@ impl WorldDocumentView {
                 state.session.read_only_reason(),
             )
         };
-        let controller = HostProjectionController::new(Rc::clone(&document));
+        let demo_ending = Rc::new(std::cell::Cell::new(false));
+        let controller =
+            HostProjectionController::new(Rc::clone(&document), Rc::clone(&demo_ending));
         let projection = cx.new(|_| world_view(controller));
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
@@ -460,6 +495,7 @@ impl WorldDocumentView {
             status: read_only.map(DocumentStatus::error),
             next_move_at,
             share_open: false,
+            demo_ending,
         }
     }
 
@@ -560,7 +596,8 @@ impl WorldDocumentView {
     }
 
     fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
-        let controller = HostProjectionController::new(Rc::clone(&self.document));
+        let controller =
+            HostProjectionController::new(Rc::clone(&self.document), Rc::clone(&self.demo_ending));
         self.projection = cx.new(|_| world_view(controller));
     }
 
@@ -633,6 +670,68 @@ impl WorldDocumentView {
             .child(div().px_3().pt_1().pb(px(6.0)).child(ui::caption(
                 "Anyone can open a World code as a visit. A guest comes from another of your Worlds, or from a friend's World code.",
             )))
+    }
+
+    /// The demo's ending, over the World: what was done here is kept, and
+    /// the full app carries on from this evening. It asks for nothing, and
+    /// "Stay a while" puts it away; it comes back only when the next day is
+    /// asked for again.
+    fn demo_ending_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dismiss = cx.listener(|this, _, _, cx| {
+            this.demo_ending.set(false);
+            cx.notify();
+        });
+        div()
+            .id("demo-ending-scrim")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x0000_0055))
+            .child(
+                div()
+                    .id("demo-ending")
+                    .role(gpui::Role::Dialog)
+                    .aria_label(ui::t(demo::ENDING_TITLE))
+                    .w(px(440.0))
+                    .p_6()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(ui::color(tokens::BORDER))
+                    .bg(ui::color(tokens::SURFACE))
+                    .text_color(ui::color(tokens::TEXT))
+                    .shadow_lg()
+                    .child(ui::heading(demo::ENDING_TITLE))
+                    .child(ui::body(demo::ENDING_BODY))
+                    .child(ui::caption(demo::ENDING_KEPT))
+                    .child(
+                        div()
+                            .pt_2()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                ui::button(
+                                    "demo-ending-full-app",
+                                    demo::ENDING_FULL_APP,
+                                    ui::ButtonKind::Secondary,
+                                )
+                                .on_click(|_, _, cx| cx.open_url(demo::FULL_APP_URL)),
+                            )
+                            .child(
+                                ui::button(
+                                    "demo-ending-stay",
+                                    demo::ENDING_STAY,
+                                    ui::ButtonKind::Primary,
+                                )
+                                .on_click(dismiss),
+                            ),
+                    ),
+            )
     }
 }
 
@@ -792,6 +891,7 @@ impl Render for WorldDocumentView {
                 })),
         );
         let share = share_open.then(|| self.share_list(cx));
+        let ending = self.demo_ending.get().then(|| self.demo_ending_card(cx));
 
         div()
             .relative()
@@ -825,6 +925,7 @@ impl Render for WorldDocumentView {
                     .child(self.projection.clone()),
             )
             .children(share)
+            .children(ending)
     }
 }
 
@@ -4340,6 +4441,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // for its scene ("Open" as a shop is, 营业中), the app's buttons keep
     // theirs ("Open" a World, 打开).
     world_i18n::install(world_gpui::i18n::APP_ZH_HANS);
+    // And the same again in Japanese.
+    use world_i18n::{install_for, Language::Japanese};
+    for catalog in world_builtins::JA {
+        install_for(Japanese, catalog);
+    }
+    install_for(Japanese, &world_builtins::ja_voices());
+    install_for(Japanese, world_gpui::i18n::APP_JA);
     world_machine_desktop::display::apply(saved.as_ref());
     install_pointers(saved.as_ref());
     ambience::set_enabled(
@@ -4426,6 +4534,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     application.run(move |cx: &mut App| {
         about::install(cx);
         text_field::bind_keys(cx);
+        // A World's changes are written away from its turns; everything
+        // handed over is on disk before the app goes (a window closing
+        // writes its World's the same way, as its session is let go of).
+        cx.on_app_quit(|_| {
+            for error in world_library::flush_all_writes() {
+                diagnostics::error(format!("saving as the app quits: {error}"));
+            }
+            async {}
+        })
+        .detach();
         let home = cx.new(|cx| {
             let world_search = cx.new(|cx| TextInput::new("Find a World…", cx));
             // Typing filters the list, so Home has to redraw as the field changes.

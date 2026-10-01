@@ -79,6 +79,7 @@ mod tests {
             own_title: Default::default(),
             opened_from: Default::default(),
             writer: Default::default(),
+            writes: Default::default(),
         }
     }
 

@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.25.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.26.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -43,6 +43,7 @@ Current as of `v0.25.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **No notification while a World is closed.** A World keeps going without you and its window says when it next moves, but nothing tells you from outside the app. macOS delivers notifications reliably only to a signed app, so this waits on notarization.
 
 - **Chinese is generated.** The catalogs were translated by a model and checked by tests, not by a translator. Over three years no line a player sees in either Pack is left partly English; people keep their names in Latin letters and places and things have Chinese names. Some translations are weak (a colony is sometimes 殖民地 and sometimes 聚居地), and a line a World voice model says is shown as the model said it. Settings → Display switches back to English.
+- **Japanese is generated too.** Every catalog has a Japanese version, written by a model in natural polite-casual Japanese and read back once, not by a translator. Residents' names are in katakana. Talking in Japanese is heard through about 110 everyday phrases; on 48 new ones, 5 were not understood and 1 was misheard before tuning. Nobody has played in Japanese on a Mac.
 - **Text size, contrast and VoiceOver are unverified on a Mac.** Text from 100% to 200% is checked by tests on speech paging only; how every window lays out at 200%, what Increase Contrast looks like, and what VoiceOver reads have not been seen on a Mac.
 
 - **The new look and sound are unseen and unheard on a Mac.** The painted scene is measured on Linux: the window's longest frame in a three-year benchmark is 10.5–12.4 ms, and a full background repaint takes 125–250 ms off the window's thread, faded in when ready. The zoomed-out overview of a three-year World took 27–47 ms a frame in a debug preview and has not been measured in release. Sound goes through CoreAudio via `cpal`, which has been compiled but never run on a Mac; the app logs the buffer the device grants and its delay on first sound. Bluetooth output adds 100–200 ms that no setting can remove. Nobody has listened to the new sound yet; `cargo test -p world-sound --release --test bars write_sounds -- --ignored` with `WORLD_MACHINE_SOUNDS=dir` writes it to files.
@@ -50,23 +51,24 @@ Current as of `v0.25.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **A legend gives a cause for about half its lines.** A cause is shown only when it is a real, earlier Event: an answer you gave, a festival or a storm. A friendship made or lost says why in its own words. Everyday beats with no such cause are shown without one.
 - **Moment strips are saved with `screencapture`,** like Photo and postcards, so saving one needs Screen Recording and has not been tried on a Mac. Nobody has seen the ages, the legend page, the strips or the almanac on a Mac; they were checked on Linux.
 - **A town at noon looks thin in any one view.** Everyone is outside by day, but spread along a panorama four and a half screens wide, so one screen holds three or four people.
-- **The World voice guard lets some bad answers through and stops some good ones.** It is a set of deterministic rules in English and Chinese, not a model. On red-team sets written blind by someone who never read the guard:
-  - on the first set it declines all 164 out-of-world answers and keeps all 239 good ones, but it was built after seeing what that set's first run missed;
-  - on a second set, used to improve it one category at a time, the first run declined 74%;
-  - on a third, completely unseen set it declines 161 of 210 (77%) and wrongly declines 12 of 236 good answers (5%).
+- **The World voice still lets some bad answers through.** Its answers pass two layers. Structural checks run on every answer, and a judge model (the same key's cloud model, Claude Haiku 4.5 by default, or this Mac's own model) gives a second opinion on whatever the checks are not certain about. On a fourth red-team set of 833 lines, written blind in English, Chinese and Japanese and never seen while building either layer:
+  - with the judge, 437 of 477 out-of-world answers (91.6%) are declined and 2 of 356 good answers (0.6%) wrongly declined; per language 91.9% / 91.1% / 91.8% and 0.8% / 0.0% / 0.8% (en / zh / ja);
+  - the bar was at least 95% and at most 1%, so the first half is not met. The misses are mostly real-world names and paraphrased harm;
+  - without a judge the strict rules alone decline 55.8% and wrongly decline 0.8%; on the third set the judge took them from 77% / 5.1% to 89.5% / 3.8%.
 
-  It misses most often on paraphrased harm, fourth-wall remarks and invented names; it wrongly declines some era-correct names and words like "instructions". A declined answer is replaced by the World's own words. World voice is off by default. `cargo test -p tiny-society --release --lib the_later_blind_sets_are_measured -- --ignored --nocapture` prints the numbers. A likely next step is to have the model check its own answer as a recorded second opinion.
-- **A builder's World code can pass 50,000 characters.** At three years a World where the player built on every plot is 50,299 characters, because the people its works drew each keep a full life. An ordinary three-year World is 47,872.
-- **The `fm` helper is source only.** It has never been compiled (there is no Swift on the machines that build it outside a Mac) and the app does not call it. The release workflow tries to build it on the Mac runner and carries on without it.
-- **Day 1 is sparse.** A new harbour is mostly its back row, a meadow and the quay until the town builds; the rows draw forward while the street is empty.
+  The judge's verdicts were recorded by giving its exact prompt to Claude Haiku 4.5 through an agent, not through the app's own request with a real key, so they are a close stand-in for the shipped judge rather than a measurement of it (`systems/conversation/tests/redteam4/README.md`). A declined answer is replaced by the World's own words, and what decided is recorded in the World, so replay never asks a model. World voice is off by default.
+- **The `fm` helper is source only.** It has never been compiled (there is no Swift on the machines that build it outside a Mac), so neither its voice nor its judge mode has run. The release workflow tries to build it on the Mac runner and carries on without it.
+- **Day 1 is still quiet.** A new harbour has washing on a line, a handcart on the quay and a rowboat or two moored off it from the first day (drawn where nothing the World built stands, and recorded nowhere), but it is mostly its back row, a meadow and the quay until the town builds.
 - **The new look, the Pocket Universe places and the drawer are unseen on a Mac.** They were checked in the Linux preview and in golden images.
-- **A turn with its save is 43–57 ms on a busy test machine,** against a 35 ms bar. About 9–25 ms of it is writing the file to disk. It has not been measured on a quiet machine or on a Mac.
+- **A World's file is written just after its turn, not during it.** A turn hands what it recorded to a writer that makes and writes the file (synced, the save before kept as `.bak`, renamed into place) a few milliseconds later, in order; closing the World or quitting the app waits for it. A crash in those milliseconds loses that turn, never the file. A file someone else changed is not written over, and the next turn says so. A turn with its save is now 31 ms (median; 19–55 ms) on a busy 4-core Linux machine at load 4, against 61 ms before; not measured on a Mac.
 - **A builder's three-year World code is 49,951 characters,** 49 under the 50,000 bar. A denser code format would give it room.
-- **At night the whole World window turns dark,** the drawer included.
-- **Designs are not drawn in moment strips,** which are painted without pictures.
+- **At night the drawer, cards and pages are paper under a lamp** (in the light appearance), while what hangs over the scene (the gauges, buttons, names and speech) is dark as the night sky. Seen on Linux, not on a Mac.
+- **Moment strips draw only the design of the place a moment is at** (a shop's sign, a home's quilt, a flag or a sail), not designs elsewhere in town.
 - **Designing, naming, plots, the touchable strip and a friend's resident are untried on a Mac.** They were checked in the Linux preview, keys and clicks included.
 - **Homes and works cannot be inspected.** They are drawn and named, but clicking one opens nothing, because they are worked out for the picture rather than recorded in the World.
 - **A visitor on a World code does not see when works were built,** since a code carries only its latest season.
+- **A favour is one at a time and asked only while you are there.** People ask you to look in on someone, invite someone out, cheer someone up or pass on an apology, and you do it by talking to that person. A favour not done in three days lapses quietly. The asker's line can wait behind a question card, so a favour may first be seen in the drawer.
+- **The demo ends on day 21 of Tiny Society.** It is the full app otherwise; the World it keeps opens in the full app and carries on. It has been built and seen in the Linux preview, not on a Mac.
 
 ## Verification gaps
 

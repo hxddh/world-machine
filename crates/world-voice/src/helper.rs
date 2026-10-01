@@ -136,6 +136,34 @@ impl Asked {
     }
 }
 
+/// The helper as a judge: asked the whole judge prompt a World wrote, it
+/// answers `{"verdict", "kind"}`, which the World reads like any judge's.
+pub struct HelperJudge {
+    pub program: String,
+}
+
+impl HelperJudge {
+    /// The JSON the helper reads on its standard input to judge.
+    pub fn request(prompt: &str) -> String {
+        serde_json::json!({
+            "mode": "judge",
+            "prompt": prompt,
+            "instructions": crate::fm::JUDGE_INSTRUCTIONS,
+        })
+        .to_string()
+    }
+}
+
+impl crate::Completion for HelperJudge {
+    fn complete(&mut self, prompt: &str) -> Option<String> {
+        if !std::path::Path::new(&self.program).is_file() {
+            return None;
+        }
+        let ran = run_with_input(&self.program, &[], Some(&Self::request(prompt)), TIMEOUT)?;
+        ran.success.then_some(ran.stdout)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +235,21 @@ mod tests {
                 "{unreadable}"
             );
         }
+    }
+
+    #[test]
+    fn the_helper_judges_the_worlds_own_prompt() {
+        let request: serde_json::Value =
+            serde_json::from_str(&HelperJudge::request("Judge <answer>Hi</answer>")).unwrap();
+        assert_eq!(request["mode"], "judge");
+        assert_eq!(request["prompt"], "Judge <answer>Hi</answer>");
+        let mut judge = crate::ModelJudge {
+            completion: Box::new(HelperJudge {
+                program: "/nonexistent/world-machine/fm-helper".into(),
+            }),
+            name: "apple-on-device".into(),
+        };
+        assert_eq!(judge.verdict("anything"), None);
     }
 
     #[test]

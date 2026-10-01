@@ -83,26 +83,27 @@ pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
 /// The other names the harbour's people and places go by.
 fn aliases(name: &str) -> Vec<String> {
     let names: &[&str] = match name {
-        "Jonas" => &["乔纳斯"],
-        "Mara" => &["玛拉"],
-        "Leo" => &["利奥", "里奥"],
-        "Emma" => &["艾玛"],
-        "Mia" => &["米娅", "米亚"],
-        "Noah" => &["诺亚"],
-        "Evan" => &["埃文"],
-        "Sofia" => &["索菲亚", "苏菲亚"],
-        "Ivo" => &["伊沃"],
-        "Ada" => &["艾达"],
-        "the harbour" => &["harbour", "quay", "港口", "码头"],
-        "Harbour Bakery" => &["bakery", "面包店"],
+        "Jonas" => &["乔纳斯", "ジョナス"],
+        "Mara" => &["玛拉", "マーラ", "マラ"],
+        "Leo" => &["利奥", "里奥", "レオ"],
+        "Emma" => &["艾玛", "エマ"],
+        "Mia" => &["米娅", "米亚", "ミア"],
+        "Noah" => &["诺亚", "ノア"],
+        "Evan" => &["埃文", "エヴァン", "エバン"],
+        "Sofia" => &["索菲亚", "苏菲亚", "ソフィア"],
+        "Ivo" => &["伊沃", "イーヴォ", "イボ"],
+        "Ada" => &["艾达", "エイダ"],
+        "the harbour" => &["harbour", "quay", "港口", "码头", "港", "波止場"],
+        "Harbour Bakery" => &["bakery", "面包店", "パン屋"],
         "Island School" => &["学校"],
-        "Anchor Pub" => &["酒馆", "酒吧"],
+        "Anchor Pub" => &["酒馆", "酒吧", "酒場", "パブ"],
         _ => &[],
     };
     names
         .iter()
         .copied()
         .chain(in_chinese(crate::ZH_HANS, name))
+        .chain(in_chinese(crate::JA, name))
         .map(str::to_string)
         .collect()
 }
@@ -198,6 +199,26 @@ pub(crate) fn say(
     conversation::say_with(world, &kit(world.state()), who, words, listener)
 }
 
+/// Records a favour done, if what the player just said (`spoken`) did it.
+pub(crate) fn favour_done(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    spoken: world_core::EventId,
+) -> Result<Option<world_core::EventId>, world_core::WorldError> {
+    let kit = kit(world.state());
+    conversation::favour::follow_up(world, actions, &kit, spoken)
+}
+
+/// At the end of a day the player was there for, someone may ask a favour.
+pub(crate) fn favour_asked(
+    world: &mut World,
+    actions: &world_core::ActionRegistry,
+    away: bool,
+) -> Result<Vec<world_core::EventId>, world_core::WorldError> {
+    let kit = kit(world.state());
+    conversation::favour::tick(world, actions, &kit, away)
+}
+
 /// Everyone asking the player something now.
 pub(crate) fn askers(world: &World) -> std::collections::BTreeSet<EntityId> {
     conversation::faces::askers(&crate::story::commands(world))
@@ -221,22 +242,25 @@ mod tests {
     use conversation::corpus;
 
     /// Everyday things a player types are heard as what they mean, spoken
-    /// to anyone in the harbour about anyone else, in English and Chinese.
+    /// to anyone in the harbour about anyone else, in English, Chinese and
+    /// Japanese.
     #[test]
     fn people_understand_everyday_phrases() {
         let society = crate::TinySociety::new().unwrap();
         let world = society.world();
         let kit = kit(world.state());
-        for (who, other, other_zh) in [
-            (crate::MARA, "Leo", "利奥"),
-            (crate::LEO, "Noah", "诺亚"),
-            (crate::EMMA, "Sofia", "索菲亚"),
+        for (who, other, other_zh, other_ja) in [
+            (crate::MARA, "Leo", "利奥", "レオ"),
+            (crate::LEO, "Noah", "诺亚", "ノア"),
+            (crate::EMMA, "Sofia", "索菲亚", "ソフィア"),
         ] {
             let phrases = corpus::filled(&corpus::Blanks {
                 person: other.into(),
                 person_zh: Some(other_zh.into()),
                 place: "bakery".into(),
                 place_zh: Some("面包店".into()),
+                person_ja: Some(other_ja.into()),
+                place_ja: Some("パン屋".into()),
                 occasion: Some("Lantern Night".into()),
             });
             let score = corpus::score(&phrases, |words| {
