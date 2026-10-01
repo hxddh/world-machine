@@ -2,6 +2,11 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.26.1 (2026-10-01)
+
+- **Save As no longer stops a World being saved.** After **Save As…**, the turns played next were kept only in memory and lost when the window closed. They are now written to the new file like any other. A test plays turns after Save As and reads them back from the file.
+- The v0.26.0 notes said the judge "can only decline". More exactly, it never keeps an answer the checks refuse outright (a model naming itself, a model's refusal, markup, a script nobody here writes), but it can keep one the checks were only unsure about, such as an everyday word with a second meaning. That is how v0.26.0 already worked; the notes and the AI disclosure now say so.
+
 ## v0.26.0 (2026-10-01)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.25 replays event for event in both Packs.

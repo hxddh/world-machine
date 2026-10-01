@@ -7016,7 +7016,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.26.0"
+version = "0.26.1"
 dependencies = [
  "cpal",
  "gpui",
