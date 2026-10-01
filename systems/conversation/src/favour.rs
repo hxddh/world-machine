@@ -27,9 +27,13 @@ pub const ASKED: &str = "favour_asked";
 /// The kind of Event a favour done is recorded as.
 pub const DONE: &str = "favour_done";
 
-/// The open favour, on whoever asked it: what, for whom, and when.
+/// The last favour asked, on whoever asked it and on nobody else: when,
+/// and, until it is done, what and for whom. Once done only when it was
+/// asked is kept; a lapsed one stays as it was until the next is asked.
 const FAVOUR: &str = "conversation.favour";
-/// When someone last asked the player a favour.
+/// When someone last asked the player a favour, as Worlds made with v0.26
+/// kept it on everyone who had ever asked one. Read, never written: the
+/// favour itself keeps when it was asked now.
 const FAVOURED: &str = "conversation.favoured";
 
 /// No favour is asked before this many periods have passed.
@@ -294,13 +298,7 @@ pub fn proposal(world: &World, kit: &Kit) -> Option<ActionRequest> {
     if now < began + FIRST_PERIOD || open(state, kit).is_some() {
         return None;
     }
-    let last = state
-        .entities()
-        .filter_map(|entity| match entity.component(FAVOURED) {
-            Some(Value::Integer(at)) => Some((*at, entity.id)),
-            _ => None,
-        })
-        .max();
+    let last = state.entities().filter_map(last_asked).max();
     let due = match last {
         None => began + FIRST_PERIOD + (lives::mix(&[began as u64, 0xfa]) % 3) as i64,
         Some((at, _)) => at + 6 + (lives::mix(&[at as u64, 0xfa]) % 5) as i64,
@@ -344,6 +342,22 @@ pub fn proposal(world: &World, kit: &Kit) -> Option<ActionRequest> {
         }
     }
     None
+}
+
+/// When `entity` last asked a favour, if it ever did, and who it is.
+fn last_asked(entity: &world_core::Entity) -> Option<(i64, EntityId)> {
+    let favour = match entity.component(FAVOUR) {
+        Some(Value::Map(map)) => match map.get("asked") {
+            Some(Value::Integer(asked)) => Some(*asked),
+            _ => None,
+        },
+        _ => None,
+    };
+    let favoured = match entity.component(FAVOURED) {
+        Some(Value::Integer(at)) => Some(*at),
+        _ => None,
+    };
+    favour.max(favoured).map(|at| (at, entity.id))
 }
 
 /// At the end of a period the player was there for, someone may ask them
@@ -541,11 +555,11 @@ impl Action for Asks {
         }
         let now = period(state, &kit);
         let mut changes = Vec::new();
-        // A favour that lapsed is let go of.
-        for person in &people {
-            if favour_on(state, *person).is_some() {
+        // The last favour, lapsed or done, is let go of.
+        for entity in state.entities() {
+            if entity.id != asker && entity.component(FAVOUR).is_some() {
                 changes.push(StateChange::RemoveComponent {
-                    entity: *person,
+                    entity: entity.id,
                     key: FAVOUR.into(),
                 });
             }
@@ -562,11 +576,6 @@ impl Action for Asks {
                 .into_iter()
                 .collect(),
             ),
-        });
-        changes.push(StateChange::SetComponent {
-            entity: asker,
-            key: FAVOURED.into(),
-            value: Value::Integer(now),
         });
         let mut draft = EventDraft::new(ASKED);
         draft.actor = Some(asker);
@@ -608,9 +617,15 @@ impl Action for Done {
         if !does(state, &kit, &favour, who, Heard { intent, about }) {
             return Err(ActionError::Invalid("that doesn't do the favour".into()));
         }
-        let mut changes = vec![StateChange::RemoveComponent {
+        // Only when it was asked is kept, for when the next is due.
+        let mut changes = vec![StateChange::SetComponent {
             entity: asker,
             key: FAVOUR.into(),
+            value: Value::Map(
+                [("asked".to_string(), Value::Integer(favour.asked))]
+                    .into_iter()
+                    .collect(),
+            ),
         }];
         let (warmth, asker_to, whom_to) = match favour.kind {
             Kind::AskAfter => (4, 3, 3),
@@ -790,6 +805,58 @@ mod tests {
         assert_eq!(follow_up(&mut world, &actions, &kit, again).unwrap(), None);
         // Replay needs nobody to hear anything again.
         assert_eq!(world.replay().unwrap().state(), world.state());
+    }
+
+    /// Whoever asked last keeps the favour, and nobody else: once done,
+    /// only when it was asked, for when the next is due.
+    #[test]
+    fn only_the_last_favour_is_kept() {
+        let (mut world, actions) = world();
+        let ask = |world: &mut World, asker: EntityId, whom: EntityId| {
+            world
+                .execute(
+                    &actions,
+                    &ActionRequest::new(ASK_ACTION)
+                        .actor(asker)
+                        .arg("asker", Value::Entity(asker))
+                        .arg("whom", Value::Entity(whom))
+                        .arg("favour", "sorry"),
+                )
+                .unwrap();
+        };
+        let kept = |world: &World| {
+            [MARA, LEO].map(|person| {
+                world
+                    .state()
+                    .entity(person)
+                    .unwrap()
+                    .component(FAVOUR)
+                    .cloned()
+            })
+        };
+        at(&mut world, &actions, 6);
+        ask(&mut world, MARA, LEO);
+        // Lapsed, it stays as it was until the next is asked.
+        at(&mut world, &actions, 7 + OPEN_PERIODS as u64);
+        assert!(kept(&world)[0].is_some());
+        ask(&mut world, LEO, MARA);
+        assert!(kept(&world)[0].is_none());
+        let kit = kit(world.state());
+        let spoken = talk(&mut world, &actions, MARA, "Leo says he's sorry.");
+        assert!(follow_up(&mut world, &actions, &kit, spoken)
+            .unwrap()
+            .is_some());
+        let asked = Value::Map(
+            [("asked".to_string(), Value::Integer(7 + OPEN_PERIODS))]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(kept(&world), [None, Some(asked)]);
+        // The next is due after the last one asked, not the first.
+        assert_eq!(
+            world.state().entities().filter_map(last_asked).max(),
+            Some((7 + OPEN_PERIODS, LEO))
+        );
     }
 
     #[test]

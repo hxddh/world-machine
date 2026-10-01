@@ -24,6 +24,7 @@ This is the third of the three releases from the [v0.23 review](docs/REVIEW_v0.2
 - **Day 1 is less bare:** washing on a line, a handcart on the quay, rowboats moored.
 - **Press kit** in [docs/press](docs/press): store page text in English, Chinese and Japanese, the AI disclosure, and a script that cuts a trailer from the app's own scenes.
 - [PRIVACY](docs/PRIVACY.md) now lists every request the voice and its judge make.
+- A builder's three-year World code is 49,179 characters: lives now lets go of rest notes that have run out, and only the latest favour is kept.
 
 ## v0.25.0 (2026-09-30)
 
