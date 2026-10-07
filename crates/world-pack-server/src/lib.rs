@@ -149,7 +149,11 @@ impl PackServer {
                 let prompt = session
                     .hearing(to.into(), &words)
                     .map_err(PackServerError::Host)?;
-                Ok((PackResponse::Hearing { prompt }, false))
+                let hearing = session
+                    .voice_hearing(to.into(), &words)
+                    .map_err(PackServerError::Host)?
+                    .map(world_pack_protocol::VoiceHearingWire::from);
+                Ok((PackResponse::Hearing { prompt, hearing }, false))
             }
             PackRequest::Story { request } => {
                 let session = self.session("story")?;

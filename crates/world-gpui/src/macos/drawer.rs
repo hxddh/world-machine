@@ -279,7 +279,8 @@ impl ProjectionView {
             Leaf::Built => !snapshot.goals.is_empty(),
             Leaf::Kept => !snapshot.letters.is_empty() || !snapshot.keepsakes.is_empty(),
             Leaf::Found => !snapshot.book.is_empty(),
-            Leaf::More => true,
+            // The World's inner workings are for someone making Worlds.
+            Leaf::More => ui::developer(),
         }
     }
 
@@ -753,7 +754,7 @@ impl ProjectionView {
             let said = if keepsake.note.is_empty() {
                 String::new()
             } else {
-                format!(": “{}”", keepsake.note)
+                format!(": {}", crate::i18n::quoted(keepsake.note))
             };
             list = list.child(
                 list_entry(
@@ -798,7 +799,7 @@ impl ProjectionView {
                             .italic()
                             .text_color(ink(INK_SOFT))
                             .line_clamp(2)
-                            .child(format!("“{}”", keepsake.note)),
+                            .child(crate::i18n::quoted(keepsake.note)),
                     )
                 }),
             );
@@ -1300,6 +1301,296 @@ pub(crate) enum BookLook {
         drawing: Option<world_projection::Drawing>,
         palette: art::Palette,
     },
+    /// Something given to keep, drawn as what it is: flowers, a jar, a
+    /// map, a shell, a basket, a scarf, or a parcel.
+    Keepsake(KeptThing),
+}
+
+/// What a keepsake is drawn as, by what it is called.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum KeptThing {
+    Flowers,
+    Jar,
+    Paper,
+    Shell,
+    Basket,
+    Scarf,
+    Parcel,
+}
+
+impl KeptThing {
+    /// The drawing for a keepsake called `name`, in any language its words
+    /// come in: by its words, else a parcel tied with a ribbon.
+    pub(crate) fn of(name: &str) -> Self {
+        let name = name.to_lowercase();
+        let has = |words: &[&str]| words.iter().any(|word| name.contains(word));
+        if has(&[
+            "jar", "honey", "jam", "pickle", "bottle", "罐", "瓶", "蜂蜜", "びん",
+        ]) {
+            KeptThing::Jar
+        } else if has(&["flower", "posy", "bunch", "herb", "bouquet", "花", "ハーブ"]) {
+            KeptThing::Flowers
+        } else if has(&[
+            "map", "letter", "postcard", "card", "book", "drawing", "picture", "photo", "poem",
+            "recipe", "图", "信", "书", "卡", "地図", "手紙", "本", "絵", "写真",
+        ]) {
+            KeptThing::Paper
+        } else if has(&[
+            "shell", "stone", "pebble", "glass", "rock", "贝", "石", "貝",
+        ]) {
+            KeptThing::Shell
+        } else if has(&[
+            "basket", "fruit", "bread", "loaf", "pie", "cake", "bun", "篮", "面包", "かご", "パン",
+        ]) {
+            KeptThing::Basket
+        } else if has(&[
+            "scarf",
+            "mitten",
+            "knit",
+            "hat",
+            "sock",
+            "围巾",
+            "マフラー",
+            "帽",
+        ]) {
+            KeptThing::Scarf
+        } else {
+            KeptThing::Parcel
+        }
+    }
+}
+
+/// A keepsake drawn in a book tile, standing on `base` and `h` tall, in
+/// its own colours when found and as a silhouette in `shadow` when not.
+fn paint_keepsake(
+    window: &mut Window,
+    kind: KeptThing,
+    x: f32,
+    base: f32,
+    h: f32,
+    found: bool,
+    shadow: Hsla,
+) {
+    let tint = |hex: u32| -> Hsla {
+        if found {
+            art::hex(hex)
+        } else {
+            shadow
+        }
+    };
+    let s = h * 0.8;
+    match kind {
+        KeptThing::Flowers => {
+            for (dx, top, petal) in [
+                (-0.16, 0.78, 0xd9667a),
+                (0.0, 0.92, 0xe8b64c),
+                (0.15, 0.74, 0x8a7fd1),
+            ] {
+                art::line(
+                    window,
+                    (x, base - s * 0.08),
+                    (x + dx * s, base - top * s),
+                    s * 0.035,
+                    tint(0x5f8a4e),
+                );
+                art::circle(window, x + dx * s, base - top * s, s * 0.09, tint(petal));
+                art::circle(
+                    window,
+                    x + dx * s,
+                    base - top * s,
+                    s * 0.035,
+                    tint(0xf6e7b0),
+                );
+            }
+            art::polygon(
+                window,
+                &[
+                    (x - s * 0.13, base - s * 0.34),
+                    (x + s * 0.13, base - s * 0.34),
+                    (x + s * 0.05, base),
+                    (x - s * 0.05, base),
+                ],
+                tint(0xc9a87a),
+            );
+        }
+        KeptThing::Jar => {
+            art::rect(
+                window,
+                x - s * 0.22,
+                base - s * 0.62,
+                s * 0.44,
+                s * 0.62,
+                s * 0.08,
+                tint(0xe0a33a),
+            );
+            art::rect(
+                window,
+                x - s * 0.24,
+                base - s * 0.74,
+                s * 0.48,
+                s * 0.13,
+                s * 0.03,
+                tint(0x9a6b45),
+            );
+            art::rect(
+                window,
+                x - s * 0.14,
+                base - s * 0.42,
+                s * 0.28,
+                s * 0.18,
+                s * 0.02,
+                tint(0xf7efd8),
+            );
+        }
+        KeptThing::Paper => {
+            art::rect(
+                window,
+                x - s * 0.32,
+                base - s * 0.8,
+                s * 0.64,
+                s * 0.8,
+                s * 0.02,
+                tint(0xf3e9cf),
+            );
+            for row in 0..4 {
+                let y = base - s * (0.62 - row as f32 * 0.14);
+                art::line(
+                    window,
+                    (x - s * 0.22, y),
+                    (x + s * 0.2, y),
+                    s * 0.025,
+                    tint(0x9c8b6c),
+                );
+            }
+            art::circle(
+                window,
+                x + s * 0.12,
+                base - s * 0.2,
+                s * 0.06,
+                tint(0xc0574f),
+            );
+        }
+        KeptThing::Shell => {
+            art::dome(
+                window,
+                x,
+                base - s * 0.05,
+                s * 0.34,
+                s * 0.42,
+                tint(0xe9c2a6),
+            );
+            for ray in [-0.2_f32, -0.07, 0.07, 0.2] {
+                art::line(
+                    window,
+                    (x, base - s * 0.06),
+                    (x + ray * s, base - s * 0.4),
+                    s * 0.025,
+                    tint(0xc4927a),
+                );
+            }
+        }
+        KeptThing::Basket => {
+            art::polygon(
+                window,
+                &[
+                    (x - s * 0.36, base - s * 0.4),
+                    (x + s * 0.36, base - s * 0.4),
+                    (x + s * 0.28, base),
+                    (x - s * 0.28, base),
+                ],
+                tint(0xb07d4a),
+            );
+            for (dx, colour) in [(-0.16, 0xc94f3d), (0.02, 0xe0a33a), (0.18, 0x7aa356)] {
+                art::circle(window, x + dx * s, base - s * 0.46, s * 0.1, tint(colour));
+            }
+            art::line(
+                window,
+                (x - s * 0.3, base - s * 0.4),
+                (x, base - s * 0.82),
+                s * 0.03,
+                tint(0x8a5e36),
+            );
+            art::line(
+                window,
+                (x, base - s * 0.82),
+                (x + s * 0.3, base - s * 0.4),
+                s * 0.03,
+                tint(0x8a5e36),
+            );
+        }
+        KeptThing::Scarf => {
+            for band in 0..5 {
+                let colour = if band % 2 == 0 { 0xc0574f } else { 0xf0e2c4 };
+                art::rect(
+                    window,
+                    x - s * 0.34 + band as f32 * s * 0.136,
+                    base - s * 0.5,
+                    s * 0.14,
+                    s * 0.22,
+                    0.0,
+                    tint(colour),
+                );
+            }
+            art::rect(
+                window,
+                x + s * 0.12,
+                base - s * 0.5,
+                s * 0.14,
+                s * 0.5,
+                0.0,
+                tint(0xc0574f),
+            );
+        }
+        KeptThing::Parcel => {
+            art::rect(
+                window,
+                x - s * 0.34,
+                base - s * 0.56,
+                s * 0.68,
+                s * 0.56,
+                s * 0.04,
+                tint(0xc9a87a),
+            );
+            art::rect(
+                window,
+                x - s * 0.05,
+                base - s * 0.56,
+                s * 0.1,
+                s * 0.56,
+                0.0,
+                tint(0xc0574f),
+            );
+            art::rect(
+                window,
+                x - s * 0.34,
+                base - s * 0.33,
+                s * 0.68,
+                s * 0.09,
+                0.0,
+                tint(0xc0574f),
+            );
+            art::circle(
+                window,
+                x - s * 0.08,
+                base - s * 0.62,
+                s * 0.08,
+                tint(0xc0574f),
+            );
+            art::circle(
+                window,
+                x + s * 0.08,
+                base - s * 0.62,
+                s * 0.08,
+                tint(0xc0574f),
+            );
+        }
+    }
+}
+
+/// Whether a book shelf holds keepsakes, in the app's language or the
+/// World's own.
+fn is_keepsake_shelf(shelf: &str) -> bool {
+    shelf == "Keepsakes" || shelf == ui::t("Keepsakes").as_ref()
 }
 
 /// The book entry's own drawing, found by its name on the scene: the
@@ -1319,6 +1610,10 @@ pub(crate) fn book_look(snapshot: &ProjectionSnapshot, entry: &BookEntry) -> Opt
             drawing: snapshot.drawing_of(item).cloned(),
             palette: art::Palette::of(&item.id.stable_key(), false),
         }),
+        // Something given to keep is drawn as what it is.
+        (None, None) if is_keepsake_shelf(&entry.shelf) => {
+            Some(BookLook::Keepsake(KeptThing::of(&entry.name)))
+        }
         (None, None) => Some(BookLook::Someone(Likeness {
             figure: art::Figure::of(&entry.name, None),
             drawing: None,
@@ -1465,6 +1760,9 @@ pub(crate) fn book_tile(entry: &BookEntry, index: usize, look: Option<BookLook>)
                             shadow,
                             shadow,
                         );
+                    }
+                    (Some(BookLook::Keepsake(kind)), None, _) => {
+                        paint_keepsake(window, *kind, x, base, h, found, shadow);
                     }
                     (_, None, _) => {
                         // Someone not met yet: a head and shoulders.
@@ -1654,10 +1952,43 @@ pub(crate) mod tests {
         assert_eq!(found.label(), Some("A pressed flower"));
         let (_, missing) = accessible(&book_tile(&snapshot.book[1], 1, None));
         assert_eq!(missing.label(), Some("Not found yet: Someone by the sea"));
+        assert_eq!(view.leaves(), vec![Leaf::Story, Leaf::Kept, Leaf::Found]);
+        ui::set_developer(true);
         assert_eq!(
             view.leaves(),
             vec![Leaf::Story, Leaf::Kept, Leaf::Found, Leaf::More]
         );
+        ui::set_developer(false);
+    }
+
+    /// Every keepsake is drawn as what it is, never as a stand-in.
+    #[test]
+    fn every_keepsake_is_drawn_as_what_it_is() {
+        for (name, kind) in [
+            ("a jar of honey from the flowers", KeptThing::Jar),
+            ("a bunch of fresh herbs", KeptThing::Flowers),
+            ("A hand-drawn map of the harbour", KeptThing::Paper),
+            ("a basket of what the garden grew", KeptThing::Basket),
+            ("the first fruit of the season", KeptThing::Basket),
+            ("a smooth pebble from the shore", KeptThing::Shell),
+            ("a knitted scarf", KeptThing::Scarf),
+            ("something wrapped in brown paper", KeptThing::Parcel),
+        ] {
+            assert_eq!(KeptThing::of(name), kind, "{name}");
+        }
+        let entry = BookEntry {
+            shelf: "Keepsakes".into(),
+            name: "a jar of honey from the flowers".into(),
+            found: false,
+            shape: None,
+            hint: String::new(),
+            moment: None,
+            cast: Vec::new(),
+        };
+        assert!(matches!(
+            book_look(&ProjectionSnapshot::default(), &entry),
+            Some(BookLook::Keepsake(KeptThing::Jar))
+        ));
     }
 
     /// A keepsake given four times is one entry that says so, with

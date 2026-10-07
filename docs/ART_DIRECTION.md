@@ -163,3 +163,12 @@ The key art is rendered by the engine itself, from a fixed seed, at 3840×2160.
 ## Sign-off
 
 Each release that changes the look ships a contact sheet: 12 frames covering each place at noon, dusk and night, day 1 and year three, and the first screen. The art director checks every rule above against it.
+
+## v0.27 sign-off
+
+Signed off by the art director on 2026-10-07 after three rounds.
+- Key art: [harbour](art/v0.27-keyart-harbour.jpg), [Ares](art/v0.27-keyart-ares.jpg), [Maple Street](art/v0.27-keyart-maple.jpg), [Icebridge](art/v0.27-keyart-icebridge.jpg). Re-render at 3840×2160 with `cargo run -p world-gpui --example key_art -- <dir>`.
+- [Contact sheet](art/v0.27-contact-sheet.jpg): the harbour on day 1 and in year three, each at noon, dusk and night; the three Pocket Universe places at noon and at night.
+- Accepted deviations:
+  - The Point is the east end of the stage, so in the harbour key art the lighthouse sits at about 0.76 of the width. That is inside the right third, not on the line.
+  - In year three, three residents by the lifeboat station overlap its front and read as standing on it. Fix in v0.28.

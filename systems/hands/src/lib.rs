@@ -576,7 +576,10 @@ impl Action for Does {
                 let (kind, told) = match verb {
                     Verb::Build => (
                         "built_by_hand",
-                        format!("You built a {} by {at_name}", thing.name.to_lowercase()),
+                        format!(
+                            "You built {} by {at_name}",
+                            a_or_an(&thing.name.to_lowercase())
+                        ),
                     ),
                     Verb::Decorate => (
                         "decorated_by_hand",
@@ -1361,8 +1364,22 @@ pub fn told(event: &Event) -> Option<String> {
         return None;
     }
     match event.payload.get("told") {
-        Some(Value::Text(told)) => Some(told.clone()),
+        // A World made before this was fixed recorded "You built a ice
+        // bench"; it is told as it should read.
+        Some(Value::Text(told)) => Some(match told.strip_prefix("You built a ") {
+            Some(rest) => format!("You built {}", a_or_an(rest)),
+            None => told.clone(),
+        }),
         _ => None,
+    }
+}
+
+/// "a bench", "an ice bench", "an orchard".
+fn a_or_an(thing: &str) -> String {
+    if thing.starts_with(['a', 'e', 'i', 'o', 'u']) && !thing.starts_with("one") {
+        format!("an {thing}")
+    } else {
+        format!("a {thing}")
     }
 }
 

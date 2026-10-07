@@ -13,14 +13,15 @@ use world_theme::tokens;
 
 use crate::scene;
 
+mod arrival;
 mod drawer;
-#[cfg(test)]
-mod ja_walk;
+mod farewell;
 mod marking;
 mod stories;
-mod world_window;
 #[cfg(test)]
-mod zh_walk;
+mod walk;
+mod world_window;
+pub use farewell::{Farewell, FarewellAction};
 #[cfg(test)]
 pub(crate) use stories::{moment_strip, panel_scenes, strip_layout};
 #[cfg(test)]
@@ -121,6 +122,23 @@ impl ProjectionView {
     pub fn without_header(mut self) -> Self {
         self.show_header = false;
         self
+    }
+
+    /// When the app's language has changed since the World was last put
+    /// into words, asks the World again, so everything on screen is in the
+    /// new language at once rather than when the World is next opened.
+    pub(crate) fn show_in_language_now(&mut self) {
+        let now = world_i18n::language();
+        let before = self.looking.shown_in.replace(now);
+        if before.is_none_or(|before| before == now) {
+            return;
+        }
+        if let Some(controller) = &self.controller {
+            self.snapshot = controller.snapshot();
+        }
+        self.before_turn = None;
+        self.reading.page = None;
+        self.reading.back.clear();
     }
 
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
@@ -1260,6 +1278,7 @@ impl Render for ProjectionView {
         );
         // Text as large as the player asked for, everywhere in the window.
         window.set_rem_size(px(crate::rem_size()));
+        self.show_in_language_now();
         let world = self.render_world(window, cx);
         let mut root = div()
             .size_full()

@@ -107,10 +107,22 @@ impl Street {
     /// if it has one free, and otherwise the free slot nearest `near`
     /// anywhere. Nothing if the row is full.
     pub fn take(&mut self, row: usize, within: Option<usize>, near: f32) -> Option<f32> {
+        self.take_where(row, within, near, |_| true)
+    }
+
+    /// [`Street::take`], among the slots whose place `ok` allows.
+    pub fn take_where(
+        &mut self,
+        row: usize,
+        within: Option<usize>,
+        near: f32,
+        ok: impl Fn(f32) -> bool,
+    ) -> Option<f32> {
         let stretch = within.and_then(|at| self.stretches.get(at).copied());
         let free = |street: &Self, inside: bool| {
             (0..street.slots(row))
                 .filter(|slot| !street.taken.contains(&(row, *slot)))
+                .filter(|slot| ok(street.px(row, *slot)))
                 .filter(|slot| !inside || stretch.is_some_and(|s| s.holds(street.px(row, *slot))))
                 .min_by(|a, b| {
                     let da = (street.px(row, *a) - near).abs();
@@ -256,6 +268,9 @@ pub struct Plan<K> {
     pub seed: u64,
 }
 
+/// The earliest anyone knocks off work: five, or six for the rest.
+pub const KNOCK_OFF: u8 = 17;
+
 /// The hour everyone on a festival goes out to the gathering.
 pub const FESTIVAL_FROM: u8 = 17;
 /// The hour a festival ends and everyone goes home.
@@ -295,7 +310,7 @@ pub fn day<K: Copy>(plan: &Plan<K>) -> Vec<Stop<K>> {
         stops.push(home(FESTIVAL_UNTIL));
         return stops;
     }
-    let knocks_off = 17 + ((seed >> 3) % 2) as u8;
+    let knocks_off = KNOCK_OFF + ((seed >> 3) % 2) as u8;
     let goes_out = (seed >> 7) % 5 < 2;
     match plan.evening.filter(|_| goes_out) {
         Some((evening, inside)) => {

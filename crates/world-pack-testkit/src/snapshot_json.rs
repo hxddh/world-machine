@@ -11,6 +11,10 @@
 //! - `WORLD_MACHINE_BLESS=1` rewrites the golden files (only on a tree
 //!   whose snapshots you trust).
 //! - `WORLD_MACHINE_DUMP=<dir>` writes every snapshot's JSON, to diff.
+//!
+//! The JSON is digested as it is written, never kept as a string; in a
+//! debug build only every fifth day is digested (see
+//! [`crate::replay::digest_every`]).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -21,28 +25,45 @@ use world_pack_protocol::ProjectionSnapshotWire;
 use world_projection::ProjectionIntent::InvokeCommand;
 use world_projection::ProjectionSnapshot;
 
-use crate::replay::{fixtures, fnv64};
+use crate::replay::{compare, digest_every, digested, fixtures, Digest};
 
-fn json(snapshot: &ProjectionSnapshot) -> String {
-    serde_json::to_string(&ProjectionSnapshotWire::from(snapshot)).expect("snapshot JSON")
+/// A snapshot's wire JSON, digested as it is written ([`Digest`]), and kept
+/// only when it is to be written out (`WORLD_MACHINE_DUMP`).
+pub struct Json {
+    pub digest: Digest,
+    pub text: Option<String>,
+}
+
+fn json_of(snapshot: &ProjectionSnapshot, keep: bool) -> Json {
+    let wire = ProjectionSnapshotWire::from(snapshot);
+    let mut digest = Digest::new();
+    serde_json::to_writer(&mut digest, &wire).expect("snapshot JSON");
+    Json {
+        digest,
+        text: keep.then(|| serde_json::to_string(&wire).expect("snapshot JSON")),
+    }
 }
 
 /// The fixture opened and played on for `days` days: each snapshot's
-/// label and JSON.
+/// label and JSON (kept as text only with `keep`).
 pub fn trace(
     registry: &WorldRegistry,
     fixture: &Path,
     pass: &str,
     days: usize,
-) -> Vec<(String, String)> {
+    keep: bool,
+) -> Vec<(String, Json)> {
+    let every = digest_every();
     let bytes = std::fs::read(fixture).expect("the fixture");
     let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
     let mut session: Box<dyn WorldSession> =
         registry.open_archive(&archive).expect("the fixture opens");
     let mut steps = Vec::new();
     let mut snapshot = session.snapshot();
-    steps.push(("opened".to_string(), json(&snapshot)));
+    steps.push(("opened".to_string(), json_of(&snapshot, keep)));
     for day in 1..=days {
+        // Every day is played; only some are digested (see `digest_every`).
+        let today = digested(day, days, every);
         if let Some(answer) = snapshot
             .commands
             .iter()
@@ -50,7 +71,9 @@ pub fn trace(
         {
             let id = answer.id.clone();
             if let Ok(next) = session.handle(InvokeCommand(id.clone())) {
-                steps.push((format!("day {day} answered {id}"), json(&next)));
+                if today {
+                    steps.push((format!("day {day} answered {id}"), json_of(&next, keep)));
+                }
                 snapshot = next;
             }
         }
@@ -72,17 +95,26 @@ pub fn trace(
                 });
             if let Some(offer) = offer {
                 if let Ok(next) = session.handle(InvokeCommand(offer.clone())) {
-                    steps.push((format!("day {day} made {offer}"), json(&next)));
+                    if today {
+                        steps.push((format!("day {day} made {offer}"), json_of(&next, keep)));
+                    }
                 }
             }
         }
         let next = session
             .handle(InvokeCommand(pass.into()))
             .expect("the day passes");
-        steps.push((format!("day {day} passed"), json(&next)));
+        if today {
+            steps.push((format!("day {day} passed"), json_of(&next, keep)));
+        }
         // Looked at again, as the app may: the same World, the same JSON.
         snapshot = session.snapshot();
-        steps.push((format!("day {day} looked at again"), json(&snapshot)));
+        if today {
+            steps.push((
+                format!("day {day} looked at again"),
+                json_of(&snapshot, keep),
+            ));
+        }
     }
     steps
 }
@@ -108,19 +140,20 @@ pub fn assert_snapshot_json_identical(
             eprintln!("no golden snapshot JSON for {stem}: run with WORLD_MACHINE_BLESS=1");
             continue;
         }
-        let steps = trace(registry, &fixture, pass, days);
+        let steps = trace(registry, &fixture, pass, days, dump.is_some());
         let mut digest = String::new();
-        for (label, text) in &steps {
+        for (label, json) in &steps {
             let _ = writeln!(
                 digest,
                 "{:016x} {} {label}",
-                fnv64(text.as_bytes()),
-                text.len()
+                json.digest.hash(),
+                json.digest.len()
             );
         }
         if let Some(dir) = &dump {
             std::fs::create_dir_all(dir).unwrap();
-            for (at, (_, text)) in steps.iter().enumerate() {
+            for (at, (_, json)) in steps.iter().enumerate() {
+                let text = json.text.as_deref().unwrap_or_default();
                 std::fs::write(dir.join(format!("{stem}-{at:02}.json")), text).unwrap();
             }
         }
@@ -131,13 +164,7 @@ pub fn assert_snapshot_json_identical(
         }
         checked += 1;
         let expected = std::fs::read_to_string(&golden).unwrap();
-        if expected != digest {
-            let first = expected
-                .lines()
-                .zip(digest.lines())
-                .find(|(a, b)| a != b)
-                .map(|(a, b)| format!("expected `{a}`, got `{b}`"))
-                .unwrap_or_else(|| "a different number of steps".into());
+        if let Some(first) = compare(&expected, &digest, digest_every() == 1) {
             failures.push(format!("{stem}: {first}"));
         }
     }

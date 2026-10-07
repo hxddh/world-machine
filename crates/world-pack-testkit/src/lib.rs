@@ -11,3 +11,4 @@ pub mod replay;
 pub mod seams;
 pub mod snapshot_json;
 pub mod town;
+pub mod words;

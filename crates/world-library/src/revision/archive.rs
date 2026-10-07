@@ -67,19 +67,20 @@ mod tests {
 
     fn session(world_time: u64, archive: bool) -> DurableWorldSession {
         DurableWorldSession {
-            target: WorldDocumentTarget::File(PathBuf::from("unused.world")),
-            revision: DocumentRevision::from_bytes(b"archive-source-test"),
+            file: crate::world_file::WorldFile::new(
+                WorldDocumentTarget::File(PathBuf::from("unused.world")),
+                DocumentRevision::from_bytes(b"archive-source-test"),
+                Default::default(),
+                crate::lock::Lock::none(),
+            ),
             metadata: WorldDocumentMetadata::default(),
             checkpoint: None,
             session: Box::new(MockSession {
                 world_time,
                 archive,
             }),
-            saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
-            writer: Default::default(),
-            writes: Default::default(),
         }
     }
 

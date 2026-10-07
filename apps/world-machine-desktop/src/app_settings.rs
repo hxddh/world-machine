@@ -70,6 +70,11 @@ pub struct AppSettings {
     /// Mac's Increase Contrast.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub increase_contrast: Option<bool>,
+    /// Whether the drawer shows the World's inner workings (its raw
+    /// records and counters) for someone building Worlds. Off unless
+    /// turned on, and omitted while off.
+    #[serde(default, skip_serializing_if = "is_off")]
+    pub developer: bool,
     /// Where a World shown as a strip goes: which edge, which display, and
     /// whether it stays in front. Omitted while it is as it starts.
     #[serde(default, skip_serializing_if = "StripSettings::is_default")]
@@ -233,6 +238,7 @@ impl AppSettings {
             language: None,
             text_scale: None,
             increase_contrast: None,
+            developer: false,
             strip: StripSettings::default(),
             hints: HintSettings::default(),
         }
@@ -431,6 +437,11 @@ pub fn save_increase_contrast(root: &Path, on: Option<bool>) -> Result<(), AppSe
     update_settings(root, move |settings| settings.increase_contrast = on)
 }
 
+/// Whether the drawer shows the World's inner workings.
+pub fn save_developer(root: &Path, on: bool) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.developer = on)
+}
+
 /// Whether World windows play their landscape's sound.
 pub fn save_ambient_sound(root: &Path, on: bool) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.ambient_sound = on)
@@ -604,6 +615,7 @@ mod tests {
             language: None,
             text_scale: None,
             increase_contrast: None,
+            developer: false,
             strip: StripSettings::default(),
             hints: HintSettings {
                 shown: vec!["hands".into()],

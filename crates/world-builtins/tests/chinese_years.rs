@@ -1,25 +1,30 @@
-//! Both built-in Packs in Chinese over three years, as a player sees
+//! Both built-in Packs in Chinese and in Japanese, as a player sees
 //! them, read against the catalogs the app installs: Tiny Society's
-//! harbour, and each of Pocket Universe's three places. A line is left
-//! partly English when, translated, it still has a word of two or more
-//! Latin letters that is not a resident's name; residents keep their
-//! names in Latin letters everywhere, and every place is called by its
-//! Chinese name.
+//! harbour, and each of Pocket Universe's three places, played once and
+//! read in both languages. A line is left partly untranslated when,
+//! translated, it still has a word of two or more Latin letters that the
+//! language does not write that way: in Chinese, residents keep their
+//! names in Latin letters everywhere; in Japanese, every name is in
+//! katakana. Every place is called by its own name in each language, no
+//! line starts with a mark that ends or closes something, and Japanese
+//! quotes with 「」.
 //!
 //! ```text
 //! cargo test --release -p world-builtins --test chinese_years -- --ignored --nocapture
 //! ```
 //!
-//! Set `WORLD_MACHINE_UNTRANSLATED` to a file to write every line left
-//! partly English there, one a line, with the place it came from, and
-//! `WORLD_MACHINE_SENTENCES` as well to add each of its sentences that is
-//! not in Chinese on its own, marked `#`.
+//! `LANGUAGE_DAYS` sets how long each place is played (a year by
+//! default). Set `WORLD_MACHINE_UNTRANSLATED` to a file to write every
+//! line left partly untranslated there, one a line, with the language and
+//! place it came from, and `WORLD_MACHINE_SENTENCES` as well to add each
+//! of its sentences that is not translated on its own, marked `#`.
 
 use std::collections::BTreeSet;
 use world_projection::{CanvasItemKind, ProjectionIntent::InvokeCommand, ProjectionSnapshot};
 
-/// Under half a percent of what each place shows may stay partly English.
-const BAR: f64 = 0.995;
+/// At most one in two thousand of what each place shows in a year may stay
+/// partly untranslated.
+const BAR: f64 = 0.9995;
 
 fn catalog() -> world_i18n::Catalog {
     let mut catalog =
@@ -32,6 +37,26 @@ fn catalog() -> world_i18n::Catalog {
     catalog.extend(&world_builtins::zh_hans_voices());
     catalog
 }
+
+fn japanese_catalog() -> world_i18n::Catalog {
+    let mut catalog =
+        world_builtins::JA
+            .iter()
+            .fold(world_i18n::Catalog::default(), |mut all, text| {
+                all.extend(text);
+                all
+            });
+    catalog.extend(&world_builtins::ja_voices());
+    catalog
+}
+
+/// Words Japanese itself writes in Latin letters.
+const LATIN_IN_JAPANESE: [&str; 4] = ["MTV", "DJ", "CD", "TV"];
+
+/// Marks no line may start with.
+const NEVER_FIRST: [char; 12] = [
+    '。', '、', '，', '」', '）', '！', '？', '：', '；', '』', '”', '.',
+];
 
 /// Words Chinese itself writes in Latin letters.
 const LATIN_IN_CHINESE: [&str; 3] = ["MTV", "DJ", "CD"];
@@ -56,6 +81,11 @@ fn read(snapshot: &ProjectionSnapshot, shown: &mut BTreeSet<String>, names: &mut
             names.extend(item.label.split_whitespace().map(str::to_string));
         } else if !item.label.trim().is_empty() {
             shown.insert(item.label.clone());
+        }
+        // What someone does, or what a place is, as the person card and
+        // the label under it say.
+        if !item.detail.trim().is_empty() {
+            shown.insert(item.detail.clone());
         }
     }
     let mut texts = vec![snapshot.title.clone()];
@@ -274,18 +304,33 @@ fn left(
         .collect()
 }
 
+/// What of `shown` reads wrong once translated: a line that starts with
+/// a mark that ends something, or, in Japanese, quotes in “”.
+fn misset(catalog: &world_i18n::Catalog, shown: &BTreeSet<String>, japanese: bool) -> Vec<String> {
+    shown
+        .iter()
+        .filter_map(|text| {
+            let translated = catalog.translate(text)?;
+            let first = translated.trim_start().starts_with(NEVER_FIRST);
+            let quotes = japanese && translated.contains(['“', '”']);
+            (first || quotes).then(|| format!("{text}  =>  {translated}"))
+        })
+        .collect()
+}
+
 #[test]
 #[ignore]
-fn three_years_of_both_packs_are_shown_in_chinese() {
-    let catalog = catalog();
+fn a_year_of_both_packs_is_shown_in_chinese_and_japanese() {
+    let days: usize = std::env::var("LANGUAGE_DAYS")
+        .ok()
+        .and_then(|days| days.parse().ok())
+        .unwrap_or(360);
     let places = std::thread::scope(|scope| {
-        let tiny = scope.spawn(|| tiny_society(1_080));
-        let mars =
-            scope.spawn(|| pocket_universe(pocket_universe::SEED_MARS_COLONY_COMMAND, 1_080));
-        let maple =
-            scope.spawn(|| pocket_universe(pocket_universe::SEED_1980S_TOWN_COMMAND, 1_080));
+        let tiny = scope.spawn(|| tiny_society(days));
+        let mars = scope.spawn(|| pocket_universe(pocket_universe::SEED_MARS_COLONY_COMMAND, days));
+        let maple = scope.spawn(|| pocket_universe(pocket_universe::SEED_1980S_TOWN_COMMAND, days));
         let penguins = scope
-            .spawn(|| pocket_universe(pocket_universe::SEED_PENGUIN_CIVILIZATION_COMMAND, 1_080));
+            .spawn(|| pocket_universe(pocket_universe::SEED_PENGUIN_CIVILIZATION_COMMAND, days));
         [
             ("Tiny Society", tiny.join().unwrap()),
             ("Mars Colony", mars.join().unwrap()),
@@ -293,59 +338,85 @@ fn three_years_of_both_packs_are_shown_in_chinese() {
             ("Penguin Civilization", penguins.join().unwrap()),
         ]
     });
+    let chinese = catalog();
+    let japanese = japanese_catalog();
+    // In Japanese no name stays in Latin letters: only what Japanese
+    // itself writes that way.
+    let latin_in_japanese = LATIN_IN_JAPANESE
+        .iter()
+        .map(|word| word.to_string())
+        .collect::<BTreeSet<_>>();
     let mut report = String::new();
     let mut short = Vec::new();
-    for (place, (shown, names, told)) in &places {
-        // The stories alone keep to the same bar.
-        let untold = left(&catalog, told, names);
-        let told_share = 1.0 - untold.len() as f64 / told.len().max(1) as f64;
-        eprintln!(
-            "{place}: {} of {} story texts partly English",
-            untold.len(),
-            told.len()
-        );
-        for (text, translated) in untold.iter().take(30) {
-            eprintln!("  story: {text}  =>  {translated}");
-        }
-        assert!(told.len() > 20, "{place} told only {} stories", told.len());
-        if told_share < BAR {
-            short.push(format!(
-                "{place} stories {:.2}%",
-                (1.0 - told_share) * 100.0
-            ));
-        }
-        let left = left(&catalog, shown, names);
-        let share = 1.0 - left.len() as f64 / shown.len() as f64;
-        eprintln!(
-            "{place}: {} of {} shown texts partly English ({:.2}%)",
-            left.len(),
-            shown.len(),
-            (1.0 - share) * 100.0
-        );
-        for (text, translated) in left.iter().take(30) {
-            eprintln!("  {text}  =>  {translated}");
-        }
-        for (text, translated) in &left {
-            report.push_str(&format!("{place}\t{text}\t{translated}\n"));
-            if std::env::var("WORLD_MACHINE_SENTENCES").is_ok() {
-                for sentence in sentences(text) {
-                    let alone = catalog
-                        .translate(sentence)
-                        .unwrap_or_else(|| sentence.into());
-                    if english(names, &alone) {
-                        report.push_str(&format!("#\t{sentence}\t{alone}\n"));
+    for (language, catalog, is_japanese) in [("zh", &chinese, false), ("ja", &japanese, true)] {
+        for (place, (shown, names, told)) in &places {
+            let allowed = if is_japanese {
+                &latin_in_japanese
+            } else {
+                names
+            };
+            // The stories alone keep to the same bar.
+            let untold = left(catalog, told, allowed);
+            let told_share = 1.0 - untold.len() as f64 / told.len().max(1) as f64;
+            eprintln!(
+                "{language} {place}: {} of {} story texts partly untranslated",
+                untold.len(),
+                told.len()
+            );
+            for (text, translated) in untold.iter().take(30) {
+                eprintln!("  story: {text}  =>  {translated}");
+            }
+            assert!(told.len() > 20, "{place} told only {} stories", told.len());
+            if told_share < BAR {
+                short.push(format!(
+                    "{language} {place} stories {:.2}%",
+                    (1.0 - told_share) * 100.0
+                ));
+            }
+            let left = left(catalog, shown, allowed);
+            let share = 1.0 - left.len() as f64 / shown.len() as f64;
+            eprintln!(
+                "{language} {place}: {} of {} shown texts partly untranslated ({:.3}%)",
+                left.len(),
+                shown.len(),
+                (1.0 - share) * 100.0
+            );
+            for (text, translated) in left.iter().take(40) {
+                eprintln!("  {text}  =>  {translated}");
+            }
+            for (text, translated) in &left {
+                report.push_str(&format!("{language}\t{place}\t{text}\t{translated}\n"));
+                if std::env::var("WORLD_MACHINE_SENTENCES").is_ok() {
+                    for sentence in sentences(text) {
+                        let alone = catalog
+                            .translate(sentence)
+                            .unwrap_or_else(|| sentence.into());
+                        if english(allowed, &alone) {
+                            report.push_str(&format!("#\t{language}\t{sentence}\t{alone}\n"));
+                        }
                     }
                 }
             }
-        }
-        if share < BAR {
-            short.push(format!("{place} {:.2}%", (1.0 - share) * 100.0));
+            if share < BAR {
+                short.push(format!("{language} {place} {:.3}%", (1.0 - share) * 100.0));
+            }
+            let misset = misset(catalog, shown, is_japanese);
+            for line in misset.iter().take(20) {
+                eprintln!("  misset: {line}");
+            }
+            if !misset.is_empty() {
+                short.push(format!("{language} {place}: {} lines misset", misset.len()));
+            }
         }
     }
     if let Ok(path) = std::env::var("WORLD_MACHINE_UNTRANSLATED") {
         std::fs::write(path, report).unwrap();
     }
-    assert!(short.is_empty(), "partly English: {}", short.join(", "));
+    assert!(
+        short.is_empty(),
+        "partly untranslated: {}",
+        short.join(", ")
+    );
 }
 
 /// How the catalogs show each line of a file, for translating:
@@ -418,4 +489,45 @@ fn people_have_their_names_in_katakana_in_japanese() {
             );
         }
     }
+}
+
+/// One name rule in each language, in every line of every catalog: a line
+/// that names someone keeps them in Latin letters in Chinese, and writes
+/// them in their one katakana name in Japanese, never another way.
+#[test]
+fn one_name_rule_in_each_language() {
+    let japanese = japanese_catalog();
+    let names = tiny_society::people_names()
+        .into_iter()
+        .chain(pocket_universe::people_names())
+        .flat_map(str::split_whitespace)
+        .filter(|name| name.chars().next().is_some_and(char::is_uppercase))
+        // Names that are also words ("Snow", "Pebble Day", "the Sun's
+        // Return"), where a line may mean the word.
+        .filter(|name| !["Brr", "Frost", "Kelp", "Pebble", "Skip", "Snow", "Sun"].contains(name))
+        .collect::<BTreeSet<_>>();
+    let mut broken = Vec::new();
+    for (language, texts) in [("zh", world_builtins::ZH_HANS), ("ja", world_builtins::JA)] {
+        for line in texts.iter().flat_map(|text| text.lines()) {
+            let Some((from, to)) = line.split_once('\t') else {
+                continue;
+            };
+            if line.starts_with('#') || from.starts_with('=') {
+                continue;
+            }
+            let words = from
+                .split(|c: char| !c.is_alphanumeric())
+                .collect::<BTreeSet<_>>();
+            for name in names.iter().filter(|name| words.contains(*name)) {
+                let written = match language {
+                    "zh" => Some(name.to_string()),
+                    _ => japanese.exact(name).map(str::to_string),
+                };
+                if written.is_some_and(|written| !to.contains(&written)) {
+                    broken.push(format!("{language}: {name} in {from:?} => {to:?}"));
+                }
+            }
+        }
+    }
+    assert!(broken.is_empty(), "{}", broken.join("\n"));
 }

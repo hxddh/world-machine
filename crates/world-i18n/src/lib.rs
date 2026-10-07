@@ -53,7 +53,16 @@ pub struct Catalog {
     /// lines written `=nest<tab>home`: a sentence nobody wrote with the
     /// one is tried again with the other.
     instead: Vec<(String, String)>,
+    /// How the language says "I" and "me", from a line written
+    /// `@I<tab>我`: a line someone writes of themselves ("I went fishing
+    /// with Miri") is read as the same line told of anyone, with the
+    /// speaker put in as a name.
+    myself: Option<String>,
 }
+
+/// Stands for the speaker while a line told of themselves is read as one
+/// told of anyone: a name nobody has.
+const MYSELF: &str = "Myselfname";
 
 fn pieces(line: &str) -> Vec<Piece> {
     let mut pieces = Vec::new();
@@ -119,6 +128,12 @@ impl Catalog {
                 continue;
             };
             let (from, to) = (unescape(from), unescape(to.trim_end()));
+            if from == "@I" {
+                if !to.is_empty() {
+                    self.myself = Some(to);
+                }
+                continue;
+            }
             if let Some(said) = from.strip_prefix('=') {
                 if !said.is_empty() && !to.is_empty() {
                     self.instead.retain(|(known, _)| known != said);
@@ -269,6 +284,28 @@ impl Catalog {
     pub fn translate(&self, text: &str) -> Option<String> {
         if let Some(found) = self.exact.get(text.trim()) {
             return Some(found.clone());
+        }
+        // Names or labels set side by side ("Mara · Emma"): each as the
+        // catalog has it, a name as the language writes names.
+        if text.contains(" · ") && self.whole(text, 0).is_none() {
+            let parts = text
+                .split(" · ")
+                .map(|part| {
+                    self.exact(part.trim())
+                        .map(str::to_string)
+                        .or_else(|| self.whole(part, 1))
+                })
+                .collect::<Vec<_>>();
+            if parts.iter().any(Option::is_some) {
+                return Some(
+                    parts
+                        .into_iter()
+                        .zip(text.split(" · "))
+                        .map(|(shown, part)| shown.unwrap_or_else(|| part.to_string()))
+                        .collect::<Vec<_>>()
+                        .join(" · "),
+                );
+            }
         }
         let sentences = split_sentences(text);
         if sentences.len() < 2 {
@@ -422,9 +459,18 @@ impl Catalog {
                         let shown = match self.whole(value, depth + 1) {
                             Some(shown) => shown,
                             None => {
-                                clean &= reads_as_a_name(value);
-                                // A list of names is listed the Chinese way.
-                                value.replace(", ", "、")
+                                // "I" is the speaker, not a name: read
+                                // below as the language says "I".
+                                clean &= reads_as_a_name(value) && value != "I";
+                                // A list of names is listed the Chinese way,
+                                // each name as the catalog writes it.
+                                value
+                                    .split(", ")
+                                    .map(|name| {
+                                        self.exact(name).map_or(name.to_string(), str::to_string)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("、")
                             }
                         };
                         // Unnamed slots are filled in order, one each.
@@ -438,6 +484,31 @@ impl Catalog {
                     if clean {
                         return Some(out);
                     }
+                }
+            }
+        }
+        // Said of oneself ("I went fishing with Miri", "Leo gave me a
+        // gift"): read as told of anyone, with the speaker put in as a
+        // name, then said as the language says "I".
+        if let Some(myself) = self.myself.as_ref().filter(|_| depth <= 1) {
+            let told = text
+                .split(' ')
+                .map(|word| {
+                    let bare = word.trim_end_matches(|c: char| !c.is_alphanumeric());
+                    match bare {
+                        "I" | "me" => format!("{MYSELF}{}", &word[bare.len()..]),
+                        _ => word.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            if told != text {
+                // Only where the speaker is still in it after.
+                if let Some(found) = self
+                    .whole(&told, depth + 1)
+                    .filter(|found| found.contains(MYSELF))
+                {
+                    return Some(found.replace(MYSELF, myself));
                 }
             }
         }
@@ -925,6 +996,49 @@ a hand-drawn map of the {settlement}\t一张手绘的{settlement}地图
 harbour\t港湾
 id_like_this\tSKIP
 ";
+
+    /// Names in a list, or set side by side, are each written as the
+    /// language writes names.
+    #[test]
+    fn names_in_lists_are_each_written_the_languages_way() {
+        let catalog = Catalog::parse(
+            "Hana\tハナ\nRosa\tローザ\nTobias\tトビアス\nMara\tマーラ\nEmma\tエマ\n\
+             {} and {} settled in the harbour for good\t{}と{}は港に腰を落ち着けた\n",
+        );
+        assert_eq!(
+            catalog
+                .translate("Hana, Rosa and Tobias settled in the harbour for good")
+                .as_deref(),
+            Some("ハナ、ローザとトビアスは港に腰を落ち着けた")
+        );
+        assert_eq!(
+            catalog.translate("Mara · Emma").as_deref(),
+            Some("マーラ · エマ")
+        );
+        assert_eq!(
+            catalog.translate("Mara · Lena").as_deref(),
+            Some("マーラ · Lena")
+        );
+    }
+
+    /// A line someone writes of themselves reads as the line told of
+    /// anyone, with "I" as the language says it.
+    #[test]
+    fn a_line_told_of_oneself_is_read_as_told_of_anyone() {
+        let catalog = Catalog::parse(
+            "@I\t我\n{name} went fishing with {other}\t{name}和{other}去钓鱼了\n\
+             {a} gave {b} a gift\t{a}送了{b}一份礼物\n",
+        );
+        assert_eq!(
+            catalog.translate("I went fishing with Miri").as_deref(),
+            Some("我和Miri去钓鱼了")
+        );
+        assert_eq!(
+            catalog.translate("Leo gave me a gift").as_deref(),
+            Some("Leo送了我一份礼物")
+        );
+        assert_eq!(catalog.translate("I went sailing").as_deref(), None);
+    }
 
     #[test]
     fn whole_lines_and_templates_are_translated() {

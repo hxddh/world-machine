@@ -3,17 +3,26 @@
 //! plays on.
 //!
 //! The fixtures were written on each release's own tree, in a scratch
-//! worktree, by that release's fixture writer (`v022_worlds.rs` for v0.20
-//! to v0.22: a warm player's first ninety days; `v023_worlds.rs` for v0.23
-//! and v0.24: a builder's first 120 days). v0.20 and v0.21 record the same
-//! events for that player, so their files are the same. They must never
-//! be rewritten.
+//! worktree, by a fixture writer run there:
+//! - v0.20 and v0.22: `v022_worlds.rs`, a warm player's first ninety days;
+//! - v0.21: a "last" player's first 120 days (the last answer each day,
+//!   something made by hand every other day), written as v0.21's
+//!   `WorldDocument` writes a file (v0.27; v0.21's first fixture was the
+//!   warm player's, whose events v0.21 recorded exactly as v0.20 did, so
+//!   its file was v0.20's byte for byte);
+//! - v0.23 and v0.24: `v023_worlds.rs`, a builder's first 120 days;
+//! - v0.25 and v0.26 (v0.26.1): the same builder played the app's way, a
+//!   Library World made by `DurableWorldSession::create` and changed by
+//!   `handle`, so the file is exactly what that release's app wrote.
+//!
+//! No two are the same file ([`no_two_fixtures_are_the_same_file`]). They
+//! must never be rewritten.
 
 use tiny_society::TinySociety;
 use world_document::WorldDocument;
 use world_projection::ProjectionIntent::InvokeCommand;
 
-const RELEASES: [&str; 5] = ["v020", "v021", "v022", "v023", "v024"];
+const RELEASES: [&str; 7] = ["v020", "v021", "v022", "v023", "v024", "v025", "v026"];
 const PASS: &str = "tiny-society.let-day-pass";
 
 fn fixture(release: &str) -> Vec<u8> {
@@ -68,18 +77,31 @@ fn a_harbour_from_every_release_opens_replays_and_plays_on() {
         assert_eq!(after.events[..before], archive.events[..], "{release}");
         let reopened = registry.open_archive(&after).unwrap();
         assert_eq!(reopened.snapshot(), session.snapshot(), "{release}");
-        // Opened as the app opens a file: written before files said who
-        // wrote them, so schema 0, and played on as usual.
+        // Opened as the app opens a file, and played on as usual: written
+        // before files said who wrote them (schema 0), or by v0.25's app
+        // or later, which says so.
         let path = format!(
             "{}/tests/fixtures/{release}-harbour.world",
             env!("CARGO_MANIFEST_DIR")
         );
         let opened = world_library::DurableWorldSession::open_file(path.into(), &registry).unwrap();
-        assert_eq!(opened.writer().schema, 0, "{release}");
+        let says = release >= "v025";
+        assert_eq!(opened.writer().schema, u32::from(says), "{release}");
+        assert_eq!(opened.writer().app.is_some(), says, "{release}");
         assert_eq!(opened.read_only_reason(), None, "{release}");
         assert_eq!(
             opened.snapshot(),
             registry.open_archive(&archive).unwrap().snapshot()
         );
     }
+}
+
+/// Every release's fixture is a World of its own: no two files are the
+/// same (v0.20's and v0.21's were, until v0.27).
+#[test]
+fn no_two_fixtures_are_the_same_file() {
+    world_pack_testkit::replay::assert_fixtures_differ(std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures"
+    )));
 }

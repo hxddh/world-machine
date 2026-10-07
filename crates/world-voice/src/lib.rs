@@ -10,8 +10,9 @@
 use conversation::{Hearing, Listened};
 pub use conversation::{Listener, OwnEars};
 use std::io::Write as _;
-use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use world_pi_rpc::{PiCommand, PiRpcTransport, ProcessPiRpcTransport};
+use world_projection::{Ears, VoiceHearing};
 
 pub mod fm;
 pub mod helper;
@@ -55,16 +56,42 @@ const TIMEOUT_SECONDS: u32 = 20;
 pub const DEFAULT_JUDGE_MODEL: &str = "claude-haiku-4-5";
 /// Which model judges, if not the default.
 pub const JUDGE_MODEL_ENV: &str = "WORLD_MACHINE_JUDGE_MODEL";
-/// A verdict is one small object.
-const JUDGE_MAX_TOKENS: u32 = 64;
+/// A verdict is a short checklist: a few true-or-false answers and the
+/// names the answer used.
+const JUDGE_MAX_TOKENS: u32 = 256;
 /// Somebody is waiting for the answer, and the model has already taken
 /// its time: a judge that is slower than this is no judge, and the strict
 /// guard decides.
 const JUDGE_TIMEOUT_SECONDS: u32 = 6;
 
+/// The whole time the app gives a model's answer and its judge, from the
+/// moment it starts asking: inside the window's own deadline (12 s, in
+/// `world_gpui::LISTEN_DEADLINE`), with room to say the words after.
+pub const VOICE_BUDGET: Duration = Duration::from_millis(11_000);
+/// What the listener leaves of the budget for a judge, when there is one:
+/// a slower answer is cut off so its judge still has time.
+pub const JUDGE_RESERVE: Duration = Duration::from_millis(3_000);
+
 /// Something that turns a prompt into a model's text, or nothing.
 pub trait Completion: Send {
     fn complete(&mut self, prompt: &str) -> Option<String>;
+
+    /// The same as [`Completion::complete_with`], by `deadline`: a request
+    /// still running then is stopped (and is no answer). One that cannot
+    /// be stopped is asked as it is, and an answer after the deadline is
+    /// thrown away.
+    fn complete_until(
+        &mut self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+        deadline: Instant,
+    ) -> Option<String> {
+        if Instant::now() >= deadline {
+            return None;
+        }
+        let answer = self.complete_with(prompt, schema)?;
+        (Instant::now() <= deadline).then_some(answer)
+    }
 
     /// The same, held to `schema` (a JSON Schema for one object) where the
     /// model can be held to one; a model that cannot is asked as it is and
@@ -90,6 +117,15 @@ impl Completion for Box<dyn Completion> {
         schema: Option<&serde_json::Value>,
     ) -> Option<String> {
         self.as_mut().complete_with(prompt, schema)
+    }
+
+    fn complete_until(
+        &mut self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+        deadline: Instant,
+    ) -> Option<String> {
+        self.as_mut().complete_until(prompt, schema, deadline)
     }
 }
 
@@ -366,6 +402,16 @@ pub struct Asking<'a> {
     pub schema: Option<&'a serde_json::Value>,
 }
 
+/// `curl`'s `--max-time` for at most `seconds`, cut to what is left before
+/// `deadline`, in milliseconds' precision.
+pub fn max_time(seconds: u32, deadline: Option<Instant>) -> Duration {
+    let most = Duration::from_secs(u64::from(seconds));
+    match deadline {
+        Some(deadline) => most.min(deadline.saturating_duration_since(Instant::now())),
+        None => most,
+    }
+}
+
 /// The request for one prompt asked this way: the key only in the
 /// configuration.
 pub fn api_request_with(asking: &Asking, prompt: &str, key: &str, body_path: &str) -> ApiRequest {
@@ -394,6 +440,21 @@ pub fn api_request_with(asking: &Asking, prompt: &str, key: &str, body_path: &st
     }
 }
 
+/// The same request, stopped by `curl` itself at `time`.
+fn api_request_within(
+    asking: &Asking,
+    prompt: &str,
+    key: &str,
+    body_path: &str,
+    time: Duration,
+) -> ApiRequest {
+    let mut request = api_request_with(asking, prompt, key, body_path);
+    if let Some(at) = request.args.iter().position(|arg| arg == "--max-time") {
+        request.args[at + 1] = format!("{:.3}", time.as_secs_f64());
+    }
+    request
+}
+
 /// The text of a Messages API reply; nothing for an error or a refusal.
 pub fn reply_text(response: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(response).ok()?;
@@ -412,6 +473,42 @@ pub fn reply_text(response: &str) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
+impl ApiCompletion {
+    /// Asks, giving up (and stopping `curl`) at `deadline` if there is one.
+    fn ask(
+        &mut self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+        deadline: Option<Instant>,
+    ) -> Option<String> {
+        let time = max_time(self.timeout_seconds, deadline);
+        if time.is_zero() || !is_plausible_api_key(&self.key) {
+            return None;
+        }
+        let asking = Asking {
+            model: &self.model,
+            max_tokens: self.max_tokens,
+            timeout_seconds: self.timeout_seconds,
+            schema,
+        };
+        let path = private_temp_path("voice")?;
+        let request = api_request_within(&asking, prompt, &self.key, path.to_str()?, time);
+        let _body = BodyFile::at(path, request.body.as_bytes())?;
+        // `curl` stops itself at its `--max-time`; the run is stopped a
+        // moment later in any case, so a request is never left running.
+        let ran = fm::run_with_input(
+            CURL,
+            &request.args,
+            Some(&request.config),
+            time + Duration::from_millis(200),
+        )?;
+        if !ran.success {
+            return None;
+        }
+        reply_text(&ran.stdout)
+    }
+}
+
 impl Completion for ApiCompletion {
     fn complete(&mut self, prompt: &str) -> Option<String> {
         self.complete_with(prompt, None)
@@ -422,35 +519,16 @@ impl Completion for ApiCompletion {
         prompt: &str,
         schema: Option<&serde_json::Value>,
     ) -> Option<String> {
-        let asking = Asking {
-            model: &self.model,
-            max_tokens: self.max_tokens,
-            timeout_seconds: self.timeout_seconds,
-            schema,
-        };
-        let path = private_temp_path("voice")?;
-        let request = api_request_with(&asking, prompt, &self.key, path.to_str()?);
-        let _body = BodyFile::at(path, request.body.as_bytes())?;
-        if !is_plausible_api_key(&self.key) {
-            return None;
-        }
-        let mut child = Command::new(CURL)
-            .args(&request.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        child
-            .stdin
-            .take()?
-            .write_all(request.config.as_bytes())
-            .ok()?;
-        let output = child.wait_with_output().ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        reply_text(&String::from_utf8_lossy(&output.stdout))
+        self.ask(prompt, schema, None)
+    }
+
+    fn complete_until(
+        &mut self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+        deadline: Instant,
+    ) -> Option<String> {
+        self.ask(prompt, schema, Some(deadline))
     }
 }
 
@@ -572,23 +650,28 @@ impl ModelJudge {
         }
     }
 
-    /// The verdict on a judge's prompt, if the judge gave a usable one.
-    pub fn verdict(&mut self, judge_prompt: &str) -> Option<conversation::Verdict> {
+    /// The judge's raw reply to its prompt about `answer`, by `deadline`.
+    pub fn reply(&mut self, hearing: &Hearing, answer: &str, deadline: Instant) -> Option<String> {
         let schema = conversation::judge::verdict_schema();
-        conversation::judge::parse_verdict(
-            &self.completion.complete_with(judge_prompt, Some(&schema))?,
-        )
+        let prompt = conversation::judge::judge_prompt(hearing, answer);
+        self.completion
+            .complete_until(&prompt, Some(&schema), deadline)
     }
 
-    /// The judge's verdict on `answer`, with the judge's name, from the
-    /// prompt the listener was asked with; nothing when that prompt has no
-    /// World to judge by (an older Pack's).
-    pub fn judged(&mut self, listener_prompt: &str, answer: &str) -> Option<conversation::Judged> {
-        let prompt = conversation::judge::judge_prompt_for_listener(listener_prompt, answer)?;
-        Some(conversation::Judged {
+    /// The judge's verdict on `answer`, with the judge's name, by
+    /// `deadline`: no verdict if it gave nothing usable in time.
+    pub fn judged(
+        &mut self,
+        hearing: &Hearing,
+        answer: &str,
+        deadline: Instant,
+    ) -> conversation::Judged {
+        conversation::Judged {
             judge: self.name.clone(),
-            verdict: self.verdict(&prompt),
-        })
+            verdict: self
+                .reply(hearing, answer, deadline)
+                .and_then(|reply| conversation::judge::verdict_of(&reply, hearing, answer)),
+        }
     }
 }
 
@@ -598,7 +681,8 @@ impl conversation::Judge for ModelJudge {
     }
 
     fn judge(&mut self, hearing: &Hearing, answer: &str) -> Option<conversation::Verdict> {
-        self.verdict(&conversation::judge::judge_prompt(hearing, answer))
+        self.judged(hearing, answer, Instant::now() + VOICE_BUDGET)
+            .verdict
     }
 }
 
@@ -610,27 +694,45 @@ fn program_name(program: &str) -> String {
         .unwrap_or_else(|| "program".into())
 }
 
-/// What an app hands a World for `prompt`: the model's response, and, when
-/// the prompt wants a JSON answer and there is a judge, that answer with
-/// the judge's verdict on it. Asked off the window's thread; the answer
-/// waits for its judge. Nothing if the model said nothing.
+/// What an app hands a World for the player's words, from the World's
+/// hearing of them: the app builds the prompt itself (a World never
+/// writes it), asks the model, and, when there is a judge and the World's
+/// checks would not decline the answer anyway, asks the judge, all within
+/// `budget` from now. The model's answer goes to the World only as the
+/// app read it, never as the raw text the model wrote; the judge's verdict
+/// goes beside it. Nothing if the hearing is unusable or the model said
+/// nothing usable in time: the World then answers with its own words.
 pub fn answer_for_world(
-    prompt: &str,
+    voice: &VoiceHearing,
     completion: &mut dyn Completion,
     judge: Option<&mut ModelJudge>,
-) -> Option<String> {
-    if !conversation::wants_json(prompt) {
-        // An older Pack's prompt: its three lines, as ever.
-        return completion.complete(prompt);
-    }
-    let response = completion.complete_with(prompt, Some(&conversation::answer_schema()))?;
-    let Some(mut listened) = conversation::parse(&response) else {
-        // Unreadable: the World reads it, finds nothing, and keeps its own.
-        return Some(response);
+    budget: Duration,
+) -> Option<Ears> {
+    let start = Instant::now();
+    let deadline = start + budget;
+    let hearing = Hearing::from_voice(voice)?;
+    let prompt = conversation::prompt(&hearing);
+    // A judge needs time of its own: the answer is cut off before it.
+    let listening = match &judge {
+        Some(_) => deadline - JUDGE_RESERVE.min(budget / 2),
+        None => deadline,
     };
-    // Only this app's judge gives a verdict.
-    listened.judged = judge.and_then(|judge| judge.judged(prompt, &listened.answer));
-    Some(conversation::envelope(&listened))
+    let response =
+        completion.complete_until(&prompt, Some(&conversation::answer_schema()), listening)?;
+    let listened = conversation::parse(&response)?;
+    let envelope = conversation::envelope(&listened);
+    let Some(judge) = judge else {
+        return Some(Ears::Model(envelope));
+    };
+    // Not asked about what the World would decline anyway.
+    if !conversation::judge::needs_judge_for(&hearing, &listened) {
+        return Some(Ears::Model(envelope));
+    }
+    let judged = judge.judged(&hearing, &listened.answer, deadline);
+    Some(Ears::Judged {
+        response: envelope,
+        judged: conversation::judgement(&judged),
+    })
 }
 
 #[cfg(test)]
@@ -753,7 +855,7 @@ mod tests {
         assert!(body["output_config"].get("effort").is_none());
         assert_eq!(body["output_config"]["format"]["type"], "json_schema");
         assert_eq!(body["output_config"]["format"]["schema"], schema);
-        assert_eq!(body["max_tokens"], 64);
+        assert_eq!(body["max_tokens"], 256);
         assert!(request
             .args
             .windows(2)
@@ -784,12 +886,29 @@ mod tests {
         }
     }
 
-    /// The app asks the model, then its judge, and hands the World the
-    /// answer with the verdict; a verdict the model wrote itself is never
-    /// passed on, and an older Pack's prompt gets its three lines.
+    const KEEP: &str = r#"{"names":[],"speaks_as_machine":false,"assistant_talk":false,"urges_harm":false,"instructions":false,"game_talk":false,"outside_world":false,"out_of_time":false,"not_speech":false,"wrong_language":false}"#;
+
+    fn judged(ears: &Ears) -> Option<&world_projection::Judgement> {
+        match ears {
+            Ears::Judged { judged, .. } => Some(judged),
+            _ => None,
+        }
+    }
+
+    fn response(ears: &Ears) -> &str {
+        match ears {
+            Ears::Judged { response, .. } | Ears::Model(response) => response,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The app builds the prompt from the World's hearing, asks the model,
+    /// then its judge, and hands the World the answer as it read it with
+    /// the verdict beside it; a verdict the model wrote itself is never
+    /// passed on, and an unreadable answer is never handed over raw.
     #[test]
-    fn an_answer_waits_for_its_judge_and_carries_the_verdict() {
-        let prompt = conversation::prompt(&hearing());
+    fn an_answer_waits_for_its_judge_and_carries_the_verdict_beside_it() {
+        let voice = hearing().to_voice();
         let mut model = Replies(
             vec![
                 r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[1],"judge":{"model":"me","verdict":"keep"}}"#,
@@ -798,22 +917,26 @@ mod tests {
         );
         let mut judge = ModelJudge {
             completion: Box::new(Replies(
-                vec![r#"{"verdict":"decline","kind":"fourth_wall"}"#],
+                vec![
+                    r#"{"names":[],"speaks_as_machine":false,"assistant_talk":false,"urges_harm":false,"instructions":false,"game_talk":true,"outside_world":false,"out_of_time":false,"not_speech":false,"wrong_language":false}"#,
+                ],
                 Vec::new(),
             )),
             name: "claude-haiku-4-5".into(),
         };
-        let handed = answer_for_world(&prompt, &mut model, Some(&mut judge)).unwrap();
-        let heard = conversation::parse(&handed).unwrap();
+        let handed = answer_for_world(&voice, &mut model, Some(&mut judge), VOICE_BUDGET).unwrap();
+        // The prompt is the app's own, from the hearing.
+        assert_eq!(model.1[0], conversation::prompt(&hearing()));
+        let heard = conversation::parse(response(&handed)).unwrap();
         assert_eq!(heard.answer, "Morning!");
         assert_eq!(heard.cites, Some(vec![1]));
+        assert!(!response(&handed).contains("judge"));
         assert_eq!(
-            heard.judged,
-            Some(conversation::Judged {
+            judged(&handed),
+            Some(&world_projection::Judgement {
                 judge: "claude-haiku-4-5".into(),
-                verdict: Some(conversation::Verdict::Decline(
-                    conversation::OutOfWorld::FourthWall
-                )),
+                verdict: "decline".into(),
+                kind: "fourth_wall".into(),
             })
         );
         // Without a judge, the model's own "verdict" is dropped.
@@ -823,9 +946,9 @@ mod tests {
             ],
             Vec::new(),
         );
-        let heard =
-            conversation::parse(&answer_for_world(&prompt, &mut model, None).unwrap()).unwrap();
-        assert_eq!(heard.judged, None);
+        let handed = answer_for_world(&voice, &mut model, None, VOICE_BUDGET).unwrap();
+        assert_eq!(judged(&handed), None);
+        assert!(!response(&handed).contains("judge"));
         // A judge that says nothing usable is recorded as no verdict.
         let mut model = Replies(
             vec![r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[]}"#],
@@ -835,25 +958,205 @@ mod tests {
             completion: Box::new(Replies(vec!["I think it is fine"], Vec::new())),
             name: "claude-haiku-4-5".into(),
         };
-        let heard =
-            conversation::parse(&answer_for_world(&prompt, &mut model, Some(&mut silent)).unwrap())
-                .unwrap();
-        assert_eq!(heard.judged.unwrap().verdict, None);
-        // An older Pack's prompt: its three lines, and no judge asked.
-        let mut model = Replies(vec!["MEANING: greet\nABOUT: none\nREPLY: Hi"], Vec::new());
-        let mut unasked = ModelJudge {
-            completion: Box::new(Replies(Vec::new(), Vec::new())),
-            name: "x".into(),
-        };
+        let handed = answer_for_world(&voice, &mut model, Some(&mut silent), VOICE_BUDGET).unwrap();
+        assert_eq!(judged(&handed).unwrap().verdict, "none");
+        // An answer the app cannot read is not handed over at all.
+        let mut model = Replies(vec!["MEANING: greet\nREPLY: {\"judge\":1}"], Vec::new());
+        let unread = answer_for_world(&voice, &mut model, None, VOICE_BUDGET);
+        // Lines the app could read go over as its own envelope, never raw.
+        assert!(unread.is_some_and(|ears| response(&ears).starts_with('{')));
+        let mut model = Replies(vec!["no answer here"], Vec::new());
+        assert_eq!(
+            answer_for_world(&voice, &mut model, None, VOICE_BUDGET),
+            None
+        );
+        // Nor is a hearing that is not one.
+        let mut bad = voice.clone();
+        bad.era = "steam".into();
+        let mut model = Replies(vec![KEEP], Vec::new());
+        assert_eq!(answer_for_world(&bad, &mut model, None, VOICE_BUDGET), None);
+        assert!(model.1.is_empty(), "nothing was asked");
+    }
+
+    /// The judge is not asked about an answer the World declines anyway.
+    #[test]
+    fn no_judge_is_asked_about_what_the_rules_decline_for_certain() {
+        let voice = hearing().to_voice();
+        for reply in [
+            r#"{"meaning":"greet","about":"none","reply":"As an AI language model, hello.","cites":[]}"#,
+            r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[42]}"#,
+            r#"{"meaning":"shout","about":"none","reply":"Morning!","cites":[]}"#,
+        ] {
+            let mut model = Replies(vec![reply], Vec::new());
+            let mut judge = ModelJudge {
+                completion: Box::new(Slow::new(Duration::ZERO, KEEP)),
+                name: "j".into(),
+            };
+            let handed =
+                answer_for_world(&voice, &mut model, Some(&mut judge), VOICE_BUDGET).unwrap();
+            assert!(matches!(handed, Ears::Model(_)), "{reply}");
+        }
+    }
+
+    /// A model that answers after a delay, and stops when its deadline
+    /// comes, as a real request is stopped.
+    struct Slow {
+        delay: Duration,
+        reply: &'static str,
+        stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Slow {
+        fn new(delay: Duration, reply: &'static str) -> Self {
+            Self {
+                delay,
+                reply,
+                stopped: Default::default(),
+            }
+        }
+    }
+
+    impl Completion for Slow {
+        fn complete(&mut self, _: &str) -> Option<String> {
+            std::thread::sleep(self.delay);
+            Some(self.reply.into())
+        }
+
+        fn complete_until(
+            &mut self,
+            _: &str,
+            _: Option<&serde_json::Value>,
+            deadline: Instant,
+        ) -> Option<String> {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if self.delay > left {
+                std::thread::sleep(left);
+                self.stopped
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return None;
+            }
+            std::thread::sleep(self.delay);
+            Some(self.reply.into())
+        }
+    }
+
+    const MORNING: &str = r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[]}"#;
+
+    /// One budget for both: a slow judge is stopped at the budget's end
+    /// and the answer still goes to the World, the strict guard deciding;
+    /// a slow model is stopped before the judge's reserve, and the World
+    /// answers with its own words. Timed on the wall clock, scaled down.
+    #[test]
+    fn the_model_and_its_judge_fit_one_budget_and_the_slower_is_stopped() {
+        let voice = hearing().to_voice();
+        let budget = Duration::from_millis(1_200);
+        let slack = Duration::from_millis(150);
+
+        // Both quick: answered and judged, well inside the budget.
+        let started = Instant::now();
+        let handed = answer_for_world(
+            &voice,
+            &mut Slow::new(Duration::from_millis(50), MORNING),
+            Some(&mut ModelJudge {
+                completion: Box::new(Slow::new(Duration::from_millis(50), KEEP)),
+                name: "j".into(),
+            }),
+            budget,
+        )
+        .unwrap();
+        assert!(started.elapsed() < budget);
+        assert_eq!(judged(&handed).unwrap().verdict, "keep");
+
+        // The judge is too slow: stopped at the budget, no verdict, the
+        // answer kept for the World's strict guard.
+        let slow_judge = Slow::new(Duration::from_secs(30), KEEP);
+        let stopped = slow_judge.stopped.clone();
+        let started = Instant::now();
+        let handed = answer_for_world(
+            &voice,
+            &mut Slow::new(Duration::from_millis(400), MORNING),
+            Some(&mut ModelJudge {
+                completion: Box::new(slow_judge),
+                name: "j".into(),
+            }),
+            budget,
+        )
+        .unwrap();
+        let took = started.elapsed();
+        assert!(took >= budget - slack && took < budget + slack, "{took:?}");
+        assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(judged(&handed).unwrap().verdict, "none");
+        assert_eq!(
+            conversation::parse(response(&handed)).unwrap().answer,
+            "Morning!"
+        );
+
+        // The model is too slow: stopped where the judge's reserve begins
+        // (half the budget, at this scale), and nothing is handed over.
+        let slow_model = Slow::new(Duration::from_secs(30), MORNING);
+        let stopped = slow_model.stopped.clone();
+        let mut model = slow_model;
+        let started = Instant::now();
+        let handed = answer_for_world(
+            &voice,
+            &mut model,
+            Some(&mut ModelJudge {
+                completion: Box::new(Slow::new(Duration::ZERO, KEEP)),
+                name: "j".into(),
+            }),
+            budget,
+        );
+        let took = started.elapsed();
+        assert_eq!(handed, None);
+        assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(
+            took >= budget / 2 - slack && took < budget / 2 + slack,
+            "{took:?}"
+        );
+
+        // With no judge, the model has the whole budget.
+        let started = Instant::now();
         assert_eq!(
             answer_for_world(
-                "Reply with exactly three lines",
-                &mut model,
-                Some(&mut unasked)
-            )
-            .as_deref(),
-            Some("MEANING: greet\nABOUT: none\nREPLY: Hi")
+                &voice,
+                &mut Slow::new(Duration::from_secs(30), MORNING),
+                None,
+                budget
+            ),
+            None
         );
+        let took = started.elapsed();
+        assert!(took >= budget - slack && took < budget + slack, "{took:?}");
+    }
+
+    /// At full scale: the model's own reserve leaves the judge three
+    /// seconds, and the whole budget sits inside the window's deadline.
+    #[test]
+    fn the_budget_leaves_the_judge_its_reserve_inside_the_windows_deadline() {
+        assert!(VOICE_BUDGET <= Duration::from_secs(12) - Duration::from_millis(500));
+        assert_eq!(JUDGE_RESERVE.min(VOICE_BUDGET / 2), JUDGE_RESERVE);
+        assert!(JUDGE_RESERVE >= Duration::from_secs(2));
+        // `curl` is told to stop at what is left, never later.
+        let deadline = Instant::now() + Duration::from_millis(2_500);
+        let time = max_time(TIMEOUT_SECONDS, Some(deadline));
+        assert!(time <= Duration::from_millis(2_500) && time > Duration::from_secs(2));
+        assert_eq!(max_time(6, None), Duration::from_secs(6));
+        let request = api_request_within(
+            &Asking {
+                model: DEFAULT_MODEL,
+                max_tokens: MAX_TOKENS,
+                timeout_seconds: TIMEOUT_SECONDS,
+                schema: None,
+            },
+            "Hi",
+            "sk",
+            "/tmp/body.json",
+            Duration::from_millis(2_345),
+        );
+        assert!(request
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--max-time", "2.345"]));
     }
 
     /// A judge inside a Pack is asked only about what the checks do not
@@ -888,9 +1191,11 @@ mod tests {
 
     /// Asks the real judge (Claude Haiku 4.5, or `WORLD_MACHINE_JUDGE_MODEL`)
     /// about every prompt the Packs wrote into `WORLD_MACHINE_JUDGE_DIR`
-    /// (`prompts-*.jsonl`), and writes its verdicts to
-    /// `<dir>/verdicts.jsonl` for `judged_metrics`. Needs
-    /// `WORLD_MACHINE_ANTHROPIC_API_KEY`; run with `-- --ignored --nocapture`.
+    /// (`prompts-*.jsonl`), one request each through the app's own
+    /// request, and writes its checklists to `<dir>/verdicts.jsonl`
+    /// (`{"id", "reply"}`) for the Packs' `judged_metrics`. Without
+    /// `WORLD_MACHINE_ANTHROPIC_API_KEY` or the folder it does nothing; run
+    /// with `-- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn judges_the_written_prompts_live() {
@@ -898,7 +1203,10 @@ mod tests {
             eprintln!("no {API_KEY_ENV}: nothing asked");
             return;
         };
-        let dir = std::env::var("WORLD_MACHINE_JUDGE_DIR").expect("WORLD_MACHINE_JUDGE_DIR");
+        let Ok(dir) = std::env::var("WORLD_MACHINE_JUDGE_DIR") else {
+            eprintln!("no WORLD_MACHINE_JUDGE_DIR: nothing asked");
+            return;
+        };
         let dir = std::path::Path::new(&dir);
         let mut judge = ModelJudge::api(key);
         let mut out = String::new();
@@ -910,20 +1218,22 @@ mod tests {
             }
             for line in std::fs::read_to_string(entry.path()).unwrap().lines() {
                 let value: serde_json::Value = serde_json::from_str(line).unwrap();
-                let verdict = judge.verdict(value["prompt"].as_str().unwrap_or_default());
-                asked += 1;
-                let (verdict, kind) = match verdict {
-                    Some(conversation::Verdict::Keep) => ("keep", "none"),
-                    Some(conversation::Verdict::Decline(why)) => ("decline", why.id()),
-                    None => {
-                        unusable += 1;
-                        continue;
-                    }
-                };
-                out.push_str(
-                    &serde_json::json!({ "id": value["id"], "verdict": verdict, "kind": kind })
-                        .to_string(),
+                let schema = conversation::judge::verdict_schema();
+                let reply = judge.completion.complete_until(
+                    value["prompt"].as_str().unwrap_or_default(),
+                    Some(&schema),
+                    Instant::now() + Duration::from_secs(30),
                 );
+                asked += 1;
+                // The checklist as the judge gave it: the Pack decides it
+                // against each line's World (`judged_metrics`).
+                let Some(reply) =
+                    reply.filter(|reply| conversation::judge::parse_checklist(reply).is_some())
+                else {
+                    unusable += 1;
+                    continue;
+                };
+                out.push_str(&serde_json::json!({ "id": value["id"], "reply": reply }).to_string());
                 out.push('\n');
             }
         }

@@ -7,8 +7,11 @@ pub mod diorama;
 mod golden;
 pub mod hand;
 pub mod i18n;
+pub mod ladder;
 mod macos;
 pub mod mark;
+#[cfg(test)]
+mod offscreen;
 pub mod painter;
 pub mod panels;
 pub mod pointers;
@@ -21,11 +24,12 @@ pub mod ui;
 pub mod works;
 
 pub use macos::{
-    is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,
+    is_beginning, scene_share, speech_pages, words_at_rest, Farewell, FarewellAction,
+    ProjectionView, RESTING_WORD_LIMIT,
 };
 pub use world_i18n::{set_language, Language};
 pub use world_projection::{
-    Ears, ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+    Ears, ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest, VoiceHearing,
 };
 
 static TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
@@ -50,8 +54,9 @@ pub fn rem_size() -> f32 {
 use std::time::Duration;
 
 /// Work that asks a language model what the player's words to someone
-/// mean, run off the window's thread: the model's response, or nothing.
-pub type Listening = Box<dyn FnOnce() -> Option<String> + Send>;
+/// mean, run off the window's thread: who heard them (the model's response,
+/// with its judge's verdict beside it when there was a judge), or nothing.
+pub type Listening = Box<dyn FnOnce() -> Option<world_projection::Ears> + Send>;
 
 /// How long the window lets a model think before the World's own ears
 /// answer instead.
@@ -60,7 +65,7 @@ pub const LISTEN_DEADLINE: Duration = Duration::from_secs(12);
 /// Runs `listening` on a thread of its own and waits at most `deadline`
 /// for it: the response, or nothing if it took longer or had none. A model
 /// that never answers is left behind; nothing waits on it.
-pub fn listen_within(listening: Listening, deadline: Duration) -> Option<String> {
+pub fn listen_within(listening: Listening, deadline: Duration) -> Option<world_projection::Ears> {
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = sender.send(listening());
@@ -255,17 +260,18 @@ mod tests {
     #[test]
     fn a_model_that_takes_too_long_is_not_waited_for() {
         let started = Instant::now();
+        use world_projection::Ears;
         let slow: Listening = Box::new(|| {
             std::thread::sleep(Duration::from_secs(5));
-            Some("too late".into())
+            Some(Ears::Model("too late".into()))
         });
         assert_eq!(listen_within(slow, Duration::from_millis(100)), None);
         assert!(started.elapsed() < Duration::from_secs(2));
 
-        let quick: Listening = Box::new(|| Some("MEANING: greet".into()));
+        let quick: Listening = Box::new(|| Some(Ears::Model("MEANING: greet".into())));
         assert_eq!(
-            listen_within(quick, Duration::from_secs(5)).as_deref(),
-            Some("MEANING: greet")
+            listen_within(quick, Duration::from_secs(5)),
+            Some(Ears::Model("MEANING: greet".into()))
         );
         let silent: Listening = Box::new(|| None);
         assert_eq!(listen_within(silent, Duration::from_secs(5)), None);

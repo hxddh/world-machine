@@ -25,6 +25,7 @@
 //! declined is replaced by the System's own answer.
 
 mod harm;
+mod japanese;
 mod lexicon;
 mod text;
 
@@ -131,10 +132,16 @@ pub struct Grounds {
     said: Text,
     /// The runs of Chinese characters the World and the player used.
     han_runs: Vec<String>,
+    /// The runs of katakana the World and the player used (names, mostly).
+    kana_runs: Vec<String>,
     era: Era,
     /// The language the player spoke, which an answer is in; `None` when
     /// nobody spoke and either of the World's languages will do.
     expected: Option<Tongue>,
+    /// Whether the player wrote only Chinese characters, some of them in
+    /// forms only Japanese uses (気, 図): Japanese or Chinese, and no check
+    /// may be certain which.
+    either_cjk: bool,
 }
 
 fn words_of(text: &Text) -> BTreeSet<String> {
@@ -149,10 +156,19 @@ fn words_of(text: &Text) -> BTreeSet<String> {
 }
 
 fn han_runs(text: &Text) -> Vec<String> {
+    runs_of(text, is_han)
+}
+
+/// The runs of katakana in `text`, with its long mark and middle dot.
+fn kana_runs(text: &Text) -> Vec<String> {
+    runs_of(text, |c| matches!(c as u32, 0x30A1..=0x30FC))
+}
+
+fn runs_of(text: &Text, of: impl Fn(char) -> bool) -> Vec<String> {
     let mut runs = Vec::new();
     let mut run = String::new();
     for c in text.norm.chars() {
-        if is_han(c) {
+        if of(c) {
             run.push(c);
         } else if !run.is_empty() {
             runs.push(std::mem::take(&mut run));
@@ -170,6 +186,7 @@ impl Grounds {
     pub fn new<'a>(told: impl IntoIterator<Item = &'a str>, said: &str, era: Era) -> Self {
         let told = Text::read(&told.into_iter().collect::<Vec<_>>().join("\n"));
         let said = Text::read(said);
+        let either_cjk = said.kana == 0 && said.norm.chars().any(|c| JAPANESE_ONLY.contains(c));
         let expected = if said.kana > 0 {
             Some(Tongue::Japanese)
         } else if said.han > 0 {
@@ -185,7 +202,11 @@ impl Grounds {
         };
         let mut han = han_runs(&told);
         han.extend(han_runs(&said));
+        let mut kana = kana_runs(&told);
+        kana.extend(kana_runs(&said));
         Self {
+            either_cjk,
+            kana_runs: kana,
             told_words: words_of(&told),
             said_words: words_of(&said),
             said: said.clone(),
@@ -216,6 +237,53 @@ impl Grounds {
             })
     }
 
+    /// Whether a name, as a judge lists it from an answer, is one this
+    /// person was told or the player said: a katakana name by its runs, a
+    /// Chinese one by its characters, a spaced one word by word (titles
+    /// and little words aside).
+    pub fn knows_name(&self, name: &str) -> bool {
+        const HONORIFICS: &[&str] = &[
+            "さん",
+            "くん",
+            "ちゃん",
+            "さま",
+            "様",
+            "先生",
+            "氏",
+            "号",
+            "先生",
+            "先生们",
+        ];
+        const LITTLE: &[&str] = &[
+            "the", "of", "a", "an", "and", "old", "young", "mr", "mrs", "ms", "miss", "dr",
+            "captain", "st", "saint", "mister", "aunt", "uncle", "auntie", "granny", "grandpa",
+        ];
+        let name = name
+            .trim()
+            .trim_matches(|c: char| c.is_ascii_punctuation() || "「」『』“”‘’。、".contains(c));
+        let mut core = name;
+        for honorific in HONORIFICS {
+            core = core.strip_suffix(honorific).unwrap_or(core);
+        }
+        if core.is_empty() {
+            return true;
+        }
+        let read = Text::read(core);
+        if self.told(&read.norm) || self.said.has_phrase(&read.norm) {
+            return true;
+        }
+        if core.chars().any(|c| matches!(c as u32, 0x30A1..=0x30FC)) {
+            return japanese::knows_katakana(self, &read.norm);
+        }
+        if core.chars().any(is_han) {
+            return self.knows_han(&read.norm);
+        }
+        read.words
+            .iter()
+            .filter(|word| !LITTLE.contains(&word.text.as_str()))
+            .all(|word| self.knows_word(&word.text))
+    }
+
     /// Whether a word written with a capital names someone known.
     fn knows_word(&self, word: &str) -> bool {
         COMMON_CAPITALS.contains(&word)
@@ -227,6 +295,11 @@ impl Grounds {
                 .all(|part| part.is_empty() || self.told_words.contains(part))
     }
 }
+
+/// Characters only Japanese writes in this form (its simplified kanji),
+/// where Chinese writes another (气 or 氣 for 気): words with one of them
+/// and no kana are Japanese all the same.
+const JAPANESE_ONLY: &str = "気円図売読対楽薬様歳険帰県鉄発広駅験黒戦権総応栄悪価覚関顔経軽剣検済歯児実収従縦処焼証乗畳譲粋酔専銭蔵臓続帯滝択沢単団弾遅庁徴聴鎮転伝闘縄悩脳廃拝髪抜晩浜払仏変辺弁歩穂豊毎訳揺謡頼覧竜両猟緑涙塁霊齢労恵鶏撃圏顕厳効鉱砕雑賛糸釈渋獣奨剰壌嬢浄醸瀬摂繊捜挿荘騒鋳勅逓稲弐覇賓頻併舗満黙亜囲壱隠営縁圧桜殻巻勧寛歓観陥巌亀犠拠挙暁駆勲掲渓継蛍倹斎剤桟粛緒";
 
 /// Whether a proposed answer keeps to what this person can know; the
 /// reason it does not, if it does not.
@@ -252,6 +325,10 @@ pub struct Checked {
     /// The first way that is certain: found by a check that has not been
     /// seen to stop a good answer, so no judge is asked.
     pub certain: Option<OutOfWorld>,
+    /// The first way that is firm: found by a check a judge may add to
+    /// but never overrule (harm, instructions, the world outside), so a
+    /// judge's keep does not take it back.
+    pub firm: Option<OutOfWorld>,
     /// Every check that found something, by name.
     pub found: Vec<&'static str>,
 }
@@ -270,103 +347,211 @@ struct Check {
     why: OutOfWorld,
     name: &'static str,
     certain: bool,
+    /// Whether a judge's keep may not overrule it (see [`Checked::firm`]).
+    firm: bool,
     found: fn(&str, &Text, &Grounds) -> bool,
 }
 
 /// Every check, grouped by kind in the order the strict guard asks. A
 /// check is certain only if nothing it found in the development sets
-/// (red-team sets 1 and 2, and systems/conversation/tests/devset) was a
-/// good answer, and what it looks for is not an everyday word.
+/// (red-team sets 1 and 2, and systems/conversation/tests/devset and
+/// devset2) was a good answer, and what it looks for is not an everyday
+/// word. A check is firm (a judge may add to it, never overrule it) for
+/// harm, the world outside, and instructions in words that are never
+/// everyday ones.
 const CHECKS: &[Check] = &[
     Check {
         why: OutOfWorld::NotSpeech,
         name: "not_speech",
         certain: true,
+        firm: false,
         found: |raw, text, _| not_speech(raw, text),
+    },
+    Check {
+        why: OutOfWorld::Instructions,
+        name: "instructions_firm",
+        certain: false,
+        firm: true,
+        found: |_, text, _| text.any(INJECTION_FIRM) || japanese::instructions_firm(text),
     },
     Check {
         why: OutOfWorld::Instructions,
         name: "instructions",
         certain: false,
-        found: |_, text, _| text.any(INJECTION),
+        firm: false,
+        found: |_, text, _| text.any(INJECTION) || japanese::instructions(text),
     },
     Check {
         why: OutOfWorld::Machine,
         name: "machine_certain",
         certain: true,
+        firm: false,
         found: |_, text, grounds| said_unasked(text, grounds, MACHINE_CERTAIN),
     },
     Check {
         why: OutOfWorld::Machine,
-        name: "machine_named",
+        name: "machine_certain_ja",
+        certain: true,
+        firm: false,
+        found: |_, text, grounds| japanese::machine_certain(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_ja",
         certain: false,
+        firm: false,
+        found: |_, text, _| japanese::machine(text),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_named",
+        certain: true,
+        firm: false,
+        found: |_, text, grounds| {
+            said_unasked(text, grounds, MACHINE)
+                || said_unasked(text, grounds, SERVICE)
+                || text.norm.contains("a.i.")
+        },
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_asked",
+        certain: false,
+        firm: false,
         found: |_, text, _| machine_named(text),
+    },
+    Check {
+        why: OutOfWorld::Machine,
+        name: "machine_talk",
+        certain: false,
+        firm: false,
+        found: |_, text, _| text.any(MACHINE_TALK),
     },
     Check {
         why: OutOfWorld::Machine,
         name: "machine_self",
         certain: false,
+        firm: false,
         found: |_, text, _| machine_self(text),
     },
     Check {
         why: OutOfWorld::Refusal,
         name: "refusal_certain",
         certain: true,
+        firm: false,
         found: |_, text, grounds| said_unasked(text, grounds, REFUSAL_CERTAIN),
     },
     Check {
         why: OutOfWorld::Refusal,
         name: "refusal",
         certain: false,
+        firm: false,
         found: |_, text, _| text.any(REFUSAL),
     },
     Check {
         why: OutOfWorld::Refusal,
         name: "refusal_cannot",
-        certain: false,
+        certain: true,
+        firm: false,
         found: |_, text, _| refusal_cannot(text),
+    },
+    Check {
+        why: OutOfWorld::Refusal,
+        name: "refusal_certain_ja",
+        certain: true,
+        firm: false,
+        found: |_, text, _| japanese::refusal_certain(text),
+    },
+    Check {
+        why: OutOfWorld::Refusal,
+        name: "refusal_ja",
+        certain: false,
+        firm: false,
+        found: |_, text, _| japanese::refusal(text),
+    },
+    Check {
+        why: OutOfWorld::Harm,
+        name: "harm_ja",
+        certain: false,
+        firm: true,
+        found: |_, text, _| japanese::harm(text),
     },
     Check {
         why: OutOfWorld::Harm,
         name: "harm",
         certain: false,
+        firm: true,
         found: |_, text, _| harm::harm(text),
     },
     Check {
         why: OutOfWorld::FourthWall,
         name: "fourth_wall",
         certain: false,
+        firm: false,
         found: |_, text, _| fourth_wall(text),
+    },
+    Check {
+        why: OutOfWorld::FourthWall,
+        name: "fourth_wall_ja",
+        certain: false,
+        firm: false,
+        found: |_, text, _| japanese::fourth_wall(text),
     },
     Check {
         why: OutOfWorld::Language,
         name: "language_script",
         certain: true,
+        firm: false,
         found: |_, text, grounds| other_script(text, grounds),
     },
     Check {
         why: OutOfWorld::Language,
         name: "language",
         certain: false,
+        firm: false,
         found: |_, text, grounds| language(text, grounds),
     },
     Check {
         why: OutOfWorld::Outside,
         name: "outside",
         certain: false,
+        firm: true,
         found: |_, text, grounds| outside(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Outside,
+        name: "outside_ja",
+        certain: false,
+        firm: true,
+        found: |_, text, grounds| japanese::outside(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::OutOfTime,
+        name: "out_of_time_ja",
+        certain: false,
+        firm: false,
+        found: |_, text, grounds| japanese::out_of_time(text, grounds),
     },
     Check {
         why: OutOfWorld::OutOfTime,
         name: "out_of_time",
         certain: false,
+        firm: false,
         found: |_, text, grounds| out_of_time(text, grounds),
     },
     Check {
         why: OutOfWorld::Stranger,
         name: "stranger",
         certain: false,
+        firm: false,
         found: |_, text, grounds| stranger(text, grounds),
+    },
+    Check {
+        why: OutOfWorld::Stranger,
+        name: "stranger_katakana",
+        certain: false,
+        firm: false,
+        found: |_, text, grounds| japanese::stranger(text, grounds),
     },
 ];
 
@@ -436,6 +621,19 @@ const REFUSAL_CERTAIN: &[&str] = &[
     "无法协助您",
     "作为一个负责任的",
     "违反了我的",
+    // The polite forms an assistant refuses or serves in.
+    "无法为您",
+    "暂时无法为您",
+    "不方便透露",
+    "出于隐私",
+    "根据相关准则",
+    "超出了我能",
+    "超出我的能力范围",
+    "很乐意解答",
+    "乐意为您",
+    "保持礼貌友好",
+    "我理解你的好奇",
+    "建议咨询专业",
 ];
 
 /// Whether one of `phrases` is said, not asked back ("A language model?
@@ -460,6 +658,9 @@ pub fn checked(answer: &str, grounds: &Grounds) -> Checked {
             out.strict.get_or_insert(check.why);
             if check.certain {
                 out.certain.get_or_insert(check.why);
+            }
+            if check.firm {
+                out.firm.get_or_insert(check.why);
             }
         }
     }
@@ -488,7 +689,11 @@ pub fn grounds_of(hearing: &Hearing) -> Grounds {
 /// Japanese, Chinese characters alone Chinese, letters English; nothing
 /// when they said nothing in words.
 pub fn tongue(words: &str) -> Option<&'static str> {
-    match Grounds::new([], words, Era::default()).expected? {
+    let grounds = Grounds::new([], words, Era::default());
+    if grounds.either_cjk {
+        return Some("Japanese or Chinese");
+    }
+    match grounds.expected? {
         Tongue::English => Some("English"),
         Tongue::Chinese => Some("Chinese"),
         Tongue::Japanese => Some("Japanese"),
@@ -1187,6 +1392,11 @@ const ENGLISH_GLUE: &[&str] = &[
 /// who spoke English or Chinese, a third script, Spanish marks; and
 /// nothing but Chinese characters to someone who spoke Japanese.
 fn other_script(text: &Text, grounds: &Grounds) -> bool {
+    // Kanji the player wrote that Japanese alone writes so: a Japanese
+    // answer and a Chinese one are both in their language.
+    if grounds.either_cjk {
+        return text.other_script - text.kana >= 2 || text.norm.contains(['¿', '¡']);
+    }
     let japanese = grounds.expected == Some(Tongue::Japanese);
     let third = text.other_script - if japanese { text.kana } else { 0 };
     if third >= 2 || text.norm.contains(['¿', '¡']) {

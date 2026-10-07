@@ -249,7 +249,20 @@ mod tests {
             }),
             name: "apple-on-device".into(),
         };
-        assert_eq!(judge.verdict("anything"), None);
+        let hearing = conversation::Hearing {
+            name: "Mara".into(),
+            settlement: "the harbour".into(),
+            traits: Vec::new(),
+            facts: Vec::new(),
+            people: Vec::new(),
+            places: Vec::new(),
+            words: "Hi".into(),
+            answer: "Hello.".into(),
+            known: Vec::new(),
+            era: conversation::Era::Radio,
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        assert_eq!(judge.judged(&hearing, "Hi", deadline).verdict, None);
     }
 
     #[test]

@@ -1141,13 +1141,17 @@ pub fn tick(
             .find(|(a, b, odds)| mix(&[now, a.0, b.0, 139]) % 10_000 < *odds);
         if let Some((a, b, _)) = couple {
             // A full block of children must not end births in silence: a
-            // test (any build with debug assertions) fails here, loudly.
+            // test fails here, loudly, in every build (this crate's own tests
+            // in release too, as the nightly runs them) and so does any debug
+            // build. A player's release app is not brought down by it: the
+            // child is simply not born.
             let room = world.state().room_left_in(kin.children());
-            debug_assert!(
-                room > 0,
-                "no room for another child: every id in {} is taken",
-                kin.children()
-            );
+            if room == 0 && (cfg!(test) || cfg!(debug_assertions)) {
+                panic!(
+                    "no room for another child: every id in {} is taken",
+                    kin.children()
+                );
+            }
             if room > 0 {
                 let request = ActionRequest::new("lives_born")
                     .actor(a)

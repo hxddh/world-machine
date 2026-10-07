@@ -54,7 +54,9 @@ fn create_document_file(path: &Path, document: &WorldDocument) -> Result<(), Lib
     Ok(())
 }
 
-fn atomic_create(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Writes `bytes` as a new file at `path`, never over one that is there:
+/// `AlreadyExists` if one is, even one that appeared meanwhile.
+pub(crate) fn atomic_create(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())

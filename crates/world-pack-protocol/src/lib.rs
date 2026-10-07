@@ -17,7 +17,7 @@ use world_projection::{
     MarkShape, ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
     Scenery, Season, SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
-use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
+use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Judgement, Stance, VoiceHearing};
 
 mod mark;
 pub use mark::{
@@ -355,6 +355,11 @@ pub enum PackResponse {
     },
     Hearing {
         prompt: Option<String>,
+        /// What the World knows to hear the words with, as data, for an
+        /// app that builds the model's prompt itself (additive: an older
+        /// Pack sends none, an older app ignores it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hearing: Option<VoiceHearingWire>,
     },
     /// Whether the World could mark where it stands (v6).
     Checkpointed {
@@ -840,8 +845,105 @@ pub enum EarsWire {
     World,
     Model {
         response: String,
+        /// The verdict of the judge the app asked about the response,
+        /// beside it and never inside it (additive: an older Pack ignores
+        /// it and its strict guard decides).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        judged: Option<JudgementWire>,
     },
     Own,
+}
+
+/// A judge's verdict, as an app says it beside a model's response.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct JudgementWire {
+    #[serde(default)]
+    pub judge: String,
+    #[serde(default)]
+    pub verdict: String,
+    #[serde(default)]
+    pub kind: String,
+}
+
+impl From<Judgement> for JudgementWire {
+    fn from(judged: Judgement) -> Self {
+        Self {
+            judge: judged.judge,
+            verdict: judged.verdict,
+            kind: judged.kind,
+        }
+    }
+}
+
+impl From<JudgementWire> for Judgement {
+    fn from(judged: JudgementWire) -> Self {
+        // Nothing longer than a verdict needs is read.
+        let short = |text: String| text.chars().take(MOST_GUEST_TEXT).collect();
+        Self {
+            judge: short(judged.judge),
+            verdict: short(judged.verdict),
+            kind: short(judged.kind),
+        }
+    }
+}
+
+/// What a World knows to hear the player's words with, on the wire.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VoiceHearingWire {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub settlement: String,
+    #[serde(default)]
+    pub traits: Vec<String>,
+    #[serde(default)]
+    pub facts: Vec<String>,
+    #[serde(default)]
+    pub people: Vec<String>,
+    #[serde(default)]
+    pub places: Vec<String>,
+    #[serde(default)]
+    pub words: String,
+    #[serde(default)]
+    pub answer: String,
+    #[serde(default)]
+    pub known: Vec<String>,
+    #[serde(default)]
+    pub era: String,
+}
+
+impl From<VoiceHearing> for VoiceHearingWire {
+    fn from(hearing: VoiceHearing) -> Self {
+        Self {
+            name: hearing.name,
+            settlement: hearing.settlement,
+            traits: hearing.traits,
+            facts: hearing.facts,
+            people: hearing.people,
+            places: hearing.places,
+            words: hearing.words,
+            answer: hearing.answer,
+            known: hearing.known,
+            era: hearing.era,
+        }
+    }
+}
+
+impl From<VoiceHearingWire> for VoiceHearing {
+    fn from(hearing: VoiceHearingWire) -> Self {
+        Self {
+            name: hearing.name,
+            settlement: hearing.settlement,
+            traits: hearing.traits,
+            facts: hearing.facts,
+            people: hearing.people,
+            places: hearing.places,
+            words: hearing.words,
+            answer: hearing.answer,
+            known: hearing.known,
+            era: hearing.era,
+        }
+    }
 }
 
 impl EarsWire {
@@ -854,7 +956,14 @@ impl From<Ears> for EarsWire {
     fn from(ears: Ears) -> Self {
         match ears {
             Ears::World => Self::World,
-            Ears::Model(response) => Self::Model { response },
+            Ears::Model(response) => Self::Model {
+                response,
+                judged: None,
+            },
+            Ears::Judged { response, judged } => Self::Model {
+                response,
+                judged: Some(judged.into()),
+            },
             Ears::Own => Self::Own,
         }
     }
@@ -865,8 +974,18 @@ impl From<EarsWire> for Ears {
         match ears {
             EarsWire::World => Self::World,
             // A response too long to be an answer is not read at all.
-            EarsWire::Model { response } if response.len() > MOST_MODEL_RESPONSE => Self::Own,
-            EarsWire::Model { response } => Self::Model(response),
+            EarsWire::Model { response, .. } if response.len() > MOST_MODEL_RESPONSE => Self::Own,
+            EarsWire::Model {
+                response,
+                judged: None,
+            } => Self::Model(response),
+            EarsWire::Model {
+                response,
+                judged: Some(judged),
+            } => Self::Judged {
+                response,
+                judged: judged.into(),
+            },
             EarsWire::Own => Self::Own,
         }
     }
@@ -1057,6 +1176,12 @@ pub struct FavourWire {
     pub hint: String,
     #[serde(default)]
     pub done: bool,
+    /// Optional both ways: the quick reply that does it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reply: String,
+    /// Optional both ways: the asker's thanks, once done.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub thanks: String,
 }
 
 /// One entry in a World's book, as it crosses the boundary.
@@ -1799,6 +1924,8 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 note: favour.note.clone(),
                 hint: favour.hint.clone(),
                 done: favour.done,
+                reply: favour.reply.clone(),
+                thanks: favour.thanks.clone(),
             }),
         }
     }
@@ -2017,6 +2144,8 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     note: favour.note,
                     hint: favour.hint,
                     done: favour.done,
+                    reply: favour.reply,
+                    thanks: favour.thanks,
                 }),
         })
     }
@@ -2540,7 +2669,28 @@ pub struct CanvasProjectionWire {
     /// a setting the app does not know is drawn as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setting: Option<String>,
+    /// The clusters works and homes stand in (v0.27); an older Pack sends
+    /// none, and an older host ignores them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clusters: Vec<ClusterWire>,
 }
+
+/// One cluster of a place: what it is called, where it lies along the
+/// panorama, its ground, and the rows it reaches from and to.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClusterWire {
+    pub id: String,
+    pub label: String,
+    pub from: f32,
+    pub to: f32,
+    #[serde(default)]
+    pub ground: String,
+    #[serde(default)]
+    pub rows: (f32, f32),
+}
+
+/// The most clusters one panorama holds.
+pub const MOST_CLUSTERS: usize = 64;
 
 /// The widest panorama a snapshot may ask for, in screen-widths.
 pub const MOST_CANVAS_WIDTH: f32 = 16.0;
@@ -2782,6 +2932,18 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
             ice: canvas.ice,
             plots: canvas.plots.iter().map(Into::into).collect(),
             setting: canvas.setting.clone(),
+            clusters: canvas
+                .clusters
+                .iter()
+                .map(|cluster| ClusterWire {
+                    id: cluster.id.clone(),
+                    label: cluster.label.clone(),
+                    from: cluster.from,
+                    to: cluster.to,
+                    ground: cluster.ground.clone(),
+                    rows: cluster.rows,
+                })
+                .collect(),
         }
     }
 }
@@ -2833,6 +2995,26 @@ impl From<CanvasProjectionWire> for CanvasProjection {
                 .take(MOST_PLOTS)
                 .collect(),
             setting: art_key(canvas.setting),
+            clusters: canvas
+                .clusters
+                .into_iter()
+                .filter(|cluster| {
+                    cluster.from.is_finite()
+                        && cluster.to.is_finite()
+                        && cluster.from < cluster.to
+                        && cluster.rows.0.is_finite()
+                        && cluster.rows.1.is_finite()
+                })
+                .take(MOST_CLUSTERS)
+                .map(|cluster| world_projection::Cluster {
+                    id: cluster.id,
+                    label: cluster.label,
+                    from: cluster.from,
+                    to: cluster.to,
+                    ground: cluster.ground,
+                    rows: cluster.rows,
+                })
+                .collect(),
         }
     }
 }
@@ -3726,11 +3908,60 @@ mod tests {
         assert_eq!(MarkShape::from(newer), MarkShape::House);
     }
 
+    /// V (v0.27): the verdict and the hearing are additive. A Pack that
+    /// never heard of them reads the old shape, and an app that never
+    /// heard of them reads the old response.
+    #[test]
+    fn a_verdict_and_a_hearing_cross_as_additions() {
+        let older: EarsWire = serde_json::from_str(r#"{"type":"model","response":"r"}"#).unwrap();
+        assert_eq!(Ears::from(older), Ears::Model("r".into()));
+        let judged = serde_json::to_value(EarsWire::from(Ears::Judged {
+            response: "r".into(),
+            judged: Judgement {
+                judge: "j".into(),
+                verdict: "keep".into(),
+                kind: "none".into(),
+            },
+        }))
+        .unwrap();
+        assert_eq!(judged["response"], "r");
+        assert_eq!(judged["judged"]["verdict"], "keep");
+        let plain = serde_json::to_value(EarsWire::from(Ears::Model("r".into()))).unwrap();
+        assert!(plain.get("judged").is_none());
+        let older: PackResponse =
+            serde_json::from_str(r#"{"type":"hearing","prompt":"p"}"#).unwrap();
+        assert_eq!(
+            older,
+            PackResponse::Hearing {
+                prompt: Some("p".into()),
+                hearing: None,
+            }
+        );
+        let newer = PackResponse::Hearing {
+            prompt: None,
+            hearing: Some(VoiceHearingWire::from(VoiceHearing {
+                name: "Mara".into(),
+                era: "radio".into(),
+                ..VoiceHearing::default()
+            })),
+        };
+        let json = serde_json::to_string(&newer).unwrap();
+        assert_eq!(serde_json::from_str::<PackResponse>(&json).unwrap(), newer);
+    }
+
     #[test]
     fn what_the_player_says_crosses_the_boundary_as_said() {
         for ears in [
             Ears::World,
             Ears::Model("MEANING: greet\nABOUT: none\nREPLY: Hello!".into()),
+            Ears::Judged {
+                response: r#"{"meaning":"greet","about":"none","reply":"Hi"}"#.into(),
+                judged: Judgement {
+                    judge: "claude-haiku-4-5".into(),
+                    verdict: "decline".into(),
+                    kind: "harm".into(),
+                },
+            },
             Ears::Own,
         ] {
             let said = ProjectionIntent::Say {
@@ -3759,6 +3990,7 @@ mod tests {
             words: "hi".into(),
             ears: EarsWire::Model {
                 response: "x".repeat(MOST_MODEL_RESPONSE + 1),
+                judged: None,
             },
         };
         assert!(matches!(

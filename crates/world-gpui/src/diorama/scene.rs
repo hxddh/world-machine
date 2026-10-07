@@ -22,6 +22,12 @@ pub(super) const BASE: f32 = 0.47;
 pub(super) const FEET: f32 = 0.745;
 pub(super) const FRONT: f32 = 0.80;
 pub(super) const MARGIN: f32 = 0.07;
+/// From this row of a Pack's (`CanvasItem::y`) on, a thing stands on the
+/// water line: a pier, a slipway, the lighthouse on the point.
+pub const WATER_ROW: f32 = 0.8;
+/// Where what stands on the water line has its foot, as a fraction of the
+/// stage's height: a little below the quay's edge, in the water.
+pub(super) const WATER_LINE: f32 = FRONT + (1.0 - FRONT) * 0.12;
 
 /// How much taller a cottage stands than a grown-up at the same depth.
 pub const COTTAGE: f32 = 2.75;
@@ -32,12 +38,14 @@ pub const COTTAGE: f32 = 2.75;
 /// stands on each is drawn: nearer is bigger, and the quay is full size.
 /// Between the back row and the quay each row stands about a storey
 /// nearer than the one behind, so the town climbs the stage in depth
-/// rather than standing on one line.
+/// rather than standing on one line. The sizes are the art bible's
+/// distance factors: the second band three quarters of the front, the
+/// third a little over half (the back row, two fifths, is the far ridge's).
 pub(super) const ROWS: [(f32, f32, f32); 5] = [
-    (0.30, BASE, 0.70),
-    (0.45, 0.548, 0.79),
-    (0.60, 0.618, 0.87),
-    (0.68, 0.658, 0.91),
+    (0.30, BASE, 0.55),
+    (0.45, 0.548, 0.64),
+    (0.60, 0.618, 0.75),
+    (0.68, 0.658, 0.8),
     (0.76, FEET, 1.0),
 ];
 
@@ -46,10 +54,10 @@ pub(super) const ROWS: [(f32, f32, f32); 5] = [
 /// at the top of a bare field. As the street fills the rows move back to
 /// [`ROWS`].
 pub(super) const YOUNG_ROWS: [(f32, f32, f32); 5] = [
-    (0.30, 0.56, 0.80),
-    (0.45, 0.60, 0.84),
-    (0.60, 0.635, 0.88),
-    (0.68, 0.662, 0.92),
+    (0.30, 0.56, 0.62),
+    (0.45, 0.60, 0.68),
+    (0.60, 0.635, 0.76),
+    (0.68, 0.662, 0.82),
     (0.76, FEET, 1.0),
 ];
 
@@ -169,6 +177,8 @@ pub struct Stage {
     /// for it to stand clear of its neighbours: an item's index, and the
     /// least zoom it shows at (infinite: there is no room for it at all).
     pub shown_from: BTreeMap<usize, f32>,
+    /// How full the street is, 0 to 1: a young place's rows stand forward.
+    pub grown: f32,
 }
 
 impl Stage {
@@ -232,6 +242,54 @@ impl Stage {
     /// The depth band the spot stands in.
     pub fn depth_of(&self, spot: &Spot) -> Depth {
         Depth::at(spot.y, self.height)
+    }
+
+    /// Whether the item at `index` stands on the water line (in the
+    /// water band), as a pier or a boat does.
+    pub fn on_water(&self, index: usize) -> bool {
+        self.buildings
+            .iter()
+            .chain(&self.things)
+            .any(|spot| spot.index == index && self.depth_of(spot) == Depth::Water)
+    }
+
+    /// What the first screen shows of the place: everything built or put
+    /// down that stands in the window with the camera at rest, as "label
+    /// (art) at x", for telling one day's first screen from the next.
+    pub fn first_screen(&self, snapshot: &ProjectionSnapshot) -> BTreeSet<String> {
+        self.screen_around(snapshot, Camera::whole(self).x)
+    }
+
+    /// The same for the window centred on stage `x` (where the camera
+    /// opens on whoever welcomes the player, say).
+    pub fn screen_around(&self, snapshot: &ProjectionSnapshot, x: f32) -> BTreeSet<String> {
+        let x = keep_on(x, self.view_w / 2.0, self.width);
+        let (from, to) = (x - self.view_w / 2.0, x + self.view_w / 2.0);
+        self.buildings
+            .iter()
+            .chain(&self.things)
+            .filter(|spot| spot.x + spot.w / 2.0 > from && spot.x - spot.w / 2.0 < to)
+            .filter(|spot| self.shows(spot.index, 1.0))
+            .filter_map(|spot| {
+                let item = snapshot.canvas.items.get(spot.index)?;
+                Some(format!(
+                    "{} ({}) at {:.0}",
+                    item.label,
+                    item.art.as_deref().unwrap_or("-"),
+                    spot.x / 10.0
+                ))
+            })
+            .collect()
+    }
+
+    /// The line (in stage pixels) and the scale of whatever stands in the
+    /// Pack's row `y`.
+    pub fn row_line(&self, y: f32) -> (f32, f32) {
+        if y >= WATER_ROW {
+            return (self.height * WATER_LINE, 1.0);
+        }
+        let (line, scale) = row_aged(y, self.grown);
+        (line * self.height, scale)
     }
 }
 
@@ -422,6 +480,8 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     let row_of = |index: usize| -> f32 {
         let item = &items[index];
         match (item.kind, item.px) {
+            // On the water line, whatever it is.
+            (_, Some(_)) if item.y >= WATER_ROW => item.y,
             (CanvasItemKind::Place, Some(_)) => item.y.min(0.68),
             // Places along one window stand in the street.
             (CanvasItemKind::Place, None) => 0.60,
@@ -429,15 +489,52 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
             _ => 0.76,
         }
     };
-    let water_line = height * (FRONT + (1.0 - FRONT) * 0.22);
-    let nominal = |index: usize, scale: f32| match (items[index].kind, items[index].shape) {
-        (CanvasItemKind::Place, _) => building_w * scale,
-        (_, Some(MarkShape::Parcel)) => thing_w * 0.4 * scale,
-        (_, Some(MarkShape::Boat)) => thing_w,
-        _ => thing_w * scale,
+    // Boats ride at their moorings out beyond the water line's piers.
+    let water_line = height * (FRONT + (1.0 - FRONT) * 0.4);
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+    // The room each takes: on a panorama, its footprint on the scale
+    // ladder (crate::ladder) at its depth; along one window, its share.
+    let nominal = |index: usize, scale: f32| {
+        let item = &items[index];
+        let laddered = item
+            .px
+            .filter(|_| item.shape != Some(MarkShape::Boat))
+            .and_then(|_| {
+                crate::ladder::footprint(
+                    item,
+                    snapshot.drawing_of(item),
+                    setting,
+                    figure_h * scale,
+                    item.kind == CanvasItemKind::Place,
+                )
+            });
+        laddered.unwrap_or(match (item.kind, item.shape) {
+            (CanvasItemKind::Place, _) => building_w * scale,
+            (_, Some(MarkShape::Parcel)) => thing_w * 0.4 * scale,
+            (_, Some(MarkShape::Boat)) => thing_w,
+            _ => thing_w * scale,
+        })
     };
     let spot_in_row = |index: usize, x: f32, row: f32| -> Spot {
         let item = &items[index];
+        if row >= WATER_ROW && !boat(index) {
+            // At the water's edge: a pier's foot a little out in the
+            // water, a building's on the quay's edge, its slipway or jetty
+            // running down in front of it.
+            // A lighthouse stands out on its spit of rock.
+            let place = item.kind == CanvasItemKind::Place && item.shape != Some(MarkShape::Tower);
+            return Spot {
+                index,
+                x,
+                y: if place {
+                    height * FRONT + 1.0
+                } else {
+                    height * WATER_LINE
+                },
+                w: nominal(index, 1.0),
+                scale: 1.0,
+            };
+        }
         if boat(index) {
             return Spot {
                 index,
@@ -681,6 +778,8 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         spot.y = quay + near + step * (depth - 0.5);
         spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
     }
+    // People stand in twos and threes facing each other, not in rows (A2).
+    super::people::gather(&mut people, figure_h, quay, &blocked);
     people.sort_by_key(|spot| spot.index);
     let routes = leaving
         .into_iter()
@@ -707,11 +806,14 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         routes,
         plots: plots_on(snapshot, view_w, height, (building_w, grown)),
         shown_from,
+        grown,
     }
 }
 
 /// The quay's row, as [`compose`] keys rows (the Pack's `y` in hundredths).
 pub(super) const QUAY_ROW: i32 = 76;
+/// The first of the water line's rows, as [`compose`] keys them.
+pub(super) const WATER_KEY: i32 = 80;
 
 /// How far apart, on screen, two neighbours in a row must stand for both
 /// to show: closer, the lesser waits for the camera to come nearer.
@@ -873,8 +975,22 @@ pub(super) fn compose(
         let nominal = spot.w;
         let h = tall(&spot, building);
         let fixed = (building && !movable(building, index)) || rank(index) == 0;
+        // A building that may step aside never stands in front of a thing
+        // already placed behind it (what the player built on a plot).
+        let hides_a_thing = |x: f32| {
+            placed.iter().any(|other| {
+                !other.building
+                    && other.foot < spot.y - 1.0
+                    && (x - other.x).abs() < (nominal + other.w) / 2.0
+                    && other.top < spot.y
+                    && spot.y - h < other.foot
+            })
+        };
         let room_at = |x: f32| {
-            if building && !fixed && veils(&placed, (x, nominal, spot.y - h, spot.y)) {
+            if building
+                && !fixed
+                && (veils(&placed, (x, nominal, spot.y - h, spot.y)) || hides_a_thing(x))
+            {
                 return -1.0;
             }
             room(&placed, row, x, nominal, spot.y - h, spot.y, !building)
@@ -883,9 +999,15 @@ pub(super) fn compose(
         let mut x = spot.x;
         let mut w = nominal.min(room_at(x));
         if w < nominal * 0.75 && !fixed {
-            // Step aside to the nearest room in the row.
+            // Step aside to the nearest room in the row: a thing as far as
+            // about four people wide, so it keeps to its own ground.
             let nudge = nominal * 0.1;
-            if let Some(better) = (1..=16)
+            let steps = if building {
+                16
+            } else {
+                ((figure_h * 4.0 / nudge.max(1.0)) as i32).clamp(16, 60)
+            };
+            if let Some(better) = (1..=steps)
                 .flat_map(|step| [step, -step])
                 .map(|step| spot.x + step as f32 * nudge)
                 .find(|x| room_at(*x) >= nominal * 0.9)
@@ -902,9 +1024,11 @@ pub(super) fn compose(
                 w = room(&placed, row, x, nominal, spot.y - h, spot.y, false)
                     .min(nominal)
                     .max(nominal * 0.5);
-            } else if fixed {
-                // What the player built, and a place, stand where they
-                // are, as narrow as they must.
+            } else if fixed || (WATER_KEY..1000).contains(&row) || row < QUAY_ROW - 6 {
+                // What the player built, a place, what stands on the
+                // water line and what stands back in the town stay in
+                // their row, as narrow as they must: a pier never comes
+                // ashore and a duck pond never comes down to the quay.
                 w = w.max(nominal * 0.5);
             } else {
                 // No room in its row: it comes forward onto the quay, full
@@ -915,7 +1039,7 @@ pub(super) fn compose(
                         .min(2.0 * x.min(width - x))
                 };
                 let nudge = full * 0.1;
-                let Some(forward) = (0..=40)
+                let Some(forward) = (0..=120)
                     .flat_map(|step| [step, -step])
                     .map(|step| spot.x + step as f32 * nudge)
                     .find(|x| quay_room(*x) >= full * 0.9)
@@ -1398,6 +1522,9 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
         (haze.opacity(0.0), 0.0),
         (haze.opacity(0.3), 0.55),
     );
+    // The back row: the place's own drawings, far off and pale with the
+    // air between (ground.rs).
+    super::ground::paint_back_row(canvas, frame, band, (from, to));
     // What the World has built stands along the ridge.
     let silhouette = mix(art::shade(far, -0.3), haze, 0.12);
     let sun = art::hex(frame.scenery.sun);
@@ -1537,7 +1664,11 @@ pub(super) fn land_colours(frame: &Frame) -> (Hsla, Hsla) {
     } else {
         mix(near, ink, near_share)
     };
-    (mix(ground, ink, share), near_ink)
+    // The value bands (A2): the land a step darker than the sky.
+    (
+        under_sky(&frame.scenery, mix(ground, ink, share), GROUND_UNDER_SKY),
+        under_sky(&frame.scenery, near_ink, GROUND_UNDER_SKY),
+    )
 }
 
 /// Everything the ground layer depends on: the look, the geometry, the
@@ -1556,6 +1687,14 @@ pub(super) fn ground_key(frame: &Frame, scale: f32) -> Key {
         scale,
     ] {
         key.float(value);
+    }
+    key.add(frame.blend_top);
+    for patch in &frame.patches {
+        key.float(patch.x0)
+            .float(patch.x1)
+            .float(patch.top)
+            .float(patch.bottom)
+            .add((patch.patch, patch.water, patch.seed));
     }
     for building in frame.buildings.iter().filter(|b| !b.moving()) {
         key.add((building.index, building.shape as u8))
@@ -1609,6 +1748,14 @@ pub(super) fn paint_land_tile(
             light,
         )
     });
+    if frame.blend_top {
+        // A nearer row of a folded postcard: its field fades in from the
+        // top, so the ground runs on from the row behind with no seam.
+        let field_y = frame.horizon + (frame.base - frame.horizon) * 0.3;
+        let from = canvas.device(0.0, field_y - 14.0).1;
+        let to = canvas.device(0.0, field_y + frame.height * 0.06).1;
+        super::ground::fade_in_down(&mut canvas.pixmap, from, to);
+    }
     Some(canvas.pixmap)
 }
 
@@ -1799,16 +1946,21 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
             sk::BlendMode::SourceOver,
         );
     }
-    let mut rim = Shape::new();
-    let mut x = from;
-    rim.move_to(x, field_top(frame, x));
-    while x < to + step {
-        x += step;
-        rim.line_to(x, field_top(frame, x));
+    if !frame.blend_top {
+        let mut rim = Shape::new();
+        let mut x = from;
+        rim.move_to(x, field_top(frame, x));
+        while x < to + step {
+            x += step;
+            rim.line_to(x, field_top(frame, x));
+        }
+        canvas.stroke(&rim, 1.2, art::shade(ground, -0.3).opacity(0.25));
     }
-    canvas.stroke(&rim, 1.2, art::shade(ground, -0.3).opacity(0.25));
     let k = (frame.height / 848.0).clamp(0.3, 1.3);
     let detail = frame.height >= 360.0;
+    // The clusters' patches, the paths down to the spine, and the ground
+    // meant between them (ground.rs).
+    super::ground::paint_plan(canvas, frame, (from, to), ground, k);
     let front = frame.front;
     // Grass and flowers grow on the street's verges down to the quay, or
     // on dry ground down to the foreground.
@@ -1877,6 +2029,13 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
     if frame.water {
         paint_quay_wall(canvas, frame, (from, to), ground);
     }
+    // What stands on the water line stands on a jetty or a spit (ground.rs).
+    super::ground::paint_footings(
+        canvas,
+        frame,
+        (from, to),
+        (frame.height / 848.0).clamp(0.3, 1.3),
+    );
     // A frozen edge to the harbour in deep winter.
     if frame.ice && frame.water {
         let deep = (frame.height - front) * 0.16;

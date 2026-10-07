@@ -33,15 +33,20 @@ pub fn catch_up(
         library,
         current_unix_seconds()?,
         default_policy(),
+        demo_periods,
     )
 }
 
+/// Claims the time away that is due at `now_unix_seconds` and lives the
+/// World through as much of it as `periods_for` allows (all of it in the
+/// full app; see [`demo_periods`]), rolling the claim back if that fails.
 fn catch_up_at(
     session: &mut DurableWorldSession,
     registry: &world_host::WorldRegistry,
     library: &WorldLibrary,
     now_unix_seconds: u64,
     policy: CatchUpPolicy,
+    periods_for: fn(&DurableWorldSession, u64) -> u64,
 ) -> Result<Option<CatchUpOutcome>, String> {
     let store = ObserverStore::new(observer_root(library));
     let key = observer_key(session)?;
@@ -52,7 +57,7 @@ fn catch_up_at(
         return Ok(None);
     }
 
-    let periods = demo_periods(session, claim.periods());
+    let periods = periods_for(session, claim.periods());
     if periods == 0 {
         return Ok(None);
     }
@@ -80,10 +85,10 @@ fn demo_periods(session: &DurableWorldSession, periods: u64) -> u64 {
         return periods;
     }
     let snapshot = session.snapshot();
-    let Some(calendar) = snapshot.calendar else {
-        return periods;
-    };
-    let day = world_machine_desktop::demo::day_of(snapshot.world_time, calendar.length);
+    // A day that cannot be counted is past the last: nothing moves.
+    let day = snapshot
+        .calendar
+        .map(|calendar| world_machine_desktop::demo::day_of(snapshot.world_time, calendar.length));
     world_machine_desktop::demo::periods_to_catch_up(&session.pack().id, day, periods)
 }
 
@@ -189,6 +194,12 @@ mod tests {
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const PACK: &str = "world-machine.desktop-observer-test";
+
+    /// The observer's own mechanics, apart from what the demo allows: all
+    /// the time away that is due.
+    fn every_period(_: &DurableWorldSession, periods: u64) -> u64 {
+        periods
+    }
 
     struct MockSession {
         time: u64,
@@ -360,16 +371,20 @@ mod tests {
             DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
         let policy = CatchUpPolicy::new(60, 3).unwrap();
 
-        assert!(catch_up_at(&mut session, &registry, &library, 100, policy)
-            .unwrap()
-            .is_none());
-        let outcome = catch_up_at(&mut session, &registry, &library, 280, policy)
+        assert!(
+            catch_up_at(&mut session, &registry, &library, 100, policy, every_period)
+                .unwrap()
+                .is_none()
+        );
+        let outcome = catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
             .unwrap()
             .unwrap();
 
         assert_eq!(outcome.periods, 3);
         assert_eq!(outcome.world_time, 3);
         assert_eq!(session.snapshot().world_time, 3);
+        // One session per World: closed before it is opened again.
+        drop(session);
         let reopened = DurableWorldSession::open(
             world_library::WorldDocumentId::new("living").unwrap(),
             &registry,
@@ -389,17 +404,21 @@ mod tests {
         let mut session =
             DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
         let policy = CatchUpPolicy::new(60, 3).unwrap();
-        catch_up_at(&mut session, &registry, &library, 100, policy).unwrap();
+        catch_up_at(&mut session, &registry, &library, 100, policy, every_period).unwrap();
         let before = fs::read(library.path(&document_id)).unwrap();
 
-        assert!(catch_up_at(&mut session, &registry, &library, 280, policy)
-            .unwrap()
-            .is_none());
+        assert!(
+            catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(session.snapshot().world_time, 0);
         assert_eq!(fs::read(library.path(&document_id)).unwrap(), before);
-        assert!(catch_up_at(&mut session, &registry, &library, 280, policy)
-            .unwrap()
-            .is_none());
+        assert!(
+            catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
+                .unwrap()
+                .is_none()
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -413,16 +432,66 @@ mod tests {
         let mut session =
             DurableWorldSession::create(document_id, PACK, &good_registry, &library).unwrap();
         let policy = CatchUpPolicy::new(60, 3).unwrap();
-        catch_up_at(&mut session, &good_registry, &library, 100, policy).unwrap();
+        catch_up_at(
+            &mut session,
+            &good_registry,
+            &library,
+            100,
+            policy,
+            every_period,
+        )
+        .unwrap();
 
-        assert!(catch_up_at(&mut session, &failing_registry, &library, 280, policy).is_err());
+        assert!(catch_up_at(
+            &mut session,
+            &failing_registry,
+            &library,
+            280,
+            policy,
+            every_period
+        )
+        .is_err());
         assert_eq!(session.snapshot().world_time, 0);
 
-        let retry = catch_up_at(&mut session, &good_registry, &library, 280, policy)
-            .unwrap()
-            .unwrap();
+        let retry = catch_up_at(
+            &mut session,
+            &good_registry,
+            &library,
+            280,
+            policy,
+            every_period,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(retry.periods, 3);
         assert_eq!(session.snapshot().world_time, 3);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// The app's own cap: the full app lives through all the time away; the
+    /// demo moves no World of a Pack it does not offer (it fails closed),
+    /// and its claim is spent, so the time is not caught up later either.
+    #[test]
+    fn the_demo_moves_no_world_it_does_not_offer() {
+        let root = temp_root("demo");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(false);
+        let document_id = world_library::WorldDocumentId::new("living").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
+        let policy = CatchUpPolicy::new(60, 3).unwrap();
+        assert!(!world_machine_desktop::demo::offers_pack(PACK));
+        catch_up_at(&mut session, &registry, &library, 100, policy, demo_periods).unwrap();
+
+        let outcome =
+            catch_up_at(&mut session, &registry, &library, 280, policy, demo_periods).unwrap();
+        if world_machine_desktop::demo::ENABLED {
+            assert_eq!(outcome, None);
+            assert_eq!(session.snapshot().world_time, 0);
+        } else {
+            assert_eq!(outcome.map(|outcome| outcome.periods), Some(3));
+            assert_eq!(session.snapshot().world_time, 3);
+        }
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -222,6 +222,18 @@ const THINGS: &[Thing] = &[
         stages: &[("Herb seedlings", "sprouts"), ("Herb garden", "garden")],
         effect: Effect::Harvest,
     },
+    // Free: the first thing a newcomer's hands are offered, before any
+    // card asks for money (v0.27's first minute).
+    Thing {
+        id: "wildflowers",
+        name: "Wildflowers",
+        verb: Verb::Plant,
+        shape: "garden",
+        cost: 0,
+        lasts: None,
+        stages: &[("Wildflower shoots", "sprouts"), ("Wildflowers", "garden")],
+        effect: Effect::None,
+    },
 ];
 
 fn places(_: &WorldState) -> Vec<EntityId> {
@@ -320,6 +332,212 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
 /// The deed that takes back the latest thing made or moved.
 pub(crate) use hands::commands::UNDO;
 
+/// What people at the harbour say resting on something the player made,
+/// in the harbour's own words: salt, boats, gulls and the tide.
+const REST_LINES: [&str; 38] = [
+    "The {what} by {place}: just what my legs needed.",
+    "Best seat by {place}, this {what}.",
+    "I could sit on this {what} all day. The tide agrees.",
+    "Good {what}, this. Solid as the harbour wall.",
+    "You can see every boat in the harbour from here.",
+    "Five minutes on the {what}. Then back to the nets.",
+    "Whoever made this {what} knew what tired feet want.",
+    "My favourite spot, the {what} by {place}.",
+    "Sat on the {what} and watched the gulls squabble. Bliss.",
+    "A rest on the {what} and I'm new again.",
+    "Ate my bread roll on the {what}. The gulls got the crust.",
+    "The {what}'s warm from the sun this time of day.",
+    "Nodded off on the {what}. Don't tell anyone.",
+    "Somebody left a book on the {what}. I read a chapter.",
+    "Watched the ferry come and go from the {what}.",
+    "My knees thank whoever put a {what} by {place}.",
+    "A quiet sit on the {what}. Nobody asked me anything.",
+    "Shared the {what} with a stranger off the ferry. Nice sort.",
+    "The {what} by {place} has a view I'd pay for.",
+    "Sat on the {what} till my tea went cold.",
+    "Counted the masts from the {what}. Lost count at nine.",
+    "The {what} smells of salt and sun. Lovely.",
+    "Mended a net on the {what}. Kinder than the quay steps.",
+    "Took my boots off on the {what}. Don't look.",
+    "The {what} is where I go to think. Mostly about lunch.",
+    "Sat on the {what} and let the sea do the talking.",
+    "A crab tried to share the {what} with me. I let it.",
+    "The fog rolled in while I sat on the {what}. Cosy, somehow.",
+    "Read the paper on the {what}. All of it, even the tides.",
+    "There's a dip in the {what} just my shape now.",
+    "Waved at every boat from the {what}. Most waved back.",
+    "The {what} creaks like an old hull. I like that.",
+    "Dozed on the {what} and woke to the ferry's horn.",
+    "Watched the tide turn from the {what}. It took its time.",
+    "The {what} by {place} catches the last of the sun.",
+    "Wrote to my sister from the {what}. Told her about the gulls.",
+    "Had a proper sit on the {what}. Doctor's orders, I told myself.",
+    "Saw a seal off the point from the {what}. Honest.",
+];
+
+/// What people at the harbour say after an evening by something the
+/// player made.
+const GATHER_ALONE: [&str; 38] = [
+    "Our little crowd by the {what} grows every week.",
+    "Nobody wanted to go home from the {what}.",
+    "The {what} by {place} is the warmest spot after dark.",
+    "An owl came and sat near the {what}. We all went quiet.",
+    "It's nice by the {what} of an evening.",
+    "We lost track of time by the {what}.",
+    "The light down by {place} makes you want to stay.",
+    "The {what} was the only light down by {place}.",
+    "Stayed out by the {what} longer than I meant to.",
+    "Half the harbour ended up by the {what} last night.",
+    "Somebody brought a flask. The {what} did the rest.",
+    "The {what} by {place} is where the talking happens now.",
+    "We made plans by the {what}. Big ones, for us.",
+    "Played cards by the {what} till the light gave out.",
+    "The {what} glows like a little moon by {place}.",
+    "Supper out by the {what}. Everything tastes better.",
+    "I walked home late from the {what}, humming.",
+    "Fog came in, so we huddled by the {what}. Didn't mind a bit.",
+    "Someone's radio by the {what} had the shipping forecast on. We all listened.",
+    "Half the quay came by the {what} with mugs of tea.",
+    "The boats knocked gently against the quay while we sat by the {what}.",
+    "Someone started a song by the {what}. The whole quay knew the words.",
+    "Watched the ferry's lights go out across the water from the {what}.",
+    "The gulls finally went quiet. We stayed by the {what} anyway.",
+    "Toasted crumpets by the {what}. Burnt half of them.",
+    "Brought my knitting to the {what}. Three rows done, and a lot of gossip.",
+    "The sea was flat as glass tonight. We just sat by the {what} and looked.",
+    "Somebody's dog fell asleep on my feet by the {what}.",
+    "Told the old story about the big catch by the {what}. It's bigger every time.",
+    "Shared a pot of mussels by the {what}. Not a scrap left.",
+    "Watched the moon come up over the water from the {what}.",
+    "Spotted the first star by the {what}. I made a wish. Not telling.",
+    "The tide went out and took the chatter with it. Lovely evening by the {what}.",
+    "Rain came on, so we squeezed in close by the {what}. Nobody left.",
+    "A fishing song by the {what}. Nobody could reach the high bit.",
+    "Someone brought warm bread from the bakery. We ate it by the {what}.",
+    "By the {what}, everyone talks a little softer.",
+    "Ended the day by the {what}, salt on my lips and nothing on my mind.",
+];
+
+/// The same, of an evening spent with someone in particular.
+const GATHER_WITH: [&str; 22] = [
+    "{other} taught me a card trick by the {what}. I can't do it.",
+    "Watched the boats' lights from the {what} with {other}.",
+    "{other} and I shared a pie by the {what}. Best supper all week.",
+    "{other} brought blankets. We stayed by the {what} past midnight.",
+    "{other} told me a story I'd never heard.",
+    "Me and {other}, putting the world to rights.",
+    "{other} laughed so hard they cried.",
+    "Didn't feel the cold, talking to {other}.",
+    "You learn a lot about {other} after dark.",
+    "{other} sang. Badly. We all joined in.",
+    "Moths round the {what}, and {other} naming every one.",
+    "{other} and I watched the stars come out by the {what}.",
+    "{other} told me a secret by the {what}. My lips are sealed.",
+    "{other} and I got talking and never stopped.",
+    "{other} brought a fiddle. The {what} brought the rest of us.",
+    "{other} and I watched the lamps come on along the quay.",
+    "{other} brought chips from the Anchor. We ate them by the {what}.",
+    "The tide came right up while {other} and I talked by the {what}.",
+    "{other} knows every boat by its lights. Showed off all night.",
+    "{other} and I swapped ghost stories by the {what}. I'm sleeping with a lamp on.",
+    "{other} skimmed stones by the {what} till it was too dark to see them.",
+    "{other} and I watched the last boat home from the {what}.",
+];
+
+/// What people at the harbour say bringing the player what their garden
+/// grew.
+const HARVEST_LINES: [&str; 11] = [
+    "From your {what}. Seemed only fair.",
+    "The {what} did well this week. This is yours.",
+    "First pick from your {what}.",
+    "Your {what} keeps giving. Here.",
+    "Picked these from your {what} this morning.",
+    "Don't tell anyone, but your {what} beats mine.",
+    "From your {what}, with the dew still on.",
+    "The gulls had a go at your {what}. They missed these.",
+    "Brought you the best of your {what}. I kept the second best.",
+    "Your {what} smells of summer. Take some home.",
+    "Sea air suits your {what}. Here's the proof.",
+];
+
+/// What someone says using something the player made, in the harbour's
+/// own words: each use of a kind says the next of its lines, so none is
+/// heard again until every other has been. `None` for anything else, or
+/// when what was used is gone and cannot be named.
+pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(EntityId, String)> {
+    if event.kind != "enjoyed" {
+        return None;
+    }
+    let state = world.state();
+    let effect = match event.payload.get("effect") {
+        Some(Value::Text(effect)) => effect.as_str(),
+        _ => return None,
+    };
+    let with_other = event.targets.len() > 1;
+    let lines: &[&str] = match effect {
+        "rest" => &REST_LINES,
+        "gather" if with_other => &GATHER_WITH,
+        "gather" => &GATHER_ALONE,
+        "harvest" => &HARVEST_LINES,
+        _ => return None,
+    };
+    let thing = *event.targets.first()?;
+    let what = lives::name(state, state.entity(thing).map(|_| thing)?).to_lowercase();
+    let place = match state.entity(thing).and_then(|thing| thing.component("at")) {
+        Some(Value::Entity(at)) => lives::name(state, *at),
+        _ => "the harbour".into(),
+    };
+    let other = event
+        .targets
+        .get(1)
+        .map(|other| lives::first_name(state, *other));
+    // How many times something was used this way before: the next line.
+    let before = enjoyed_before(world, event.id)?;
+    let line = lines.get(before % lines.len().max(1))?;
+    Some((
+        event.actor?,
+        line.replace("{what}", &what)
+            .replace("{place}", &place)
+            .replace("{other}", other.as_deref().unwrap_or("")),
+    ))
+}
+
+/// For each `enjoyed` event, how many times something was used the same
+/// way before it (its effect, alone or with someone), worked out once for
+/// where the World stands rather than for every line told: counting it
+/// line by line read the whole history for each, and was half of a
+/// three-year harbour's first look after a day (H, v0.27).
+struct EnjoyedBefore {
+    standing: world_core::Standing,
+    before: std::collections::HashMap<world_core::EventId, usize>,
+}
+
+fn enjoyed_before(world: &World, event: world_core::EventId) -> Option<usize> {
+    let standing = world.standing();
+    let kept = world.derived::<EnjoyedBefore>(|kept| match kept {
+        Some(kept) if kept.standing == standing => kept,
+        _ => {
+            // A handful of ways (effect, alone or not), so a list will do.
+            let mut counts: Vec<((Option<&Value>, bool), usize)> = Vec::new();
+            let mut before = std::collections::HashMap::new();
+            for used in world.events_of_kind(&["enjoyed"]) {
+                let way = (used.payload.get("effect"), used.targets.len() > 1);
+                let at = match counts.iter().position(|(known, _)| *known == way) {
+                    Some(at) => at,
+                    None => {
+                        counts.push((way, 0));
+                        counts.len() - 1
+                    }
+                };
+                before.insert(used.id, counts[at].1);
+                counts[at].1 += 1;
+            }
+            std::sync::Arc::new(EnjoyedBefore { standing, before })
+        }
+    });
+    kept.before.get(&event).copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +618,10 @@ mod tests {
             .find(|event| event.kind == "enjoyed")
             .expect("someone used the bench");
         assert!(story::line(rested).is_some(), "and said something");
+        assert!(
+            enjoyed_line(branch.world(), rested).is_some(),
+            "in the harbour's own words"
+        );
         let replayed = branch.world().replay().unwrap();
         assert_eq!(replayed.state(), branch.world().state());
     }

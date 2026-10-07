@@ -797,6 +797,39 @@ pub fn unused_title(world: &World, candidates: &[String]) -> String {
         .unwrap_or(first)
 }
 
+/// A chapter's title told again with its year, for when the title alone
+/// has been used: "A good summer in year nine", never "A good summer,
+/// summer of year 9"; "The long dark, winter of year two".
+pub fn title_with_year(title: &str, season: &str, year: u64) -> String {
+    let year = number_word(year);
+    if title.to_lowercase().contains(season) {
+        format!("{title} in year {year}")
+    } else {
+        format!("{title}, {season} of year {year}")
+    }
+}
+
+/// A chapter's title as it fits how long the chapter ran, `lived` of a
+/// `year` of periods: a chapter of weeks is never "The year of" anything,
+/// but "The summer of" it.
+pub fn fitted_title(title: String, lived: u64, year: u64, season: &str) -> String {
+    match title.strip_prefix("The year of ") {
+        Some(rest) if lived < year * 3 / 4 => format!("The {season} of {rest}"),
+        _ => title,
+    }
+}
+
+/// A count as a chapter title writes it: "three", "eleven", then "13".
+pub fn number_word(n: u64) -> String {
+    const WORDS: [&str; 13] = [
+        "nought", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve",
+    ];
+    WORDS
+        .get(n as usize)
+        .map_or_else(|| n.to_string(), |word| (*word).to_string())
+}
+
 /// What this chapter is about, if the Pack gave its chapters pressures.
 pub fn pressure(state: &WorldState, deck: &Deck) -> Option<String> {
     text(state, deck.story, "story.pressure").map(str::to_string)
@@ -1989,6 +2022,46 @@ pub fn chapters_shown(world: &World) -> Vec<world_projection::Chapter> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A title told again names its year without telling its season
+    /// twice, and a chapter of weeks is never "the year of" anything.
+    #[test]
+    fn chapter_titles_read_whole_and_fit_their_length() {
+        assert_eq!(
+            title_with_year("A good summer", "summer", 9),
+            "A good summer in year nine"
+        );
+        assert_eq!(
+            title_with_year("The long dark", "winter", 2),
+            "The long dark, winter of year two"
+        );
+        assert_eq!(
+            title_with_year("A quiet spring", "spring", 14),
+            "A quiet spring in year 14"
+        );
+        assert_eq!(
+            fitted_title("The year of the great storm".into(), 11, 120, "autumn"),
+            "The autumn of the great storm"
+        );
+        assert_eq!(
+            fitted_title("The year of the great storm".into(), 118, 120, "autumn"),
+            "The year of the great storm"
+        );
+        assert_eq!(
+            fitted_title("A bright summer".into(), 11, 120, "summer"),
+            "A bright summer"
+        );
+        for title in [
+            title_with_year("A bright autumn", "autumn", 3),
+            title_with_year("A good winter", "winter", 6),
+        ] {
+            assert!(
+                world_projection::seams_in(&title).is_empty(),
+                "{title}: {:?}",
+                world_projection::seams_in(&title)
+            );
+        }
+    }
     use world_core::{Entity, WorldState};
 
     const STORY: EntityId = EntityId::new(1);

@@ -65,7 +65,7 @@ pub(crate) const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
-const CAMERA_SECONDS: f32 = 0.9;
+pub(crate) const CAMERA_SECONDS: f32 = 0.9;
 /// How many of today's exchanges with someone their card shows.
 const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
@@ -350,6 +350,9 @@ pub(crate) enum Caret {
 /// World is.
 #[derive(Default)]
 pub(crate) struct Looking {
+    /// The language the World's words on screen were put in, so a change
+    /// of language shows the open World anew.
+    pub(crate) shown_in: Option<world_i18n::Language>,
     pub(crate) started: Option<Instant>,
     /// When this window first showed the World's own moment (as it opened,
     /// or as the player chose where it begins), until the player's next
@@ -428,6 +431,27 @@ pub(crate) struct Looking {
     pub(crate) leaf: super::drawer::Leaf,
     pub(crate) years: BTreeSet<u32>,
     pub(crate) kind: Option<usize>,
+    /// The favour shown when the window last looked (`None` until it has
+    /// looked once), and what it did since: asked, so the camera turns
+    /// to whoever asked; or done, so their thanks show.
+    pub(crate) favour_seen: Option<Option<world_projection::Favour>>,
+    pub(crate) favour_beat: Option<(super::arrival::FavourBeat, Instant)>,
+    /// Whether the scene had been painted last frame: the welcome waits
+    /// for it.
+    pub(crate) painted: bool,
+    /// Whoever the window opened on to welcome the player, and where it
+    /// put the camera for them.
+    pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// A farewell showing over the World, and whether the camera has gone
+    /// to whoever says goodbye.
+    pub(crate) farewell: Option<super::farewell::Farewell>,
+    pub(crate) farewell_panned: bool,
+    pub(crate) farewell_speaker: Option<SelectionId>,
+    /// Whether the first day's free thing has been offered in this window,
+    /// and whether the offer is up now: the hands open on it, the card
+    /// held back until it is placed or put away.
+    pub(crate) free_offered: bool,
+    pub(crate) free_offer: bool,
 }
 
 /// Something the player's hands can make or do, for the build card.
@@ -511,7 +535,10 @@ pub(crate) fn to_someone(verb: &str) -> bool {
 
 /// What a row in the hands picker stands for: the kind of thing for what
 /// is made, and the very fixture for a move, so two benches stay two.
-fn which(command: &world_projection::ProjectionCommand, hand: &world_projection::Hand) -> String {
+pub(crate) fn which(
+    command: &world_projection::ProjectionCommand,
+    hand: &world_projection::Hand,
+) -> String {
     match (hand.verb.as_str(), command.id.rsplit_once('.')) {
         ("Move", Some((fixture, _place))) => fixture.to_string(),
         _ => hand.thing.clone(),
@@ -1334,7 +1361,7 @@ impl ProjectionView {
         }
     }
 
-    fn ask(&mut self, who: SelectionId, cx: &mut Context<Self>) {
+    pub(crate) fn ask(&mut self, who: SelectionId, cx: &mut Context<Self>) {
         if self.looking.asking != Some(who) {
             if let Some(input) = &self.looking.say {
                 input.update(cx, |input, cx| input.clear(cx));
@@ -1343,7 +1370,7 @@ impl ProjectionView {
         }
         if self.looking.say.is_none() && self.snapshot.capabilities.talk {
             self.looking.say =
-                Some(cx.new(|cx| crate::text_input::TextInput::new("Say something…", cx)));
+                Some(cx.new(|cx| crate::text_input::TextInput::new(ui::t("Say something…"), cx)));
         }
         self.looking.asking = Some(who);
         self.looking.answered = None;
@@ -1405,12 +1432,156 @@ impl ProjectionView {
                     cx.notify();
                     return;
                 }
-                let ears = response.map_or(Ears::Own, Ears::Model);
+                let ears = response.unwrap_or(Ears::Own);
                 this.finish_saying(who, words, ears, cx);
             });
         })
         .detach();
         cx.notify();
+    }
+
+    /// Says `words` to `who` as if the player had typed them: the person
+    /// card's quick reply.
+    fn say_for_them(&mut self, who: SelectionId, words: String, cx: &mut Context<Self>) {
+        self.ask(who, cx);
+        if let Some(input) = self.looking.say.clone() {
+            input.update(cx, |input, cx| input.set_text(words, cx));
+            self.say(cx);
+        }
+    }
+
+    /// The welcome waits for the town to be painted: until it is, the
+    /// World's opening moment has not begun, and nobody speaks. As it
+    /// opens, the camera stands where whoever welcomes the player stands.
+    fn notice_paint(&mut self, stage: &Stage, painted: bool) {
+        let was = std::mem::replace(&mut self.looking.painted, painted);
+        if !painted {
+            if self.looking.opening.is_some() {
+                self.looking.opening = Some(Instant::now());
+            }
+            return;
+        }
+        // Kept on the welcomer while the window settles its size, until the
+        // player pans away.
+        if let Some((who, at)) = self.looking.welcome_pan {
+            if self.looking.pan != Some(at) {
+                self.looking.welcome_pan = None;
+            } else if let Some(x) = self.stage_x(stage, who) {
+                let x = super::arrival::best_view(stage, x);
+                self.looking.pan = Some(x);
+                self.looking.welcome_pan = Some((who, x));
+            }
+            return;
+        }
+        if was || self.retelling.is_some() || self.looking.pan.is_some() {
+            return;
+        }
+        if let Some((who, x)) = voices_now(&self.snapshot).first().and_then(|voice| {
+            self.stage_x(stage, voice.speaker)
+                .map(|x| (voice.speaker, super::arrival::best_view(stage, x)))
+        }) {
+            self.looking.pan = Some(x);
+            self.looking.welcome_pan = Some((who, x));
+        }
+    }
+
+    /// On a World's first day, once the welcome has been heard, the
+    /// player's hands open on something free to place (the first card,
+    /// which asks for money, waits until it is placed or put away): the
+    /// toy before the ledger, well inside the first 20 seconds.
+    fn notice_free_offer(&mut self) {
+        if self.looking.free_offer && self.looking.hands.is_none() {
+            self.looking.free_offer = false;
+        }
+        if self.looking.free_offered
+            || self.controller.is_none()
+            || self.retelling.is_some()
+            || is_beginning(&self.snapshot)
+            || !self.looking.painted
+            || self.looking.hands.is_some()
+            || self.looking.asking.is_some()
+            || self.looking.farewell.is_some()
+        {
+            return;
+        }
+        let heard = self
+            .looking
+            .opening
+            .is_none_or(|at| since(Some(at)) >= greeting_seconds(&self.snapshot));
+        if !heard {
+            return;
+        }
+        // Looked at once: a later day, or nothing free, offers nothing.
+        self.looking.free_offered = true;
+        let Some(hands) = super::arrival::free_offer(&self.snapshot) else {
+            return;
+        };
+        self.looking.hands = Some(Hands {
+            verb: Some(hands.0),
+            thing: Some(hands.1),
+        });
+        self.looking.free_offer = true;
+    }
+
+    /// Where along the stage someone stands, by the middle of their
+    /// figure.
+    fn stage_x(&self, stage: &Stage, who: SelectionId) -> Option<f32> {
+        let index = self
+            .snapshot
+            .canvas
+            .items
+            .iter()
+            .position(|item| item.id == who)?;
+        let (x, _, w, _) = stage.frame_of(index)?;
+        Some(x + w / 2.0)
+    }
+
+    /// Notices what a favour did since the last frame: asked, and the
+    /// camera turns to whoever asked while they say it; or done, and
+    /// their thanks show at once. Not during a return's film, which has
+    /// the camera; afterwards.
+    fn notice_favour(&mut self, stage: &Stage) {
+        use super::arrival::{ask_line, favour_beat, FavourBeat};
+        if self.retelling.is_some() {
+            return;
+        }
+        let now = self.snapshot.favour.clone();
+        let beat = match self.looking.favour_seen.replace(now.clone()) {
+            Some(before) => favour_beat(before.as_ref(), now.as_ref()),
+            // Opened on a favour asked at this very moment: shown too.
+            None => favour_beat(None, now.as_ref()).filter(|beat| {
+                matches!(beat, FavourBeat::Asked { asker } if ask_line(&self.snapshot, *asker).is_some())
+            }),
+        };
+        let Some(beat) = beat else {
+            return;
+        };
+        if let FavourBeat::Asked { asker } = &beat {
+            if self.looking.asking.is_none() {
+                if let Some(x) = self.stage_x(stage, *asker) {
+                    self.looking.pan = Some(x);
+                }
+            }
+        }
+        self.looking.favour_beat = Some((beat, Instant::now()));
+    }
+
+    /// What a favour has someone say now, over their head: the ask, while
+    /// the camera is on them, then the thanks once it is done. Whom, the
+    /// line, and how long ago it began.
+    fn favour_line(&self) -> Option<(SelectionId, String, f32)> {
+        use super::arrival::{ask_line, FavourBeat, ASK_SECONDS, THANKS_SECONDS};
+        let (beat, at) = self.looking.favour_beat.as_ref()?;
+        let age = since(Some(*at));
+        match beat {
+            FavourBeat::Asked { asker } if age < ASK_SECONDS && self.looking.asking.is_none() => {
+                Some((*asker, ask_line(&self.snapshot, *asker)?, age))
+            }
+            FavourBeat::Thanked { asker, line } if age < THANKS_SECONDS && !line.is_empty() => {
+                Some((*asker, line.clone(), age))
+            }
+            _ => None,
+        }
     }
 
     /// Records what the player said, heard by `ears`: whether it was.
@@ -1538,11 +1709,52 @@ impl ProjectionView {
             "right" => self.lean(1, cx),
             "up" => self.cycle_card(-1, cx),
             "down" => self.cycle_card(1, cx),
-            "enter" => self.choose_card(cx),
+            "enter" => self.enter(window, cx),
             "space" => self.turn_card(cx),
             "=" | "+" => self.zoom_by(ZOOM_STEP, None, window, cx),
             "-" => self.zoom_by(1.0 / ZOOM_STEP, None, window, cx),
             _ => {}
+        }
+    }
+
+    /// Enter, outside a text field: on someone's open card it goes to
+    /// their words; on a chapter's ending it turns the page; on the card
+    /// in front it chooses, and lets a day pass only from the day's own
+    /// card with the scene holding the keyboard (see `arrival`).
+    fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use super::arrival::{enter_does, passes_day, EnterContext, EnterDoes};
+        if self.controller.is_some() {
+            if let Some(number) = chapter_just_ended(&self.snapshot, self.looking.chapter_read)
+                .map(|chapter| chapter.number)
+            {
+                self.looking.chapter_read = Some(number);
+                cx.notify();
+                return;
+            }
+        }
+        let card = self.card_command();
+        let context = EnterContext {
+            asking: self.looking.asking.is_some(),
+            covered: self.looking.drawer
+                || self.looking.hands.is_some()
+                || self.looking.marking.card.is_some(),
+            card_shown: card.is_some(),
+            card_passes_day: card.is_some_and(|command| passes_day(&command.id)),
+            scene_focused: self
+                .looking
+                .focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window)),
+        };
+        match enter_does(context) {
+            EnterDoes::Choose => self.choose_card(cx),
+            EnterDoes::Talk => {
+                if let Some(input) = self.looking.say.clone() {
+                    window.focus(&input.focus_handle(cx), cx);
+                    cx.notify();
+                }
+            }
+            EnterDoes::Nothing => {}
         }
     }
 
@@ -1811,6 +2023,9 @@ impl ProjectionView {
             glows.insert(asking, color(tokens::ACCENT).into());
             return glows;
         }
+        if let Some(whom) = super::arrival::marked(&self.snapshot) {
+            glows.insert(whom, color(tokens::ACCENT).into());
+        }
         if let Some(command) = self.card_command() {
             let colour: Hsla = color(tokens::ACCENT).into();
             for target in command
@@ -1966,7 +2181,7 @@ impl ProjectionView {
     /// what a resident said then as its caption, printed on paper around
     /// the scene and saved to Pictures like a photograph. Only this view's
     /// own area is saved, without the window's bars.
-    fn take_postcard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn take_postcard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.looking.photographing {
             return;
         }
@@ -2042,6 +2257,10 @@ impl ProjectionView {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
             return None;
         }
+        // The first day's free thing comes before any card.
+        if self.looking.free_offer {
+            return None;
+        }
         if self
             .looking
             .opening
@@ -2086,6 +2305,10 @@ impl ProjectionView {
                 self.looking.opening = Some(now);
             }
             window.focus(&focus, cx);
+        } else if window.focused(cx).is_none() {
+            // Nothing holds the keyboard (a tip was dismissed, a field
+            // closed): the scene takes it back, so keys are never lost.
+            window.focus(&focus, cx);
         }
         // Reduce Motion holds the scene still: nobody wanders, bobs or
         // turns, and the clouds and the sea stay where they are.
@@ -2113,6 +2336,32 @@ impl ProjectionView {
                 self.step_retelling(cx);
             }
         }
+        self.notice_paint(&stage, diorama::painted(window));
+        self.notice_free_offer();
+        self.notice_favour(&stage);
+        // A farewell: the camera goes to whoever says goodbye, or, if they
+        // are indoors at that hour, to whoever is out on the place, who says
+        // it instead.
+        if let Some((who, _)) = self
+            .farewell_line()
+            .filter(|_| !self.looking.farewell_panned)
+        {
+            self.looking.farewell_panned = true;
+            let out = stage
+                .people
+                .first()
+                .and_then(|spot| self.snapshot.canvas.items.get(spot.index))
+                .map(|item| item.id);
+            let speaker = if self.stage_x(&stage, who).is_some() {
+                Some(who)
+            } else {
+                out
+            };
+            if let Some(speaker) = speaker {
+                self.looking.farewell_speaker = Some(speaker);
+                self.looking.pan = self.stage_x(&stage, speaker);
+            }
+        }
         let camera = self.camera(&stage);
         self.notice_moments();
 
@@ -2134,7 +2383,13 @@ impl ProjectionView {
         });
         // What is said now, by whom, how long ago it began, whether it
         // answers the player, and how long it stays.
-        let line = if let Some((exchange, at)) = said {
+        let line = if let Some((who, text)) = self.farewell_line() {
+            let text = ui::t(text).to_string();
+            let length = LINE_SECONDS * speech_pages(&text).len() as f32;
+            // Said again and again while the farewell shows.
+            let age = since(self.looking.started) % (length + LINE_SECONDS);
+            (age < length).then_some((who, text, age, true, length))
+        } else if let Some((exchange, at)) = said {
             Some((
                 exchange.who,
                 exchange.answer.clone(),
@@ -2150,6 +2405,9 @@ impl ProjectionView {
                 true,
                 answer_seconds(&talk.answer),
             ))
+        } else if let Some((who, text, age)) = self.favour_line() {
+            let length = LINE_SECONDS * speech_pages(&text).len() as f32;
+            Some((who, text, age, true, length))
         } else if self.retelling.is_some() {
             beat_voice.map(|voice| {
                 (
@@ -2161,6 +2419,7 @@ impl ProjectionView {
                 )
             })
         } else if speaking.is_empty()
+            || !self.looking.painted
             || self
                 .card_command()
                 .is_some_and(|command| command.question.is_some())
@@ -2414,6 +2673,8 @@ impl ProjectionView {
                     })),
             );
 
+        // Nothing is named before it is painted (the art bible's §6).
+        let painted = diorama::painted(window);
         // Buildings: named when pointed at, opening the drawer on a click.
         for spot in &stage.buildings {
             if !stage.shows(spot.index, camera.zoom) {
@@ -2445,8 +2706,9 @@ impl ProjectionView {
                     .flex_col()
                     .items_center()
                     .child(name_tag(item.label.clone()).when(!named, |tag| {
-                        tag.opacity(0.0)
-                            .group_hover(group, |style| style.opacity(1.0))
+                        tag.opacity(0.0).when(painted, |tag| {
+                            tag.group_hover(group, |style| style.opacity(1.0))
+                        })
                     }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
@@ -2471,17 +2733,34 @@ impl ProjectionView {
         }
         // Plots to build on, and things with a card of their own.
         root = root.children(self.mark_targets(&stage, camera, cx));
-        // People: click to ask them something.
+        // People: click to ask them something. Each can be pointed at
+        // only as far as half way to a neighbour, so a click finds the
+        // person nearest the pointer and two are never named at once.
         let mut heads = Vec::new();
-        for person in &frame.people {
+        let reach = diorama::reach_of(
+            &frame
+                .people
+                .iter()
+                .map(|person| (person.x, person.y, person.height))
+                .collect::<Vec<_>>(),
+        );
+        // Named on hover, or while speaking; never two names over one
+        // another, and none before the scene is painted.
+        let speaker_x = line.as_ref().and_then(|(who, ..)| {
+            frame
+                .people
+                .iter()
+                .find(|person| self.snapshot.canvas.items[person.index].id == *who)
+                .map(|person| person.x)
+        });
+        for (person, reach) in frame.people.iter().zip(reach) {
             let item = &self.snapshot.canvas.items[person.index];
             let selection = item.id;
-            let w = person.height * 0.7;
             let group = SharedString::from(format!("person-{}", selection.stable_key()));
-            let named = card_people.contains(&selection)
-                || self.looking.asking == Some(selection)
-                || line.as_ref().is_some_and(|(who, ..)| *who == selection)
-                || person.glow.is_some();
+            let speaking = line.as_ref().is_some_and(|(who, ..)| *who == selection);
+            let named = painted && speaking;
+            let hover =
+                painted && !speaking && speaker_x.is_none_or(|x| (x - person.x).abs() > NAME_ROOM);
             heads.push((selection, person.x, person.y - person.height * 1.08));
             root = root.child(
                 div()
@@ -2493,9 +2772,9 @@ impl ProjectionView {
                     .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
-                    .left(px(person.x - w / 2.0 - 20.0))
+                    .left(px(person.x - reach))
                     .top(px(person.y - person.height))
-                    .w(px(w + 40.0))
+                    .w(px(reach * 2.0))
                     .h(px(person.height + 24.0))
                     .cursor_pointer()
                     .flex()
@@ -2503,8 +2782,9 @@ impl ProjectionView {
                     .justify_end()
                     .items_center()
                     .child(name_tag(first_name(&item.label)).when(!named, |tag| {
-                        tag.opacity(0.0)
-                            .group_hover(group, |style| style.opacity(1.0))
+                        tag.opacity(0.0).when(hover, |tag| {
+                            tag.group_hover(group, |style| style.opacity(1.0))
+                        })
                     }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
@@ -2514,6 +2794,19 @@ impl ProjectionView {
                         this.ask(selection, cx);
                     })),
             );
+        }
+        // Whom a favour is for: a mark over their head until it is done.
+        if let Some((_, x, y)) = super::arrival::marked(&self.snapshot)
+            .filter(|_| self.looking.painted && self.retelling.is_none())
+            .and_then(|whom| heads.iter().find(|(id, ..)| *id == whom))
+        {
+            let hint = self
+                .snapshot
+                .favour
+                .as_ref()
+                .map(|favour| favour.hint.clone())
+                .unwrap_or_default();
+            root = root.child(favour_mark(*x, *y, hint, seconds));
         }
         // Where a line said now goes: over its speaker, clear of the
         // interface; and so no pointer covers it.
@@ -2533,8 +2826,9 @@ impl ProjectionView {
             place_bubbles(&[(*x, *y, w, h)], &interface, (width, height)).pop()
         });
         let pointing = self.point(width, height, placed.map(|placed| placed.whole()));
-        // Whoever is talking, over their head.
-        if let (Some((_, text, fade, strong)), Some(placed)) = (line, placed) {
+        // Whoever is talking, over their head, once there is a place
+        // under them to talk in.
+        if let (Some((_, text, fade, strong)), Some(placed), true) = (line, placed, painted) {
             root = root.child(bubble(text, placed, fade, strong));
         }
 
@@ -2621,6 +2915,10 @@ impl ProjectionView {
                     .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
                     .child(pill().child(ui::t(words))),
             );
+        }
+        if let Some(farewell) = lit(|| self.render_farewell(cx)) {
+            // A farewell has the place to itself: no card, no handles.
+            return root.child(farewell).into_any_element();
         }
         root = root.child(self.render_hud(pointing, cx));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
@@ -2735,7 +3033,7 @@ impl ProjectionView {
         if self.looking.drawer {
             root = root.child(world_theme::reading(|| self.render_drawer(cx)));
         }
-        if let Some(strip) = lit(|| self.render_moment_up(width, height, cx)) {
+        if let Some(strip) = lit(|| self.render_moment_up(width, height, window, cx)) {
             root = root.child(strip);
         }
         if let Some(page) = lit(|| self.render_page(width, height, cx)) {
@@ -3004,6 +3302,38 @@ impl ProjectionView {
             });
             right = right.child(hint_under(handle, &[Pointer::Strip], cx));
         }
+        // A favour open: who it is for, found in one click (their card
+        // opens, with its words to say, and the camera goes to them).
+        if let Some(favour) = self
+            .snapshot
+            .favour
+            .as_ref()
+            .filter(|favour| !favour.done)
+            .filter(|_| self.controller.is_some() && self.retelling.is_none())
+        {
+            let whom = favour.whom;
+            let name = label_of(&self.snapshot, whom)
+                .map(|name| first_name(&name))
+                .unwrap_or_default();
+            right = right.child(
+                pill()
+                    .id("favour-handle")
+                    .role(Role::Button)
+                    .aria_label(favour.note.clone())
+                    .debug_selector(|| "favour-handle".into())
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(div().size(px(8.0)).rounded_full().bg(color(tokens::ACCENT)))
+                    .child(ui::t(format!("Find {name}")))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.ask(whom, cx)
+                    })),
+            );
+        }
         let handle = ui::named(
             pill().id("drawer-handle"),
             "The drawer: story, letters, keepsakes and the book (⌘I)",
@@ -3135,6 +3465,9 @@ impl ProjectionView {
                     ("Move", _) => crate::i18n::choose_where(&named, true),
                     _ => crate::i18n::choose_where(&named, false),
                 };
+                if self.looking.free_offer {
+                    body = body.child(ui::caption("On the house, to welcome you."));
+                }
                 body = body.child(div().text_sm().text_color(color(tokens::TEXT)).child(hint));
                 if self
                     .hand_targets()
@@ -3613,6 +3946,70 @@ impl ProjectionView {
         {
             card = card.child(standing_row(standing));
         }
+        // A favour for them: what it is, and its words to say in one click;
+        // once done, whoever asked it says thank you, here and at once.
+        let talking = self.snapshot.capabilities.talk
+            && self.controller.is_some()
+            && self.retelling.is_none();
+        if let (Some(reply), Some(favour), true) = (
+            super::arrival::quick_reply(&self.snapshot, who),
+            self.snapshot.favour.as_ref(),
+            talking,
+        ) {
+            let words = reply.to_string();
+            card = card.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::caption(favour.note.clone()))
+                    .child(
+                        div()
+                            .id("favour-reply")
+                            .role(Role::Button)
+                            .aria_label(words.clone())
+                            .debug_selector(|| "favour-reply".into())
+                            .px_3()
+                            .py_2()
+                            .rounded_lg()
+                            .text_sm()
+                            .cursor_pointer()
+                            .border_1()
+                            .border_color(color(tokens::ACCENT))
+                            .bg(color(tokens::ACCENT_SOFT))
+                            .text_color(color(tokens::ACCENT_TEXT))
+                            .hover(|style| style.bg(color(tokens::ROW_HOVER)))
+                            .child(crate::i18n::quoted(&words))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.say_for_them(who, words.clone(), cx)
+                            })),
+                    ),
+            );
+        }
+        if let Some((asker, thanks)) = super::arrival::thanks_on(&self.snapshot, who) {
+            card = card.child(
+                div()
+                    .id("favour-thanks")
+                    .debug_selector(|| "favour-thanks".into())
+                    .flex()
+                    .items_start()
+                    .gap_2()
+                    .px_2()
+                    .py_2()
+                    .rounded_lg()
+                    .bg(color(tokens::ACCENT_SOFT))
+                    .child(portrait(likeness_of(&self.snapshot, asker), 28.0, false))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .text_sm()
+                            .text_color(color(tokens::TEXT))
+                            .child(crate::i18n::quoted(thanks)),
+                    ),
+            );
+        }
         // Someone who can be named (a newborn): the name field, with the
         // names their parents propose.
         if self.controller.is_some()
@@ -3682,7 +4079,7 @@ impl ProjectionView {
                         .px_3()
                         .text_sm()
                         .text_color(color(tokens::TEXT))
-                        .child(format!("“{}”", talk.answer)),
+                        .child(crate::i18n::quoted(&talk.answer)),
                 );
                 if let Some(command) = talk
                     .asks_for
@@ -3729,7 +4126,7 @@ impl ProjectionView {
                 .text_color(color(tokens::TEXT_SECONDARY))
                 .cursor_pointer()
                 .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
-                .child(format!("More about {}", first_name(&name)))
+                .child(ui::t(format!("More about {}", first_name(&name))))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.selected = Some(who);
                     this.open_drawer();
@@ -3865,7 +4262,7 @@ impl ProjectionView {
                         .px_1()
                         .text_sm()
                         .text_color(color(tokens::TEXT))
-                        .child(format!("“{}”", exchange.answer)),
+                        .child(crate::i18n::quoted(&exchange.answer)),
                 );
             if index == latest {
                 if let Some(command) = exchange
@@ -3933,7 +4330,32 @@ fn lit_one<E: Styled>(build: impl FnOnce() -> E) -> E {
     world_theme::reading(|| build().text_color(color(tokens::TEXT)))
 }
 
+/// How far from a speaker, on screen, someone's name would sit over the
+/// speaker's: their name is not shown on hover.
+const NAME_ROOM: f32 = 72.0;
+
 /// A name under something on the scene.
+/// The mark over whom a favour is for: a small lantern-gold drop that
+/// bobs gently, named for a screen reader by how the favour is done.
+pub(crate) fn favour_mark(x: f32, head: f32, hint: String, seconds: f32) -> Stateful<Div> {
+    const SIDE: f32 = 14.0;
+    let bob = (seconds * 2.4).sin() * 2.0;
+    div()
+        .id("favour-mark")
+        .role(Role::Image)
+        .aria_label(hint)
+        .debug_selector(|| "favour-mark".into())
+        .absolute()
+        .left(px(x - SIDE / 2.0))
+        .top(px(head - SIDE - 14.0 + bob))
+        .size(px(SIDE))
+        .rounded_full()
+        .border_2()
+        .border_color(color(tokens::SURFACE))
+        .bg(color(tokens::ACCENT))
+        .shadow_md()
+}
+
 pub(crate) fn name_tag(name: String) -> Div {
     div()
         .mt_1()
@@ -4480,7 +4902,12 @@ fn bottom_card(card: impl IntoElement, dock: Dock) -> Div {
         DockSide::Left => row.justify_start(),
         DockSide::Right => row.justify_end(),
     }
-    .child(div().w(px(dock.w)).child(card))
+    .child(
+        div()
+            .debug_selector(|| "bottom-card".into())
+            .w(px(dock.w))
+            .child(card),
+    )
 }
 
 /// How someone stands with the player: five small marks, as many filled as

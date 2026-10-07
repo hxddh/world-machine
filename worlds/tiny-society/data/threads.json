@@ -1150,7 +1150,7 @@
   {"spec": [
     "oven_breaks",
     {"follow": ["@MARA", [{"Marked": ["oven_patched", 2]}, {"Unmarked": ["oven_broke"]}]]},
-    {"()": ["Mara's patched oven gave out", "The patched oven's died mid-batch. Now what?"]},
+    {"()": ["Mara's patched oven gave out", "The patched oven's given up mid-batch. Now what?"]},
     [
       {"yes": [
         "buy",

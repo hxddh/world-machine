@@ -222,6 +222,16 @@ pub(crate) fn prompt(world: &World, who: EntityId, words: &str) -> Option<String
     conversation::prompt_for(world, &kit(world.state()), who, words)
 }
 
+/// The same, as data, for an app that builds the prompt itself.
+pub(crate) fn voice_hearing(
+    world: &World,
+    who: EntityId,
+    words: &str,
+) -> Option<world_projection::VoiceHearing> {
+    conversation::hearing_for(world, &kit(world.state()), who, words)
+        .map(|hearing| hearing.to_voice())
+}
+
 /// How someone the player can talk to stands with them.
 pub(crate) fn standing_of(world: &World, who: EntityId) -> Option<world_projection::Standing> {
     conversation::faces::standing_of(world, &kit(world.state()), who)

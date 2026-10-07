@@ -42,6 +42,10 @@ pub const FIRST_PERIOD: i64 = 2;
 pub const OPEN_PERIODS: i64 = 3;
 /// For this many periods a World asks only the gentlest favours.
 const GENTLE_PERIODS: i64 = 5;
+/// After this many favours in a row have lapsed with no word from the
+/// player to anyone since, nobody asks another until the player talks to
+/// someone. Each lapse before that makes the next ask wait longer.
+pub const MOST_LAPSED: i64 = 3;
 
 /// What a favour is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,12 +103,33 @@ impl Kind {
     }
 
     /// What whoever it is for adds to their answer, `{y}` being the asker.
+    /// An apology passed on is answered by this alone: whatever they would
+    /// have said of the asker otherwise ("We get on.") would argue with it.
     fn heard(self) -> &'static str {
         match self {
             Kind::AskAfter => "Did {y} ask after me? That's kind of them.",
             Kind::Invite => "{y} put you up to this, didn't they? I'm glad.",
             Kind::CheerUp => "You always know what to say. That's cheered me up.",
-            Kind::Sorry => "{y} said that? Well. Tell them it's forgotten.",
+            Kind::Sorry => {
+                "{y} said that? Well. I've carried it long enough. Tell {y} it's forgotten."
+            }
+        }
+    }
+
+    /// Whether whoever it is for answers with [`Kind::heard`] alone.
+    fn answered_alone(self) -> bool {
+        self == Kind::Sorry
+    }
+
+    /// The words the person card offers to say to whom it is for, `{y}`
+    /// being the asker: everyday words this System hears as doing it, in
+    /// every language the app speaks.
+    fn reply(self) -> &'static str {
+        match self {
+            Kind::AskAfter => "I was just looking in on you. How are you doing?",
+            Kind::Invite => "Would you come out for a walk with me?",
+            Kind::CheerUp => "You're doing a great job, you know. I mean it.",
+            Kind::Sorry => "{y} says sorry, and means it.",
         }
     }
 
@@ -189,6 +214,52 @@ fn favour_on(state: &WorldState, asker: EntityId) -> Option<Favour> {
     })
 }
 
+/// The last favour asked, by anyone: who asked it, and what is kept of it.
+fn last_kept(state: &WorldState) -> Option<(EntityId, &std::collections::BTreeMap<String, Value>)> {
+    state
+        .entities()
+        .filter_map(|entity| match entity.component(FAVOUR) {
+            Some(Value::Map(map)) => Some((entity.id, map)),
+            _ => None,
+        })
+        .max_by_key(|(id, map)| {
+            (
+                map.get("asked").cloned().map(|asked| match asked {
+                    Value::Integer(asked) => asked,
+                    _ => i64::MIN,
+                }),
+                std::cmp::Reverse(*id),
+            )
+        })
+}
+
+/// Whether the player has said anything to anyone in or since `period`.
+fn talked_since(state: &WorldState, kit: &Kit, period: i64) -> bool {
+    (kit.people)(state)
+        .into_iter()
+        .any(|person| crate::integer(state, person, crate::TALKED).is_some_and(|at| at >= period))
+}
+
+/// How many favours in a row have lapsed, the last of them now, with no
+/// word from the player to anyone since the last was asked. A favour done,
+/// or any talk since, starts the count again.
+pub fn lapsed_in_a_row(state: &WorldState, kit: &Kit) -> i64 {
+    let Some((asker, map)) = last_kept(state) else {
+        return 0;
+    };
+    let Some(Value::Integer(asked)) = map.get("asked") else {
+        return 0;
+    };
+    let open = open(state, kit).is_some_and(|favour| favour.asker == asker);
+    if open || !map.contains_key("kind") || talked_since(state, kit, *asked) {
+        return 0;
+    }
+    match map.get("lapsed") {
+        Some(Value::Integer(before)) => before + 1,
+        _ => 1,
+    }
+}
+
 /// The favour open now, if any: asked no more than [`OPEN_PERIODS`] ago,
 /// by and for people who can still be spoken to.
 pub fn open(state: &WorldState, kit: &Kit) -> Option<Favour> {
@@ -202,22 +273,31 @@ pub fn open(state: &WorldState, kit: &Kit) -> Option<Favour> {
 
 /// Whether talking to `who`, heard as `heard`, does `favour`.
 fn does(state: &WorldState, kit: &Kit, favour: &Favour, who: EntityId, heard: Heard) -> bool {
-    if who != favour.whom || matches!(heard.intent, Intent::Rude | Intent::Unclear) {
+    who == favour.whom
+        && done_by(favour.kind, favour.asker, heard, || {
+            accepts_invite(state, kit, who)
+        })
+}
+
+/// Whether words heard as `heard`, said to whom a favour of `kind` asked
+/// by `asker` is for, do it; `accepts` says whether they would say yes to
+/// going out today.
+pub fn done_by(kind: Kind, asker: EntityId, heard: Heard, accepts: impl Fn() -> bool) -> bool {
+    if matches!(heard.intent, Intent::Rude | Intent::Unclear) {
         return false;
     }
-    let accepted = heard.intent == Intent::Invite && accepts_invite(state, kit, who);
-    match favour.kind {
+    let accepted = || heard.intent == Intent::Invite && accepts();
+    match kind {
         Kind::AskAfter => true,
-        Kind::Invite => accepted,
+        Kind::Invite => accepted(),
         Kind::CheerUp => {
-            accepted
-                || matches!(
-                    heard.intent,
-                    Intent::Comfort | Intent::Compliment | Intent::Gift | Intent::Thank
-                )
+            matches!(
+                heard.intent,
+                Intent::Comfort | Intent::Compliment | Intent::Gift | Intent::Thank
+            ) || accepted()
         }
         // Word passed on is word about the asker.
-        Kind::Sorry => heard.about == Some(favour.asker),
+        Kind::Sorry => heard.about == Some(asker),
     }
 }
 
@@ -234,7 +314,10 @@ pub(crate) fn answer(world: &World, kit: &Kit, who: EntityId, heard: Heard, repl
         &lives::first_name(state, favour.asker),
         &lives::first_name(state, who),
     );
-    if reply.line.chars().count() + added.chars().count() < crate::MOST_REPLY {
+    if favour.kind.answered_alone() {
+        reply.line = added;
+        reply.asks_for = None;
+    } else if reply.line.chars().count() + added.chars().count() < crate::MOST_REPLY {
         reply.line = format!("{} {added}", reply.line.trim_end());
     }
 }
@@ -299,9 +382,15 @@ pub fn proposal(world: &World, kit: &Kit) -> Option<ActionRequest> {
         return None;
     }
     let last = state.entities().filter_map(last_asked).max();
+    // A player who lets favours lapse is asked less often, and after
+    // [`MOST_LAPSED`] in a row not at all, until they talk to someone.
+    let lapsed = lapsed_in_a_row(state, kit);
+    if lapsed >= MOST_LAPSED {
+        return None;
+    }
     let due = match last {
         None => began + FIRST_PERIOD + (lives::mix(&[began as u64, 0xfa]) % 3) as i64,
-        Some((at, _)) => at + 6 + (lives::mix(&[at as u64, 0xfa]) % 5) as i64,
+        Some((at, _)) => at + (6 + (lives::mix(&[at as u64, 0xfa]) % 5) as i64) * (1 + lapsed),
     };
     if now < due {
         return None;
@@ -480,7 +569,7 @@ pub fn said(state: &WorldState, event: &Event) -> Option<(EntityId, String)> {
 pub fn shown(world: &World, kit: &Kit) -> Option<world_projection::Favour> {
     let state = world.state();
     let now = period(state, kit);
-    let note = |asker: EntityId, whom: EntityId, kind: Kind, done: bool| {
+    let note = |asker: EntityId, whom: EntityId, kind: Kind, thanks: Option<String>| {
         let (y, x) = (
             lives::first_name(state, asker),
             lives::first_name(state, whom),
@@ -490,11 +579,17 @@ pub fn shown(world: &World, kit: &Kit) -> Option<world_projection::Favour> {
             whom: world_projection::SelectionId::Entity(whom),
             note: filled(kind.note(), &y, &x),
             hint: filled(kind.hint(), &y, &x),
-            done,
+            done: thanks.is_some(),
+            reply: if thanks.is_some() {
+                String::new()
+            } else {
+                filled(kind.reply(), &y, &x)
+            },
+            thanks: thanks.unwrap_or_default(),
         }
     };
     if let Some(favour) = open(state, kit) {
-        return Some(note(favour.asker, favour.whom, favour.kind, false));
+        return Some(note(favour.asker, favour.whom, favour.kind, None));
     }
     let done = world.events_of_kind(&[DONE]).into_iter().next_back()?;
     if (done.world_time / kit.period.max(1)) as i64 != now {
@@ -502,7 +597,8 @@ pub fn shown(world: &World, kit: &Kit) -> Option<world_projection::Favour> {
     }
     let kind = Kind::from_id(text(done, "favour")?)?;
     let whom = done.targets.first().copied()?;
-    Some(note(done.actor?, whom, kind, true))
+    let thanks = said(state, done).map(|(_, line)| line).unwrap_or_default();
+    Some(note(done.actor?, whom, kind, Some(thanks)))
 }
 
 const ASK_ACTION: &str = "conversation_favour_ask";
@@ -554,6 +650,7 @@ impl Action for Asks {
             return Err(ActionError::Invalid("one favour is open already".into()));
         }
         let now = period(state, &kit);
+        let lapsed = lapsed_in_a_row(state, &kit);
         let mut changes = Vec::new();
         // The last favour, lapsed or done, is let go of.
         for entity in state.entities() {
@@ -574,6 +671,8 @@ impl Action for Asks {
                     ("asked".to_string(), Value::Integer(now)),
                 ]
                 .into_iter()
+                // How many lapsed in a row before it, kept only when some did.
+                .chain((lapsed > 0).then(|| ("lapsed".to_string(), Value::Integer(lapsed))))
                 .collect(),
             ),
         });
@@ -780,9 +879,11 @@ mod tests {
         let reply = text(world.event(spoken).unwrap(), "reply")
             .unwrap()
             .to_string();
-        assert!(
-            reply.ends_with("Mara said that? Well. Tell them it's forgotten."),
-            "{reply}"
+        // Answered with the apology alone: nothing they would have said of
+        // Mara otherwise ("We get on.") argues with it.
+        assert_eq!(
+            reply,
+            "Mara said that? Well. I've carried it long enough. Tell Mara it's forgotten."
         );
         let done = follow_up(&mut world, &actions, &kit, spoken)
             .unwrap()
@@ -884,5 +985,122 @@ mod tests {
             follow_up(&mut world, &actions, &any_kit(), spoken).unwrap(),
             None
         );
+    }
+
+    /// The v0.27 bar: a player who lets favours lapse is asked less often,
+    /// and after three in a row not at all, until they talk to someone.
+    #[test]
+    fn lapsed_favours_slow_the_asks_and_talk_starts_them_again() {
+        let (mut world, actions) = world();
+        let mut asked = Vec::new();
+        for period in 0..200 {
+            at(&mut world, &actions, period);
+            if !tick(&mut world, &actions, &any_kit(), false)
+                .unwrap()
+                .is_empty()
+            {
+                asked.push(period as i64);
+            }
+        }
+        assert_eq!(asked.len() as i64, MOST_LAPSED, "asked on {asked:?}");
+        let gaps = asked
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .collect::<Vec<_>>();
+        // A week or so after the first; twice that after one lapse.
+        assert!(gaps[0] >= 12, "{asked:?}");
+        assert!(gaps[1] >= 18, "{asked:?}");
+        assert_eq!(lapsed_in_a_row(world.state(), &any_kit()), MOST_LAPSED);
+        // A word to anyone, and someone asks again within a fortnight.
+        talk(&mut world, &actions, LEO, "Morning!");
+        assert_eq!(lapsed_in_a_row(world.state(), &any_kit()), 0);
+        let mut again = None;
+        for period in 200..214 {
+            at(&mut world, &actions, period);
+            if !tick(&mut world, &actions, &any_kit(), false)
+                .unwrap()
+                .is_empty()
+            {
+                again = Some(period);
+                break;
+            }
+        }
+        assert!(again.is_some(), "nobody asked after the player talked");
+        // Nothing of it is worked out again on replay.
+        assert_eq!(world.replay().unwrap().state(), world.state());
+    }
+
+    /// An apology passed on is answered with that alone, however it was
+    /// heard: never "We get on." and "it's forgotten" in one breath.
+    #[test]
+    fn an_apology_passed_on_is_answered_without_contradiction() {
+        for words in [
+            "Mara says sorry.",
+            "What do you think of Mara?",
+            "Do you and Mara get on?",
+            "How's Mara?",
+            "Mara feels terrible about what happened.",
+            "You should make up with Mara.",
+        ] {
+            let (mut world, actions) = world();
+            at(&mut world, &actions, 6);
+            world
+                .execute(
+                    &actions,
+                    &ActionRequest::new(ASK_ACTION)
+                        .actor(MARA)
+                        .arg("asker", Value::Entity(MARA))
+                        .arg("whom", Value::Entity(LEO))
+                        .arg("favour", "sorry"),
+                )
+                .unwrap();
+            let spoken = talk(&mut world, &actions, LEO, words);
+            let reply = text(world.event(spoken).unwrap(), "reply").unwrap();
+            assert_eq!(
+                reply,
+                "Mara said that? Well. I've carried it long enough. Tell Mara it's forgotten.",
+                "{words}"
+            );
+            for (a, b) in [("get on", "forgotten"), ("fine", "forgotten")] {
+                assert!(
+                    !(reply.contains(a) && reply.contains(b)),
+                    "{words}: {reply}"
+                );
+            }
+        }
+    }
+
+    /// The person card's quick reply, said as it is, does each kind.
+    #[test]
+    fn the_quick_reply_does_each_kind_of_favour() {
+        for kind in Kind::ALL {
+            let (mut world, actions) = world();
+            at(&mut world, &actions, 6);
+            world
+                .execute(
+                    &actions,
+                    &ActionRequest::new(ASK_ACTION)
+                        .actor(MARA)
+                        .arg("asker", Value::Entity(MARA))
+                        .arg("whom", Value::Entity(LEO))
+                        .arg("favour", kind.id()),
+                )
+                .unwrap();
+            let kit = kit(world.state());
+            let shown = shown(&world, &kit).unwrap();
+            assert!(!shown.done && shown.thanks.is_empty());
+            assert!(!shown.reply.contains('{'), "{}", shown.reply);
+            let spoken = talk(&mut world, &actions, LEO, &shown.reply);
+            let done = follow_up(&mut world, &actions, &kit, spoken).unwrap();
+            assert!(done.is_some(), "{kind:?}: {:?} did not do it", shown.reply);
+            let thanked = shown_now(&world);
+            assert!(thanked.done);
+            assert!(thanked.reply.is_empty());
+            assert!(thanked.thanks.contains("Leo"), "{}", thanked.thanks);
+        }
+    }
+
+    fn shown_now(world: &World) -> world_projection::Favour {
+        shown(world, &kit(world.state())).unwrap()
     }
 }

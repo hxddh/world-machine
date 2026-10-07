@@ -122,3 +122,45 @@ fn a_grown_child_with_a_partner_and_a_one_sided_partner_still_share_a_home() {
     assert_eq!(homes.get(&1), Some(&vec![1, 2]));
     assert_eq!(homes.get(&5), Some(&vec![5, 6, 8]));
 }
+
+/// However the coins of their own fall, at most a third of a town is home
+/// as work ends at five; the rest stay out until six, and the same people
+/// keep the early evening.
+#[test]
+fn no_town_empties_at_five() {
+    use world_core::EntityId;
+    use world_projection::{CanvasItem, CanvasItemKind, RoutineStop, SelectionId};
+    let home = SelectionId::Entity(EntityId::new(1_000));
+    let work = SelectionId::Entity(EntityId::new(1_001));
+    let stop = |from_hour, at, inside| RoutineStop {
+        from_hour,
+        at,
+        inside,
+    };
+    let person = |id| CanvasItem {
+        id: SelectionId::Entity(EntityId::new(id)),
+        kind: CanvasItemKind::Actor,
+        home: Some(home),
+        day: vec![
+            stop(0, home, true),
+            stop(7, work, false),
+            stop(KNOCK_OFF, home, true),
+        ],
+        ..Default::default()
+    };
+    let mut items = (1..=15).rev().map(person).collect::<Vec<_>>();
+    town::stagger_homecomings(&mut items);
+    let home_at_five = items
+        .iter()
+        .filter(|item| item.day.last().unwrap().from_hour == KNOCK_OFF)
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        home_at_five,
+        [5, 4, 3, 2, 1].map(|id| SelectionId::Entity(EntityId::new(id)))
+    );
+    assert!(items.iter().all(|item| item
+        .day
+        .windows(2)
+        .all(|pair| pair[0].from_hour < pair[1].from_hour)));
+}

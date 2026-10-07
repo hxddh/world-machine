@@ -320,6 +320,7 @@ That's enough for today	今日はもう十分です
 There isn't {cost} in {}	{}には{cost}がありません
 There's no more room	もう場所がありません
 You built a {} by {at_name}	{at_name}のそばに{}を建てた
+You built an {} by {at_name}	{at_name}のそばに{}を建てた
 You put up {} at {at_name}	{at_name}に{}を飾った
 You planted {} by {at_name}	{at_name}のそばに{}を植えた
 move what?	何を動かす？
@@ -729,6 +730,7 @@ Worn out.	くたくた。
 I could sleep a week.	一週間くらい眠れそう。
 Tired to the bone.	骨の髄まで疲れてる。
 A bit lonely, if I'm honest.	正直、ちょっとさびしいな。
+I'd like a bit more company, if I'm honest.	正直、もうちょっと誰かといたいな。
 Too quiet, some days.	静かすぎる日もあってね。
 I could do with some company.	誰かといたい気分なんだ。
 Restless.	落ち着かなくて。
@@ -1773,6 +1775,19 @@ I still think about it.	今でもときどき思い出すんだ。
 We've come a long way.	ずいぶん遠くまで来たね。
 {name} remembered a year ago today	{name}は1年前の今日を思い出した
 Something for the turn of the season.	季節の変わり目に、ちょっとしたものを。
+A new season, and this made me think of you.	新しい季節だね。これを見て、あなたのことを思い出したんだ。
+The season's turning. I wanted you to have this.	季節が変わるね。これ、あなたに持っていてほしくて。
+For the season ahead. May it be a kind one.	これからの季節に。やさしい季節になりますように。
+Saw this and thought of you. Happy new season.	これを見てあなたを思い出したよ。新しい季節、おめでとう。
+Every season deserves a small gift. Here's yours.	季節ごとに小さな贈り物があってもいいよね。はい、あなたの分。
+The days are changing. This one's for you.	日々の様子が変わってきたね。これはあなたに。
+Kept this back for the season's first day.	季節の最初の日まで、これを取っておいたんだ。
+To mark the turn of the season, from me to you.	季節の変わり目のしるしに、私からあなたへ。
+Here's to the season coming in.	やって来る季節に乾杯。
+A little something, now the season's changed.	季節が変わったから、ささやかなものを。
+New season, same you. Thought you'd like this.	季節は変わっても、あなたはあなた。これ、気に入ると思って。
+For the start of a fresh season.	新しい季節のはじまりに。
+It felt like a day for giving. Happy new season.	贈り物をしたくなる日だったんだ。新しい季節、おめでとう。
 Left for you as a season turns	季節の変わり目に届いた
 Comes on a quiet day	静かな日に届く
 Letters	手紙
@@ -2122,5 +2137,19 @@ Have a word with {x}.	{x}と少し話してみよう。
 Ask {x} to come out with you.	{x}を一緒に出かけようと誘ってみよう。
 Say something kind to {x}.	{x}に優しい言葉をかけてみよう。
 Tell {x} what {y} said.	{y}の言葉を{x}に伝えよう。
+{y} said that? Well. I've carried it long enough. Tell {y} it's forgotten.	{y}がそんなことを？そっか。ずっと引きずってたけど、もういいんだ。{y}に、もう気にしてないって伝えて。
+I was just looking in on you. How are you doing?	ちょっと様子を見に来たんだ。元気にしてる？
+Would you come out for a walk with me?	一緒に散歩に行かない？
+You're doing a great job, you know. I mean it.	本当によくやってるよ。心からそう思う。
+{y} says sorry, and means it.	{y}が、ごめんって。本気でそう言ってたよ。
 {y} asked you a favour	{y}から頼みごとをされた
 You did {y} a favour	{y}の頼みごとを果たした
+# Said of oneself (v0.27).
+@I	私
+, and we had words	、それで言い争いになっちゃった
+An {trade} called {b} came in on {way_out}.	{trade}の{b}って人が、{way_out}でやって来たよ。
+Forget I said anything.	今の、聞かなかったことにして。
+Another day, maybe. It'll keep.	また今度ね。急ぐ話じゃないから。
+It's fine. I'll tell you sometime.	大丈夫。いつか話すよ。
+Oh, it doesn't matter now.	ああ、もういいんだ。
+I'll save it for a quieter day.	もっと落ち着いた日に話すよ。

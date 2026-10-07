@@ -1196,6 +1196,10 @@ fn newcomers(
         .chain([SLOT_B, SLOT_E, NEWCOMER])
         .filter(|id| state.entity(*id).is_some())
         .flat_map(|id| [lives::name(state, id), lives::first_name(state, id)])
+        // Nor the name of a stranger still waiting at the door for an
+        // answer: once the list runs low the two ends meet, and the
+        // stranger would come in as "A stranger".
+        .chain(lives::waiting_strangers(state, &cast))
         .collect::<std::collections::BTreeSet<_>>();
     // Not the first names on the list, which strangers asking for a room
     // take, but from the other end.
@@ -1222,11 +1226,24 @@ fn newcomers(
                 .with_component("lives.newcomer", true)
                 .with_component(lives::AT, Value::Entity(SLOT_A))
                 .with_component(SINCE, now);
+            // A cadet comes to Ares at sixteen to grow up there, and comes
+            // of age in the colony (before v0.27 a cadet's age was counted
+            // as if they had been 19 to 21 when the colony began, grown
+            // before it, so Ares never saw anyone come of age).
+            if *role == "cadet" {
+                let year = crate::almanac::YEAR;
+                let born =
+                    now - (CADET_AGE * year) as i64 - (lives::mix(&[id.0, 29]) % year) as i64;
+                entity = entity.with_component(lives::generations::BORN, born);
+            }
             let first_name = name.split_whitespace().next().unwrap_or(name).to_string();
             Some((id, first_name, vec![StateChange::CreateEntity(entity)]))
         })
         .collect()
 }
+
+/// How old a cadet is on reaching Ares, in years.
+const CADET_AGE: u64 = 16;
 
 /// How many new people the turn brings, by how the player has kept the
 /// place: none to a place nobody tends, more to one that is building,

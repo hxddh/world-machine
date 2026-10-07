@@ -584,6 +584,7 @@ pub(crate) fn art_of(thing: &str) -> Option<&'static str> {
         "picnic" => "picnic-table",
         "flowerboxes" => "flower-boxes",
         "sunflowers" => "sunflowers",
+        "wildflowers" => "wildflower-patch",
         "herbs" => "herb-pots",
         // A flag, a sign and a line of washing wear a design, and keep
         // the shape it is painted on.

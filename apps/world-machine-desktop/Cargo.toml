@@ -1,6 +1,6 @@
 [package]
 name = "world-machine-desktop"
-version = "0.26.1"
+version = "0.27.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -23,6 +23,8 @@ world-i18n = { path = "../../crates/world-i18n" }
 world-sound = { path = "../../crates/world-sound" }
 world-theme = { path = "../../crates/world-theme" }
 world-voice = { path = "../../crates/world-voice" }
+# The demo reads its farewell from a snapshot on every platform.
+world-projection = { path = "../../crates/world-projection" }
 
 [dev-dependencies]
 world-persistence = { path = "../../crates/world-persistence" }

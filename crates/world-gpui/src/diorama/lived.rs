@@ -43,7 +43,10 @@ pub(super) fn paint_harbour_life(
                 apart || (!(tall && *building) && (band - y).abs() > fig * 0.7)
             })
     };
-    let contact = gpui::black().opacity(0.18);
+    let contact = {
+        let [r, g, b] = shadow_ink(frame.hour);
+        Hsla::from(gpui::Rgba { r, g, b, a: 1.0 }).opacity(0.24)
+    };
     let mut tinted = Tint::new(window, light);
 
     // Washing on a line in a gap between the houses of the street.

@@ -186,6 +186,10 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         world.state().entity(who)?;
         return Some((who, line));
     }
+    if let Some((who, line)) = crate::handwork::enjoyed_line(world, event) {
+        world.state().entity(who)?;
+        return Some((who, line));
+    }
     if let Some((who, line)) = crate::story::line(event) {
         world.state().entity(who)?;
         // A birthday's "Last time: {name} had a party" says whose.

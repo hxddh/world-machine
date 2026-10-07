@@ -144,3 +144,25 @@ fn every_window_speaks_japanese_in_japanese() {
     // Open, on every World on Home, is 開く, not a shop's 営業中.
     assert_eq!(catalog.translate("Open").as_deref(), Some("開く"));
 }
+
+/// Home's cards for starting a World: each built-in World's name and what
+/// it is, as Home shows them, are in Japanese too.
+#[test]
+fn home_tells_every_world_in_japanese() {
+    let mut catalog = world_i18n::Catalog::parse(world_gpui::i18n::APP_JA);
+    for pack in world_builtins::JA {
+        catalog.extend(pack);
+    }
+    catalog.extend(world_gpui::i18n::APP_JA);
+    let registry = world_builtins::registry().expect("the built-in Worlds");
+    let mut missing = Vec::new();
+    for descriptor in registry.descriptors() {
+        for line in [&descriptor.title, &descriptor.description] {
+            match catalog.translate(line) {
+                Some(shown) if english_in(&shown).is_empty() => {}
+                shown => missing.push(format!("{line} → {shown:?}")),
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}

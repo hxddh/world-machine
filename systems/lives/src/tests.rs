@@ -972,8 +972,8 @@ fn fond_couple() -> (WorldState, ActionRegistry, EntityId, EntityId) {
 }
 
 /// Births never stop silently: with every id for a child taken, the next
-/// birth fails loudly (in a build with debug assertions, as every test
-/// is) rather than quietly never happening.
+/// birth fails loudly in a test, in debug and in release alike, rather than
+/// quietly never happening.
 #[test]
 #[should_panic(expected = "no room for another child")]
 fn a_full_block_of_children_fails_loudly() {

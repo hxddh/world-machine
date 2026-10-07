@@ -1,5 +1,5 @@
 use super::DocumentRevision;
-use crate::{required_archive, DurableWorldSession, LibraryError, WorldDocumentTarget};
+use crate::{required_archive, DurableWorldSession, LibraryError, Lock, WorldDocumentTarget};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -22,6 +22,8 @@ impl DurableWorldSession {
         // Written anew by this app, a newer World's file would lose what
         // this app does not know.
         self.refuse_if_newer()?;
+        // The new file is this World's alone from before it is written.
+        let lock = Lock::take_new(&destination)?;
         let mut archive = required_archive(self.session.as_ref())?;
         archive.checkpoint = self.checkpoint.clone();
         let document = WorldDocument {
@@ -31,15 +33,10 @@ impl DurableWorldSession {
         let revision = write_new_document_file(&destination, &document)?;
 
         // What was handed over for the old file is written if it can be;
-        // the World goes on in the new one either way.
-        let _ = self.flush();
-        self.writes.start_from(revision);
-        // The new file is written whole on the next change, as after any
-        // other change of file; what was kept of the old one does not
-        // describe it.
-        self.saved = None;
-        self.target = WorldDocumentTarget::File(destination);
-        self.revision = revision;
+        // the World goes on in the new one either way, its writer and what
+        // it keeps of its file started afresh together.
+        self.file
+            .retarget(WorldDocumentTarget::File(destination), revision, lock);
         Ok(self.session.snapshot())
     }
 }
@@ -192,16 +189,17 @@ mod tests {
         let archive = mock_archive(count);
         let revision = write_archive_file(&path, &archive).unwrap();
         DurableWorldSession {
-            target: WorldDocumentTarget::File(path),
-            revision,
+            file: crate::world_file::WorldFile::new(
+                WorldDocumentTarget::File(path),
+                revision,
+                Default::default(),
+                crate::lock::Lock::none(),
+            ),
             metadata: WorldDocumentMetadata::default(),
             checkpoint: None,
             session: Box::new(MockSession { count }),
-            saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
-            writer: Default::default(),
-            writes: Default::default(),
         }
     }
 

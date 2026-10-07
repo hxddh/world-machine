@@ -11,7 +11,7 @@
 
 use crate::places::Place;
 use crate::{SLOT_A, SLOT_B, SLOT_C, SLOT_D, SLOT_E};
-use days::town::{CatalogWork, Town, BACK, FRONT};
+use days::town::{CatalogWork, Quarter, Town, Trace, TraceAt, Zone, BACK, FRONT};
 use days::{Plan, Stretch};
 use std::collections::BTreeMap;
 use world_core::{EntityId, Value, World, WorldState};
@@ -28,6 +28,130 @@ struct Layout {
     labels: [&'static str; 3],
     anchors: [(EntityId, f32); 3],
     home: &'static str,
+    /// The clusters its homes and works stand in, left to right.
+    quarters: &'static [Quarter],
+}
+
+/// What the twenty commonest storylets leave on the scene for a few days
+/// after they end, in every place (a warm player's year, counted with the
+/// `warm_days` example): crates after the supply drop, the delivery truck
+/// or the herring run; flags for the launch window, the county fair or
+/// the migration; a stall when the trader comes. Drawn by shape, so each
+/// place draws its own (a cargo crate on Mars, a newspaper bundle on Maple
+/// Street, a fish crate on the ice). Most stand by the place's middle
+/// building, where the first screen looks.
+const TRACES: &[Trace] = &[
+    trace("supply", None, MarkShape::Parcel, TraceAt::Place(SLOT_C), 3),
+    trace(
+        "window",
+        None,
+        MarkShape::Bunting,
+        TraceAt::Place(SLOT_C),
+        3,
+    ),
+    trace("weather", None, MarkShape::Flag, TraceAt::Place(SLOT_C), 2),
+    trace("trader", None, MarkShape::Stall, TraceAt::Place(SLOT_C), 3),
+    trace("the_call", None, MarkShape::Lantern, TraceAt::Asker, 3),
+    trace(
+        "supper",
+        Some("picnic-table"),
+        MarkShape::Bench,
+        TraceAt::Place(SLOT_C),
+        2,
+    ),
+    trace(
+        "stargazing",
+        Some("telescope"),
+        MarkShape::Tower,
+        TraceAt::Place(SLOT_D),
+        2,
+    ),
+    trace("signal", None, MarkShape::Lamp, TraceAt::Place(SLOT_D), 3),
+    trace("quarrel", None, MarkShape::Bench, TraceAt::Asker, 3),
+    trace("lost_tool", None, MarkShape::Parcel, TraceAt::Asker, 2),
+    trace(
+        "long_dark",
+        None,
+        MarkShape::Lantern,
+        TraceAt::Place(SLOT_C),
+        4,
+    ),
+    trace(
+        "failing",
+        Some("scaffold"),
+        MarkShape::House,
+        TraceAt::Place(SLOT_C),
+        3,
+    ),
+    trace(
+        "close_call",
+        None,
+        MarkShape::Signpost,
+        TraceAt::Place(SLOT_D),
+        3,
+    ),
+    trace(
+        "clean_up",
+        None,
+        MarkShape::Planter,
+        TraceAt::Place(SLOT_C),
+        4,
+    ),
+    trace(
+        "breaking_point",
+        None,
+        MarkShape::Postbox,
+        TraceAt::Place(SLOT_C),
+        3,
+    ),
+    trace("amends", None, MarkShape::Garden, TraceAt::Asker, 4),
+    trace("keeper_grow", None, MarkShape::Sprouts, TraceAt::Asker, 4),
+    trace(
+        "first_frost",
+        None,
+        MarkShape::Tent,
+        TraceAt::Place(SLOT_C),
+        3,
+    ),
+    trace("birthday_*", None, MarkShape::Bunting, TraceAt::Asker, 2),
+    // A part of a work done leaves its materials on the work's site.
+    trace("work_*", None, MarkShape::Parcel, TraceAt::Works, 2),
+];
+
+/// A storylet's mark, briefly.
+const fn trace(
+    storylet: &'static str,
+    art: Option<&'static str>,
+    shape: MarkShape,
+    at: TraceAt,
+    days: u64,
+) -> Trace {
+    Trace {
+        storylet,
+        art,
+        shape,
+        at,
+        days,
+    }
+}
+
+/// A cluster of a place, briefly.
+const fn quarter(
+    id: &'static str,
+    label: &'static str,
+    at: f32,
+    zones: &'static [Zone],
+    homes: bool,
+    ground: &'static str,
+) -> Quarter {
+    Quarter {
+        id,
+        label,
+        at,
+        zones,
+        homes,
+        ground,
+    }
 }
 
 fn layout(place: Place) -> &'static Layout {
@@ -51,8 +175,74 @@ fn layout(place: Place) -> &'static Layout {
             },
         ],
         labels: ["The domes", "The landing pad", "The ridge and the ice mine"],
-        anchors: [(SLOT_A, 0.3), (SLOT_C, 0.65), (SLOT_D, 1.95)],
+        anchors: [(SLOT_A, 0.3), (SLOT_C, 1.1), (SLOT_D, 1.95)],
         home: "Quarters",
+        quarters: &[
+            quarter(
+                "hab_ring",
+                "the Habitat Ring",
+                0.3,
+                &[Zone::Lanes],
+                true,
+                "pad",
+            ),
+            quarter(
+                "dome_garden",
+                "the Dome Garden",
+                0.72,
+                &[Zone::Green],
+                false,
+                "garden",
+            ),
+            quarter(
+                "airlock_apron",
+                "the Airlock Apron",
+                1.3,
+                &[Zone::Quay, Zone::Water, Zone::Lanes],
+                true,
+                "pad",
+            ),
+            quarter(
+                "the_ridge",
+                "the Ridge",
+                2.05,
+                &[Zone::Edge, Zone::Lanes],
+                true,
+                "yard",
+            ),
+            quarter(
+                "crater_rim",
+                "the Crater Rim",
+                1.0,
+                &[Zone::Water, Zone::Quay],
+                false,
+                "pad",
+            ),
+            quarter(
+                "east_ring",
+                "the East Ring",
+                0.55,
+                &[Zone::Lanes, Zone::Green],
+                true,
+                "pad",
+            ),
+            quarter(
+                "the_mine",
+                "the Mine",
+                2.35,
+                &[Zone::Edge, Zone::Water],
+                false,
+                "yard",
+            ),
+            quarter(
+                "solar_flats",
+                "the Solar Flats",
+                1.6,
+                &[Zone::Edge, Zone::Green],
+                false,
+                "pad",
+            ),
+        ],
     };
     const MAPLE: Layout = Layout {
         width: 3.0,
@@ -78,8 +268,67 @@ fn layout(place: Place) -> &'static Layout {
             "The square and the park",
             "The school and the lake",
         ],
-        anchors: [(SLOT_A, 0.35), (SLOT_C, 0.75), (SLOT_D, 1.3)],
+        anchors: [(SLOT_A, 0.35), (SLOT_C, 1.2), (SLOT_D, 2.15)],
         home: "Home",
+        quarters: &[
+            quarter(
+                "maple_row",
+                "Maple Row",
+                0.45,
+                &[Zone::Lanes, Zone::Quay],
+                true,
+                "paving",
+            ),
+            quarter(
+                "elm_court",
+                "Elm Court",
+                1.15,
+                &[Zone::Lanes],
+                true,
+                "garden",
+            ),
+            quarter(
+                "the_park",
+                "the Park",
+                1.6,
+                &[Zone::Green, Zone::Quay],
+                false,
+                "green",
+            ),
+            quarter(
+                "school_yard",
+                "the School Yard",
+                2.45,
+                &[Zone::Lanes, Zone::Edge, Zone::Water],
+                true,
+                "paving",
+            ),
+            quarter(
+                "main_street",
+                "Main Street",
+                0.8,
+                &[Zone::Quay, Zone::Lanes],
+                false,
+                "paving",
+            ),
+            quarter("oak_lane", "Oak Lane", 0.15, &[Zone::Lanes], true, "garden"),
+            quarter(
+                "the_lake",
+                "the Lake",
+                2.8,
+                &[Zone::Water, Zone::Green],
+                false,
+                "green",
+            ),
+            quarter(
+                "town_square",
+                "the Square",
+                1.85,
+                &[Zone::Quay, Zone::Green],
+                false,
+                "paving",
+            ),
+        ],
     };
     const ICE: Layout = Layout {
         width: 2.5,
@@ -101,8 +350,67 @@ fn layout(place: Place) -> &'static Layout {
             },
         ],
         labels: ["The rookery", "The bridge", "The far floe"],
-        anchors: [(SLOT_A, 0.35), (SLOT_C, 1.15), (SLOT_D, 1.45)],
+        anchors: [(SLOT_A, 0.35), (SLOT_C, 1.15), (SLOT_D, 1.75)],
         home: "Nest",
+        quarters: &[
+            quarter(
+                "the_rookery",
+                "the Rookery",
+                0.3,
+                &[Zone::Lanes],
+                true,
+                "snow",
+            ),
+            quarter(
+                "ice_plaza",
+                "the Ice Plaza",
+                0.72,
+                &[Zone::Green],
+                false,
+                "snow",
+            ),
+            quarter(
+                "the_causeway",
+                "the Causeway",
+                1.3,
+                &[Zone::Quay, Zone::Water, Zone::Lanes],
+                true,
+                "snow",
+            ),
+            quarter(
+                "far_floe",
+                "the Far Floe",
+                2.05,
+                &[Zone::Edge, Zone::Lanes, Zone::Water],
+                true,
+                "snow",
+            ),
+            quarter("nest_row", "Nest Row", 0.55, &[Zone::Lanes], true, "snow"),
+            quarter(
+                "floe_edge",
+                "the Floe Edge",
+                1.0,
+                &[Zone::Water, Zone::Quay],
+                false,
+                "snow",
+            ),
+            quarter(
+                "kelp_beds",
+                "the Kelp Beds",
+                2.35,
+                &[Zone::Edge, Zone::Water],
+                false,
+                "snow",
+            ),
+            quarter(
+                "the_bridge",
+                "the Bridge",
+                1.6,
+                &[Zone::Quay, Zone::Green],
+                false,
+                "snow",
+            ),
+        ],
     };
     match place {
         Place::Ares => &ARES,
@@ -453,7 +761,8 @@ pub(crate) fn lay_out(
     };
     let layout = layout(place);
     let width = layout.width;
-    let mut town = Town::new(width, &layout.stretches, days::town::PLOT_ROW_AT);
+    let mut town =
+        Town::new(width, &layout.stretches, days::town::PLOT_ROW_AT).quarters(layout.quarters);
     let mut items = items;
 
     for (id, px) in layout.anchors {
@@ -487,24 +796,49 @@ pub(crate) fn lay_out(
     // moves for what is built after it.
     let catalog = catalog(world, place);
     let done = finished_in(world, &catalog);
+    let deck = crate::story::deck_ref();
     let works = catalog
         .into_iter()
         .enumerate()
         .map(|(index, work)| CatalogWork {
             stretch: work_stretch(place, work.id, index),
+            under_way: storylets::progress(state, deck, work.id) > 0,
             id: work.id,
             label: work.label,
             shape: work.shape,
         });
+    // What the player built on plots stands on its plot first (so no work
+    // stands hidden behind it), and everything says what it can wear and
+    // be called.
+    crate::plots::dress(world, &mut items);
+    crate::drawings::dress_art(world, &mut items);
+    let mut on_plots: [Vec<SelectionId>; 3] = Default::default();
+    town.plotted(&mut items, &mut on_plots);
     let mut works = town.works(&mut items, works, &done, |id| {
         crate::drawings::art_of_work(place, id).map(Into::into)
     });
+    for (at, built) in on_plots.into_iter().enumerate() {
+        works[at].extend(built);
+    }
 
-    // What the player built on plots stands on its plot, and everything
-    // says what it can wear and be called.
-    crate::plots::dress(world, &mut items);
-    crate::drawings::dress_art(world, &mut items);
-    town.plotted(&items, &mut works);
+    // What the last few periods' storylets left behind them.
+    let sites = crate::town::catalog(world, place)
+        .into_iter()
+        .map(|work| work.id)
+        .collect::<Vec<_>>();
+    items.extend(days::town::traces(
+        world.events(),
+        state.world_time(),
+        crate::BACKGROUND_PERIOD,
+        TRACES,
+        |person| home_of.get(&person).copied(),
+        |work| {
+            let index = sites.iter().position(|each| *each == work)?;
+            let id = days::town::work_id(index);
+            town.placed.contains_key(&id).then_some(id)
+        },
+        |event| crate::story::told(world, event),
+    ));
 
     town.fixtures(&mut items, |item| item.kind != CanvasItemKind::Actor);
 
@@ -699,6 +1033,146 @@ mod tests {
                 }
             }
             assert!(festivals * 12 >= days, "{seed}: {festivals} festivals");
+        }
+    }
+
+    /// A warm player in the place `seed` sows: the first answer each
+    /// period and something made every fifth, handing each period's World
+    /// and snapshot (and the first, as period 0) to `look`.
+    fn warm(seed: &str, days: usize, mut look: impl FnMut(usize, &World, &ProjectionSnapshot)) {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        look(0, universe.world(), &universe.projection_snapshot());
+        for day in 1..=days {
+            let snapshot = universe.projection_snapshot();
+            if let Some(answer) = snapshot.commands.iter().find(|command| {
+                command.question.is_some()
+                    && command.unavailable.is_none()
+                    && command.id != NUDGE_COMMAND
+            }) {
+                let _ = universe.invoke_projection_command(&answer.id.clone());
+            }
+            if day % 5 == 0 {
+                if let Some(deed) = snapshot.commands.iter().find(|command| {
+                    command.unavailable.is_none()
+                        && command
+                            .hand
+                            .as_ref()
+                            .is_some_and(|hand| hand.verb != "Undo")
+                }) {
+                    let _ = universe.invoke_projection_command(&deed.id.clone());
+                }
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+            look(day, universe.world(), &universe.projection_snapshot());
+        }
+    }
+
+    const SEEDS: [&str; 3] = [
+        crate::SEED_MARS_COLONY_COMMAND,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ];
+
+    fn stage_of(snapshot: &ProjectionSnapshot) -> world_gpui::diorama::Stage {
+        world_gpui::diorama::stage_at(snapshot, 1100.0, 848.0, world_gpui::diorama::Clock::at(12))
+    }
+
+    /// Every water work (the landing pad on the crater rim, the lake dock
+    /// at the kerb, the ice ledge at the floe edge) stands on the water
+    /// line, going up or finished.
+    fn check_siting(seed: &str, day: usize, world: &World, snapshot: &ProjectionSnapshot) {
+        let place = Place::of(world.state()).unwrap();
+        let works = catalog(world, place);
+        let stage = stage_of(snapshot);
+        let astray = days::town::water_works_astray(
+            &snapshot.canvas.items,
+            |index| stage.on_water(index),
+            |item| {
+                works
+                    .iter()
+                    .find(|work| work.label == item.label)
+                    .map(|work| {
+                        days::town::zone_of(
+                            crate::drawings::art_of_work(place, work.id),
+                            work.shape,
+                        )
+                    })
+            },
+        );
+        assert!(
+            astray.is_empty(),
+            "{seed} day {day}: off the water: {astray:?}"
+        );
+    }
+
+    #[test]
+    fn water_works_stand_on_the_water_line() {
+        for seed in SEEDS {
+            warm(seed, 120, |day, world, snapshot| {
+                if day % 10 == 0 {
+                    check_siting(seed, day, world, snapshot);
+                }
+            });
+        }
+    }
+
+    /// The same over three years, a month at a time (the nightly runs it).
+    #[test]
+    #[ignore]
+    fn water_works_stand_on_the_water_line_for_three_years() {
+        for seed in SEEDS {
+            warm(seed, 1_080, |day, world, snapshot| {
+                if day % 30 == 0 {
+                    check_siting(seed, day, world, snapshot);
+                }
+            });
+        }
+    }
+
+    /// No screen-width of a place is bare in its first month.
+    #[test]
+    fn no_screen_width_is_bare_in_the_first_month() {
+        for seed in SEEDS {
+            warm(seed, 30, |day, _, snapshot| {
+                let gap = days::town::widest_gap(&snapshot.canvas);
+                assert!(gap < 1.0, "{seed} day {day}: {gap:.2} screens bare");
+            });
+        }
+    }
+
+    /// Every storylet a mark is kept for is one the place tells, so no
+    /// mark waits on a storylet that never comes.
+    #[test]
+    fn every_trace_is_of_a_storylet_the_place_tells() {
+        let deck = crate::story::deck_ref();
+        for trace in TRACES {
+            let known =
+                deck.storylets
+                    .iter()
+                    .any(|storylet| match trace.storylet.strip_suffix('*') {
+                        Some(prefix) => storylet.id.starts_with(prefix),
+                        None => storylet.id == trace.storylet,
+                    });
+            assert!(known, "no storylet {}", trace.storylet);
+        }
+    }
+
+    /// The first screen (the camera at rest) shows something new on at
+    /// least 8 of a warm player's first 14 periods, in every place.
+    #[test]
+    fn the_first_screen_changes_on_most_of_the_first_fortnight() {
+        for seed in SEEDS {
+            let mut before = None;
+            let mut changed = Vec::new();
+            warm(seed, 14, |day, _, snapshot| {
+                let now = stage_of(snapshot).first_screen(snapshot);
+                if day > 0 && before.as_ref() != Some(&now) {
+                    changed.push(day);
+                }
+                before = Some(now);
+            });
+            assert!(changed.len() >= 8, "{seed}: changed on {changed:?}");
         }
     }
 

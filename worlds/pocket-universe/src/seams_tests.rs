@@ -30,7 +30,7 @@ pub(crate) fn readable(snapshot: &ProjectionSnapshot) -> Vec<String> {
 
 /// Everything a place can tell now: what a player reads, and every
 /// legend, moment and almanac it keeps.
-fn told(universe: &PocketUniverse) -> Vec<String> {
+pub(crate) fn told(universe: &PocketUniverse) -> Vec<String> {
     let world = universe.world();
     seams::told(
         readable(&universe.projection_snapshot()),
@@ -42,7 +42,7 @@ fn told(universe: &PocketUniverse) -> Vec<String> {
 }
 
 /// What a moment's panels fail to show of what it is.
-fn unshown(moment: &Moment) -> Option<&'static str> {
+pub(crate) fn unshown(moment: &Moment) -> Option<&'static str> {
     let shown = &moment.panels[1].props;
     if moment.kind == MomentKind::Farewell && moment.title.ends_with("farewell") {
         let way = [Prop::Shuttle, Prop::Bus, Prop::Sled]

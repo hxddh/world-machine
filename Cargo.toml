@@ -59,6 +59,10 @@ opt-level = 2
 [profile.dev.package.chronicle]
 opt-level = 2
 
+# The voice guard reads every red-team line its tests say, several times.
+[profile.dev.package.conversation]
+opt-level = 2
+
 [profile.dev.package.tiny-society]
 opt-level = 2
 

@@ -1,0 +1,76 @@
+# cargo-deny: what the app may be built from.
+#
+# `cargo deny check` runs in CI (ci.yml, job `deny`). It holds four things:
+#
+# - licenses: every crate in the build is under a licence on the list below,
+#   all of them permissive except MPL-2.0 (file-level copyleft, which a
+#   binary may link unchanged). Nothing GPL, AGPL or unlicensed comes in,
+#   so no restricted licence can flow into the app, the kernel or a Pack
+#   (AGENTS.md invariant 8).
+# - advisories: no crate with a known vulnerability (RustSec) or that has
+#   been yanked. An unmaintained crate is reported only when the app uses it
+#   directly; the ones gpui brings in are its to replace.
+# - bans: two versions of one crate are allowed (gpui alone brings several),
+#   but a wildcard version requirement is not.
+# - sources: crates come from crates.io, and from the git repositories of
+#   the window toolkit and its forks, each pinned by commit in Cargo.lock.
+
+[graph]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+unsound = "all"
+ignore = [
+  # Each entry says why it is accepted, and is removed as soon as it can be.
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "MIT-0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+  "0BSD",
+  "bzip2-1.0.6",
+  "MPL-2.0",
+]
+
+[licenses.private]
+# The workspace's own crates are not published; they are checked like any
+# other crate all the same (each says `license = "Apache-2.0"`).
+ignore = false
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The window toolkit (gpui) and the forks it pins, each by commit in
+# Cargo.lock.
+allow-git = [
+  "https://github.com/zed-industries/zed",
+  "https://github.com/zed-industries/font-kit",
+  "https://github.com/zed-industries/wasm_thread",
+  "https://github.com/proptest-rs/proptest",
+]

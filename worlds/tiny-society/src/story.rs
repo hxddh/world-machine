@@ -98,7 +98,9 @@ fn taken_up_said(answers: &[Answer]) -> Option<Said> {
         .find(|answer| !without_money(&answer.said).is_empty())?;
     let said = &granting.said;
     let told = match said.told.split_once(' ') {
-        Some(("The" | "A" | "An" | "Work", _)) => lowered(said.told),
+        Some(("The" | "A" | "An" | "Work" | "They" | "Everyone" | "Nobody", _)) => {
+            lowered(said.told)
+        }
         _ => said.told.to_string(),
     };
     Some(Said {
@@ -1285,7 +1287,7 @@ pub(crate) const LATER_WORKS: &[Work] = {
         Work {
             id: "rowing_club",
             label: "A rowing club by the slipway",
-            shape: M::Boat,
+            shape: M::House,
             champion: EVAN,
             parts: 2,
             cost: 45,
@@ -1428,7 +1430,7 @@ pub(crate) const LATER_WORKS: &[Work] = {
         Work {
             id: "boat_yard",
             label: "A yard for building boats",
-            shape: M::Boat,
+            shape: M::House,
             champion: EVAN,
             parts: 3,
             cost: 60,
@@ -2575,7 +2577,7 @@ fn inspired_by(thing: &str) -> &'static [&'static str] {
         "apple_tree" | "windmill" => &["own_apple_press", "own_bee_hives"],
         "well" | "signpost" | "frog_pond" => &["own_tide_pools", "own_stepping_stones"],
         "fountain" | "statue" => &["own_quay_mosaic", "own_cairn"],
-        "birdhouse" | "sunflowers" => &["own_bee_hives", "own_bird_table"],
+        "birdhouse" | "sunflowers" | "wildflowers" => &["own_bee_hives", "own_bird_table"],
         "postbox" | "bookshop" => &["own_book_box", "own_notice_board"],
         "rowboat" | "boathouse" | "slipway" | "boat_rack" => &["own_boat_planter", "own_net_rack"],
         "flowerboxes" | "herbs" => &["own_shell_path", "own_window_boxes"],
@@ -3055,10 +3057,16 @@ fn chapter_ending(world: &World) -> (String, String) {
     if let Some(first) = news.first() {
         candidates.push(format!("The {season_name} {}", lowered_start(first)));
     }
+    candidates.push(storylets::title_with_year(&title, season_name, year));
     candidates.push(format!(
-        "{title}, {season_name} of year {}",
-        number_word(year)
+        "The {season_name} of year {}",
+        storylets::number_word(year)
     ));
+    let lived_days = period_of(world).saturating_sub(started / crate::persistence::WORLD_DAY_TICKS);
+    let candidates = candidates
+        .into_iter()
+        .map(|title| storylets::fitted_title(title, lived_days, YEAR, season_name))
+        .collect::<Vec<_>>();
     let title = storylets::unused_title(world, &candidates);
     // The last three things worth telling, with the climax among them, and
     // two of what changed between people.
@@ -3125,17 +3133,6 @@ fn lowered_start(sentence: &str) -> String {
             format!("{} {rest}", first.to_lowercase())
         }
         _ => sentence.to_string(),
-    }
-}
-
-fn number_word(n: u64) -> String {
-    match n {
-        1 => "one".into(),
-        2 => "two".into(),
-        3 => "three".into(),
-        4 => "four".into(),
-        5 => "five".into(),
-        _ => n.to_string(),
     }
 }
 

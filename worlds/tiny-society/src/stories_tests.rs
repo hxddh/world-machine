@@ -259,16 +259,22 @@ fn three_years_of_stories() {
     let (lines, caused) = legends_hold(world);
     eprintln!("{lines} legend lines, {caused} with a recorded cause");
     assert!(caused * 3 >= lines, "{caused} of {lines}");
-    // The longest legend, asked for at the end: timed.
+    // The longest legend, asked for at the end: timed. Each legend is told
+    // five times and its fastest telling counts, so a busy machine pausing
+    // the test for another process does not read as a slow legend; the
+    // slowest legend must still be told in under 20 ms.
     let slowest = subjects(world)
         .into_iter()
         .map(|subject| {
-            let started = std::time::Instant::now();
-            let legend = crate::legends::legend(world, subject);
-            (
-                started.elapsed(),
-                legend.map_or(0, |legend| legend.lines.len()),
-            )
+            let mut fastest = std::time::Duration::MAX;
+            let mut lines = 0;
+            for _ in 0..5 {
+                let started = std::time::Instant::now();
+                let legend = crate::legends::legend(world, subject);
+                fastest = fastest.min(started.elapsed());
+                lines = legend.map_or(0, |legend| legend.lines.len());
+            }
+            (fastest, lines)
         })
         .max()
         .unwrap();

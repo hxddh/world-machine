@@ -88,7 +88,11 @@ impl WorldSession for TinySocietySession {
                 let listener: &mut dyn conversation::Listener = match ears {
                     Ears::World => self.listener.as_mut(),
                     Ears::Model(response) => {
-                        answered = conversation::Answered(response);
+                        answered = conversation::Answered::new(response);
+                        &mut answered
+                    }
+                    Ears::Judged { response, judged } => {
+                        answered = conversation::Answered::judged(response, &judged);
                         &mut answered
                     }
                     Ears::Own => &mut own,
@@ -122,6 +126,19 @@ impl WorldSession for TinySocietySession {
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
         Ok(match to {
             SelectionId::Entity(who) => crate::speech::prompt(self.branch.world(), who, words),
+            _ => None,
+        })
+    }
+
+    fn voice_hearing(
+        &self,
+        to: SelectionId,
+        words: &str,
+    ) -> Result<Option<world_projection::VoiceHearing>, HostError> {
+        Ok(match to {
+            SelectionId::Entity(who) => {
+                crate::speech::voice_hearing(self.branch.world(), who, words)
+            }
             _ => None,
         })
     }

@@ -1376,6 +1376,19 @@ pub fn silhouette(pixmap: &sk::Pixmap, blur: usize) -> Option<sk::Pixmap> {
     Some(out)
 }
 
+/// A copy of a silhouette (alpha only) inked in `rgb`, 0 to 1: a shadow
+/// in the hour's own cool colour rather than black.
+pub fn inked(silhouette: &sk::Pixmap, rgb: [f32; 3]) -> sk::Pixmap {
+    let mut out = silhouette.clone();
+    for pixel in out.data_mut().as_chunks_mut::<4>().0.iter_mut() {
+        let a = pixel[3] as f32;
+        for (channel, value) in rgb.iter().enumerate() {
+            pixel[channel] = (value.clamp(0.0, 1.0) * a).round() as u8;
+        }
+    }
+    out
+}
+
 /// The windows of a mask as runs of columns: where each lit window is,
 /// from its left column to its right and its top row to its bottom.
 fn windows_of(mask: &[f32], width: usize) -> Vec<(usize, usize, usize, usize)> {

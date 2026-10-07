@@ -2,6 +2,58 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.27.0 (2026-10-07)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.26 replays event for event in both Packs, now including real v0.25 and v0.26 Worlds played through the app's own saving path.
+
+This release is the plan from the [v0.26 review](docs/REVIEW_v0.26.md), "The town answers back". What it met and missed, with numbers, is in that review's last section.
+
+- **A place that shows what you did.**
+  - Homes and works stand in named clusters along one spine (the harbour has 17, from Fisher's Row to the Point), each on its own ground of cobbles, gardens, yards or packed snow, with a worn path down to the quay. The ground between clusters is fields, hedgerows and kitchen gardens, never an empty meadow, and it is one wash with no seams.
+  - Everything stands where it belongs: piers, slipways, boathouses, the rowing club and the lifeboat station at the water's edge on decks with piles, benches, stalls and lamps on the quay, the windmill and the orchard at the edges. Tested over three years in both Packs.
+  - Something you set going stands as scaffolding on its own site from the first answer, and shows at once even while the picture is still being painted.
+  - The 20 commonest stories each leave something behind for a few days: bunting after the fete, boats racked after a storm warning, scaffolding on the pub's chimney after the fire.
+  - A row of real buildings stands on the far ridge, fading toward the sky.
+  - For a warm player the first screen changes on 11 of the first 14 days.
+- **A look with rules.** The art direction is now [a written bible](docs/ART_DIRECTION.md), and tests hold it:
+  - every drawing has a height on one ladder against a person (a postbox at most 0.8 of one, a telescope smaller than a cottage);
+  - the sky is lighter than the land, and the land than the water, by day;
+  - at most three bright marks to a screen, with your own designs kept and toned toward the place by day;
+  - everything standing has a contact shadow;
+  - lamps along the quay light at dusk, with pools of light and broken reflections on the water;
+  - rain is lighter.
+- **People stand in twos and threes, facing each other,** never more than four in a row. A click goes to the nearest person, and names show only for the person under the pointer or the one speaking.
+- **Favours you see and can do.** When someone asks a favour the camera goes to them and they say it aloud; the person it is about glows and gets a small marker, and a **Find** button opens their card. Their card has the favour as a one-click reply in your language, and the thanks show on screen at once. Asks slow down when favours lapse, and stop after three in a row until you talk to someone. An apology passed on is answered with that line alone, never with "We get on" beside it.
+- **People understand more of what you say.** On phrases written before any tuning and never tuned on, 90% are understood in English, 88% in Chinese and 86% in Japanese. "Just checking in on you" counts as looking in on someone.
+- **The first minute.** The welcome waits until the town is painted, with Leo in view and at least four people on the first screen. Then your hands open on wildflowers, which cost nothing, before anything with a price. Enter lets a day pass only from the day's own card.
+- **The demo ends at dusk.** On its last day the harbour is held at dusk with nothing over it, a resident says goodbye, and a page recaps four to six things you did there, from your World's own record, with a postcard to keep. Home says "World Machine Demo". The demo plays only Tiny Society: a World of another Pack never moves in it, and a day it cannot count is taken as its last.
+- **Words that don't repeat or show their seams.** Over three years for five kinds of player in every place:
+  - no line is said more than 7 times in the third year (it was up to 15);
+  - nothing is told more than twice in a week across cards, the return film, notes and strips;
+  - no seams such as "Yusuf and I Adeyemi", and the checker now catches them;
+  - nothing sad in the first five days.
+  - Chapter titles fit, every keepsake in the drawer is drawn as what it is, and new Worlds get distinct names.
+- **Moment strips** show their titled object or at least two named people, never a lighthouse a town doesn't have, and never come up before their panels are painted.
+- **Chinese and Japanese:** under 0.05% of lines partly untranslated in a year, Japanese quotes in 「」, no line starting with punctuation, one name rule per language, and switching language redraws an open World at once.
+- **The drawer's inspector** is behind Settings › Display › For World makers.
+- **The World voice, version 2.**
+  - The judge now answers a checklist (every name, and whether the answer speaks as a machine, as an assistant, urges harm, gives instructions, talks about a game, the outside world or another time, isn't speech or is in the wrong language), and the app decides from it. It can no longer keep an answer the checks found harmful, about the real world or full of instruction words.
+  - New Japanese rules, built from new development data, and a check for invented katakana names. A model naming itself or giving an assistant's refusal is always declined.
+  - The model and its judge share one budget inside the window's 12-second deadline. The judge is not asked when the answer will be declined anyway, and a request past its time is stopped.
+  - The app builds every prompt itself from what the World tells it, never sends a Pack's own prompt with your key, never hands a model's raw text to a Pack, and declines replies with hidden characters.
+  - **On a fifth red-team set** of 2,806 lines written blind in English, Chinese and Japanese, with the judge 91.0% of out-of-world answers are declined and 1.6% of good answers wrongly declined: per language 93.2% / 89.0% / 90.9% and 0.2% / 2.1% / 2.5% (en / zh / ja). The bar was 95% and 1% in each language, so it is not met. Without a judge the rules decline 59.4%, against a bar of 75%. See [KNOWN_ISSUES](docs/KNOWN_ISSUES.md) for how these were measured, and what the earlier numbers for the fourth set may not show.
+  - The third and fourth sets are now tests: a release may not do worse on them than v0.26 did.
+- **Saving you can trust.**
+  - One app writes a World at a time: a lock beside its file keeps a second window, the demo or the full app from playing it too.
+  - Renaming or exporting an open World from Home goes through its window, and removing one asks you to close it first. Opening an open World brings its window forward.
+  - When a World cannot be saved on close, it asks: Save As…, Close Without Saving or Keep Open. Quit asks the same if any World could not be saved.
+  - Temporary files have names of their own, so two saves never share one.
+- **Ares has comings of age:** cadets now arrive at 16 and grow up in the colony.
+- **In Pocket Universe, a finished work always stands.** On a full Maple Street the third year's skate park went off the scene; it now stands in the nearest other row. At most a third of a town goes home at five, so no town empties early by chance.
+- **No newcomer is called "A stranger".** In a Pocket Universe place with many years of comings and goings, a stranger at the door could be promised a name that a newcomer of the place's own then took, and came in as "A stranger". A stranger now never takes a name anyone in the World has had, the place's own newcomers never take a waiting stranger's name, and nobody comes to the door once the names have run out.
+- Faster test runs: the replay goldens stream their digests instead of formatting about 2.7 GB of text, and one language walk checks every language.
+- `cargo-deny` checks the dependencies in CI.
+
 ## v0.26.1 (2026-10-01)
 
 - **Save As no longer stops a World being saved.** After **Save As…**, the turns played next were kept only in memory and lost when the window closed. They are now written to the new file like any other. A test plays turns after Save As and reads them back from the file.

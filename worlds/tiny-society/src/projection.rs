@@ -495,6 +495,13 @@ pub(crate) fn briefing_from(
             // every one of its beats and the storyteller's that fill the
             // room left are found, nothing older would be kept.
             let own_total = own.as_ref().map(Vec::len);
+            // The storylets whose questions were settled in this stretch.
+            let settled = relevant_events
+                .iter()
+                .filter(|event| event.kind != "situation_arose")
+                .map(storylet_of)
+                .filter(|storylet| storylet.is_some())
+                .collect::<std::collections::BTreeSet<_>>();
             let (mut own_beats, mut everyday_beats) = (0, 0);
             for event in relevant_events.iter().rev() {
                 if own_beats >= BEATS_PER_BRIEFING
@@ -503,6 +510,17 @@ pub(crate) fn briefing_from(
                     })
                 {
                     break;
+                }
+                // A question still waiting for the player is asked when
+                // they are back, and one already settled is told by how it
+                // went: the film does not tell either as it came up.
+                if since_event_count.is_some()
+                    && (still_asking(world, event)
+                        || (event.kind == "situation_arose"
+                            && settled.contains(&storylet_of(event)))
+                        || own_work_going_on(event))
+                {
+                    continue;
                 }
                 let Some(title) = narrated_title(world, event) else {
                     continue;
@@ -551,7 +569,7 @@ pub(crate) fn briefing_from(
 
     // Newest first is how you pick which beats to keep; oldest first is how
     // you read them. Left newest-first, a window reported "Harbour Bakery
-    // closed its doors" above "The bakery could not cover payroll" — the
+    // closed its doors" above "The bakery couldn't find this week's wages" — the
     // consequence before its cause, which is a log. Turned around it is the
     // sentence the World actually wrote: the payroll failed, so the bakery
     // shut, so the school's income went with it.
@@ -570,6 +588,14 @@ pub(crate) fn briefing_from(
         .find(|event| matches!(event.kind.as_str(), "keepsake_left" | "letter_written"))
     {
         if let Some(title) = lives::told(left) {
+            // What the note tells is not told again beside it.
+            let note = lives::said(left)
+                .map(|(_, note)| note.to_lowercase())
+                .unwrap_or_default();
+            items.retain(|item| {
+                let told = item.title.trim_end_matches('.').to_lowercase();
+                told.len() < 12 || !note.contains(&told)
+            });
             // In its place in time, so nothing reads before its cause.
             let when = |item: &BriefingItem| match item.selection {
                 Some(SelectionId::Event(id)) => world.event(id).map(|event| event.world_time),
@@ -662,6 +688,33 @@ pub(crate) fn briefing_from(
     }
 }
 
+/// The storylet an Event belongs to, if any.
+fn storylet_of(event: &Event) -> Option<&str> {
+    match event.payload.get("storylet") {
+        Some(Value::Text(id)) => Some(id.as_str()),
+        _ => None,
+    }
+}
+
+/// Whether `event` is the harbour getting on with one of its own works by
+/// itself: told by the scaffolding on the scene, and by the card when the
+/// next part is asked, not by the film.
+fn own_work_going_on(event: &Event) -> bool {
+    storylet_of(event).is_some_and(|storylet| storylet.starts_with("own_"))
+        && (event.kind.ends_with("_by_hand") || event.kind.ends_with("_went_on"))
+}
+
+/// Whether `event` raised a question the player has not answered yet.
+fn still_asking(world: &World, event: &Event) -> bool {
+    event.kind == "situation_arose"
+        && match event.payload.get("storylet") {
+            Some(Value::Text(id)) => {
+                storylets::opened_at(world.state(), crate::story::deck(), id).is_some()
+            }
+            _ => false,
+        }
+}
+
 /// This World's own words for an Event, or `None` when the Event is part of
 /// the background hum. One table, used both to write the beats and to count
 /// how many were left out, so the two can never disagree.
@@ -682,7 +735,7 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
             .map(entity_title);
         return Some(match worker {
             Some(name) => format!("The bakery could not pay {name}"),
-            None => "The bakery could not cover payroll".to_string(),
+            None => "The bakery couldn't find this week's wages".to_string(),
         });
     }
     Some(String::from(match event.kind.as_str() {
@@ -694,16 +747,18 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
         "bakery_closed" => "Harbour Bakery closed its doors",
         "bread_budget_cut" if event.actor == Some(LEO) => "Leo started protecting his savings",
         "bread_budget_cut" if event.actor == Some(EMMA) => "Emma started protecting her savings",
-        "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
-        "income_disrupted" if event.actor == Some(EMMA) => "Emma's School income was disrupted",
+        "income_disrupted" if event.actor == Some(LEO) => "Leo's takings at the pub took a knock",
+        "income_disrupted" if event.actor == Some(EMMA) => {
+            "Emma's pay from the school took a knock"
+        }
         "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
-            "Anchor Pub exhausted its payroll reserve"
+            "The Anchor's wage tin ran dry"
         }
         "payroll_reserve_exhausted" if event.targets.contains(&SCHOOL) => {
-            "Island School exhausted its payroll reserve"
+            "The school's wage tin ran dry"
         }
-        "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
-        "payroll_shortfall" => "The bakery could not cover payroll",
+        "payroll_reserve_exhausted" => "A wage tin in the harbour ran dry",
+        "payroll_shortfall" => "The bakery couldn't find this week's wages",
         "backing_withdrawn" => "Leo put his backing elsewhere",
         "work_sought" => "Jonas asked Mara for work",
         "jonas_taken_on" if crate::drift::was_drifted(event) => {
@@ -725,7 +780,7 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
         "order_lost" => "The bakery lost the wedding order",
         "temporary_work_assigned" => "Jonas took temporary work at the bakery",
         "loan_requested" => "Jonas asked Leo for a loan",
-        "storm_started" => "A storm reached the harbor",
+        "storm_started" => "A storm reached the harbour",
         "counter_help_hired" => "Mara took Mia on at the bakery counter",
         _ => return None,
     }))
@@ -1454,7 +1509,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "Emma's School income was disrupted"));
+            .any(|item| item.title == "Emma's pay from the school took a knock"));
     }
 
     #[test]

@@ -58,6 +58,12 @@ pub trait PlayerWorld {
     /// Of the deeds of the player's hands on offer (`hands`), the one to
     /// do: something not yet made, else the first.
     fn deed(&self, snapshot: &ProjectionSnapshot, hands: &[&ProjectionCommand]) -> Option<String>;
+    /// The film a player would be shown returning now, having last seen
+    /// the World when it had `since_events` Events; `None` if the World
+    /// has no film.
+    fn returned(&self, _since_events: usize) -> Option<world_projection::BriefingProjection> {
+        None
+    }
 }
 
 /// What a player's three years brought.
@@ -76,7 +82,29 @@ pub struct Played {
 }
 
 /// Plays `world` for `days` days as `player`.
-pub fn play(label: String, player: Player, days: usize, mut world: impl PlayerWorld) -> Played {
+pub fn play(label: String, player: Player, days: usize, world: impl PlayerWorld) -> Played {
+    play_watched(label, player, days, world, |_, _, _| {})
+}
+
+/// What a watcher is shown of each day a player plays: the day (from 1),
+/// the World as the day began (before the player's answers), and the World
+/// once the day has passed.
+pub struct Day<'a> {
+    pub day: usize,
+    pub began: &'a ProjectionSnapshot,
+    /// How many Events the World had as the day began.
+    pub events_before: usize,
+}
+
+/// Plays as [`play`] does, showing `watch` each day as it passes: its
+/// snapshot as it began, the World after, and the snapshot after.
+pub fn play_watched<W: PlayerWorld>(
+    label: String,
+    player: Player,
+    days: usize,
+    mut world: W,
+    mut watch: impl FnMut(Day<'_>, &W, &ProjectionSnapshot),
+) -> Played {
     let mut played = Played {
         label,
         player,
@@ -103,6 +131,7 @@ pub fn play(label: String, player: Player, days: usize, mut world: impl PlayerWo
             played.plots_opened.entry(plot).or_insert(day);
         }
         let snapshot = before;
+        let events_before = world.world().events().len();
         let pass = world.pass_command().to_string();
         let questions = snapshot
             .commands
@@ -156,6 +185,15 @@ pub fn play(label: String, player: Player, days: usize, mut world: impl PlayerWo
         }
         world.invoke(&pass);
         let after = world.snapshot();
+        watch(
+            Day {
+                day,
+                began: &snapshot,
+                events_before,
+            },
+            &world,
+            &after,
+        );
         let (found_new, kept) = news(&after);
         let kept_before =
             snapshot.keepsakes.len() + snapshot.letters.len() + snapshot.chapters.len();

@@ -49,6 +49,8 @@ mod story;
 mod talk;
 mod town;
 mod voices;
+#[cfg(test)]
+mod words_tests;
 mod years;
 
 use std::error::Error;
@@ -299,9 +301,20 @@ impl TinySocietyBranch {
     /// `since`.
     pub fn leave_keepsake(&mut self, since: VisitCursor) -> Result<Vec<EventId>, Box<dyn Error>> {
         let start = since.event_count.min(self.world.events().len());
+        // The film of the return tells its beats; the note tells something
+        // it has not, so nothing is told twice in a row.
+        let filmed = projection::briefing_from(&self.world, Some(start), true)
+            .items
+            .into_iter()
+            .filter_map(|item| match item.selection {
+                Some(world_projection::SelectionId::Event(id)) => Some(id),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
         let why = self.world.events()[start..]
             .iter()
             .rev()
+            .filter(|event| !filmed.contains(&event.id))
             .filter(|event| {
                 lives::is_news(event) || event.kind == "festival_held" || story::is_storylet(event)
             })

@@ -320,6 +320,7 @@ That's enough for today	今天就到这吧
 There isn't {cost} in {}	{}里没有{cost}
 There's no more room	没有更多空间了
 You built a {} by {at_name}	你在{at_name}旁建了一个{}
+You built an {} by {at_name}	你在{at_name}旁建了一个{}
 You put up {} at {at_name}	你在{at_name}摆上了{}
 You planted {} by {at_name}	你在{at_name}旁种下了{}
 move what?	移动什么？
@@ -729,6 +730,7 @@ Worn out.	精疲力尽。
 I could sleep a week.	我能睡上一整周。
 Tired to the bone.	累到骨子里了。
 A bit lonely, if I'm honest.	说实话，有点孤单。
+I'd like a bit more company, if I'm honest.	说实话，我想多个人陪陪。
 Too quiet, some days.	有些日子太安静了。
 I could do with some company.	有人陪陪就好了。
 Restless.	心神不宁。
@@ -1773,6 +1775,19 @@ I still think about it.	我还常常想起。
 We've come a long way.	我们走了很远的路。
 {name} remembered a year ago today	{name}想起了一年前的今天
 Something for the turn of the season.	换季了，给你带点东西。
+A new season, and this made me think of you.	新的季节到了，看到这个就想起了你。
+The season's turning. I wanted you to have this.	季节在变，我想把这个送给你。
+For the season ahead. May it be a kind one.	为即将到来的季节，愿它对你温柔些。
+Saw this and thought of you. Happy new season.	看到这个就想到你了。新季节快乐。
+Every season deserves a small gift. Here's yours.	每个季节都该有份小礼物，这是你的。
+The days are changing. This one's for you.	日子在变了，这个送你。
+Kept this back for the season's first day.	这个我特意留到了新季节的第一天。
+To mark the turn of the season, from me to you.	为了纪念换季，送你的。
+Here's to the season coming in.	敬即将到来的新季节。
+A little something, now the season's changed.	季节换了，送你点小东西。
+New season, same you. Thought you'd like this.	季节变了，你还是你。我想你会喜欢这个。
+For the start of a fresh season.	为新季节的开始。
+It felt like a day for giving. Happy new season.	今天就是适合送礼的日子。新季节快乐。
 Left for you as a season turns	换季时留给你的
 Comes on a quiet day	在平静的日子里到来
 Letters	信件
@@ -2122,5 +2137,19 @@ Have a word with {x}.	去和{x}聊几句吧。
 Ask {x} to come out with you.	约{x}和你一起出去吧。
 Say something kind to {x}.	对{x}说句暖心的话吧。
 Tell {x} what {y} said.	把{y}的话转告{x}吧。
+{y} said that? Well. I've carried it long enough. Tell {y} it's forgotten.	{y}真这么说了？唉，这事我也放不下好久了。告诉{y}，都过去了。
+I was just looking in on you. How are you doing?	我就是来看看你。最近好吗？
+Would you come out for a walk with me?	愿意跟我一起出去散散步吗？
+You're doing a great job, you know. I mean it.	你真的做得很好，我是认真的。
+{y} says sorry, and means it.	{y}说对不起，是真心的。
 {y} asked you a favour	{y}请你帮个忙
 You did {y} a favour	你帮了{y}一个忙
+# Said of oneself (v0.27).
+@I	我
+, and we had words	，我们吵了一架
+An {trade} called {b} came in on {way_out}.	一位叫{b}的{trade}乘{way_out}来了。
+Forget I said anything.	就当我什么都没说。
+Another day, maybe. It'll keep.	改天吧，也不急。
+It's fine. I'll tell you sometime.	没事，哪天再跟你说。
+Oh, it doesn't matter now.	哦，现在已经无所谓了。
+I'll save it for a quieter day.	等哪天清静了再说吧。

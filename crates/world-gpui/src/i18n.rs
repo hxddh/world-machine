@@ -122,6 +122,8 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     if let Some(favour) = &mut snapshot.favour {
         put(&mut favour.note);
         put(&mut favour.hint);
+        put(&mut favour.reply);
+        put(&mut favour.thanks);
     }
     for entry in &mut snapshot.book {
         put(&mut entry.shelf);
@@ -264,6 +266,19 @@ pub fn is_chinese() -> bool {
 /// Whether the app is shown in Japanese now.
 pub fn is_japanese() -> bool {
     japanese()
+}
+
+/// Someone's words in quotation marks, as the language writes them:
+/// “like this”, and in Japanese 「このように」, with 『』 for a quotation
+/// inside one.
+pub fn quoted(words: &str) -> String {
+    let words = words.trim();
+    if japanese() {
+        let inner = words.replace('「', "『").replace('」', "』");
+        format!("「{inner}」")
+    } else {
+        format!("“{words}”")
+    }
 }
 
 /// "Year 2", 第 2 年, 2年目.

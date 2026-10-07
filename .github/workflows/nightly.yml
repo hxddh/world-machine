@@ -46,6 +46,10 @@ env:
   #   show_sixty_periods, show_sixty_days, show_stories, probe_parts, measure_a_year
   #                                          both Packs: print for a review, assert nothing
   #   time_a_year_old_world                  pocket-universe: prints timings, asserts nothing
+  #   judge_prompts_are_written              both Packs: writes the judge's prompts for a person
+  #                                          to answer (WORLD_MACHINE_JUDGE_DIR); panics without it
+  #   judged_metrics                         testkit: reads those answers back and prints the
+  #                                          numbers (WORLD_MACHINE_JUDGE_DIR); panics without it
   TOOLS: >-
     --skip write_people_sheet
     --skip write_person_sheet
@@ -64,6 +68,8 @@ env:
     --skip probe_parts
     --skip measure_a_year
     --skip time_a_year_old_world
+    --skip judge_prompts_are_written
+    --skip judged_metrics
   # Wall-clock budgets run in their own job below, so a slow shared runner
   # shows up as a timing failure and never hides whether the long bars held.
   TIMING: >-
@@ -71,6 +77,8 @@ env:
     --skip a_three_year_world_paints_within_its_frame_budget
     --skip a_three_year_snapshot_takes_under_fifteen_milliseconds
     --skip a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds
+    --skip a_three_year_first_look_after_a_day_takes_under_twenty_milliseconds
+    --skip a_three_year_world_holds_at_most_a_hundred_megabytes_after_twenty_days
 
 jobs:
   long-bars:
@@ -132,6 +140,19 @@ jobs:
         run: >-
           cargo test --release --locked -p world-library --test three_years --
           --ignored --test-threads=1 a_three_year_snapshot_takes_under_fifteen_milliseconds
+      # The first-look (20 ms) and memory (100 MB) bars of v0.27 are measured
+      # but not yet met (see docs/KNOWN_ISSUES.md), so they report without
+      # failing the night, as the turn bar below does.
+      - name: The first look at a three-year World after a day takes under 20 ms (measured)
+        continue-on-error: true
+        run: >-
+          cargo test --release --locked -p tiny-society --test first_look --
+          --ignored --test-threads=1 a_three_year_first_look_after_a_day_takes_under_twenty_milliseconds
+      - name: A three-year World holds at most 100 MB after 20 days (measured)
+        continue-on-error: true
+        run: >-
+          cargo test --release --locked -p world-library --test three_years --
+          --ignored --test-threads=1 a_three_year_world_holds_at_most_a_hundred_megabytes_after_twenty_days
       # The 35 ms turn bar is measured but not yet met on shared runners
       # (see docs/KNOWN_ISSUES.md), so it reports without failing the night.
       - name: A three-year turn with its save (measured)

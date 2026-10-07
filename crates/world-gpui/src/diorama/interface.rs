@@ -101,6 +101,27 @@ pub(super) struct LayerPlan {
     pub(super) ahead: Vec<Drawn>,
     /// Whether any version of the layer is shown yet, or fading in.
     pub(super) shown: bool,
+    /// Buildings (by item index) the version settled on does not hold yet:
+    /// just built, and drawn live until their picture is painted, so a
+    /// build shows at once however slow the painting (scene's, A1).
+    pub(super) live: Vec<usize>,
+}
+
+/// What stands in each version of the buildings layer, by its key: each
+/// building's place and shape, for telling which a version shown still
+/// lacks.
+fn standing(frame: &Frame) -> BTreeSet<(i32, u8)> {
+    frame
+        .buildings
+        .iter()
+        .filter(|building| !building.moving())
+        .map(|building| (building.x.round() as i32, building.shape as u8))
+        .collect()
+}
+
+thread_local! {
+    static STANDING: std::cell::RefCell<std::collections::HashMap<u64, BTreeSet<(i32, u8)>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 /// How long a new version of a still layer takes to fade in.
@@ -128,7 +149,10 @@ pub(super) fn versions(
         .float(band.above)
         .float(band.below)
         .float(dpr)
-        .float(frame.building_h);
+        .float(frame.building_h)
+        .float(frame.view_w)
+        // The back row is the setting's own drawings.
+        .add(frame.setting as u8);
     for mark in &frame.marks {
         hills
             .add((mark.shape as u8, mark.grow >= 1.0))
@@ -490,9 +514,46 @@ pub(super) fn plan(
                 }
             }
             let arrived = shown.is_some() || !arriving.is_empty();
+            // A building the version on show lacks is drawn live meanwhile.
+            let live = match (layer, shown) {
+                (Still::Buildings, Some(version)) if version.key != wanted.key => {
+                    STANDING.with(|standing_in| {
+                        let mut standing_in = standing_in.borrow_mut();
+                        if standing_in.len() > 64 {
+                            standing_in.retain(|key, _| *key == version.key);
+                        }
+                        standing_in
+                            .entry(wanted.key)
+                            .or_insert_with(|| standing(frame));
+                        let Some(old) = standing_in.get(&version.key) else {
+                            return Vec::new();
+                        };
+                        frame
+                            .buildings
+                            .iter()
+                            .filter(|building| !building.moving())
+                            .filter(|building| {
+                                !old.contains(&(building.x.round() as i32, building.shape as u8))
+                            })
+                            .map(|building| building.index)
+                            .collect()
+                    })
+                }
+                (Still::Buildings, _) => {
+                    STANDING.with(|standing_in| {
+                        standing_in
+                            .borrow_mut()
+                            .entry(wanted.key)
+                            .or_insert_with(|| standing(frame));
+                    });
+                    Vec::new()
+                }
+                _ => Vec::new(),
+            };
             (
                 layer,
                 LayerPlan {
+                    live,
                     settled,
                     arriving,
                     fade: ease(fade),
@@ -561,12 +622,22 @@ pub(super) fn rows_of(frame: &Frame) -> Option<Vec<(Frame, (f32, f32))>> {
                 let margin = frame.view_w * 0.3;
                 let mut part = frame.clone();
                 part.camera = camera;
+                // Every row but the furthest runs on from the one behind.
+                part.blend_top = row + 1 < fold.rows;
                 part.buildings
                     .retain(|building| building.x > from - margin && building.x < to + margin);
                 part.things
                     .retain(|thing| thing.x > from - margin && thing.x < to + margin);
                 part.people
                     .retain(|person| fold.row_of(person.along) == row);
+                // A row behind shows its town, not its water's edge, which
+                // the row in front of it covers: what stands on the water
+                // there would stand on that row's field.
+                if row > 0 {
+                    let water = frame.front - 1.0;
+                    part.buildings.retain(|building| building.base < water);
+                    part.things.retain(|thing| thing.base < water);
+                }
                 // Too small to read on a postcard: the stakes and the bonds.
                 part.plots.clear();
                 part.bonds.clear();
@@ -688,6 +759,22 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
                 (1 + row as u32, &ALL[2..]),
             )
         });
+        // What was just built and is not painted yet is drawn live.
+        let live = layers
+            .iter()
+            .flat_map(|(_, plan)| plan.live.iter().copied())
+            .collect::<BTreeSet<_>>();
+        let part = if live.is_empty() {
+            part
+        } else {
+            let mut drawn = (*part).clone();
+            for building in &mut drawn.buildings {
+                if live.contains(&building.index) {
+                    building.grow = building.grow.min(0.9999);
+                }
+            }
+            std::sync::Arc::new(drawn)
+        };
         planned.push((part, Some(span), layers));
     }
     // Until every still layer has arrived the first time, the place is a
@@ -874,6 +961,24 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     ))
 }
 
+/// Whether the scene in `window` has been painted: every still layer has
+/// arrived at least once. Until then nothing is labelled and nobody
+/// speaks over it (the art bible's §6): a name over an empty meadow, or a
+/// welcome said to fog, is a defect.
+pub fn painted(window: &Window) -> bool {
+    painter::synchronous() || PAINTED.with(|seen| seen.borrow().contains_key(&window_id(window)))
+}
+
+fn window_id(window: &Window) -> u64 {
+    window.window_handle().window_id().as_u64()
+}
+
+thread_local! {
+    /// When each window's scene was first all painted.
+    static PAINTED: std::cell::RefCell<std::collections::HashMap<u64, std::time::Instant>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// How long the loading wash takes to fade into the real paint.
 pub(super) const WASH_FADE: f32 = 0.4;
 
@@ -883,13 +988,8 @@ pub(super) const WASH_FADE: f32 = 0.4;
 /// everything is held still. A window washes only as it opens: once its
 /// place has been seen, a resize or a new hour never washes it again.
 fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    thread_local! {
-        static SEEN: RefCell<HashMap<u64, std::time::Instant>> = RefCell::new(HashMap::new());
-    }
-    let id = window.window_handle().window_id().as_u64();
-    SEEN.with(|seen| {
+    let id = window_id(window);
+    PAINTED.with(|seen| {
         let mut seen = seen.borrow_mut();
         let now = std::time::Instant::now();
         let since = match seen.get(&id) {

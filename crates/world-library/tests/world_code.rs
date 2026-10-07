@@ -307,7 +307,11 @@ fn an_old_world_file_still_opens_and_is_saved_anew() {
         saved.archive.events[..original.events.len()],
         original.events[..]
     );
+    // Opened again once this World is closed (one session per file).
+    let current = opened.current_archive().unwrap();
+    drop(opened);
     let again = DurableWorldSession::open_file(old, &registry).unwrap();
     assert_eq!(again.snapshot(), after);
+    assert_eq!(again.current_archive().unwrap(), current);
     fs::remove_dir_all(root).unwrap();
 }
