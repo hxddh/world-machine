@@ -2,16 +2,25 @@
 //! event for event, read back through their files unchanged, and play on.
 //!
 //! The fixtures were written on each release's own tree, in a scratch
-//! worktree, by that release's fixture writer (`v022_worlds.rs` for v0.20
-//! to v0.22: a warm player's first ninety periods; `v023_worlds.rs` for
-//! v0.23 and v0.24: a builder's first 120 periods). v0.20 and v0.21 record
-//! the same events for that player, so their files are the same. They must
-//! never be rewritten.
+//! worktree, by a fixture writer run there:
+//! - v0.20 and v0.22: `v022_worlds.rs`, a warm player's first ninety
+//!   periods;
+//! - v0.21: a "last" player's first 120 periods (the last answer each
+//!   period, something made by hand every other one), written as v0.21's
+//!   `WorldDocument` writes a file (v0.27; v0.21's first fixtures were the
+//!   warm player's, the same files as v0.20's byte for byte);
+//! - v0.23 and v0.24: `v023_worlds.rs`, a builder's first 120 periods;
+//! - v0.25 and v0.26 (v0.26.1): the same builder played the app's way, a
+//!   Library World made by `DurableWorldSession::create` and changed by
+//!   `handle`, so each file is exactly what that release's app wrote.
+//!
+//! No two are the same file ([`no_two_fixtures_are_the_same_file`]). They
+//! must never be rewritten.
 
 use pocket_universe::{PocketUniverse, NUDGE_COMMAND, POCKET_UNIVERSE_PACK_VERSION};
 use world_document::WorldDocument;
 
-const RELEASES: [&str; 5] = ["v020", "v021", "v022", "v023", "v024"];
+const RELEASES: [&str; 7] = ["v020", "v021", "v022", "v023", "v024", "v025", "v026"];
 const PLACES: [&str; 3] = ["mars", "maple", "ice"];
 
 fn fixture(release: &str, place: &str) -> Vec<u8> {
@@ -55,4 +64,14 @@ fn every_place_from_every_release_opens_replays_and_plays_on() {
             );
         }
     }
+}
+
+/// Every release's fixtures are Worlds of their own: no two files are the
+/// same (v0.20's and v0.21's were, until v0.27).
+#[test]
+fn no_two_fixtures_are_the_same_file() {
+    world_pack_testkit::replay::assert_fixtures_differ(std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures"
+    )));
 }

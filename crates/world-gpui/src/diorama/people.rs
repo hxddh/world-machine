@@ -66,6 +66,14 @@ pub(super) fn idle(seed: u32, seconds: f32, daylight: Daylight) -> Option<Stance
     Some(choices[(turn as usize) % choices.len()])
 }
 
+/// Someone in a group, `seconds` in: taking a turn to talk, on a cycle
+/// of their own, and otherwise listening.
+pub(super) fn talk(seed: u32, seconds: f32) -> Option<Stance> {
+    let period = 7.0 + (seed % 5) as f32;
+    let phase = ((seconds + (seed % 613) as f32 * 0.41) % period) / period;
+    (phase < 0.4).then_some(Stance::Talking)
+}
+
 /// Everyone clicked on in the last [`WAVE_SECONDS`] waves and hops, from
 /// how long ago each was clicked: a crouch, a stretched hop, a squashed
 /// landing that springs back. `still` (Reduce Motion) keeps the wave and
@@ -104,6 +112,173 @@ pub fn wave(
             life.pose.squash = 1.0 - 0.12 * settle(ago - crouch - air);
         }
     }
+}
+
+/// How close two people stand, in figure heights, to be together: a
+/// pair or a group talking.
+pub(super) const TOGETHER: f32 = 0.9;
+
+/// How far apart, in figure heights, the nearest members of two groups
+/// stand, centre to centre: a body's width and 0.8 P of open quay more.
+pub(super) const GROUP_GAP: f32 = 1.6;
+
+/// The most people a group has: more and they are a queue.
+#[cfg(test)]
+pub(super) const GROUP_MOST: usize = 3;
+
+/// Gathers the people standing along the quay into groups of two and
+/// three facing each other, rather than rows (the art bible's §6): each
+/// run of people standing shoulder to shoulder is split into twos and
+/// threes, a pair close and side by side, a three as a little ring with
+/// the middle one a step further back, and a stride between groups. Each
+/// run stays centred where it stood, in its own lane. Nobody is moved
+/// who stands alone.
+pub(super) fn gather(people: &mut [Spot], figure_h: f32, quay: f32, blocked: &[(f32, f32)]) {
+    let lane_of = |spot: &Spot| (spot.y - quay > figure_h * 0.3) as u8;
+    let mut order = (0..people.len()).collect::<Vec<_>>();
+    order.sort_by(|a, b| {
+        lane_of(&people[*a])
+            .cmp(&lane_of(&people[*b]))
+            .then(people[*a].x.total_cmp(&people[*b].x))
+            .then(people[*a].index.cmp(&people[*b].index))
+    });
+    // Runs: neighbours in a lane closer than a stride.
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    for position in order {
+        let spot = people[position];
+        match runs.last_mut() {
+            Some(run)
+                if {
+                    let last = &people[*run.last().expect("a run is never empty")];
+                    lane_of(last) == lane_of(&spot) && spot.x - last.x < figure_h * GROUP_GAP
+                } =>
+            {
+                run.push(position)
+            }
+            _ => runs.push(vec![position]),
+        }
+    }
+    // Shoulder to shoulder in a group, a clear gap between groups (at
+    // least 0.8 P of open quay between the nearest shoulders), and each
+    // group a step nearer or further than the last, so two groups never
+    // read as one line.
+    let (near, between) = (figure_h * 0.64, figure_h * GROUP_GAP);
+    let room = figure_h * 0.5;
+    for run in runs.into_iter().filter(|run| run.len() > 1) {
+        let sizes = group_sizes(run.len());
+        let width_of = |size: usize| near * (size - 1) as f32;
+        let total = sizes.iter().map(|size| width_of(*size)).sum::<f32>()
+            + between * (sizes.len() - 1) as f32;
+        let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
+        let line = run.iter().map(|at| people[*at].y).sum::<f32>() / run.len() as f32;
+        // Where each member would stand, from the run's left edge.
+        let mut places = Vec::with_capacity(run.len());
+        let mut left = 0.0;
+        for (group, size) in sizes.iter().enumerate() {
+            let step = [0.0, -0.24, 0.12][group % 3] * figure_h;
+            for nth in 0..*size {
+                let back = step
+                    + if *size == 3 && nth == 1 {
+                        figure_h * 0.22
+                    } else {
+                        0.0
+                    };
+                places.push((left + near * nth as f32, back));
+            }
+            left += width_of(*size) + between;
+        }
+        // Centred where the run stood, or nudged a little either way to
+        // stand clear of what is on the quay; with no room, as they were.
+        let front_lane = line - quay > figure_h * 0.3;
+        let clear = |shift: f32| {
+            front_lane
+                || places.iter().all(|(x, _)| {
+                    let x = shift + x;
+                    blocked
+                        .iter()
+                        .all(|(l, r)| x + room / 2.0 <= *l || x - room / 2.0 >= *r)
+                })
+        };
+        let home = centre - total / 2.0;
+        let nudge = figure_h * 0.2;
+        let Some(start) = (0..=16)
+            .flat_map(|step| [step, -step])
+            .map(|step| home + step as f32 * nudge)
+            .find(|shift| clear(*shift))
+        else {
+            // No room to spread out: where they stand, but every other
+            // group a clear step further back, so it is not one queue.
+            let mut at = 0;
+            for (group, size) in sizes.iter().enumerate() {
+                for _ in 0..*size {
+                    let spot = &mut people[run[at]];
+                    if group % 2 == 1 {
+                        spot.y = line - figure_h * 0.4;
+                        spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+                    }
+                    at += 1;
+                }
+            }
+            continue;
+        };
+        for (at, (x, back)) in run.into_iter().zip(places) {
+            let spot = &mut people[at];
+            let seed = spot.index as f32 * 0.37;
+            spot.x = start + x;
+            spot.y = line - back + seed.sin() * figure_h * 0.02;
+            spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+        }
+    }
+}
+
+/// How a run of `n` people splits into groups of two and three.
+pub(super) fn group_sizes(n: usize) -> Vec<usize> {
+    match n {
+        0 => Vec::new(),
+        1 => vec![1],
+        2 => vec![2],
+        3 => vec![3],
+        4 => vec![2, 2],
+        n if n % 3 == 1 => {
+            let mut sizes = vec![3; (n - 4) / 3];
+            sizes.extend([2, 2]);
+            sizes
+        }
+        n if n % 3 == 2 => {
+            let mut sizes = vec![3; (n - 2) / 3];
+            sizes.push(2);
+            sizes
+        }
+        n => vec![3; n / 3],
+    }
+}
+
+/// The groups among the people standing on the stage: for each person
+/// (by position in `people`), where the middle of their group is, if they
+/// stand with anyone.
+pub(super) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> {
+    let mut order = (0..people.len()).collect::<Vec<_>>();
+    order.sort_by(|a, b| people[*a].x.total_cmp(&people[*b].x));
+    let mut centres = vec![None; people.len()];
+    let mut start = 0;
+    while start < order.len() {
+        let mut end = start + 1;
+        while end < order.len()
+            && people[order[end]].x - people[order[end - 1]].x < figure_h * TOGETHER
+            && (people[order[end]].y - people[order[end - 1]].y).abs() < figure_h * 0.3
+        {
+            end += 1;
+        }
+        if end - start > 1 {
+            let group = &order[start..end];
+            let centre = group.iter().map(|at| people[*at].x).sum::<f32>() / group.len() as f32;
+            for at in group {
+                centres[*at] = Some(centre);
+            }
+        }
+        start = end;
+    }
+    centres
 }
 
 /// Where each person is this frame, `seconds` into looking at the World.
@@ -160,10 +335,12 @@ pub fn living(
         },
         ..life
     };
+    let centres = group_centres(&stage.people, figure_h);
     stage
         .people
         .iter()
-        .map(|spot| {
+        .zip(centres)
+        .map(|(spot, centre)| {
             let item = &items[spot.index];
             let key = item.id.stable_key();
             let seed = art::seed_of(&key);
@@ -196,23 +373,44 @@ pub fn living(
                     return walk(*from, home, *since, length, pace);
                 }
             }
+            // Someone standing with others faces into their group, and
+            // now and then glances away; alone, they look about.
+            let looking = ((seconds * 0.11 + (seed % 7) as f32).sin() * 1.4).clamp(-1.0, 1.0);
+            let facing = match centre {
+                Some(centre) if (centre - home).abs() > 1.0 => {
+                    let glance = ((seconds * 0.07 + (seed % 11) as f32).sin() > 0.93) as u8;
+                    (centre - home).signum() * if glance == 1 { -0.4 } else { 1.0 }
+                }
+                // The middle of a ring faces out, toward the viewer.
+                Some(_) => looking * 0.3,
+                None => looking,
+            };
             let still = Living {
-                x: home + (seconds * 0.23 + seed as f32).sin() * 3.0,
+                x: home
+                    + (seconds * 0.23 + seed as f32).sin()
+                        * if centre.is_some() { 1.0 } else { 3.0 },
                 pose: Pose {
                     stride: None,
                     bob: breathe * 0.6,
-                    facing: ((seconds * 0.11 + (seed % 7) as f32).sin() * 1.4).clamp(-1.0, 1.0),
+                    facing,
                     // Breathing: a touch taller on the breath in.
                     squash: 1.0 + 0.008 * breathe,
                     lean: 0.0,
                 },
                 stance: if pinned.contains(&item.id) {
                     None
+                } else if centre.is_some() {
+                    talk(seed, seconds).or_else(|| idle(seed, seconds, daylight))
                 } else {
                     idle(seed, seconds, daylight)
                 },
             };
-            if pinned.contains(&item.id) || daylight == Daylight::Night || stops.len() < 2 {
+            // Nobody wanders off from the people they are talking with.
+            if pinned.contains(&item.id)
+                || centre.is_some()
+                || daylight == Daylight::Night
+                || stops.len() < 2
+            {
                 return still;
             }
             // A visit: out to another place, a while there, and home.
@@ -350,7 +548,10 @@ pub(super) fn paint_live(
         let sx = frame.at(x, 0.0).0;
         sx + reach >= 0.0 && sx - reach <= width
     };
-    let contact = gpui::black().opacity(if night { 0.26 } else { 0.2 });
+    let contact = {
+        let [r, g, b] = shadow_ink(frame.hour);
+        Hsla::from(gpui::Rgba { r, g, b, a: 1.0 }).opacity(if night { 0.3 } else { 0.25 })
+    };
 
     // The sea moves: short bright lines drifting and fading.
     if frame.water {
@@ -378,6 +579,31 @@ pub(super) fn paint_live(
         }
     }
 
+    // In the rain the stones nearest the water are wet: darker toward the
+    // edge, with a sheen of the sky on them.
+    if frame.water && matches!(frame.weather, Weather::Rain | Weather::Storm) {
+        let front = screen(0.0, frame.front).1;
+        let reach = frame.figure_h * z * 0.9;
+        let [r, g, b] = shadow_ink(frame.hour);
+        let wet = Hsla::from(gpui::Rgba { r, g, b, a: 1.0 });
+        window.gradient(
+            ox,
+            front - reach,
+            width,
+            reach,
+            180.0,
+            (wet.opacity(0.0), 0.0),
+            (wet.opacity(0.2), 1.0),
+        );
+        let sheen = gpui::white().opacity(if night { 0.05 } else { 0.1 });
+        for streak in 0..14 {
+            let x =
+                ox + ((streak as f32 * 197.0 - frame.pan() * z).rem_euclid(width + 60.0)) - 30.0;
+            let y = front - reach * (0.15 + 0.6 * ((streak * 7) % 5) as f32 / 5.0);
+            window.rect(x, y, 14.0 * z.min(1.5), 1.5, 0.75, sheen);
+        }
+    }
+
     // At dusk and at night the lit windows shine on the water, trembling.
     // Zoomed out to the postcard, smoke and reflections are too small to
     // see, and not drawn.
@@ -393,17 +619,18 @@ pub(super) fn paint_live(
             }
             let (x, _) = screen(building.x, building.base);
             let seed = building.index as f32 * 1.7;
-            for streak in 0..3 {
-                let along = (streak as f32 - 1.0) * building.w * z * 0.18;
-                let pulse = 0.6 + 0.4 * (t * 1.3 + seed + streak as f32 * 2.1).sin();
-                let reach = deep * (0.28 + 0.1 * streak as f32);
-                window.soft(
-                    x + along + (t * 0.9 + seed + streak as f32).sin() * 1.5,
-                    front + 6.0 * z + reach / 2.0,
-                    building.w * z * 0.025,
-                    reach / 2.0,
-                    building.w * z * 0.03,
-                    warm.opacity(0.13 * pulse),
+            // Each lit window's light, broken on the swell.
+            for streak in 0..2 {
+                let along = (streak as f32 - 0.5) * building.w * z * 0.3;
+                paint_reflection(
+                    window,
+                    x + along,
+                    front + 2.0 * z,
+                    deep * 0.42,
+                    building.w * z * 0.08,
+                    warm.opacity(0.34),
+                    t,
+                    seed + streak as f32 * 3.1,
                 );
             }
         }
@@ -520,6 +747,10 @@ pub(super) fn paint_live(
 
     // A harbour lived in whatever is built: washing, a cart, rowboats.
     super::lived::paint_harbour_life(window, frame, &screen, &seen, light);
+    // Lamps along the spine, lit from dusk.
+    paint_spine_lamps(window, frame, &screen, &seen, light);
+    // What stands in the water stands on a jetty.
+    paint_jetties(window, frame, &screen, &seen, light);
 
     // Things: carts, parcels, boats riding the swell.
     let mut things = frame.things.iter().collect::<Vec<_>>();
@@ -544,7 +775,7 @@ pub(super) fn paint_live(
                 contact.opacity(0.12),
             );
         } else {
-            window.soft(x, base, w * 0.48, w * 0.07, w * 0.06, contact);
+            contact_shadow(window, frame.hour, x, base, w * 0.9);
         }
         let worn = frame
             .wearing
@@ -574,8 +805,23 @@ pub(super) fn paint_live(
             _ => {}
         }
         let mut tinted = Tint::new(window, light);
+        let mut under = Under {
+            inner: &mut tinted,
+            most: if lit {
+                1.0
+            } else {
+                sky_luma(&frame.scenery) * WALLS_UNDER_SKY
+            },
+        };
+        // Over the screen's accent budget: quieted toward the place's own
+        // colours.
+        let mut muted = Mute {
+            inner: &mut under,
+            toward: art::hex(frame.setting.place_paints().neutral()),
+            share: if thing.muted { 0.7 } else { 0.0 },
+        };
         let mut facing = Xform::about(
-            &mut tinted,
+            &mut muted,
             (x, base),
             if thing.flip { -1.0 } else { 1.0 },
             1.0,
@@ -687,7 +933,7 @@ pub(super) fn paint_live(
     );
     // People: a soft shadow where they stand, a longer one away from a
     // sun that is out, and themselves.
-    let long = 0.22 + 0.6 * (1.0 - high.max(0.0));
+    let long = 0.22 + 0.9 * (1.0 - high.max(0.0)).powi(2);
     let away = if across < 0.0 { 1.0 } else { -1.0 };
     for person in &frame.people {
         let (x, y) = (ox + person.x, oy + person.y);
@@ -724,9 +970,18 @@ pub(super) fn paint_live(
             person.height * 0.2 * (1.0 - lift * 0.4),
             person.height * 0.045,
             person.height * 0.05,
-            contact.opacity(contact.a * (1.0 - lift)),
+            contact.opacity(1.0 - lift),
         );
-        let mut tinted = Tint::new(window, light);
+        let mut lit_by = Tint::new(window, light);
+        // By day nobody's whites are lighter than the sky (the value bands).
+        let mut tinted = Under {
+            inner: &mut lit_by,
+            most: if lit {
+                1.0
+            } else {
+                sky_luma(&frame.scenery) * WALLS_UNDER_SKY
+            },
+        };
         // Someone sitting sits on something (art's, B).
         if person.stance == Stance::Sitting && !person.figure.bird {
             crate::setting::paint_seat(
@@ -763,7 +1018,116 @@ pub(super) fn paint_live(
             );
         }
     }
+    // The lighthouse's lamp, the brightest point on the land.
+    paint_beacons(window, frame, &screen, &seen);
+    // Bunting strung between two buildings.
+    paint_garlands(window, frame, &screen, light);
+    // The framing strip along the foot of the land, in front of all.
+    paint_framing_strip(window, frame, ox, width, &screen, light);
     for (x, y, r, tone) in &frame.bonds {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
+    }
+}
+
+/// How far either side of someone a click or the pointer finds them, on
+/// screen, for people standing at (`x`, feet `y`), `h` tall: about their
+/// width and a little more, but never past half way to anyone standing
+/// close enough to overlap, so the person nearest the pointer is the one
+/// found, and two people are never pointed at at once (the art bible's
+/// §6, and v0.26's wrong clicks).
+pub fn reach_of(people: &[(f32, f32, f32)]) -> Vec<f32> {
+    people
+        .iter()
+        .enumerate()
+        .map(|(n, (x, y, h))| {
+            let natural = h * 0.35 + 20.0;
+            people
+                .iter()
+                .enumerate()
+                .filter(|(m, (_, oy, oh))| {
+                    *m != n && (oy - oh).max(y - h) < (oy + 24.0).min(y + 24.0)
+                })
+                .map(|(_, (ox, ..))| (ox - x).abs() / 2.0)
+                .fold(natural, f32::min)
+                .max(2.0)
+        })
+        .collect()
+}
+
+/// Which of the people at (`x`, feet `y`), `h` tall, the point (`px`,
+/// `py`) is on, if any: the nearest whose reach it is in.
+pub fn person_at(people: &[(f32, f32, f32)], px: f32, py: f32) -> Option<usize> {
+    let reach = reach_of(people);
+    let mut best: Option<(usize, f32)> = None;
+    for (n, ((x, y, h), reach)) in people.iter().zip(reach).enumerate() {
+        if (px - x).abs() > reach || py < y - h || py > y + 24.0 {
+            continue;
+        }
+        let (dx, dy) = (px - x, (py - (y - h * 0.5)) * 0.5);
+        let d = dx * dx + dy * dy;
+        if best.is_none_or(|(_, least)| d < least) {
+            best = Some((n, d));
+        }
+    }
+    best.map(|(n, _)| n)
+}
+
+/// Bunting strung between two buildings' eaves (`Frame::string_bunting`):
+/// a sagging line of little flags in the place's own colours.
+pub(super) fn paint_garlands(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    screen: &dyn Fn(f32, f32) -> (f32, f32),
+    light: [f32; 3],
+) {
+    let paints = frame.setting.place_paints();
+    let inks = [
+        paints.accents[0],
+        paints.base[4],
+        paints.base[2],
+        paints.accents[1],
+    ];
+    let mut tinted = Tint::new(window, light);
+    for (a, b) in &frame.garlands {
+        let find = |index: usize| {
+            frame
+                .buildings
+                .iter()
+                .find(|building| building.index == index)
+        };
+        let (Some(a), Some(b)) = (find(*a), find(*b)) else {
+            continue;
+        };
+        let (left, right) = if a.x < b.x { (a, b) } else { (b, a) };
+        let from = screen(left.x + left.w * 0.36, left.base - left.h * 0.52);
+        let to = screen(right.x - right.w * 0.36, right.base - right.h * 0.52);
+        let span = (to.0 - from.0).abs();
+        let sag = span * 0.12;
+        let at = |u: f32| {
+            (
+                from.0 + (to.0 - from.0) * u,
+                from.1 + (to.1 - from.1) * u + sag * 4.0 * u * (1.0 - u),
+            )
+        };
+        let mut line = Shape::new();
+        line.move_to(from.0, from.1).curve_to(
+            to.0,
+            to.1,
+            (from.0 + to.0) / 2.0,
+            (from.1 + to.1) / 2.0 + sag * 2.0,
+        );
+        let p = frame.figure_h * frame.camera.zoom;
+        tinted.stroke(&line, (p * 0.025).max(0.8), art::hex(0x4a3a2e));
+        let flags = ((span / (p * 0.32)) as usize).max(3);
+        for n in 0..flags {
+            let u = (n as f32 + 0.5) / flags as f32;
+            let (x, y) = at(u);
+            let size = p * 0.11;
+            art::polygon(
+                &mut tinted,
+                &[(x - size, y), (x + size, y), (x, y + size * 1.7)],
+                art::hex(inks[n % inks.len()]),
+            );
+        }
     }
 }

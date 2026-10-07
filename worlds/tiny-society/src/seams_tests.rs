@@ -24,7 +24,7 @@ enum Player {
 
 /// Everything a harbour can tell now: what a player reads, and every
 /// legend, moment and almanac it keeps.
-fn told(branch: &TinySocietyBranch) -> Vec<String> {
+pub(crate) fn told(branch: &TinySocietyBranch) -> Vec<String> {
     let world = branch.world();
     let subjects: Vec<EntityId> = world
         .state()
@@ -117,7 +117,7 @@ fn play(player: Player, found: &mut BTreeSet<String>) {
 /// What a moment's panels fail to show of what it is: a farewell with no
 /// ferry, a wedding with no bunting, a caption that names the ferry with
 /// none drawn.
-fn unshown(moment: &world_projection::Moment) -> Option<&'static str> {
+pub(crate) fn unshown(moment: &world_projection::Moment) -> Option<&'static str> {
     use world_projection::{MomentKind, Prop};
     for panel in &moment.panels {
         if panel.caption.to_lowercase().contains("ferry") && !panel.props.contains(&Prop::Ferry) {

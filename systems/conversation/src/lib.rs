@@ -324,6 +324,24 @@ const RUDE: &[&str] = &[
     "消えろ",
     "ムカつく",
     "うざい",
+    "烦不烦",
+    "少管闲事",
+    "管好你自己",
+    "多管闲事",
+    "神经病",
+    "うっとうし",
+    "ほっといて",
+    "邪魔",
+    "しつこい",
+    "最低",
+    "きもい",
+    "你真讨厌",
+    "真讨厌",
+    "讨厌死",
+    "うるせ",
+    "お前には関係",
+    "あんたには関係",
+    "関係ないでしょ",
 ];
 const SORRY: &[&str] = &[
     "i was wrong",
@@ -347,6 +365,15 @@ const SORRY: &[&str] = &[
     "申し訳",
     "悪かった",
     "許して",
+    "不是故意",
+    "原谅我",
+    "请原谅",
+    "我错了",
+    "apology",
+    "an apology",
+    "我不对",
+    "是我不好",
+    "我的错",
 ];
 const COMFORT: &[&str] = &[
     "there there",
@@ -391,6 +418,62 @@ const COMFORT: &[&str] = &[
     "ひとりじゃない",
     "なんとかなる",
     "泣かないで",
+    "我一直在",
+    "我在呢",
+    "有我在",
+    "我陪着你",
+    "我会陪",
+    "随时找我",
+    "頼って",
+    "力になる",
+    "味方",
+    "sort itself out",
+    "work out",
+    "turn out fine",
+    "i'm sure it",
+    "it'll all",
+    "you've got me",
+    "you have me",
+    "got your back",
+    "you've got this",
+    "you got this",
+    "get you down",
+    "don't let it",
+    "没事的",
+    "别想太多",
+    "想开点",
+    "别多想",
+    "放宽心",
+    "会过去",
+    "有什么事跟我说",
+    "有事跟我说",
+    "有事找我",
+    "気にしないで",
+    "気にすることない",
+    "つらかった",
+    "辛かった",
+    "大変だった",
+    "何かあったら",
+    "話してね",
+    "聞くよ",
+    "落ち込まないで",
+    "くよくよしないで",
+    "不是你的错",
+    "不怪你",
+    "别自责",
+    "無理しないで",
+    "休んでね",
+    "ゆっくり休",
+    "悪くない",
+    "あなたのせいじゃない",
+    "なら大丈夫",
+    "気にしなくて",
+    "开心一点",
+    "开心点",
+    "放在心上",
+    "往心里去",
+    "元気出し",
+    "気にしない",
 ];
 const RECONCILE: &[&str] = &[
     "bury the hatchet",
@@ -418,6 +501,11 @@ const RECONCILE: &[&str] = &[
     "謝りなよ",
     "話し合",
     "許してあげ",
+    "謝ったほう",
+    "謝るべき",
+    "仲良くしな",
+    "仲良くして",
+    "仲良くしたら",
 ];
 const QUARREL: &[&str] = &[
     "avoiding",
@@ -461,6 +549,24 @@ const QUARREL: &[&str] = &[
     "もめ",
     "腹を立て",
     "根に持",
+    "fall out",
+    "falls out",
+    "row with",
+    "had words",
+    "闹翻",
+    "翻脸",
+    "闹矛盾",
+    "不和",
+    "吵",
+    "关系怎么",
+    "变差",
+    "关系不好",
+    "关系差",
+    "うまくいってない",
+    "うまくいかない",
+    "気まず",
+    "ぎくしゃく",
+    "怎么了",
 ];
 const THANK: &[&str] = &[
     "owe you",
@@ -479,6 +585,13 @@ const THANK: &[&str] = &[
     "感謝",
     "助かった",
     "恩に着",
+    "助かり",
+    "お礼",
+    "麻烦你",
+    "多亏",
+    "幸亏有你",
+    "辛苦了",
+    "おかげさま",
 ];
 const COMPLIMENT: &[&str] = &[
     "brilliantly",
@@ -530,6 +643,42 @@ const COMPLIMENT: &[&str] = &[
     "えらい",
     "上手",
     "きれい",
+    "good at",
+    "really good",
+    "so good",
+    "talented",
+    "clever",
+    "skilled",
+    "knack",
+    "lucky to have",
+    "glad to have you",
+    "make my day",
+    "made my day",
+    "makes my day",
+    "不错",
+    "干得好",
+    "做得好",
+    "能干",
+    "よくやって",
+    "いてくれて",
+    "おかげ",
+    "smart",
+    "真精神",
+    "气色",
+    "好吃",
+    "帅",
+    "可爱",
+    "聪明",
+    "センス",
+    "似合",
+    "かっこいい",
+    "かわいい",
+    "适合你",
+    "衣服",
+    "穿得",
+    "人很好",
+    "对大家",
+    "服",
 ];
 const OPINION: &[&str] = &[
     "make of",
@@ -547,6 +696,12 @@ const OPINION: &[&str] = &[
     "どんな人",
     "好き",
     "仲良",
+    "人怎么样",
+    "这个人",
+    "为人",
+    "熟吗",
+    "熟不熟",
+    "どんな感じの人",
 ];
 const HOW_IS: &[&str] = &[
     "how is",
@@ -569,6 +724,15 @@ const HOW_IS: &[&str] = &[
     "会った",
     "様子",
     "大丈夫",
+    "好不好",
+    "见到",
+    "怎么样了",
+    "好吗",
+    "这阵子",
+    "近来",
+    "身体",
+    "具合",
+    "体調",
 ];
 const STANDING: &[&str] = &[
     "your trust",
@@ -600,6 +764,23 @@ const STANDING: &[&str] = &[
     "私を信",
     "私に怒",
     "信頼してる",
+    "我们算",
+    "我们是朋友",
+    "算是朋友",
+    "友達だよね",
+    "友達でしょ",
+    "私たちって",
+    "信得过我",
+    "相信我",
+    "对我印象",
+    "我的印象",
+    "私の印象",
+    "私をどう",
+    "讨厌我",
+    "恨我",
+    "生我的气",
+    "私って",
+    "役に立って",
 ];
 const GIFT: &[&str] = &[
     "this for you",
@@ -623,6 +804,16 @@ const GIFT: &[&str] = &[
     "持ってきた",
     "あなたにと思って",
     "どうぞ",
+    "心意",
+    "收下",
+    "小礼物",
+    "ほんの気持ち",
+    "気持ちだけど",
+    "受け取って",
+    "おみやげ",
+    "お土産",
+    "作ってきた",
+    "買ってきた",
 ];
 const WORRY: &[&str] = &[
     "sleep",
@@ -674,6 +865,40 @@ const WORRY: &[&str] = &[
     "悩み",
     "つらそう",
     "悩ん",
+    "seem quiet",
+    "quiet today",
+    "you're quiet",
+    "so quiet",
+    "something up",
+    "what's wrong",
+    "whats wrong",
+    "what's the matter",
+    "怎么不说话",
+    "不说话",
+    "出什么事",
+    "怎么了",
+    "有心事",
+    "没精神",
+    "どうかした",
+    "静か",
+    "元気がない",
+    "浮かない",
+    "rough day",
+    "hard day",
+    "on your mind",
+    "脸色",
+    "不太好",
+    "气色不好",
+    "心事",
+    "睡得",
+    "睡不好",
+    "失眠",
+    "顔色",
+    "具合が悪",
+    "調子悪",
+    "元気なさそう",
+    "眠そう",
+    "眠い",
 ];
 const FRIENDS: &[&str] = &[
     "on your nerves",
@@ -704,6 +929,29 @@ const FRIENDS: &[&str] = &[
     "仲がいい",
     "苦手な人",
     "嫌いな人",
+    "get along with",
+    "get on with",
+    "don't get on",
+    "dont get on",
+    "don't get along",
+    "dont get along",
+    "anyone you",
+    "合不来",
+    "处得来",
+    "处不来",
+    "合得来",
+    "关系好",
+    "best mate",
+    "mates",
+    "pals",
+    "要好",
+    "跟谁",
+    "谁最",
+    "最好的朋友",
+    "仲良し",
+    "誰と仲",
+    "うまくやってる",
+    "みんなとは",
 ];
 const FAMILY: &[&str] = &[
     "at home",
@@ -748,6 +996,19 @@ const FAMILY: &[&str] = &[
     "旦那",
     "彼氏",
     "彼女",
+    "家有",
+    "几口人",
+    "家里有",
+    "兄弟",
+    "姐妹",
+    "姉妹",
+    "お兄",
+    "お姉",
+    "弟さん",
+    "妹さん",
+    "お子さん",
+    "子供さん",
+    "何人家族",
 ];
 const ABOUT_YOU: &[&str] = &[
     "makes you tick",
@@ -780,6 +1041,24 @@ const ABOUT_YOU: &[&str] = &[
     "好きなこと",
     "育った",
     "どこの出",
+    "什么样的人",
+    "喜欢干什么",
+    "平时",
+    "平常",
+    "业余",
+    "多大",
+    "几岁",
+    "年纪",
+    "普段",
+    "休みの日",
+    "暇な時",
+    "いくつ",
+    "何歳",
+    "年齢",
+    "喜欢吃",
+    "喜欢什么",
+    "好きな食べ物",
+    "どこから来",
 ];
 const INVITE: &[&str] = &[
     "请你",
@@ -812,6 +1091,38 @@ const INVITE: &[&str] = &[
     "ご飯",
     "食事に",
     "出かけ",
+    "fancy coming",
+    "fancy going",
+    "coming to the",
+    "come to the",
+    "come along",
+    "come out",
+    "go out",
+    "come round",
+    "come over",
+    "join us",
+    "together",
+    "走走",
+    "逛逛",
+    "出去",
+    "行かない",
+    "行こう",
+    "来ない",
+    "でもどう",
+    "コーヒー",
+    "陪我",
+    "散心",
+    "坐坐",
+    "去坐",
+    "喝两杯",
+    "来坐",
+    "fishing",
+    "a pint",
+    "a stroll",
+    "breakfast",
+    "fancy a stroll",
+    "行ってみない",
+    "見に行かない",
 ];
 const DAY: &[&str] = &[
     "happen today",
@@ -833,7 +1144,6 @@ const DAY: &[&str] = &[
     "been doing",
     "fun today",
     "been busy",
-    "过得",
     "忙什么",
     "干什么",
     "做什么了",
@@ -843,8 +1153,83 @@ const DAY: &[&str] = &[
     "何してる",
     "忙しかった",
     "一日どう",
+    "忙了",
+    "今天都",
+    "今天做了",
+    "今天干了",
+    "busy day",
+    "今天过得",
+    "今天过",
+    "开心的事",
+    "今天有什么",
+    "好玩的",
+    "いいことあった",
+    "楽しいことあった",
+    "干嘛了",
+    "今天干嘛",
+    "做了什么",
+    "どんな日",
+    "どんな一日",
+    "一日だった",
 ];
-const PARTING: &[&str] = &["have a nice day", "have a good day", "have a lovely day"];
+/// Praise that names a bond or a gift of theirs ("a good friend", "the
+/// town's lucky to have you"): heard as a compliment before the words in
+/// it ("friend") are heard as asking about friends.
+const PRAISE: &[&str] = &[
+    "good friend",
+    "great friend",
+    "true friend",
+    "good person",
+    "good soul",
+    "lucky to have you",
+    "glad to have you",
+    "make my day",
+    "made my day",
+    "makes my day",
+    "good at",
+    "proud of you",
+    "gift for this",
+    "gift for it",
+    "real gift",
+    "a knack",
+    "that's a fine",
+    "suits you",
+    "looks good on you",
+    "you've done so well",
+    "喜欢你",
+    "很努力",
+    "努力了",
+    "のことが好き",
+    "好きだよ",
+    "大好き",
+    "做得很好",
+    "最好的人",
+    "いてうれしい",
+    "応援してる",
+    "相信你",
+    "doing really well",
+    "doing so well",
+    "doing a great job",
+];
+/// An offer of help, heard before the work in it ("帮忙" holds 忙, busy).
+const HELP: &[&str] = &[
+    "帮忙",
+    "帮得上",
+    "帮上",
+    "帮你",
+    "手を貸",
+    "力を貸",
+    "手伝おうか",
+];
+/// Asking after them in so many words, heard before their work ("最近忙吗？
+/// 身体好吗？" asks how they are).
+const WELL: &[&str] = &["身体好", "身体怎么样", "身体还好", "体調", "具合"];
+const PARTING: &[&str] = &[
+    "have a nice day",
+    "have a good day",
+    "have a lovely day",
+    "元気でね",
+];
 const WEATHER: &[&str] = &[
     "clear up",
     "brighten",
@@ -876,7 +1261,6 @@ const WEATHER: &[&str] = &[
     "天气",
     "下雨",
     "冷",
-    "热",
     "刮风",
     "天気",
     "雨",
@@ -887,6 +1271,19 @@ const WEATHER: &[&str] = &[
     "雪",
     "霧",
     "嵐",
+    "风好大",
+    "风很大",
+    "风大",
+    "大风",
+    "好热",
+    "很热",
+    "真热",
+    "太热",
+    "热死",
+    "天热",
+    "热吗",
+    "热不热",
+    "有点热",
 ];
 const COMING: &[&str] = &[
     "anything coming",
@@ -915,6 +1312,16 @@ const COMING: &[&str] = &[
     "行事",
     "イベント",
     "次の",
+    "安排",
+    "接下来",
+    "打算",
+    "look forward",
+    "过节",
+    "庆典",
+    "集市",
+    "来週",
+    "今度の",
+    "近いうち",
 ];
 const HOW_ARE_YOU: &[&str] = &[
     "keeping alright",
@@ -960,6 +1367,51 @@ const HOW_ARE_YOU: &[&str] = &[
     "最近どう",
     "変わりない",
     "大丈夫",
+    "doing okay",
+    "doing alright",
+    "you doing",
+    "these days",
+    "how you are",
+    "see how you",
+    "checking in",
+    "check in on",
+    "checking on you",
+    "check on you",
+    "look in on",
+    "looking in on",
+    "popping by",
+    "popped by",
+    "dropping by",
+    "dropped by",
+    "alright with you",
+    "everything alright",
+    "近况",
+    "问问你",
+    "看看你",
+    "来看你",
+    "好不好",
+    "过得好",
+    "过得怎么样",
+    "最近过得",
+    "顺利",
+    "一切还好",
+    "一切都好",
+    "关心",
+    "変わりは",
+    "体調",
+    "具合",
+    "会いに来た",
+    "気になって",
+    "様子見に",
+    "寄ってみた",
+    "还好吧",
+    "你还好",
+    "その後",
+    "あれから",
+    "お変わり",
+    "変わりありません",
+    "瞧瞧你",
+    "このところ",
 ];
 const NEED: &[&str] = &[
     "i could do",
@@ -981,6 +1433,13 @@ const NEED: &[&str] = &[
     "できること",
     "困って",
     "ほしいもの",
+    "you're after",
+    "you after",
+    "anything you need",
+    "could use",
+    "缺不缺",
+    "缺什么",
+    "足りない",
 ];
 const NEWS: &[&str] = &[
     "any word",
@@ -1010,6 +1469,23 @@ const NEWS: &[&str] = &[
     "知らせ",
     "面白い話",
     "おもしろい話",
+    "有意思",
+    "有趣",
+    "听说",
+    "新闻",
+    "八卦",
+    "なにかあった",
+    "変わったこと",
+    "何か新しい",
+    "なにか新しい",
+    "何があった",
+    "町で",
+    "何が起き",
+    "any gossip",
+    "有什么事",
+    "什么事吗",
+    "面白いこと",
+    "おもしろいこと",
 ];
 const WORK: &[&str] = &[
     "work",
@@ -1028,6 +1504,12 @@ const WORK: &[&str] = &[
     "商売",
     "職場",
     "働",
+    "上班",
+    "在哪工作",
+    "做哪行",
+    "干哪行",
+    "お店",
+    "店の調子",
 ];
 const GREET: &[&str] = &[
     "hi",
@@ -1053,6 +1535,14 @@ const GREET: &[&str] = &[
     "どうも",
     "ただいま",
     "やっほー",
+    "long time no see",
+    "好久不见",
+    "久しぶり",
+    "哈喽",
+    "哈罗",
+    "嘿",
+    "おっす",
+    "ハロー",
 ];
 const FAREWELL: &[&str] = &[
     "off i go",
@@ -1089,6 +1579,41 @@ const FAREWELL: &[&str] = &[
     "また明日",
     "行くね",
     "帰るね",
+    "下次再聊",
+    "下次聊",
+    "改天聊",
+    "再聊",
+    "回见",
+    "我得走了",
+    "また今度",
+    "またあとで",
+    "また話そう",
+    "じゃあまた",
+    "head off",
+    "heading off",
+    "head home",
+    "heading home",
+    "be going",
+    "get going",
+    "make a move",
+    "leave you to it",
+    "off now",
+    "我走啦",
+    "明天见",
+    "告辞",
+    "晚安",
+    "先走",
+    "走啦",
+    "下次见",
+    "再会",
+    "失礼する",
+    "失礼します",
+    "そろそろ",
+    "お先に",
+    "我回去了",
+    "回去了",
+    "回家了",
+    "我先回",
 ];
 const ACK: &[&str] = &[
     "alright then",
@@ -1131,6 +1656,21 @@ const ACK: &[&str] = &[
     "はは",
     "そうなんだ",
     "ふうん",
+    "对啊",
+    "对呀",
+    "是啊",
+    "没错",
+    "确实",
+    "原来是这样",
+    "这样啊",
+    "そうだね",
+    "そういうこと",
+    "たしかに",
+    "だよね",
+    "そうそう",
+    "そうなの",
+    "ほんと",
+    "まじ",
 ];
 
 /// Every name someone or somewhere is called by, as normalized words:
@@ -1174,7 +1714,10 @@ fn named(
         names_of(state, kit, *id, by_last).iter().any(|name| {
             // Written without spaces, a name runs straight into the words
             // around it.
-            has(text, name) || (!text.is_ascii() && text.contains(name.as_str()))
+            // "Mara's sorry" names Mara as well as "Mara" does.
+            has(text, name)
+                || has(text, &format!("{name}'s"))
+                || (!text.is_ascii() && text.contains(name.as_str()))
         })
     })
 }
@@ -1220,6 +1763,7 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
     for (phrases, intent) in [
         (STANDING, Intent::Standing),
         (COMFORT, Intent::Comfort),
+        (PRAISE, Intent::Compliment),
         (GIFT, Intent::Gift),
         (SORRY, Intent::Apologize),
         (THANK, Intent::Thank),
@@ -1243,6 +1787,8 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
     for (phrases, intent) in [
         (COMING, Intent::Coming),
         (NEWS, Intent::News),
+        (WELL, Intent::HowAreYou),
+        (HELP, Intent::Need),
         (WORK, Intent::Work),
         (NEED, Intent::Need),
         (HOW_ARE_YOU, Intent::HowAreYou),
@@ -2251,9 +2797,19 @@ pub fn register_actions(
     favour::register_actions(actions, kit)
 }
 
+/// Whether `text` is something to record: at most `most` characters, and
+/// none of them hidden (a control character, a bidirectional override, an
+/// invisible separator, a tag character).
 fn plain(text: &str, most: usize) -> bool {
     let count = text.chars().count();
-    count > 0 && count <= most && !text.chars().any(char::is_control)
+    count > 0 && count <= most && !text.chars().any(world_core::text::is_hidden_control)
+}
+
+/// Whether text that came from a model, or from an app about one, is
+/// clean as it stands: [`plain`], and nothing [`world_core::text::
+/// clean_text`] would change (no runs of spaces, no ends to trim).
+fn clean(text: &str, most: usize) -> bool {
+    plain(text, most) && world_core::text::is_clean_text(text)
 }
 
 struct Says(fn(&WorldState) -> Kit);
@@ -2411,7 +2967,7 @@ impl Action for Says {
         }
         // A judge's verdict on the answer, and which judge gave it.
         for key in ["judge", "verdict"] {
-            if let Some(said) = text(key).filter(|said| plain(said, 120)) {
+            if let Some(said) = text(key).filter(|said| clean(said, 120)) {
                 draft.payload.insert(key.into(), said.into());
             }
         }
@@ -2514,6 +3070,77 @@ pub struct Hearing {
     pub era: Era,
 }
 
+impl Era {
+    /// How a World says its time to an app.
+    pub fn id(self) -> &'static str {
+        match self {
+            Era::Radio => "radio",
+            Era::Television => "television",
+            Era::Spacefaring => "spacefaring",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        [Era::Radio, Era::Television, Era::Spacefaring]
+            .into_iter()
+            .find(|era| era.id() == id)
+    }
+}
+
+/// The most of each list a hearing an app is handed may hold, and the
+/// longest each line of it may be: room for any World's facts and names,
+/// never for a prompt of its own.
+const MOST_FACTS: usize = 48;
+const MOST_FACT: usize = 400;
+const MOST_NAMES: usize = 400;
+const MOST_NAME: usize = 80;
+
+impl Hearing {
+    /// The hearing as a World hands it to an app that asks a model itself.
+    pub fn to_voice(&self) -> world_projection::VoiceHearing {
+        world_projection::VoiceHearing {
+            name: self.name.clone(),
+            settlement: self.settlement.clone(),
+            traits: self.traits.clone(),
+            facts: self.facts.clone(),
+            people: self.people.clone(),
+            places: self.places.clone(),
+            words: self.words.clone(),
+            answer: self.answer.clone(),
+            known: self.known.clone(),
+            era: self.era.id().into(),
+        }
+    }
+
+    /// A hearing from what a World handed an app, held to what a hearing
+    /// can hold: nothing if who answers, where or the words are not clean
+    /// words, or the time is not one this System knows; any other line
+    /// that is not clean, or past what a hearing holds, is left out.
+    pub fn from_voice(voice: &world_projection::VoiceHearing) -> Option<Self> {
+        let one = |text: &str, most: usize| clean(text, most).then(|| text.to_string());
+        let many = |lines: &[String], count: usize, most: usize| {
+            lines
+                .iter()
+                .filter(|line| clean(line, most))
+                .take(count)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        Some(Self {
+            name: one(&voice.name, MOST_NAME)?,
+            settlement: one(&voice.settlement, MOST_NAME)?,
+            traits: many(&voice.traits, 8, MOST_NAME),
+            facts: many(&voice.facts, MOST_FACTS, MOST_FACT),
+            people: many(&voice.people, MOST_NAMES, MOST_NAME),
+            places: many(&voice.places, MOST_NAMES, MOST_NAME),
+            words: one(&voice.words, MOST_WORDS)?,
+            answer: one(&voice.answer, MOST_REPLY).unwrap_or_default(),
+            known: many(&voice.known, MOST_NAMES, MOST_NAME),
+            era: Era::from_id(&voice.era)?,
+        })
+    }
+}
+
 /// What a listener heard: a meaning from the closed set, whom or where it
 /// is about by name, and what the person answers; the facts the answer
 /// rests on, by their numbers in the prompt, when it said; and a judge's
@@ -2547,12 +3174,63 @@ impl Listener for OwnEars {
 
 /// A model's response the app already has: the app asked the model itself,
 /// off its own thread, and this reads what came back like any other
-/// proposal.
-pub struct Answered(pub String);
+/// proposal, with the verdict of the judge the app asked, if it asked one.
+/// The verdict comes beside the response, never from inside it.
+pub struct Answered {
+    pub response: String,
+    pub judged: Option<Judged>,
+}
+
+impl Answered {
+    /// A response with no judge's verdict.
+    pub fn new(response: impl Into<String>) -> Self {
+        Self {
+            response: response.into(),
+            judged: None,
+        }
+    }
+
+    /// A response with the verdict an app says its judge gave: read only
+    /// if every word of it is clean and the verdict is one a judge gives.
+    pub fn judged(response: impl Into<String>, judgement: &world_projection::Judgement) -> Self {
+        let verdict = match judgement.verdict.as_str() {
+            "none" => Some(None),
+            verdict => judge::verdict_from_record(verdict, &judgement.kind).map(Some),
+        };
+        let judged = verdict
+            .filter(|_| {
+                clean(&judgement.judge, 80)
+                    && (judgement.kind.is_empty() || clean(&judgement.kind, 40))
+            })
+            .map(|verdict| Judged {
+                judge: judgement.judge.clone(),
+                verdict,
+            });
+        Self {
+            response: response.into(),
+            judged,
+        }
+    }
+}
 
 impl Listener for Answered {
     fn listen(&mut self, _: &Hearing) -> Option<Listened> {
-        parse(&self.0)
+        let mut listened = parse(&self.response)?;
+        listened.judged = self.judged.clone();
+        Some(listened)
+    }
+}
+
+/// How a verdict is said to a World beside a response: the judge, the
+/// verdict and its kind.
+pub fn judgement(judged: &Judged) -> world_projection::Judgement {
+    world_projection::Judgement {
+        judge: judged.judge.clone(),
+        verdict: judged.verdict_id().into(),
+        kind: match judged.verdict {
+            Some(Verdict::Decline(why)) => why.id().into(),
+            _ => "none".into(),
+        },
     }
 }
 
@@ -2571,6 +3249,7 @@ pub fn hearing_for(world: &World, kit: &Kit, who: EntityId, words: &str) -> Opti
     if !can_talk_to(state, kit, who) || !plain(words.trim(), MOST_WORDS) {
         return None;
     }
+    let words = &world_core::text::clean_text(words);
     let heard = hear(state, kit, who, words);
     let own = reply(world, kit, who, heard);
     Some(hearing(world, kit, who, words, &own.line))
@@ -2751,6 +3430,7 @@ pub fn say_with(
     if !plain(words.trim(), MOST_WORDS) {
         return Err(format!("Say something of at most {MOST_WORDS} characters"));
     }
+    let words = &world_core::text::clean_text(words);
     let heard = hear(state, kit, who, words);
     let own = reply(world, kit, who, heard);
     let told = hearing(world, kit, who, words, &own.line);
@@ -2781,8 +3461,9 @@ pub fn say_with(
     }
     let answer = listened.answer.trim();
     // A proposal is taken whole or not at all: an unusable answer means
-    // the meaning it came with is not trusted either.
-    if !plain(answer, MOST_REPLY) {
+    // the meaning it came with is not trusted either. A model's words are
+    // clean as they stand, or not taken.
+    if !clean(answer, MOST_REPLY) {
         return Ok(request(who, words, heard, &own));
     }
     let judged = |request: ActionRequest| match &listened.judged {
@@ -2933,22 +3614,14 @@ fn parse_json(response: &str) -> Option<Listened> {
                 .map(|n| n.as_i64().unwrap_or(0))
                 .collect::<Vec<_>>()
         });
-    let judged = value.get("judge").and_then(|judged| {
-        let field = |key: &str| judged.get(key).and_then(serde_json::Value::as_str);
-        Some(Judged {
-            judge: field("model")?.trim().chars().take(80).collect(),
-            verdict: judge::verdict_from_record(
-                field("verdict").unwrap_or("none"),
-                field("kind").unwrap_or(""),
-            ),
-        })
-    });
+    // Whatever else the response holds (a "judge" a model wrote itself)
+    // is never read: a verdict comes only beside a response.
     (!answer.is_empty()).then(|| Listened {
         meaning,
         about: about.map(str::to_string),
         answer,
         cites,
-        judged,
+        judged: None,
     })
 }
 
@@ -2971,10 +3644,10 @@ fn parse_lines(response: &str) -> Option<Listened> {
     })
 }
 
-/// A heard answer as the JSON object an app hands a World, with the judge
-/// the app asked and its verdict: what a World reads back with [`parse`].
-/// Anything a model put in its own response besides its answer is left
-/// out, so no model can pass off a verdict of its own.
+/// A heard answer as the JSON object an app hands a World: what a World
+/// reads back with [`parse`]. Anything a model put in its own response
+/// besides its answer is left out; a judge's verdict goes beside it
+/// ([`judgement`]), never in it.
 pub fn envelope(listened: &Listened) -> String {
     let mut value = serde_json::json!({
         "meaning": listened.meaning,
@@ -2983,16 +3656,6 @@ pub fn envelope(listened: &Listened) -> String {
     });
     if let Some(cites) = &listened.cites {
         value["cites"] = serde_json::json!(cites);
-    }
-    if let Some(judged) = &listened.judged {
-        value["judge"] = serde_json::json!({
-            "model": judged.judge,
-            "verdict": judged.verdict_id(),
-            "kind": match judged.verdict {
-                Some(Verdict::Decline(why)) => why.id(),
-                _ => "none",
-            },
-        });
     }
     value.to_string()
 }

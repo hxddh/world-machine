@@ -85,6 +85,44 @@ pub(crate) fn on_their_own(place: Place) -> [&'static str; 4] {
     }
 }
 
+/// More of what each place's people say getting on with a work on their
+/// own: with [`on_their_own`]'s, said in turn, so a player who leaves the
+/// works to them hears each only now and then.
+pub(crate) fn more_on_their_own(place: Place) -> [&'static str; 8] {
+    match place {
+        Place::Ares => [
+            "Did a bit before the dust came up. It counts.",
+            "Kestrel and I hauled the panels. Kestrel did most of it.",
+            "Half a sol of work. My gloves are done for.",
+            "Another weld, another sol. It's taking shape.",
+            "I logged the hours myself. Nia can check them.",
+            "The suit's hot, but the work's going on.",
+            "Got further than I thought, working through the night cycle.",
+            "No crew to spare, so it's me and the toolkit.",
+        ],
+        Place::Maple => [
+            "Put the radio on and got a bit done. Good tunes, too.",
+            "Borrowed a ladder from the arcade. Don't tell them.",
+            "An hour after my shift. Every hour counts.",
+            "My hands smell of paint and I don't even mind.",
+            "It's coming along. Slowly, but it's coming.",
+            "The kids from the diner helped carry stuff. Sort of.",
+            "Worked by the streetlight till my mum called me in.",
+            "One more evening and you'll see a difference.",
+        ],
+        Place::Ice => [
+            "Waddled the blocks over myself. My feet are cold.",
+            "The chicks watched me work. Very serious little critics.",
+            "Got a bit done between fishing trips.",
+            "The wind blew half of it away. I put it back.",
+            "Patted the snow down till it held. It held!",
+            "Worked till the aurora came up. Lovely light to work by.",
+            "One more stone on the pile. Nearly a wall now.",
+            "Nobody asked me to, but someone had to.",
+        ],
+    }
+}
+
 const K: EntityId = SLOT_B;
 const E: EntityId = SLOT_E;
 const ARES: &[Work] = &[

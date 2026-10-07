@@ -159,6 +159,8 @@ Tiny Society	小小社会
 A harbour town that keeps living while you are away.	一座即使你不在，也照常生活的港口小镇。
 Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	镇上的人们对你有所求，大海与日历带来风暴与盛宴，每个季节都为小镇的故事合上一个篇章。
 Answer what people ask · Build the pier · See how the chapter ends	回应人们的请求 · 修建码头 · 看看这一章如何收尾
+A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.	一个即使你不在也照常生活的小小世界：开启它，让它成长，再回来看看有什么变化。
+The harbour, saved the old way.	按旧方式保存的港口。
 no key	没有密钥
 World Machine · World voice	World Machine · 世界之声
 a key with nothing in it is not a key	空的密钥算不上密钥
@@ -675,7 +677,7 @@ Save World Code…	保存世界码…
 Anyone can open a World code as a visit. A guest comes from another of your Worlds, or from a friend's World code.	任何人都能以访客身份打开世界码。客人来自你的另一个世界，或来自朋友的世界码。
 More for {title}	{title} 的更多操作
 Postcard	明信片
-Their story	他们的故事
+Their story	人生故事
 Its story	它的故事
 No story to tell yet	还没有故事可讲
 Here since	来到这里：
@@ -809,3 +811,13 @@ The key's small model	密钥对应的小模型
 {} reads each answer with your key	{} 会用你的密钥读每个回答
 Needs an API key, saved above	需要在上方保存 API 密钥
 Stays on this Mac · free	留在这台 Mac 上 · 免费
+No Worlds yet. Start one below; it keeps living while you are away.	还没有世界。从下面开始一个吧，即使你不在，它也会照常生活。
+For World makers	面向世界制作者
+The drawer shows each World's inner workings: its records and counters.	抽屉里会显示每个世界的内部运作：记录与计数。
+Find {}	去找{}
+What you did here	你在这里做过的事
+Keep a postcard	留一张明信片
+Come back when you can. We'll keep the lamps lit.	有空就回来吧。我们会一直给你留着灯。
+The demo plays Tiny Society. This World opens in the full app.	试玩版只能玩 Tiny Society。这个世界请用完整版打开。
+World Machine Demo	World Machine 试玩版
+On the house, to welcome you.	送你的，欢迎你来。

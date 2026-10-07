@@ -159,6 +159,8 @@ Tiny Society	タイニー・ソサエティ
 A harbour town that keeps living while you are away.	あなたがいない間も暮らし続ける港町。
 Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	町の人たちはあなたに頼みごとをし、海と暦は嵐やお祭りを運んできます。季節がひとつ巡るたびに、町の物語の一章が閉じます。
 Answer what people ask · Build the pier · See how the chapter ends	頼みごとに答える · 桟橋を造る · 章の結末を見届ける
+A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.	あなたがいない間も暮らし続ける小さな世界。はじめて、育つのを見守って、また戻ってきたら何が変わったか確かめましょう。
+The harbour, saved the old way.	昔のやり方で保存された港。
 no key	キーなし
 World Machine · World voice	World Machine · ワールドの声
 a key with nothing in it is not a key	中身が空のキーは、キーとは言えません
@@ -809,3 +811,13 @@ The key's small model	キーの小型モデル
 {} reads each answer with your key	{}があなたのキーで答えをひとつずつ確かめます
 Needs an API key, saved above	上で保存したAPIキーが必要です
 Stays on this Mac · free	このMacの中だけ · 無料
+No Worlds yet. Start one below; it keeps living while you are away.	まだワールドがありません。下からはじめましょう。あなたがいない間も暮らし続けます。
+For World makers	ワールドをつくる人向け
+The drawer shows each World's inner workings: its records and counters.	引き出しに、ワールドの内部の記録やカウンターを表示します。
+Find {}	{}を探す
+What you did here	ここであなたがしたこと
+Keep a postcard	絵はがきを残す
+Come back when you can. We'll keep the lamps lit.	また来てね。明かりをともして待ってるから。
+The demo plays Tiny Society. This World opens in the full app.	デモで遊べるのはTiny Societyだけです。このワールドは製品版で開けます。
+World Machine Demo	World Machine デモ版
+On the house, to welcome you.	ようこそ。これはお祝いの贈り物です。

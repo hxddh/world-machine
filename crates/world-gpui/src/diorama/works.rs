@@ -52,6 +52,94 @@ pub(super) struct ThingPaint {
     pub(super) grow: f32,
     /// Facing the other way, as the town built it.
     pub(super) flip: bool,
+    /// Toned toward the place's base colours: over the screen's accent
+    /// budget.
+    pub(super) muted: bool,
+}
+
+/// At most this many saturated accent marks a screen-width (the art
+/// bible's §4): flags, the postbox, awnings, a quilt.
+pub const ACCENTS_A_SCREEN: usize = 3;
+
+/// Whether a thing is one of the saturated marks the eye finds: a flag,
+/// bunting, the postbox, an awning or a stall's cloth, a tent.
+pub(super) fn is_accent(thing: &ThingPaint) -> bool {
+    const KEYS: [&str; 16] = [
+        "flag",
+        "bunting",
+        "pillar-box",
+        "lamp-box",
+        "mailbox",
+        "market-stall",
+        "flower-stall",
+        "fish-stall",
+        "kites",
+        "streamers",
+        "pennant",
+        "paper-lanterns",
+        "hot-dog-stand",
+        "ice-cream-stand",
+        "neon",
+        "awning",
+    ];
+    let named = |key: &str| KEYS.iter().any(|accent| key.contains(accent));
+    matches!(
+        thing.shape,
+        MarkShape::Flag
+            | MarkShape::Bunting
+            | MarkShape::Postbox
+            | MarkShape::Stall
+            | MarkShape::Tent
+    ) && thing.palette.art.is_none()
+        || thing.palette.art.is_some_and(|art| named(art.key()))
+        || thing.drawing.as_ref().is_some_and(|drawing| {
+            ["-flag", "-bunting", "-stall", "-tent"]
+                .iter()
+                .any(|end| drawing.id.ends_with(end))
+        })
+}
+
+/// Keeps the accents to the budget: in any stretch a window `view_w`
+/// wide, at most [`ACCENTS_A_SCREEN`] saturated marks. The player's own
+/// designs (`designed`, by item) are kept first, then the rest from left
+/// to right; whatever would go over is muted toward the place's base
+/// colours.
+pub(super) fn budget_accents(things: &mut [ThingPaint], designed: &[(usize, f32)], view_w: f32) {
+    let mut kept = designed.iter().map(|(_, x)| *x).collect::<Vec<_>>();
+    let mut order = (0..things.len())
+        .filter(|at| is_accent(&things[*at]))
+        .collect::<Vec<_>>();
+    order.sort_by(|a, b| {
+        let mine = |at: &usize| {
+            !designed
+                .iter()
+                .any(|(index, _)| *index == things[*at].index)
+        };
+        mine(a)
+            .cmp(&mine(b))
+            .then(things[*a].x.total_cmp(&things[*b].x))
+    });
+    for at in order {
+        let thing = &mut things[at];
+        if designed.iter().any(|(index, _)| *index == thing.index) {
+            continue;
+        }
+        let mut near = kept
+            .iter()
+            .copied()
+            .filter(|x| (x - thing.x).abs() < view_w)
+            .collect::<Vec<_>>();
+        near.push(thing.x);
+        near.sort_by(f32::total_cmp);
+        let crowded = near
+            .windows(ACCENTS_A_SCREEN + 1)
+            .any(|run| run[ACCENTS_A_SCREEN] - run[0] < view_w);
+        if crowded {
+            thing.muted = true;
+        } else {
+            kept.push(thing.x);
+        }
+    }
 }
 
 /// A built thing on the far ridge: where along it (0 to 1), its shape, and
@@ -76,13 +164,20 @@ pub(super) struct RidgeGoal {
 
 /// The colours something is painted in: its own, with the colour the town
 /// chose for it when it was built on a plot.
-pub(super) fn painted_as(item: &CanvasItem, lit: bool, setting: art::Setting) -> Palette {
+pub(super) fn painted_as(
+    item: &CanvasItem,
+    lit: bool,
+    setting: art::Setting,
+    scenery: &Scenery,
+) -> Palette {
     let mut palette =
         Palette::of_in(&item.id.stable_key(), lit, setting).drawn_as(item.art.as_deref());
     if let Some(variant) = item.variant {
         let [r, g, b] = variant.colour;
         palette.roof = art::hex(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
     }
+    // Nothing on the land is lighter than the sky (the art bible's §4).
+    palette.wall = under_sky(scenery, palette.wall, WALLS_UNDER_SKY);
     palette
 }
 
@@ -331,8 +426,19 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     // Drawn by hand: its outlines wandering, its edges darker, its ink a
     // touch off its paint, its colours leaning to the place's inks.
     let mut hand = crate::hand::Hand::new(&mut canvas, frame.boil(), frame.setting.inks());
-    let mut mirrored = crate::brush::Xform {
+    // By day, under the sky's light, before the sun adds its own; lit
+    // windows after dusk are as bright as they are.
+    let lit_windows = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    let mut under = Under {
         inner: &mut hand,
+        most: if lit_windows {
+            1.0
+        } else {
+            sky_luma(&frame.scenery) * WALLS_UNDER_SKY
+        },
+    };
+    let mut mirrored = crate::brush::Xform {
+        inner: &mut under,
         m: if building.flip {
             [-1.0, 0.0, 0.0, 1.0, building.x * 2.0, 0.0]
         } else {
@@ -481,13 +587,15 @@ pub(super) fn paint_building_shadow(
     sprite: &Sprite,
 ) {
     let night = frame.daylight == Daylight::Night;
+    let [r, g, b] = shadow_ink(frame.hour);
+    let ink = Hsla::from(gpui::Rgba { r, g, b, a: 1.0 });
     canvas.soft(
         building.x,
         building.base + building.h * 0.012,
         building.w * 0.56,
         building.h * 0.05,
         building.h * 0.06,
-        gpui::black().opacity(if night { 0.3 } else { 0.22 }),
+        ink.opacity(if night { 0.32 } else { 0.26 }),
     );
     let (across, high) = sun_at(frame.hour);
     if night || !sun_out(frame.weather) || high <= 0.02 {
@@ -498,7 +606,8 @@ pub(super) fn paint_building_shadow(
     };
     // Away from the sun, flat on the ground toward the viewer: long when
     // the sun is low, short at noon.
-    let long = 0.2 + 0.55 * (1.0 - high).powi(2);
+    // Long when the sun is low (dawn, dusk), short at noon.
+    let long = 0.2 + 0.95 * (1.0 - high).powi(2);
     let shear = -across.signum() * long * across.abs().max(0.25);
     let flat = 0.08 + 0.14 * (1.0 - high);
     let s = canvas.scale;
@@ -515,12 +624,15 @@ pub(super) fn paint_building_shadow(
         (x0 - canvas.origin.0) * s,
         (y0 - canvas.origin.1) * s,
     );
+    // Inked in a cool colour rather than black, so a little stronger.
     let strength = if frame.weather == Weather::Cloudy {
-        0.08
+        0.12
     } else {
-        0.2
+        0.3
     };
-    canvas.draw_mapped(silhouette, transform, strength);
+    // Cool: blue at dawn, slate at noon, warmer at dusk.
+    let silhouette = painter::inked(silhouette, shadow_ink(frame.hour));
+    canvas.draw_mapped(&silhouette, transform, strength);
 }
 
 /// How big a design's cloth is on screen this frame, and whether it is a
@@ -535,7 +647,11 @@ pub(super) fn cloth_on_screen(frame: &Frame, worn: &Worn) -> Option<(f32, f32, b
                 let ww = w * 0.13 * 0.8;
                 (ww, ww / Wear::Quilt.aspect(), true)
             }
-            Wear::Flag | Wear::Sail => {
+            Wear::Flag => {
+                let (cw, ch) = mark::cloth_size(worn.wear, w * 0.62 * FLAG_CLOTH);
+                (cw, ch, false)
+            }
+            Wear::Sail => {
                 let (cw, ch) = mark::cloth_size(worn.wear, w * 0.62);
                 (cw, ch, false)
             }
@@ -547,6 +663,11 @@ pub(super) fn cloth_on_screen(frame: &Frame, worn: &Worn) -> Option<(f32, f32, b
     }
     let thing = frame.things.iter().find(|t| t.index == worn.index)?;
     let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
+    let w = if worn.wear == Wear::Flag {
+        w * FLAG_CLOTH
+    } else {
+        w
+    };
     let (cw, ch) = mark::cloth_size(worn.wear, w);
     Some((cw, ch, false))
 }
@@ -575,7 +696,15 @@ pub(super) fn fetch_pictures(frame: &mut Frame, window: &mut Window, now: bool) 
     let light = mark::rounded_light(light_at(hour, frame.weather));
     let mirror = wind(frame) < 0.0;
     let view = frame.view_w;
-    for worn in frame.wearing.clone() {
+    // By day a design is shown a little toward the place's own colours, so
+    // it sits in the place; after dusk it glows as it is (the art bible's
+    // §4).
+    let day = !matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    let neutral = frame.setting.place_paints().neutral();
+    for mut worn in frame.wearing.clone() {
+        if day {
+            worn.pattern = std::sync::Arc::new(toned(&worn.pattern, neutral, DESIGN_TONE));
+        }
         let Some((cw, ch, in_window)) = cloth_on_screen(frame, &worn) else {
             continue;
         };
@@ -634,6 +763,34 @@ pub(super) fn fetch_pictures(frame: &mut Frame, window: &mut Window, now: bool) 
     }
 }
 
+/// How wide a flag's cloth is drawn for a pole on a thing `w` wide: a
+/// share of the width it would have had.
+const FLAG_CLOTH: f32 = 0.75;
+
+/// How far a design leans toward the place's colours by day.
+pub const DESIGN_TONE: f32 = 0.18;
+
+/// `pattern` with each of its colours `share` of the way toward `toward`
+/// (`0xRRGGBB`).
+pub(super) fn toned(pattern: &mark::Motif, toward: u32, share: f32) -> mark::Motif {
+    let target = [(toward >> 16) as u8, (toward >> 8) as u8, toward as u8];
+    mark::Motif {
+        cells: pattern.cells,
+        palette: pattern
+            .palette
+            .iter()
+            .map(|colour| {
+                let mut out = *colour;
+                for (channel, value) in out.iter_mut().enumerate() {
+                    let (from, to) = (f32::from(*value), f32::from(target[channel]));
+                    *value = (from + (to - from) * share).round().clamp(0.0, 255.0) as u8;
+                }
+                out
+            })
+            .collect(),
+    }
+}
+
 /// A flag on a pole standing at (`x`, `base`) for a thing `w` wide.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint_flag_pole(
@@ -646,7 +803,9 @@ pub(super) fn paint_flag_pole(
     blow: f32,
     light: [f32; 3],
 ) {
-    let (cw, ch) = mark::cloth_size(Wear::Flag, w);
+    // The cloth about two fifths of the pole's height across, as a flag
+    // flies (the pole stands on the ladder).
+    let (cw, ch) = mark::cloth_size(Wear::Flag, w * FLAG_CLOTH);
     let pole = w * 1.08;
     let top = base - pole;
     {

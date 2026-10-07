@@ -22,8 +22,7 @@ impl DurableWorldSession {
         self.refuse_if_newer()?;
         // The parent as its file holds it: every change written first.
         self.flush()?;
-        self.target
-            .verify_revision(self.expected_revision(), library)?;
+        self.file.verify(library)?;
 
         let archive = required_archive(self.session.as_ref())?;
         let lineage = WorldLineage {
@@ -46,8 +45,7 @@ impl DurableWorldSession {
 
         // Re-check after materializing the live archive so a concurrent source
         // edit cannot be ignored between the first revision check and creation.
-        self.target
-            .verify_revision(self.expected_revision(), library)?;
+        self.file.verify(library)?;
         library.create_from_document(document_id, &fork)
     }
 }
@@ -242,8 +240,9 @@ mod tests {
             .create_from_document(source_id.clone(), &WorldDocument::new(archive(4)))
             .unwrap();
         let session = DurableWorldSession::open(source_id.clone(), &registry, &library).unwrap();
-        library
-            .save_document(&source_id, &WorldDocument::new(archive(7)))
+        // Written by something that does not take the World's lock (a sync
+        // tool, a copy from a backup).
+        crate::write_document_file(&library.path(&source_id), &WorldDocument::new(archive(7)))
             .unwrap();
 
         let result = session.fork_to_library(child_id.clone(), None, &library);

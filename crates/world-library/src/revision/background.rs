@@ -75,13 +75,11 @@ impl DurableWorldSession {
             metadata: next_metadata.clone(),
         };
         next_document.settle_checkpoint();
-        let next_revision = self.persist_whole(&next_document, library)?;
+        self.file.write_whole(&next_document, library)?;
 
-        self.revision = next_revision;
         self.metadata = next_metadata;
         self.checkpoint = next_document.archive.checkpoint;
         self.session = candidate;
-        self.saved = None;
         self.own_title
             .replace(Some(crate::snapshot_display_title(&snapshot)));
         Ok(Some(snapshot))
@@ -246,16 +244,17 @@ mod tests {
         let archive = mock_archive(count);
         let revision = write_archive_file(&path, &archive).unwrap();
         DurableWorldSession {
-            target: WorldDocumentTarget::File(path),
-            revision,
+            file: crate::world_file::WorldFile::new(
+                WorldDocumentTarget::File(path),
+                revision,
+                Default::default(),
+                crate::lock::Lock::none(),
+            ),
             metadata: WorldDocumentMetadata::default(),
             checkpoint: None,
             session: Box::new(MockSession { count }),
-            saved: None,
             own_title: Default::default(),
             opened_from: Default::default(),
-            writer: Default::default(),
-            writes: Default::default(),
         }
     }
 
@@ -291,7 +290,7 @@ mod tests {
         session.checkpoint = Some(world_persistence::ArchivedCheckpoint::default());
         let registry = static_registry();
         let library = WorldLibrary::new(root.join("library"));
-        let revision = session.revision;
+        let revision = session.file.revision();
         let before = fs::read(&path).unwrap();
 
         let changed = session
@@ -299,7 +298,7 @@ mod tests {
             .unwrap();
 
         assert!(changed.is_none());
-        assert_eq!(session.revision, revision);
+        assert_eq!(session.file.revision(), revision);
         assert_eq!(session.snapshot().title, "Mock 5");
         assert_eq!(fs::read(&path).unwrap(), before);
         let _ = fs::remove_dir_all(root);

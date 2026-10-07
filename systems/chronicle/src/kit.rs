@@ -251,8 +251,10 @@ fn beat_among<'a>(
         moment,
         line(voice.after, seed / 3)?,
     ];
-    // Whoever the captions name is drawn too, up to four.
+    // Whoever the captions name is drawn too, up to four, and never fewer
+    // than two when the history names anyone else.
     let cast = crate::named_among(everyone, &captions, cast, MOST_CAST);
+    let cast = with_company(pack, world, event, cast);
     let mut props =
         [0, 1, 2].map(|at| crate::props_for(&captions[at], pack.prop_words(), voice.props[at]));
     // Someone leaving goes, and someone new comes, the way people travel
@@ -275,6 +277,78 @@ fn beat_among<'a>(
         moods: voice.moods.map(Some),
     })
 }
+
+/// How far back through an Event's causes a moment looks for company.
+const COMPANY_LOOKS: usize = 12;
+
+/// A moment shows two people at least: when its own Event names only one,
+/// whoever its causes name (who asked, who answered, who lent a hand),
+/// read from the recorded history alone, so a moment is drawn the same
+/// way however long ago it was.
+pub fn with_company(
+    pack: &impl ChroniclePack,
+    world: &World,
+    event: &Event,
+    mut cast: Vec<EntityId>,
+) -> Vec<EntityId> {
+    let state = world.state();
+    let mut looked = vec![event];
+    let mut at = 0;
+    while cast.len() < 2 && at < looked.len() && at < COMPANY_LOOKS {
+        let this = looked[at];
+        at += 1;
+        let named = this
+            .actor
+            .into_iter()
+            .chain(this.targets.iter().copied())
+            .chain(this.payload.values().filter_map(|value| match value {
+                Value::Entity(id) => Some(*id),
+                _ => None,
+            }));
+        for id in named {
+            if cast.len() >= 2 {
+                break;
+            }
+            if !cast.contains(&id)
+                && pack.is_person(world, id)
+                && !lives::first_name(state, id).is_empty()
+            {
+                cast.push(id);
+            }
+        }
+        looked.extend(
+            this.caused_by
+                .iter()
+                .filter_map(|cause| world.event(*cause)),
+        );
+    }
+    // Else whoever was about just before: the latest someone the history
+    // had doing anything that day or the days before.
+    if cast.len() < 2 {
+        let events = world.events();
+        let at = events.partition_point(|other| other.world_time < event.world_time);
+        for id in events[..at]
+            .iter()
+            .rev()
+            .take(COMPANY_BEFORE)
+            .filter_map(|other| other.actor)
+        {
+            if cast.len() >= 2 {
+                break;
+            }
+            if !cast.contains(&id)
+                && pack.is_person(world, id)
+                && !lives::first_name(state, id).is_empty()
+            {
+                cast.push(id);
+            }
+        }
+    }
+    cast
+}
+
+/// How many Events back a moment looks for someone who was about.
+const COMPANY_BEFORE: usize = 400;
 
 /// Where a moment happens: where the Event itself put whom it is about,
 /// or the Pack's home. Read from the Event, never from how things stand

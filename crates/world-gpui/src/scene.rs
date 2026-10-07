@@ -255,11 +255,43 @@ pub(crate) fn pin_hour(hour: Option<u32>) {
     PINNED.with(|pinned| pinned.set(hour.map(|hour| hour % 24)));
 }
 
-/// The pinned hour, if one is: `WORLD_MACHINE_HOUR`, or a test's.
+/// An hour the app holds every scene at for a while, over the clock: the
+/// demo's farewell, at dusk. `u32::MAX` holds none.
+#[cfg(not(test))]
+static HELD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, held on the holding test's thread alone.
+    static HELD: std::sync::atomic::AtomicU32 = const { std::sync::atomic::AtomicU32::new(u32::MAX) };
+}
+
+fn held(update: impl FnOnce(&std::sync::atomic::AtomicU32) -> u32) -> u32 {
+    #[cfg(test)]
+    return HELD.with(update);
+    #[cfg(not(test))]
+    update(&HELD)
+}
+
+/// Holds every scene at `hour` until it is let go with `None`.
+pub fn hold_hour(hour: Option<u32>) {
+    let hour = hour.map_or(u32::MAX, |hour| hour % 24);
+    held(|held| {
+        held.store(hour, std::sync::atomic::Ordering::Relaxed);
+        hour
+    });
+}
+
+/// The pinned hour, if one is: `WORLD_MACHINE_HOUR`, or a test's, or one
+/// the app holds.
 pub fn pinned_hour() -> Option<u32> {
     #[cfg(test)]
     if let Some(hour) = PINNED.with(|pinned| pinned.get()) {
         return Some(hour);
+    }
+    let held = held(|held| held.load(std::sync::atomic::Ordering::Relaxed));
+    if held < 24 {
+        return Some(held);
     }
     std::env::var("WORLD_MACHINE_HOUR")
         .ok()

@@ -26,7 +26,7 @@ use world_core::{Event, World};
 use world_pack_testkit::players::{self, Played, Player, PlayerFacts, PlayerWorld, DAYS};
 use world_projection::{ProjectionCommand, ProjectionSnapshot, SelectionId};
 
-const PLACES: [(&str, &str); 3] = [
+pub(crate) const PLACES: [(&str, &str); 3] = [
     ("mars", crate::SEED_MARS_COLONY_COMMAND),
     ("maple", crate::SEED_1980S_TOWN_COMMAND),
     ("ice", crate::SEED_PENGUIN_CIVILIZATION_COMMAND),
@@ -60,6 +60,9 @@ impl PlayerWorld for PocketUniverse {
             .find(|command| !made.iter().any(|thing| command.id.contains(thing.as_str())))
             .or(hands.first())
             .map(|command| command.id.clone())
+    }
+    fn returned(&self, since: usize) -> Option<world_projection::BriefingProjection> {
+        self.projection_snapshot_since(Some(since)).briefing
     }
 }
 
@@ -139,6 +142,12 @@ fn five_players_three_years_in_every_place() {
     for played in &played {
         let numbers = players::report(&Here, played);
         failed.extend(players::failed(played, &numbers));
+        // Somebody grows up on Ares in three years, whoever plays (none
+        // did before v0.27: see `years::CADET_AGE`).
+        let grown = played.world.events_of_kind(&["came_of_age"]).len();
+        if played.label.starts_with("mars ") && grown == 0 {
+            failed.push(format!("{}: nobody came of age", played.label));
+        }
     }
     for (place, _) in places {
         let of_place = played

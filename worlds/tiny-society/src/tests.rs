@@ -70,7 +70,7 @@ fn save_resume_restores_pending_world_and_briefs_only_new_events() {
     assert!(briefing
         .items
         .iter()
-        .any(|item| item.title == "A storm reached the harbor"));
+        .any(|item| item.title == "A storm reached the harbour"));
     assert!(briefing
         .items
         .iter()

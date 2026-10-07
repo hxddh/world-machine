@@ -306,11 +306,21 @@ pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
         let px = plot_px(slot);
         item.px = Some(px);
         item.x = px / width;
-        item.y = PLOT_Y;
-        let what = match state.entity(id).and_then(|e| e.component("hands.thing")) {
-            Some(Value::Text(what)) => what.len() as u64,
-            _ => 0,
+        let thing = match state.entity(id).and_then(|e| e.component("hands.thing")) {
+            Some(Value::Text(what)) => what.as_str(),
+            _ => "",
         };
+        // A work for the water (a slipway, a boathouse) stands at the
+        // water's edge in front of its plot, going up or finished.
+        let art = pack.art_of(state, thing);
+        item.y = if days::town::zone_of(art, item.shape.unwrap_or_default())
+            == days::town::Zone::Water
+        {
+            days::town::WATER_Y
+        } else {
+            PLOT_Y
+        };
+        let what = thing.len() as u64;
         let seed = days::mix(&[slot as u64, what, look.salt]);
         let wall = item.shape.is_some_and(|shape| look.walls.contains(&shape));
         item.kind = if wall {

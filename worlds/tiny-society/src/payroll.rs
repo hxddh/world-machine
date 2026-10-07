@@ -171,7 +171,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "Anchor Pub exhausted its payroll reserve"));
+            .any(|item| item.title == "The Anchor's wage tin ran dry"));
 
         let archive = branch.archive().unwrap();
         let resumed = TinySociety::resume_archive(&archive).unwrap();

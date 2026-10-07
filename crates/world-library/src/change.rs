@@ -138,7 +138,7 @@ impl DurableWorldSession {
         let Some(mark) = self.session.checkpoint()? else {
             return Ok(Changed::CannotGoBack);
         };
-        if self.saved.is_none() {
+        if self.file.saved().is_none() {
             // Saved once whole, and written on from then on.
             let mut archive = required_archive(self.session.as_ref())?;
             archive.checkpoint = self.checkpoint.clone();
@@ -146,8 +146,7 @@ impl DurableWorldSession {
             let Some((saved, composer)) = Saved::kept(&archive, history) else {
                 return Ok(Changed::CannotGoBack);
             };
-            self.writes.start(composer);
-            self.saved = Some(saved);
+            self.file.keep(saved, composer);
         }
         let own_title_before = self.own_title();
         let snapshot = match act(self.session.as_mut()) {
@@ -184,7 +183,7 @@ impl DurableWorldSession {
         skip_unchanged: bool,
         library: &WorldLibrary,
     ) -> Result<bool, LibraryError> {
-        let saved = self.saved.as_ref().expect("saved before any change");
+        let saved = self.file.saved().expect("saved before any change");
         let tail = self
             .session
             .archive_since(saved.count)?
@@ -240,8 +239,8 @@ impl DurableWorldSession {
 
         // Handed to the World's writer, which adds the events to the file's
         // history and writes it away from the turn, in order.
-        let (path, legacy) = self.target.paths(library);
-        let saved = self.saved.as_mut().expect("saved before any change");
+        let (path, legacy) = self.file.paths(library);
+        let saved = self.file.saved_mut().expect("saved before any change");
         saved.count += tail.events.len();
         if let Some(event) = tail.events.last() {
             saved.last = Some((event.id, event.world_time));
@@ -262,8 +261,7 @@ impl DurableWorldSession {
             pending: tail.pending,
             checkpoint: checkpoint.clone(),
         };
-        let on_disk = self.revision;
-        self.writes.queue(tail.events, head, on_disk);
+        self.file.queue(tail.events, head);
         self.checkpoint = checkpoint;
         self.metadata = metadata;
         Ok(true)
@@ -537,7 +535,7 @@ mod tests {
 
         // The file cannot be written, as with a full disk, for any user:
         // the turn is kept, and its write waits to be tried again.
-        session.writes.fail(true);
+        session.file.fail_writes(true);
         let kept = session.handle(add(), &registry, &library).unwrap();
         assert_eq!(kept.title, "Counter 2");
         assert!(matches!(session.flush(), Err(LibraryError::Io(_))));
@@ -555,7 +553,7 @@ mod tests {
         assert_eq!(fs::read(library.path(&id)).unwrap(), file_before);
 
         // With the disk back, the next turn writes both.
-        session.writes.fail(false);
+        session.file.fail_writes(false);
         let next = session.handle(add(), &registry, &library).unwrap();
         assert_eq!(next.title, "Counter 3");
         session.flush().unwrap();
@@ -653,14 +651,14 @@ mod tests {
         let second = WorldDocumentId::new("second").unwrap();
         drop(DurableWorldSession::create(second.clone(), PACK, &registry, &library).unwrap());
         let mut session = DurableWorldSession::open(second.clone(), &registry, &library).unwrap();
-        session.writes.fail(true);
+        session.file.fail_writes(true);
         session.handle(add(), &registry, &library).unwrap();
         assert!(matches!(session.flush(), Err(LibraryError::Io(_))));
         let theirs = fs::read(library.path(&second)).unwrap();
         let mut changed = theirs.clone();
         changed.extend_from_slice(b" ");
         fs::write(library.path(&second), &changed).unwrap();
-        session.writes.fail(false);
+        session.file.fail_writes(false);
         assert!(matches!(
             session.handle(add(), &registry, &library),
             Err(LibraryError::DocumentChanged(_))
@@ -711,6 +709,192 @@ mod tests {
             Some(last.title.as_str())
         );
         assert_eq!(fs::read(library.path(&id)).unwrap(), original);
+        drop(session);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// One session per World file: a second, in this app or another, is
+    /// refused while the first is open, and Home's own writes (rename,
+    /// removal) are too; once the World is closed, all of them go ahead.
+    #[test]
+    fn an_open_world_has_one_writer() {
+        let root = temp_root("one-writer");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        let session = DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        assert!(session.file.locked());
+        let in_use = |result: Result<_, LibraryError>| matches!(result, Err(LibraryError::InUse(path)) if path == library.path(&id));
+        assert!(in_use(
+            DurableWorldSession::open(id.clone(), &registry, &library).map(|_| ())
+        ));
+        assert!(in_use(
+            DurableWorldSession::open_file(library.path(&id), &registry).map(|_| ())
+        ));
+        assert!(in_use(
+            library
+                .set_display_title(&id, Some("Elsewhere"))
+                .map(|_| ())
+        ));
+        assert!(in_use(library.remove(&id).map(|_| ())));
+        // Looking is not writing: Home still lists it and exports it.
+        assert_eq!(library.list().unwrap().len(), 1);
+        library.export_file(&id, &root.join("look.world")).unwrap();
+        drop(session);
+        library.set_display_title(&id, Some("Mine")).unwrap();
+        let session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        drop(session);
+        library.remove(&id).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Renaming an open World goes through its session: the name is written
+    /// by the World's own writer, in turn with the turns around it, so none
+    /// of them is lost and nothing is refused afterwards as "changed on
+    /// disk" (v0.26 wrote the name from Home over a file its writer was
+    /// writing).
+    #[test]
+    fn renaming_an_open_world_keeps_every_turn_around_it() {
+        let root = temp_root("rename-open");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        for _ in 0..5 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        // Not flushed: the writer may still be writing these.
+        let summary = session.rename(Some("Our \u{202e}Town"), &library).unwrap();
+        assert_eq!(summary.display_title.as_deref(), Some("Our Town"));
+        for _ in 0..5 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        session.flush().unwrap();
+        let file = library.load_document(&id).unwrap().unwrap();
+        assert_eq!(file.metadata.display_title.as_deref(), Some("Our Town"));
+        assert_eq!(
+            file.archive.events,
+            session.current_archive().unwrap().events
+        );
+        assert_eq!(file.archive.events.len(), 10);
+        // Cleared, it follows its own name again.
+        assert_eq!(session.rename(None, &library).unwrap().display_title, None);
+        session.flush().unwrap();
+        let file = library.load_document(&id).unwrap().unwrap();
+        assert_eq!(file.metadata.display_title.as_deref(), Some("Counter 10"));
+        drop(session);
+        let listed = library.list().unwrap();
+        assert_eq!(listed[0].display_title.as_deref(), Some("Counter 10"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Exporting an open World copies its latest turn, written first, and
+    /// never replaces a file that is there.
+    #[test]
+    fn exporting_an_open_world_copies_its_latest_turn() {
+        let root = temp_root("export-open");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        for _ in 0..7 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        let destination = root.join("exported").join("Counting.world");
+        session.export_file(&destination, &library).unwrap();
+        let exported = WorldDocument::from_bytes(&fs::read(&destination).unwrap()).unwrap();
+        assert_eq!(
+            exported.archive.events,
+            session.current_archive().unwrap().events
+        );
+        assert!(matches!(
+            session.export_file(&destination, &library),
+            Err(LibraryError::ExportDestinationExists(path)) if path == destination
+        ));
+        // The copy is a World of its own, opened and played on apart.
+        let mut copy = DurableWorldSession::open_file(destination.clone(), &registry).unwrap();
+        copy.handle(add(), &registry, &library).unwrap();
+        drop(copy);
+        session.handle(add(), &registry, &library).unwrap();
+        drop(session);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Save As moves the World's hold with it: the new file is held from
+    /// before it is written, and the old one let go of once its last write
+    /// is done; and the writer and what is kept of the file start again
+    /// together, so the turns after it are saved (the v0.26.0 bug).
+    #[test]
+    fn save_as_moves_the_worlds_hold_to_the_new_file() {
+        let root = temp_root("save-as-lock");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        session.handle(add(), &registry, &library).unwrap();
+        let copy = root.join("copy.world");
+        // A new file someone else holds is not taken over.
+        let held = crate::lock::Lock::take(&copy).unwrap();
+        assert!(matches!(
+            session.save_as_file(copy.clone()),
+            Err(LibraryError::InUse(_))
+        ));
+        assert!(!copy.exists());
+        drop(held);
+        session.save_as_file(copy.clone()).unwrap();
+        assert!(matches!(
+            DurableWorldSession::open_file(copy.clone(), &registry),
+            Err(LibraryError::InUse(_))
+        ));
+        // The old file is free, and holds the turn before Save As.
+        library
+            .set_display_title(&id, Some("The original"))
+            .unwrap();
+        assert_eq!(
+            library
+                .load_document(&id)
+                .unwrap()
+                .unwrap()
+                .archive
+                .events
+                .len(),
+            1
+        );
+        for _ in 0..3 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        drop(session);
+        let saved = WorldDocument::from_bytes(&fs::read(&copy).unwrap()).unwrap();
+        assert_eq!(saved.archive.events.len(), 4);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Reload and a whole write (a World that cannot go back) restart the
+    /// writer and what is kept of the file together, as Save As does: turns
+    /// after each are saved.
+    #[test]
+    fn turns_after_a_reload_are_saved() {
+        let root = temp_root("after-reload");
+        let library = WorldLibrary::new(root.clone());
+        let (registry, _) = registry();
+        let id = WorldDocumentId::new("counting").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        let add = || ProjectionIntent::InvokeCommand("add".into());
+        session.handle(add(), &registry, &library).unwrap();
+        session.reload(&registry, &library).unwrap();
+        for _ in 0..2 {
+            session.handle(add(), &registry, &library).unwrap();
+        }
+        session.flush().unwrap();
+        let file = library.load_document(&id).unwrap().unwrap();
+        assert_eq!(file.archive.events.len(), 3);
         drop(session);
         let _ = fs::remove_dir_all(root);
     }

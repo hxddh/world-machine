@@ -252,6 +252,45 @@ pub enum Ears {
     /// Only the World's own rules, never a model: what the app sends when
     /// the model it asked took too long or had nothing to say.
     Own,
+    /// A language model's response the app has already asked for, as in
+    /// `Model`, with the verdict of the judge the app asked about it. The
+    /// verdict travels here, beside the response and never inside it, so
+    /// no model can write one of its own.
+    Judged { response: String, judged: Judgement },
+}
+
+/// A judge's verdict on a model's answer, as the app that asked the judge
+/// says it: which judge, `keep`, `decline` or `none` (it gave nothing
+/// usable), and the kind of break a decline is for. The World checks these
+/// words like any other it is handed.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Judgement {
+    pub judge: String,
+    pub verdict: String,
+    pub kind: String,
+}
+
+/// What a World tells an app that asks a language model itself, to hear
+/// the player's words to someone with: who answers and where, the facts
+/// they know (numbered for citing, in order), the names the World has, the
+/// player's words, and what the World would answer by itself. The app
+/// builds the model's prompt from these; a World never writes the prompt.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct VoiceHearing {
+    pub name: String,
+    pub settlement: String,
+    pub traits: Vec<String>,
+    pub facts: Vec<String>,
+    pub people: Vec<String>,
+    pub places: Vec<String>,
+    pub words: String,
+    /// What the World would answer by itself.
+    pub answer: String,
+    /// Every other name the World knows.
+    pub known: Vec<String>,
+    /// How far along the World's things are: `radio`, `television` or
+    /// `spacefaring`.
+    pub era: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -560,6 +599,13 @@ pub struct Favour {
     pub note: String,
     pub hint: String,
     pub done: bool,
+    /// What the player can say to whom it is for to do it, offered as a
+    /// quick reply on their card while it is open. Empty from a Pack that
+    /// offers none.
+    pub reply: String,
+    /// What the asker says in thanks, once it is done. Empty while open,
+    /// or from a Pack that says none.
+    pub thanks: String,
 }
 
 /// One entry in a World's book of everything to find: a keepsake, a person
@@ -1611,6 +1657,29 @@ pub struct CanvasProjection {
     /// "ice" (snow, ice shelves and sea ice). A setting the app does not
     /// know is drawn as none.
     pub setting: Option<String>,
+    /// The clusters the place's works and homes stand in, left to right:
+    /// a few things sharing one patch of ground (the Harbour Front's
+    /// cobbles, the Green's grass), joined to the place's spine by a path.
+    /// Empty for a World that does not group what it builds.
+    pub clusters: Vec<Cluster>,
+}
+
+/// A few works or homes sharing a patch of ground, with a name the story
+/// can use ("on the Green").
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cluster {
+    pub id: String,
+    pub label: String,
+    /// Where it begins and ends along the panorama, in panorama units.
+    pub from: f32,
+    pub to: f32,
+    /// What its ground is, in the Pack's words: "cobbles", "garden",
+    /// "yard", "plaza", "snow", "pad", "paving". A ground the app does not
+    /// know is drawn as plain worn ground.
+    pub ground: String,
+    /// How far back it reaches, as the Pack's rows (`CanvasItem::y`): its
+    /// furthest row and its nearest.
+    pub rows: (f32, f32),
 }
 
 impl CanvasProjection {

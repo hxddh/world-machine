@@ -69,12 +69,14 @@ pub(crate) fn voice_on() -> bool {
         .is_some_and(|settings| settings.world_voice)
 }
 
-/// Asks the configured model `prompt`, the way a Pack would, and then the
-/// configured judge about its answer: the response to hand the World, with
-/// the judge's verdict in it, or nothing if no model is configured or it
-/// had nothing to say. Reads the key and waits for both, so it belongs off
-/// the window's thread.
-pub(crate) fn ask_model(prompt: &str) -> Option<String> {
+/// Asks the configured model about the player's words, with a prompt the
+/// app builds from the World's `hearing`, and then the configured judge
+/// about its answer, both within one budget inside the window's deadline:
+/// the answer to hand the World, with the judge's verdict beside it, or
+/// nothing if no model is configured or it had nothing to say in time.
+/// Reads the key and waits, so it belongs off the window's thread.
+pub(crate) fn ask_model(hearing: &world_gpui::VoiceHearing) -> Option<world_gpui::Ears> {
+    let started = std::time::Instant::now();
     let root = app_settings::application_support_root().ok()?;
     let settings = app_settings::load(&root).ok()?;
     let key = key_store::load();
@@ -87,7 +89,9 @@ pub(crate) fn ask_model(prompt: &str) -> Option<String> {
     let mut completion =
         model_for(voice)?.completion_with_model(settings.voice_model.as_deref())?;
     let mut judge = judge_for(settings.configured_judge(key));
-    ::world_voice::answer_for_world(prompt, completion.as_mut(), judge.as_mut())
+    // Reading the settings and the key came out of the same budget.
+    let budget = ::world_voice::VOICE_BUDGET.saturating_sub(started.elapsed());
+    ::world_voice::answer_for_world(hearing, completion.as_mut(), judge.as_mut(), budget)
 }
 
 /// The judge a configured choice reaches: this Mac's own model only once
@@ -156,6 +160,16 @@ mod tests {
         assert_eq!(
             model_for(Some(ConfiguredVoice::OnDevice)),
             Some(::world_voice::Voice::Fm("/usr/bin/fm".into()))
+        );
+    }
+
+    /// The model and its judge share one budget, which ends before the
+    /// window stops waiting.
+    #[test]
+    fn the_voice_budget_ends_inside_the_windows_deadline() {
+        assert!(
+            ::world_voice::VOICE_BUDGET + std::time::Duration::from_millis(500)
+                <= world_gpui::LISTEN_DEADLINE
         );
     }
 

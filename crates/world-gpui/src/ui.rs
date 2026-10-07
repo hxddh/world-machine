@@ -25,6 +25,19 @@ pub fn increase_contrast() -> bool {
     INCREASE_CONTRAST.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+static DEVELOPER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a World's inner workings (its raw records, counters and
+/// inspectors) are shown, for someone making Worlds. Off for players: a
+/// player reads the World's own words, never its engine's.
+pub fn set_developer(on: bool) {
+    DEVELOPER.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn developer() -> bool {
+    DEVELOPER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The colour a token stands for with contrast increased: quiet text and
 /// hairlines step up to the next stronger role.
 pub fn contrasted(token: Token) -> Token {

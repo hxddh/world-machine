@@ -590,7 +590,8 @@ pub fn paint_sea_ice(canvas: &mut Canvas, g: &Ground) {
 /// stone in a harbour, packed snow on blue ice at the ice shelf.
 pub fn quay_inks(setting: Setting, ground: Hsla) -> (Hsla, Hsla) {
     match setting {
-        Setting::Ice => (art::hex(0xf1f6f9), art::hex(0x9ccbe0)),
+        // Snow in the shade of the shelf, a step under the sky (A2).
+        Setting::Ice => (art::hex(0xcfdae4), art::hex(0x9ccbe0)),
         _ => (
             crate::diorama::mix(art::hex(0xd9cdb6), ground, 0.2),
             crate::diorama::mix(art::hex(0xb9ab92), ground, 0.2),

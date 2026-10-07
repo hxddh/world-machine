@@ -192,6 +192,8 @@ Sunflowers	向日葵
 Sunflower shoots	向日葵苗
 Herb garden	香草园
 Herb seedlings	香草苗
+Wildflowers	野花
+Wildflower shoots	野花嫩芽
 the harbour fund	港口基金
 A present for {}	送给{}的礼物
 Invite {} to the pub	邀请{}去酒馆
@@ -445,7 +447,7 @@ Let the day pass	让这一天过去
 Nothing is decided.	什么都不做决定。
 The harbour lives its day.	港湾照常过日子。
 Jonas's catch	Jonas的渔获
-The bakery could not cover payroll	面包房付不出工资了
+The bakery couldn't find this week's wages	面包房这周凑不出工资了
 {} more things happened	还有{}件事发生了
 The whole history is in the timeline.	完整的历史都在时间线里。
 was	曾经
@@ -471,11 +473,11 @@ Harbor Bakery closed its doors	港口面包房关门了
 Harbour Bakery closed its doors	港口面包房关门了
 Leo started protecting his savings	Leo开始节省存款
 Emma started protecting her savings	Emma开始节省存款
-Leo's Pub income was disrupted	Leo的酒馆收入受到了冲击
-Emma's School income was disrupted	Emma的学校收入受到了冲击
-Anchor Pub exhausted its payroll reserve	锚酒馆用光了发薪储备金
-Island School exhausted its payroll reserve	岛上学校用光了发薪储备金
-A workplace exhausted its payroll reserve	有个营生用光了发薪储备金
+Leo's takings at the pub took a knock	Leo的酒馆进账少了一大截
+Emma's pay from the school took a knock	Emma在学校的薪水少了一截
+The Anchor's wage tin ran dry	锚酒馆发工资的钱罐见底了
+The school's wage tin ran dry	学校发工资的钱罐见底了
+A wage tin in the harbour ran dry	港口有家营生发工资的钱罐见底了
 Leo put his backing elsewhere	Leo把他的资助投到了别处
 Jonas asked Mara for work	Jonas向Mara要活干
 Mara took Jonas back on while nobody was watching	趁没人注意，Mara又把Jonas招了回来
@@ -492,7 +494,7 @@ Mara dismissed Jonas	Mara辞退了Jonas
 The bakery lost the wedding order	面包房丢了那份婚礼订单
 Jonas took temporary work at the bakery	Jonas在面包房做了份临时工
 Jonas asked Leo for a loan	Jonas向Leo借了钱
-A storm reached the harbor	一场风暴袭击了港湾
+A storm reached the harbour	一场风暴来到了港湾
 Mara took Mia on at the bakery counter	Mara让Mia到面包房柜台帮忙
 Someone	有人
 {name} came down	{name}病倒了
@@ -1026,7 +1028,7 @@ Mia started helping at Sofia's stall.	Mia开始在Sofia的摊位上帮忙。
 The Anchor made its music night a monthly thing.	锚酒馆把音乐之夜变成了每月固定活动。
 Mara's bread went out on the morning ferry.	Mara的面包搭早班渡轮运出去了。
 The new pier was finished and opened.	新码头建成通行了。
-Ivo's fishing family came to live in the harbour.	伊沃一家渔民搬来港湾定居了。
+Ivo's fishing family came to live in the harbour.	Ivo一家渔民搬来港湾定居了。
 Ada the traveller made the harbour her home.	旅人Ada把港湾当成了自己的家。
 A lamp was lit on the point.	海角上的灯点亮了。
 The school planted a garden.	学校种了一座花园。
@@ -1263,9 +1265,9 @@ A fishing family wants to moor here	一户渔家想在这儿停泊
 A family wants to moor at our new pier.	有户人家想在我们的新码头停泊。
 Room for them?	有地方给他们吗？
 Welcome them	欢迎他们
-Ivo and his boat join the harbour.	伊沃和他的船加入了港口。
-Ivo's family came to live in the harbour	伊沃一家搬来港口住下了
-Welcome to the harbour, Ivo!	欢迎来港口，伊沃！
+Ivo and his boat join the harbour.	Ivo和他的船加入了港口。
+Ivo's family came to live in the harbour	Ivo一家搬来港口住下了
+Welcome to the harbour, Ivo!	欢迎来港口，Ivo！
 No room for more boats	没地方再容纳更多船了
 They sail on.	他们继续航行。
 The fishing family sailed on	那户渔家继续前行了
@@ -1510,6 +1512,7 @@ The fiddler stayed on the mainland	提琴手留在了大陆
 He's not coming back.	他不会回来了。
 Mara's patched oven gave out	Mara那修补过的烤炉坏了
 The patched oven's died mid-batch.	补过的烤炉烤到一半就坏了。
+The patched oven's given up mid-batch.	补过的烤炉烤到一半就罢工了。
 Buy a new one now	现在就买个新的
 80 of Mara's savings, at last.	Mara的积蓄终究还是花了80。
 Should have done this weeks ago.	几周前就该这么做了。
@@ -4478,3 +4481,76 @@ We've finished painting the lighthouse! How shall we open it?	灯塔粉刷一新
 {name}'s first {festival} here	{name}在这里过的第一个{festival}
 # v0.24: a chapter told as it ends
 {title} came to an end	{title}结束了
+# What people at the harbour say using what the player made (v0.27).
+I could sit on this {what} all day. The tide agrees.	这{what}我能坐上一整天，潮水也这么想。
+Good {what}, this. Solid as the harbour wall.	这{what}真不错，跟港口的防波堤一样结实。
+You can see every boat in the harbour from here.	从这儿能看见港里的每一条船。
+Five minutes on the {what}. Then back to the nets.	在{what}上歇五分钟，然后回去补网。
+Whoever made this {what} knew what tired feet want.	做这{what}的人，真懂走累了的脚想要什么。
+Sat on the {what} and watched the gulls squabble. Bliss.	坐在{what}上看海鸥吵架，美极了。
+Ate my bread roll on the {what}. The gulls got the crust.	在{what}上吃了个面包卷，面包皮归海鸥了。
+Watched the ferry come and go from the {what}.	坐在{what}上看渡船来了又走。
+Shared the {what} with a stranger off the ferry. Nice sort.	跟一个刚下渡船的陌生人共坐一张{what}，人挺好。
+Counted the masts from the {what}. Lost count at nine.	坐在{what}上数桅杆，数到九就乱了。
+The {what} smells of salt and sun. Lovely.	这{what}有股海盐和阳光的味道，真好。
+Mended a net on the {what}. Kinder than the quay steps.	在{what}上补了张网，比码头台阶舒服多了。
+Took my boots off on the {what}. Don't look.	在{what}上把靴子脱了，别看。
+The {what} is where I go to think. Mostly about lunch.	我想事情就去{what}那儿，想的多半是午饭。
+Sat on the {what} and let the sea do the talking.	坐在{what}上，让大海来说话。
+A crab tried to share the {what} with me. I let it.	有只螃蟹想跟我分坐这{what}，我就让它坐了。
+The fog rolled in while I sat on the {what}. Cosy, somehow.	我坐在{what}上时起雾了，不知怎么倒挺惬意。
+Read the paper on the {what}. All of it, even the tides.	在{what}上把报纸从头看到尾，连潮汐表都看了。
+There's a dip in the {what} just my shape now.	这{what}上现在有个凹印，正好是我的形状。
+Waved at every boat from the {what}. Most waved back.	坐在{what}上跟每条船招手，多半都招手回我了。
+The {what} creaks like an old hull. I like that.	这{what}吱呀响，像条老船，我喜欢。
+Dozed on the {what} and woke to the ferry's horn.	在{what}上打了个盹，被渡船的汽笛叫醒了。
+Watched the tide turn from the {what}. It took its time.	坐在{what}上看潮水转向，它可一点也不着急。
+The {what} by {place} catches the last of the sun.	{place}边的{what}能晒到最后一缕阳光。
+Wrote to my sister from the {what}. Told her about the gulls.	坐在{what}上给姐姐写信，跟她讲了海鸥的事。
+Had a proper sit on the {what}. Doctor's orders, I told myself.	在{what}上好好坐了一会儿，就当是医生的吩咐。
+Saw a seal off the point from the {what}. Honest.	从{what}这儿看见岬角外有只海豹，真的。
+Half the harbour ended up by the {what} last night.	昨晚半个港口的人都聚到{what}边上了。
+{other} and I watched the lamps come on along the quay.	我和{other}看着码头上的灯一盏盏亮起来。
+{other} brought chips from the Anchor. We ate them by the {what}.	{other}从锚酒馆带了薯条，我们在{what}边上吃了。
+The tide came right up while {other} and I talked by the {what}.	我和{other}在{what}边聊天，聊到潮水都涨上来了。
+{other} knows every boat by its lights. Showed off all night.	{other}看灯光就认得出每条船，炫耀了一整晚。
+Fog came in, so we huddled by the {what}. Didn't mind a bit.	起雾了，我们就挤在{what}边上，一点都不介意。
+{other} and I swapped ghost stories by the {what}. I'm sleeping with a lamp on.	我和{other}在{what}边讲鬼故事，今晚我得开着灯睡了。
+Someone's radio by the {what} had the shipping forecast on. We all listened.	{what}边有人的收音机在播航海天气预报，大家都静静听着。
+{other} skimmed stones by the {what} till it was too dark to see them.	{other}在{what}边打水漂，一直打到天黑看不见石头。
+Half the quay came by the {what} with mugs of tea.	码头上一半的人都端着茶杯来到了{what}边。
+{other} and I watched the last boat home from the {what}.	我和{other}在{what}边看着最后一条船回港。
+From your {what}, with the dew still on.	从你的{what}摘的，露水还没干呢。
+The gulls had a go at your {what}. They missed these.	海鸥去啄过你的{what}，这几个它们没啄着。
+Brought you the best of your {what}. I kept the second best.	给你带来了你{what}里最好的，第二好的我留下了。
+Your {what} smells of summer. Take some home.	你的{what}闻起来像夏天，带点回家吧。
+Sea air suits your {what}. Here's the proof.	海风把你的{what}养得真好，你瞧。
+The boats knocked gently against the quay while we sat by the {what}.	我们坐在{what}边，船轻轻地磕着码头。
+Someone started a song by the {what}. The whole quay knew the words.	有人在{what}边起了个头唱歌，整个码头都会唱。
+Watched the ferry's lights go out across the water from the {what}.	坐在{what}边，看着渡船的灯光在水面那头熄灭。
+The gulls finally went quiet. We stayed by the {what} anyway.	海鸥终于安静了，我们还是赖在{what}边不走。
+Toasted crumpets by the {what}. Burnt half of them.	在{what}边烤松饼，烤焦了一半。
+Brought my knitting to the {what}. Three rows done, and a lot of gossip.	把毛线活带到{what}边，织了三行，聊了一堆闲话。
+The sea was flat as glass tonight. We just sat by the {what} and looked.	今晚海面平得像玻璃，我们就坐在{what}边看着。
+Somebody's dog fell asleep on my feet by the {what}.	在{what}边，不知谁家的狗趴在我脚上睡着了。
+Told the old story about the big catch by the {what}. It's bigger every time.	在{what}边又讲了那个大丰收的老故事，鱼每次都更大。
+Shared a pot of mussels by the {what}. Not a scrap left.	在{what}边分了一锅青口，一点没剩。
+Watched the moon come up over the water from the {what}.	坐在{what}边，看月亮从海上升起来。
+Spotted the first star by the {what}. I made a wish. Not telling.	在{what}边看到了第一颗星星，我许了个愿，不告诉你。
+The tide went out and took the chatter with it. Lovely evening by the {what}.	潮水退了，把闲聊也带走了。{what}边的晚上真好。
+Rain came on, so we squeezed in close by the {what}. Nobody left.	下起雨来，我们就在{what}边挤得紧紧的，谁也没走。
+A fishing song by the {what}. Nobody could reach the high bit.	在{what}边唱了首渔歌，高音那段谁也唱不上去。
+Someone brought warm bread from the bakery. We ate it by the {what}.	有人从面包房带来了热面包，我们在{what}边吃了。
+By the {what}, everyone talks a little softer.	在{what}边，大家说话都轻了一点。
+Ended the day by the {what}, salt on my lips and nothing on my mind.	在{what}边结束了这一天，唇上有海盐的味道，心里什么也不想。
+# Work, places and letters (v0.27).
+shop assistant	店员
+apprentice	学徒
+apprentice baker	面包学徒
+bakery owner operator	面包房店主
+pub help	酒馆帮工
+pub owner	酒馆老板
+retired	退休了
+bakery closed	面包房歇业了
+I'm grown now, with a trade of my own: {}	我长大了，有了自己的手艺：{}
+the whole harbour came to {}'s and my party at {}	整个港口的人都来参加了{}和我在{}办的派对

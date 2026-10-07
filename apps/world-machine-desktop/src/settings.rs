@@ -50,6 +50,8 @@ struct SettingsView {
     text_scale: u32,
     /// More contrast, fewer or as the Mac says.
     contrast: Option<bool>,
+    /// Whether the drawer shows the World's inner workings.
+    developer: bool,
     source: VoiceSource,
     program: Option<String>,
     /// The Claude model chosen for an API key, if not the default.
@@ -91,6 +93,7 @@ impl SettingsView {
             language: None,
             text_scale: 100,
             contrast: None,
+            developer: false,
             source: VoiceSource::Program,
             program: None,
             voice_model: None,
@@ -118,6 +121,7 @@ impl SettingsView {
                 self.language = settings.language.clone();
                 self.text_scale = settings.text_scale.unwrap_or(100);
                 self.contrast = settings.increase_contrast;
+                self.developer = settings.developer;
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings
                     .pi_program
@@ -133,6 +137,7 @@ impl SettingsView {
                 self.language = None;
                 self.text_scale = 100;
                 self.contrast = None;
+                self.developer = false;
                 self.source = VoiceSource::Program;
                 self.program = None;
                 self.voice_model = None;
@@ -219,6 +224,18 @@ impl SettingsView {
                 let root =
                     app_settings::application_support_root().map_err(|error| error.to_string())?;
                 app_settings::save_increase_contrast(&root, on).map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.show_as_chosen(cx);
+    }
+
+    fn set_developer(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_developer(&root, on).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -911,6 +928,7 @@ impl SettingsView {
         let contrast_on = self
             .contrast
             .unwrap_or_else(world_machine_desktop::display::system_increase_contrast);
+        let developer_on = self.developer;
         group()
             .gap_4()
             .child(
@@ -946,6 +964,23 @@ impl SettingsView {
                             .aria_label(ui::t("Increase contrast"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.set_contrast(Some(!contrast_on), cx)
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(row(
+                        "For World makers",
+                        "The drawer shows each World's inner workings: its records and counters.",
+                    ))
+                    .child(
+                        switch("developer-switch", developer_on)
+                            .aria_label(ui::t("For World makers"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_developer(!developer_on, cx)
                             })),
                     ),
             )

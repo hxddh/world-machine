@@ -443,6 +443,93 @@ fn a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds() {
     assert!(median < Duration::from_millis(35), "median {median:?}");
 }
 
+/// How much memory a three-year World holds in the app: its file opened
+/// as the app opens it, then 20 days played as the app plays them (an
+/// answer and the day let pass, each saved), in a process of its own so
+/// nothing else this file holds is counted. At most 100 MB resident after
+/// the 20 days (104–105 MB at v0.26). Linux only (it reads
+/// `/proc/self/status`), in release (see the top of this file).
+#[test]
+#[ignore]
+fn a_three_year_world_holds_at_most_a_hundred_megabytes_after_twenty_days() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    // In the process of its own: open, play, and say what it holds.
+    if let Some(path) = std::env::var_os("WORLD_MACHINE_RSS_WORLD") {
+        let (opened, after) = play_twenty_days(std::path::Path::new(&path));
+        println!("\nrss opened {opened} after {after}");
+        return;
+    }
+    let document = three_years();
+    let dir = std::env::temp_dir().join(format!("three-years-rss-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("three.world");
+    std::fs::write(&path, document.to_bytes().unwrap()).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_three_year_world_holds_at_most_a_hundred_megabytes_after_twenty_days",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("WORLD_MACHINE_RSS_WORLD", &path)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // After the test harness's own "test … ..." on the same line.
+    let line = stdout
+        .lines()
+        .find_map(|line| line.split_once("rss opened ").map(|(_, rest)| rest))
+        .unwrap_or_else(|| panic!("the World was played: {stdout}"));
+    let numbers = line
+        .split_whitespace()
+        .filter_map(|word| word.parse::<f64>().ok())
+        .collect::<Vec<_>>();
+    let (opened, after) = (numbers[0], numbers[1]);
+    eprintln!("resident: {opened:.1} MB opened, {after:.1} MB after 20 days");
+    assert!(after <= 100.0, "{after:.1} MB after 20 days");
+}
+
+/// Opens the World file at `path` as the app does and plays 20 days on it;
+/// the resident memory, in MB, once it is open and after the 20 days.
+fn play_twenty_days(path: &std::path::Path) -> (f64, f64) {
+    let registry = registry();
+    let library = world_library::WorldLibrary::new(path.with_file_name("library"));
+    let mut session =
+        world_library::DurableWorldSession::open_file(path.to_path_buf(), &registry).unwrap();
+    let mut snapshot = session.snapshot();
+    let opened = resident_megabytes();
+    for _ in 0..20 {
+        if let Some(answer) = snapshot
+            .commands
+            .iter()
+            .find(|c| c.question.is_some() && c.unavailable.is_none() && c.id != PASS)
+        {
+            let _ = session.handle(InvokeCommand(answer.id.clone()), &registry, &library);
+        }
+        snapshot = session
+            .handle(InvokeCommand(PASS.into()), &registry, &library)
+            .unwrap();
+        let _ = session.snapshot();
+    }
+    session.flush().unwrap();
+    (opened, resident_megabytes())
+}
+
+/// This process's resident memory in MB, from `/proc/self/status`.
+fn resident_megabytes() -> f64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    status
+        .lines()
+        .find(|line| line.starts_with("VmRSS:"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|kb| kb.parse::<f64>().ok())
+        .map_or(0.0, |kb| kb / 1024.0)
+}
+
 /// What a three-year World's snapshot weighs on the wire, as a Pack in a
 /// process of its own sends it: 1,243,230 bytes of JSON at v0.25, with
 /// room for a tenth more before this fails.

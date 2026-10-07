@@ -259,3 +259,56 @@ The kernel is healthy. All eight invariants pass, and most of v0.23's high and m
 | **An artist** | About $3,000–6,000 for a 2–3 day art-direction pass and one key art. v0.27's composition work will give them a better base. |
 | **Five think-aloud testers** | Five sessions now on the demo, and a second round after v0.27. |
 | **An API key for measurement** | A key with a small budget would let the judge be measured through the app's own request, instead of an agent reading its prompt. |
+
+## What v0.27 did
+
+v0.27.0 shipped on 2026-10-07. Each area of the plan, with its bars marked **met** or **missed** and the numbers measured. Numbers come from the tests named, run on a 4-core Linux machine; nothing was measured on a Mac.
+
+**1. A place that shows what you did.**
+- Water works on the water line, tested over three years in both Packs (`water_works_stand_on_the_water_line[_for_three_years]`): **met**. The rowing club and boat yard, which had been handed over as boats, now stand at the quay's edge on decks.
+- A build shows scaffolding on its own site from the first answer, drawn live until its picture is painted: **met**.
+- The 20 commonest storylets each leave a prop for 2–5 days (`every_trace_is_of_a_storylet_the_place_tells`): **met**.
+- Paths join works into clusters (17 named in the harbour, 8 in each Pocket Universe place): **met**.
+- No seams in the goldens (`the_ground_has_no_seam_where_the_postcard_rows_meet`) and props at human scale (`the_bibles_ladder_holds`, a postbox at most 0.8 P): **met**.
+- **Bar:** the first screen changes on at least 8 of the first 14 days for a warm player: **met**, 11 of 14 in the harbour, and at least 8 in each Pocket Universe place.
+- Also: the art bible's scale ladder, value bands, accent budget, contact shadows, lamps along the spine and lighter rain, each with a test; people in groups of two and three; clicks to the nearest person; names only on hover or for the speaker; key art at 3840×2160 (`cargo run -p world-gpui --example key_art`).
+
+**2. Favours you see and can do.**
+- The asker in view with the camera on them, a marker and a Find button for the target, a quick reply in the target's card, the thanks on screen at once, asks slowing after lapses, no contradictory replies: **met**, each with a test.
+- **Bar:** at least 90% of favours done with everyday words, on fresh phrasing never tuned on: **missed**. 35 of 44, 80% (en 18/20, 90%; zh 8/12, 67%; ja 9/12, 75%).
+- **Bar:** at least 90% seen by a warm player, none lapsing unseen: **met**, every favour asked aloud by someone on the scene, and none lapsed unseen (`players_see_every_favour_asked`).
+
+**3. An arrival and an ending.**
+- The welcome after the town is painted, Leo in view, at least 4 residents on the first screen (`four_residents_on_the_first_screen`), something free to place within 20 s (wildflowers, before any priced card), Enter passing a day only from the day card: **met**.
+- The demo's dusk farewell recapping 4–6 of the player's own moments with a postcard and no card underneath, Home saying "World Machine Demo", the words matching the sky: **met** in tests; the farewell has not yet been seen in the Linux preview.
+
+**4. Words that don't repeat or show their seams.** Five scripted players over 1,080 days, both Packs, every place (`five_players_words_over_three_years[_in_every_place]`):
+- No event told more than twice in 7 days: **met**, 0.
+- No line said more than 8 times in year three: **met**, at most 4–5 in Tiny Society and 4–7 in Pocket Universe (was 13–15).
+- Zero seams at day 1,080, with the checker catching letter seams: **met**, 0 (was up to 40 in Maple Street).
+- No sad line in days 1–5: **met**, 0.
+- Strips with their titled object or 2 named people, and no lighthouse a town lacks: **met**, 0 at fault (was 85–130).
+- Inspector behind a developer setting, engine words banned (0 found), chapter titles fitted, every keepsake drawn, distinct default World names: **met**.
+- Chinese and Japanese at most 0.05% partly untranslated in a year: **met**, 0.015% / 0.015% in Tiny Society and at most 0.041% / 0.020% in Pocket Universe. Person card, Home and the Pocket Universe description in the walk tests, 「」 in Japanese, no leading punctuation, one name rule per language, a live language switch: **met**.
+
+**5. The voice, v2.** Every change in the plan is in: `machine_named` and `refusal_cannot` certain; harm, real-world and unambiguous instruction findings firm, so the judge cannot keep them; a checklist judge decided in code; a katakana stranger check and Japanese rules from new development data; one time budget with the judge skipped when the rules decline anyway and late requests stopped; the verdict carried beside the answer, never in model text; host-built prompts; `is_clean_text` on replies.
+- **Bar:** at least 95% declined and at most 1% wrongly declined per language on blind set 5 (2,806 lines; 2,488 checklists from read-only Haiku 4.5 agents): **missed**. With the judge 91.0% (CI 89.3–92.5) and 1.6% (1.1–2.4); en 93.2% / 0.2%, zh 89.0% / 2.1%, ja 90.9% / 2.5%. Only English's wrongly-declined figure meets the bar.
+- **Bar:** at least 75% declined without a judge in each language: **missed** on set 5, 59.4% (en 63.7%, zh 56.4%, ja 58.5%), with 2.2% wrongly declined. On the development data, which they were built from, the rules alone decline 94.8–97.1%, so they do not yet generalise.
+- **Bar:** about 500 bad lines per language: **missed**, 380 / 401 / 463. Set 5 has no harmful lines in English and no prompt injection in English or Chinese.
+- Measured through the app's own request: **missed**, no key was available. The on-device veto is not measured (no Mac).
+- Sets 3–5 as pass/fail tests: **partly met**. Sets 3 and 4 gate on their recorded verdicts (`the_held_out_sets_hold_their_floors`); set 5's verdicts are recorded in `systems/conversation/tests/redteam5` but not yet gated.
+- v0.26's published set-4 judge numbers may include batches where the judging agent ran scripts instead of reading the prompts, so they are not a trustworthy measure (see KNOWN_ISSUES).
+
+**6. Trust and health.**
+- Rename and export through the session, unique temp names, one writer per World across apps (a lock file), save failures shown on close and on quit, `offers_pack` enforced with the gate failing closed: **met**.
+- Real v0.25 and v0.26 fixtures for both Packs, and a v0.21 fixture that differs from v0.20 with a uniqueness test: **met**.
+- Fresh-phrase hearing at least 85% per language, on the half never tuned on: **met**, en 90.5%, zh 88.1%, ja 85.7%.
+- At least one coming of age on Ares: **met**.
+- First snapshot after a day under 20 ms: **missed**, 25–36 ms at load 9–15 (v0.26 on the same runs: 27–38 ms). A quadratic regression found on the way (64–72 ms) was fixed.
+- Memory at most 100 MB after 20 days: **missed**, 104–107 MB (v0.26: 105–109 MB).
+- A turn with its save under 30 ms: **missed**, 51–70 ms at load 9–15 (v0.26 on the same runs: 41–61 ms).
+- A green nightly three nights running: **missed**. Its v0.26 failures (the `debug_assert!`, the env-needing tools) are fixed, and the failures a full local run of the nightly found on the v0.27 work are fixed for release: every long bar of both Packs (17 in Tiny Society, 13 in Pocket Universe) passes on the release tree, run locally in a debug build with optimised Pack crates, and the 20 ms legend timing passes in release. The nightly itself has not yet been green three nights running.
+
+**7. Velocity.**
+- One `WorldFile` owner, host-built prompts, streaming golden digests (TS replay 25 s to 17 s CPU, snapshot JSON 17.7 s to 7.5 s), one language walk for all languages, and `cargo-deny` in CI: **met**.
+- `forbid(unsafe_code)` where possible: **missed**, not done.

@@ -893,6 +893,189 @@ fn enjoyed_lines(place: crate::places::Place) -> [&'static [&'static str]; 3] {
     }
 }
 
+/// More of what people say resting on something the player made, in
+/// each place's own words.
+fn more_rest_lines(place: crate::places::Place) -> &'static [&'static str] {
+    match place {
+        crate::places::Place::Ares => &[
+            "Sat on the {what} and listened to the dome tick as it cooled.",
+            "The {what} is the one place nobody asks me for a status report.",
+            "Read my sister's last message twice on the {what}.",
+            "Five minutes on the {what} and the red outside looks almost friendly.",
+            "Fixed a seal on my glove sitting on the {what}. Multitasking.",
+            "The {what} doesn't hum or beep. That's why I like it.",
+            "Watched the rover tracks fill with dust from the {what}.",
+            "Sat on the {what} and planned what I'd plant if water were free.",
+            "My back needed the {what} more than my schedule did.",
+            "Counted the panels on the dome from the {what}. Forty-two. Still.",
+            "The {what} is cold at first, then just right.",
+            "A quiet sit on the {what} before the night cycle. Needed that.",
+        ],
+        crate::places::Place::Maple => &[
+            "Waved at the mail truck from the {what}. The driver honked back.",
+            "Sat on the {what} and finished my crossword. Mostly.",
+            "The {what} is the best spot to hear the arcade through the wall.",
+            "Shared the {what} with a lady and her poodle. Both very polite.",
+            "Sat on the {what} with a soda till the fizz ran out.",
+            "The {what} is where I go when the house gets too loud.",
+            "Watched the sprinklers go round from the {what}. Summer sound.",
+            "Five minutes on the {what} before the bus. Made it, just.",
+            "The {what} creaks when you lean back. Like an old friend.",
+            "Wrote a postcard to my cousin on the {what}. Drew the street on it.",
+            "Sat on the {what} and counted the porch lights coming on.",
+            "Nobody's in a hurry on the {what}. That's the rule.",
+        ],
+        crate::places::Place::Ice => &[
+            "Sat on the {what} and watched the icebergs drift past. Slow parade.",
+            "The {what} is where I go to dry my feathers.",
+            "Fluffed up on the {what} and let the wind go round me.",
+            "Rested my flippers on the {what}. They'd earned it.",
+            "Watched the krill shimmer from the {what}. Lunch, later.",
+            "The {what} is the quietest spot when the chicks are napping.",
+            "Sat on the {what} and practised my best council speech.",
+            "A seal waved from the floe while I sat on the {what}. I think.",
+            "The {what} keeps the snow off my back. Clever thing.",
+            "Five minutes on the {what}, then back to the fish vault.",
+            "Sat on the {what} and watched my breath turn to little clouds.",
+            "The {what} by the bridge has the best view of the sunrise. When there is one.",
+        ],
+    }
+}
+
+/// More of what people say using what the player made, in each place's
+/// own words: evenings with nobody in particular, evenings with someone,
+/// and what a garden gave. By place.
+fn more_enjoyed_lines(place: crate::places::Place) -> [&'static [&'static str]; 3] {
+    match place {
+        crate::places::Place::Ares => [
+            &[
+                "The dome hummed while we sat by the {what}. Nobody talked. Didn't need to.",
+                "Someone read old letters from Earth by the {what}. We all listened.",
+                "Watched Deimos cross the sky from the {what}.",
+                "Rehydrated cocoa by the {what}. Tasted almost real.",
+                "The {what} by the airlock is where the crew unwinds now.",
+                "Someone hummed a song from home by the {what}. We all knew it.",
+                "We swapped stories of our first dust storm by the {what}.",
+                "Fixed a glove by the light of the {what}. Good light for it.",
+                "The {what} made the long night cycle feel short.",
+                "We drew the Earth from memory by the {what}. Everyone's was different.",
+                "Ration bars and good company by the {what}. Better than it sounds.",
+                "Played twenty questions by the {what}. The answer was always \"dust\".",
+                "Somebody brought the good coffee to the {what}. The last tin.",
+                "The heaters ticked and the {what} glowed. Felt like a home.",
+                "We planned a garden for when the dome's bigger. By the {what}, naturally.",
+                "Stargazing by the {what}. Earth was the bright blue one. We all waved.",
+                "Sat by the {what} after the shift and let my ears stop ringing.",
+                "Someone told the story of the first landing by the {what}. Again. We let them.",
+                "The {what} and a deck of cards: all a colony needs, really.",
+                "Dust storm outside, warm light by the {what} inside. Perfect evening.",
+                "We sat by the {what} and named the craters we can see. Badly.",
+            ],
+            &[
+                "{other} and I fixed a radio by the {what}. Now it plays static. Lovely static.",
+                "{other} showed me photos from Earth by the {what}. Their dog looks just like them.",
+                "{other} and I raced toy rovers by the {what}. I won. Barely.",
+                "{other} taught me the names of the Earth constellations by the {what}.",
+                "{other} and I shared the last fresh tomato by the {what}.",
+                "{other} fell asleep mid-story by the {what}. Best story yet.",
+            ],
+            &[
+                "Your {what} gave us a salad. A real salad, on Mars.",
+                "Brought you the best from your {what}. The crew voted.",
+                "Your {what} smells like rain. We miss rain.",
+                "From your {what}. Fresher than anything on the supply shuttle.",
+                "Your {what} is the greenest thing for a million miles. Here.",
+                "Picked these from your {what} after the dust settled.",
+                "Your {what} grew this. Nia wants to study it. I said eat it.",
+            ],
+        ],
+        crate::places::Place::Maple => [
+            &[
+                "Somebody brought a cassette player to the {what}. We danced on the pavement.",
+                "Played kick the can by the {what} till the streetlights buzzed on.",
+                "The {what} by the arcade is where everyone ends up after the diner closes.",
+                "Lightning bugs and a warm night by the {what}. Summer, basically.",
+                "We swapped mixtapes by the {what}. I got the good one.",
+                "Ate popsicles by the {what}. Mine melted down my arm.",
+                "The night bus went by twice while we sat by the {what}.",
+                "Someone's mom brought lemonade out to the {what}. Best lemonade on the street.",
+                "We sat by the {what} and rated every car that went by.",
+                "Thunder rolled in, so we crowded under by the {what}. Nobody went home.",
+                "K-88 played the top forty by the {what}. We knew every word.",
+                "Hula hoops by the {what}. I can do forty now.",
+                "The {what} on a Friday night. Nowhere better on Maple Street.",
+                "We made plans for the summer fair by the {what}. Big ones.",
+                "Somebody's dog sat with us by the {what} all evening. Good dog.",
+                "Traded comics by the {what}. I'm still a Spider-Man short.",
+                "The ice cream truck stopped right by the {what}. Fate.",
+                "Rode bikes in circles round the {what} till the porch lights came on.",
+                "Old Walt told us about the street in the fifties, by the {what}.",
+                "Sat by the {what} and watched the arcade sign flicker. Hypnotic.",
+                "The {what} after rain smells like summer and pavement. Nice.",
+            ],
+            &[
+                "{other} and I recorded a radio show by the {what}. Audience of two.",
+                "{other} beat me at arm wrestling by the {what}. Rematch Friday.",
+                "{other} and I planned a road trip by the {what}. We'll never go. Still fun.",
+                "{other} taught me to moonwalk by the {what}. Sort of.",
+                "{other} and I shared fries from the diner by the {what}.",
+                "{other} told me a secret by the {what}. It's a good one.",
+            ],
+            &[
+                "Your {what} gave us enough for the whole block. Here's yours.",
+                "The diner says your {what} is the real deal. Here.",
+                "Fresh from your {what}, still warm from the sun.",
+                "Your {what} did great this year. Grandma's impressed, and she's never impressed.",
+                "Picked a bagful from your {what}. Left some for the birds.",
+                "From your {what}. I'd trade a whole mixtape for these.",
+                "Your {what} is the talk of Maple Street. Try one.",
+            ],
+        ],
+        crate::places::Place::Ice => [
+            &[
+                "The aurora came out while we sat by the {what}. Green as kelp.",
+                "We shuffled closer to the {what} as the wind got up. Toasty.",
+                "Someone told the tale of the great iceberg by the {what}. Shivers.",
+                "The chicks played slide-the-pebble by the {what} till bedtime.",
+                "Sang the moonrise song by the {what}. Off key. Beautifully.",
+                "We sat by the {what} and listened to the ice creak.",
+                "A seal popped up near the {what}. Everyone pretended not to be scared.",
+                "The {what} by the bridge is where the colony gathers now.",
+                "Shared the last of the krill by the {what}. Nobody counted.",
+                "The long night is easier by the {what}. Everyone says so.",
+                "We guessed the shapes of the clouds by the {what}. All fish.",
+                "Snow fell soft by the {what}. Nobody wanted to move.",
+                "Practised the council squawk by the {what}. We're getting good.",
+                "The elders told stories of the first floe by the {what}.",
+                "We sat by the {what} and watched the stars wheel over the ice.",
+                "A tide of chatter by the {what} tonight. Lovely noise.",
+                "Slid down the snowbank and back to the {what}. Twelve times.",
+                "Warm breath and a warm light by the {what}. Enough.",
+                "Watched the fish-vault lanterns from the {what}. Like little moons.",
+                "We told the chicks about the warm sea by the {what}. They didn't believe us.",
+                "Huddled by the {what} through a blizzard. Laughing, mostly.",
+            ],
+            &[
+                "{other} and I built a tiny snow bridge by the {what}. It held a pebble.",
+                "{other} and I shared a sprat by the {what}. Very romantic.",
+                "{other} taught me to toboggan on my belly by the {what}.",
+                "{other} and I counted the chicks by the {what}. Twice. Different answers.",
+                "{other} told me where the best fish hide, by the {what}. Shh.",
+                "{other} fell asleep on my shoulder by the {what}. I stayed put.",
+            ],
+            &[
+                "Your {what} fed half the colony. Here's your share.",
+                "Fresh from your {what}, before the gulls found it.",
+                "Your {what} grew through the frost. Brave little thing.",
+                "From your {what}. The elders say it's lucky.",
+                "Picked from your {what} under the aurora. Tastes green.",
+                "Your {what} keeps the vault full. The chicks thank you.",
+                "The best of your {what}, wrapped in kelp. Very fancy.",
+            ],
+        ],
+    }
+}
+
 /// What someone says using something the player made, in the place's own
 /// words: the next of its lines for that thing, so the same is not said
 /// of it again until every other has been. `None` for anything else, or
@@ -907,12 +1090,20 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
         Some(Value::Text(effect)) => effect.as_str(),
         _ => return None,
     };
-    let lines = enjoyed_lines(place)[match effect {
-        "rest" => 0,
-        "gather" => 1,
-        "harvest" => 2,
+    let with_other = event.targets.len() > 1;
+    let [rest, gather, harvest] = enjoyed_lines(place);
+    let [alone, together, gave] = more_enjoyed_lines(place);
+    let lines: Vec<&str> = match effect {
+        "rest" => rest.iter().chain(more_rest_lines(place)).copied().collect(),
+        "gather" => gather
+            .iter()
+            .chain(if with_other { together } else { alone })
+            .filter(|line| line.contains("{other}") == with_other)
+            .copied()
+            .collect(),
+        "harvest" => harvest.iter().chain(gave).copied().collect(),
         _ => return None,
-    }];
+    };
     let thing = *event.targets.first()?;
     let what = lives::name(state, state.entity(thing).map(|_| thing)?).to_lowercase();
     let other = event
@@ -920,19 +1111,18 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
         .get(1)
         .map(|other| lives::first_name(state, *other));
     let who = event.actor?;
-    // Each thing is used every few periods, so its next use says the next
-    // of its lines.
-    let every = match effect {
-        "rest" => 4,
-        "gather" => 3,
-        _ => 7,
-    };
-    let turn = (event.world_time / crate::BACKGROUND_PERIOD) / every + thing.0 * 7;
-    let fitting = lines
-        .iter()
-        .filter(|line| other.is_some() || !line.contains("{other}"))
-        .collect::<Vec<_>>();
-    let line = fitting.get((turn % fitting.len().max(1) as u64) as usize)?;
+    // Each use of a kind says the next of its lines, so none is heard
+    // again until every other has been.
+    let before = world
+        .events_of_kind(&["enjoyed"])
+        .into_iter()
+        .take_while(|used| used.id != event.id)
+        .filter(|used| {
+            used.payload.get("effect") == event.payload.get("effect")
+                && (used.targets.len() > 1) == with_other
+        })
+        .count();
+    let line = lines.get(before % lines.len().max(1))?;
     Some((
         who,
         line.replace("{what}", &what)

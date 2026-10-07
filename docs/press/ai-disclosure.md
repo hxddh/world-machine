@@ -2,7 +2,7 @@
 
 Text for Steam's content survey ("AI Generated Content Disclosure", https://partner.steamgames.com/doc/gettingstarted/contentsurvey), and for any other store page that asks. Steam's survey splits the answer in two: **pre-generated** content, which AI tools helped make during development and which ships with the game, and **live-generated** content, which AI makes while the game runs. For live-generated content, Steam also asks what guardrails keep it from making illegal content.
 
-Checked against the code at `v0.26`. The judge and its record belong to agent V's v0.26 work; check `crates/world-voice` and `systems/conversation/src/judge.rs` before publishing, and leave out any sentence it does not bear out.
+Checked against the code at `v0.27`. The checks, the judge and its record are in `systems/conversation` (`bounds`, `judge.rs`) and `crates/world-voice`; check them before publishing, and leave out any sentence they do not bear out.
 
 ---
 
@@ -28,15 +28,15 @@ With World voice on, a model can word what the World says: a short account of wh
 - every name in it must be someone or something the World knows;
 - it must be plain, short speech in the player's language;
 - it must stay within a list of topics the game declines (for example harm, sexual content and talk about being an AI);
-- a second small model, the judge, reads every answer the checks did not refuse outright. It can decline any of them, and can keep an answer the checks were only unsure about (an everyday word that also has another meaning), but never one the checks refused outright.
+- a second small model, the judge, is asked about answers the checks did not already refuse. It does not give a verdict: it answers a fixed checklist (the names the answer uses, and whether it speaks as a machine or an assistant, urges harm, gives instructions, talks about a game, the real world or another time, is not speech, or is in the wrong language), and the game decides from those answers in its own code. That can decline an answer, or keep one the checks were only unsure about (an everyday word that also has another meaning), but never one the checks refused outright or found harmful, about the real world or full of instruction words.
 
-An answer that fails any check is replaced by the game's own written line. If the model is slow or does not answer, the game uses its own line too. Each accepted or declined answer, with the judge's verdict and the model's name, is saved with the World, so replaying a World never asks a model again.
+An answer that fails any check is replaced by the game's own written line. The game, not a World's content, writes every request to the model from the facts the World has recorded, and never passes a model's raw text back into the World. The model and the judge share one time limit, and a request past it is stopped; if the model is slow or does not answer, the game uses its own line too. Each accepted or declined answer, with the judge's verdict and the model's name, is saved with the World, so replaying a World never asks a model again.
 
 **What is sent, and where:** only when World voice is on with an API key, one request per return or per reply goes to the model provider (`api.anthropic.com`), and a judged reply adds one more request. The request carries only the facts that one World has recorded and the words the player typed, never their other Worlds, file names or logs. With Apple's on-device model, nothing leaves the Mac. Otherwise the game uploads nothing: it has no account and no telemetry, and its only request of its own is one update check per launch to GitHub.
 
 ### Guardrails (the survey's question)
 
-The model can only speak within the World's recorded facts and a closed set of meanings. It cannot change the game's state. Deterministic checks decline harmful, sexual, off-topic, invented or out-of-character answers, and a judge model can decline more; a declined answer is replaced by fixed, pre-written text. The feature is off by default and uses the player's own model access.
+The model can only speak within the World's recorded facts and a closed set of meanings. It cannot change the game's state. Deterministic checks decline harmful, sexual, off-topic, invented or out-of-character answers, and a judge model's checklist can decline more but never keep what the checks found harmful; a declined answer is replaced by fixed, pre-written text. The feature is off by default and uses the player's own model access.
 
 ---
 
@@ -65,8 +65,9 @@ The model can only speak within the World's recorded facts and a closed set of m
 | Model endpoint | `crates/world-voice/src/lib.rs` (`ENDPOINT`) |
 | On-device model | `crates/world-voice/src/fm.rs`, `apps/fm-helper` |
 | A closed set of meanings; a proposal only | `systems/conversation/src/lib.rs` (`Listener`, `Listened`) |
-| Cites, names, language and length checks; certain and doubtful declines | V's v0.26 work in `systems/conversation` |
-| The judge never keeps what the checks refused outright; its verdict and model are recorded in the event | V's v0.26 work (the contract's rule 3) |
+| Cites, names, language and length checks; certain, firm and doubtful findings | `systems/conversation/src/bounds` |
+| The judge answers a checklist and the game decides; it never keeps what the checks refused outright or found harmful, about the real world or full of instruction words; its verdict and model are recorded in the event | `systems/conversation/src/judge.rs` (`judge_prompt`, `checklist_verdict`) |
+| The game builds every prompt; one time budget; slow requests stopped | `systems/conversation` (`Hearing::from_voice`), `crates/world-voice` (`VOICE_BUDGET`, `complete_until`) |
 | Replay never asks a model | AGENTS.md invariant 6; fixture replay tests in both Packs |
 | Text generated, then tested | docs/KNOWN_ISSUES.md ("Chinese is generated", "Every resident's lines and scenes were generated and are held by tests") |
 | Drawings made by code | docs/KNOWN_ISSUES.md ("The drawings are generated, not an illustrator's") |

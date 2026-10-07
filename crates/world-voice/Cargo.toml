@@ -7,5 +7,6 @@ publish = false
 
 [dependencies]
 conversation = { path = "../../systems/conversation" }
+world-projection = { path = "../world-projection" }
 serde_json = "1"
 world-pi-rpc = { path = "../world-pi-rpc" }

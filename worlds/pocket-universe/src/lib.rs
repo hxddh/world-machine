@@ -37,6 +37,8 @@ mod story;
 mod talk;
 mod town;
 mod voices;
+#[cfg(test)]
+mod words_tests;
 mod works;
 mod years;
 
@@ -474,9 +476,22 @@ impl PocketUniverse {
         if seed_id(&self.world) == UNSEEDED || self.world.events().len() <= since {
             return Ok(());
         }
+        // The film of the return tells its beats; the note tells something
+        // it has not, so nothing is told twice in a row.
+        let filmed = projection::snapshot_since(&self.world, Some(since))
+            .briefing
+            .map(|briefing| briefing.items)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|item| match item.selection {
+                Some(world_projection::SelectionId::Event(id)) => Some(id),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
         let why = self.world.events()[since..]
             .iter()
             .rev()
+            .filter(|event| !filmed.contains(&event.id))
             .filter(|event| {
                 lives::is_news(event)
                     || event.kind == "festival_held"
@@ -605,7 +620,11 @@ impl WorldSession for PocketUniverseSession {
                 let listener: &mut dyn conversation::Listener = match ears {
                     world_projection::Ears::World => self.listener.as_mut(),
                     world_projection::Ears::Model(response) => {
-                        answered = conversation::Answered(response);
+                        answered = conversation::Answered::new(response);
+                        &mut answered
+                    }
+                    world_projection::Ears::Judged { response, judged } => {
+                        answered = conversation::Answered::judged(response, &judged);
                         &mut answered
                     }
                     world_projection::Ears::Own => &mut own,
@@ -647,6 +666,19 @@ impl WorldSession for PocketUniverseSession {
         Ok(match to {
             world_projection::SelectionId::Entity(who) => {
                 speech::prompt(self.world.world(), who, words)
+            }
+            _ => None,
+        })
+    }
+
+    fn voice_hearing(
+        &self,
+        to: world_projection::SelectionId,
+        words: &str,
+    ) -> Result<Option<world_projection::VoiceHearing>, HostError> {
+        Ok(match to {
+            world_projection::SelectionId::Entity(who) => {
+                speech::voice_hearing(self.world.world(), who, words)
             }
             _ => None,
         })

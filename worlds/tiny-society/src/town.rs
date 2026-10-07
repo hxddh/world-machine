@@ -14,7 +14,7 @@ use crate::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
 };
-use days::town::{CatalogWork, Town, BACK, FRONT};
+use days::town::{CatalogWork, Quarter, Town, Trace, TraceAt, Zone, BACK, FRONT, WATER_TALL};
 use days::{Plan, Stretch};
 use std::collections::BTreeMap;
 use world_core::{EntityId, Value, World, WorldState};
@@ -54,7 +54,353 @@ const LABELS: [&str; 3] = [
 ];
 
 /// Where the harbour's four buildings stand.
-const PLACES: [(EntityId, f32); 4] = [(HARBOR, 0.6), (PUB, 1.7), (BAKERY, 2.3), (SCHOOL, 3.7)];
+/// The harbour (its lighthouse, where the fishers work) stands on the Point
+/// at the east end, the pub just west of it on the Harbour Front, so one
+/// frame holds the lighthouse, the pub and the town, and the quay's people
+/// and the pub's share the first screen; the bakery is on the square and
+/// the school at the west end, by Net Lane.
+const PLACES: [(EntityId, f32); 4] = [(HARBOR, 4.26), (PUB, 3.85), (BAKERY, 2.3), (SCHOOL, 0.56)];
+
+/// What the harbour's twenty commonest storylets leave on the scene for a
+/// few days after they end (a warm player's year, counted with the
+/// `warm_days` example): bunting after the fete, the boats racked after a
+/// storm warning, scaffolding on the pub's chimney after the fire, stalls
+/// on market day, a sailing boat after the regatta.
+const TRACES: &[Trace] = &[
+    trace(
+        "chimney_fire",
+        Some("scaffold"),
+        MarkShape::House,
+        TraceAt::Place(PUB),
+        3,
+    ),
+    trace(
+        "great_storm",
+        Some("boat-rack"),
+        MarkShape::Stall,
+        TraceAt::Place(HARBOR),
+        5,
+    ),
+    trace(
+        "storm_warning",
+        Some("boat-rack"),
+        MarkShape::Stall,
+        TraceAt::Place(HARBOR),
+        3,
+    ),
+    trace(
+        "storm_repairs",
+        Some("scaffold"),
+        MarkShape::House,
+        TraceAt::Place(HARBOR),
+        3,
+    ),
+    trace(
+        "market_day",
+        Some("market-stall"),
+        MarkShape::Stall,
+        TraceAt::Place(BAKERY),
+        2,
+    ),
+    trace(
+        "harbour_fete",
+        Some("flag-line"),
+        MarkShape::Bunting,
+        TraceAt::Place(BAKERY),
+        4,
+    ),
+    trace(
+        "harvest_supper",
+        Some("picnic-tables"),
+        MarkShape::Bench,
+        TraceAt::Place(PUB),
+        3,
+    ),
+    trace(
+        "regatta",
+        Some("sailboat"),
+        MarkShape::Boat,
+        TraceAt::Place(HARBOR),
+        4,
+    ),
+    trace(
+        "town_meeting",
+        Some("notice-board"),
+        MarkShape::Signpost,
+        TraceAt::Place(PUB),
+        3,
+    ),
+    trace(
+        "quarrel",
+        Some("driftwood-bench"),
+        MarkShape::Bench,
+        TraceAt::Asker,
+        3,
+    ),
+    trace("mainland_work", None, MarkShape::Parcel, TraceAt::Asker, 2),
+    trace(
+        "mackerel",
+        Some("net-rack"),
+        MarkShape::Stall,
+        TraceAt::Place(HARBOR),
+        3,
+    ),
+    trace(
+        "inspector",
+        Some("flower-boxes"),
+        MarkShape::Planter,
+        TraceAt::Place(BAKERY),
+        4,
+    ),
+    trace(
+        "hotel_order",
+        Some("bread-cart"),
+        MarkShape::Rover,
+        TraceAt::Place(BAKERY),
+        2,
+    ),
+    trace(
+        "fever",
+        Some("jar-lanterns"),
+        MarkShape::Lantern,
+        TraceAt::Asker,
+        3,
+    ),
+    trace(
+        "winter_coal",
+        None,
+        MarkShape::Parcel,
+        TraceAt::Place(SCHOOL),
+        3,
+    ),
+    trace(
+        "traveller",
+        Some("rowing-boat"),
+        MarkShape::Boat,
+        TraceAt::Place(HARBOR),
+        3,
+    ),
+    trace(
+        "traveller_stays",
+        None,
+        MarkShape::Tent,
+        TraceAt::Place(BAKERY),
+        3,
+    ),
+    trace(
+        "birthday_*",
+        Some("paper-lanterns"),
+        MarkShape::Bunting,
+        TraceAt::Asker,
+        2,
+    ),
+    trace(
+        "warm_snug",
+        Some("fire-pit"),
+        MarkShape::Lantern,
+        TraceAt::Place(PUB),
+        2,
+    ),
+    trace(
+        "school_roof",
+        Some("scaffold"),
+        MarkShape::House,
+        TraceAt::Place(SCHOOL),
+        3,
+    ),
+    trace(
+        "record_catch",
+        None,
+        MarkShape::Parcel,
+        TraceAt::Place(HARBOR),
+        2,
+    ),
+    // A part of a work done leaves its materials on the work's site.
+    trace(
+        "pier_timber",
+        None,
+        MarkShape::Parcel,
+        TraceAt::Site("pier"),
+        2,
+    ),
+    trace(
+        "harbour_lamp",
+        None,
+        MarkShape::Parcel,
+        TraceAt::Site("lamp"),
+        2,
+    ),
+    trace("work_*", None, MarkShape::Parcel, TraceAt::Works, 2),
+];
+
+/// A storylet's mark, briefly.
+const fn trace(
+    storylet: &'static str,
+    art: Option<&'static str>,
+    shape: MarkShape,
+    at: TraceAt,
+    days: u64,
+) -> Trace {
+    Trace {
+        storylet,
+        art,
+        shape,
+        at,
+        days,
+    }
+}
+
+/// The clusters the harbour is laid out in, each a few homes or works on
+/// one patch of ground, the first of each kind on a stretch filled first:
+/// along the working quay the fishers' cottages, the Fish Quay, the
+/// Boatyard, Net Lane and the Drying Green; on the square the Square,
+/// Baker's Lane, the Green, Market Row, the Slip and the Little Green; at
+/// the east end the Harbour Front by the pub and the lighthouse on the
+/// Point, with Hill Lane, Chapel Hill, the Orchard and Hill Cottages up
+/// behind.
+pub(crate) const QUARTERS: [Quarter; 17] = [
+    quarter(
+        "fishers_row",
+        "Fisher's Row",
+        1.0,
+        &[Zone::Lanes],
+        true,
+        "garden",
+    ),
+    quarter(
+        "fish_quay",
+        "the Fish Quay",
+        1.3,
+        &[Zone::Water, Zone::Quay],
+        false,
+        "cobbles",
+    ),
+    quarter(
+        "boatyard",
+        "the Boatyard",
+        0.4,
+        &[Zone::Water, Zone::Quay],
+        false,
+        "yard",
+    ),
+    quarter(
+        "net_lane",
+        "Net Lane",
+        0.6,
+        &[Zone::Lanes, Zone::Green],
+        true,
+        "garden",
+    ),
+    quarter(
+        "drying_green",
+        "the Drying Green",
+        0.2,
+        &[Zone::Green, Zone::Edge],
+        false,
+        "green",
+    ),
+    quarter(
+        "the_square",
+        "the Square",
+        1.95,
+        &[Zone::Quay, Zone::Lanes],
+        false,
+        "plaza",
+    ),
+    quarter("bakers_lane", "Baker's Lane", 2.2, &[], true, "garden"),
+    quarter(
+        "the_green",
+        "the Green",
+        2.7,
+        &[Zone::Green],
+        false,
+        "green",
+    ),
+    quarter(
+        "market_row",
+        "Market Row",
+        1.65,
+        &[Zone::Lanes, Zone::Quay],
+        true,
+        "plaza",
+    ),
+    quarter(
+        "the_slip",
+        "the Slip",
+        2.4,
+        &[Zone::Water],
+        false,
+        "cobbles",
+    ),
+    quarter(
+        "little_green",
+        "the Little Green",
+        2.95,
+        &[Zone::Green, Zone::Edge],
+        false,
+        "green",
+    ),
+    quarter(
+        "harbour_front",
+        "the Harbour Front",
+        3.9,
+        &[Zone::Quay, Zone::Lanes, Zone::Water],
+        false,
+        "cobbles",
+    ),
+    quarter("the_point", "the Point", 4.3, &[Zone::Water], false, "rock"),
+    quarter(
+        "hill_lane",
+        "Hill Lane",
+        3.3,
+        &[Zone::Lanes],
+        true,
+        "garden",
+    ),
+    quarter(
+        "chapel_hill",
+        "Chapel Hill",
+        3.6,
+        &[Zone::Edge],
+        false,
+        "yard",
+    ),
+    quarter(
+        "the_orchard",
+        "the Orchard",
+        3.1,
+        &[Zone::Edge, Zone::Green],
+        false,
+        "garden",
+    ),
+    quarter(
+        "hill_cottages",
+        "Hill Cottages",
+        3.55,
+        &[Zone::Lanes],
+        true,
+        "garden",
+    ),
+];
+
+/// A cluster, briefly.
+const fn quarter(
+    id: &'static str,
+    label: &'static str,
+    at: f32,
+    zones: &'static [Zone],
+    homes: bool,
+    ground: &'static str,
+) -> Quarter {
+    Quarter {
+        id,
+        label,
+        at,
+        zones,
+        homes,
+        ground,
+    }
+}
 
 /// Whether a selection is one of the harbour's homes.
 #[cfg(test)]
@@ -143,19 +489,12 @@ pub(crate) fn catalog() -> &'static [Work] {
 fn work_stretch(id: &str, index: usize) -> usize {
     const QUAYSIDE: &[&str] = &[
         "pier",
-        "lamp",
         "sea_wall",
-        "harbour_clock",
         "boathouse",
-        "fishers_statue",
-        "quay_planters",
-        "lighthouse_paint",
-        "lifeboat_station",
         "smokehouse",
         "fish_market",
         "rowing_club",
         "beacon",
-        "ferry_shelter",
         "seal_hide",
         "tide_gauge",
         "boat_yard",
@@ -165,9 +504,6 @@ fn work_stretch(id: &str, index: usize) -> usize {
         "herring_shed",
         "wind_break",
         "jetty_ladder",
-        "bathing_huts",
-        "gull_gate",
-        "own_driftwood_bench",
     ];
     const ON_THE_SQUARE: &[&str] = &[
         "bandstand",
@@ -184,10 +520,7 @@ fn work_stretch(id: &str, index: usize) -> usize {
         "maypole",
         "reading_room",
         "mural",
-        "tea_rooms",
         "bread_cart",
-        "pub_terrace",
-        "lantern_walk",
         "bandstand_roof",
         "chapel_windows",
         "workshop",
@@ -195,6 +528,23 @@ fn work_stretch(id: &str, index: usize) -> usize {
         "own_window_boxes",
     ];
     const UP_THE_HILL: &[&str] = &[
+        // The lighthouse and its lamp stand on the point, at the east end,
+        // with the Harbour Front just west of it by the pub: the clock,
+        // the statue, the planters, the tea rooms and the terrace, the
+        // lifeboat station and the ferry shelter.
+        "lamp",
+        "lighthouse_paint",
+        "harbour_clock",
+        "fishers_statue",
+        "quay_planters",
+        "lifeboat_station",
+        "ferry_shelter",
+        "bathing_huts",
+        "gull_gate",
+        "own_driftwood_bench",
+        "tea_rooms",
+        "pub_terrace",
+        "lantern_walk",
         "school_garden",
         "birdhouses",
         "school_swings",
@@ -290,16 +640,19 @@ fn text<'a>(state: &'a WorldState, id: EntityId, key: &str) -> Option<&'a str> {
     }
 }
 
-/// Which stretch a trade is plied on: boats and nets on the quay, bread,
-/// music and mending on the square, gardens, bees and lessons up the hill.
+/// Which stretch a trade is plied on: boats and nets at the east end by the
+/// harbour, bread, music and mending on the square, gardens, bees and
+/// lessons at the west end by the school.
 fn trade_stretch(job: &str) -> Option<usize> {
     Some(match job {
+        // The harbour's trades are plied at its east end, by the harbour
+        // and the pub; the hill's at the west, by the school.
         "fisher" | "net_mender" | "boat_builder" | "sailmaker" | "radio_operator" | "carpenter"
-        | "mayor" => QUAY,
+        | "mayor" => HILL,
         "shop_assistant" | "musician" | "cook" | "apprentice_baker" | "cheesemaker"
         | "clockmaker" | "bookbinder" | "nurse" => SQUARE,
         "gardener" | "shepherd" | "beekeeper" | "tutor" | "storyteller" | "painter" | "potter"
-        | "weaver" | "miller" => HILL,
+        | "weaver" | "miller" => QUAY,
         _ => return None,
     })
 }
@@ -351,13 +704,19 @@ fn work_of(
 /// everyone gets a day.
 pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection {
     let state = world.state();
-    let mut town = Town::new(WIDTH, &STRETCHES, days::town::PLOT_ROW_AT);
+    let mut town = Town::new(WIDTH, &STRETCHES, days::town::PLOT_ROW_AT).quarters(&QUARTERS);
     let mut items = items;
 
-    // The four buildings first: they have always stood where they stand.
+    // The four buildings first: they have always stood where they stand,
+    // the harbour (its lighthouse) at the water's edge.
     for (id, px) in PLACES {
-        town.stand(&mut items, id, |_| BACK, px, true);
+        let row = if id == HARBOR { WATER_TALL } else { BACK };
+        town.stand(&mut items, id, |_| row, px, true);
     }
+    town.join("harbour_front", SelectionId::Entity(PUB));
+    town.join("the_point", SelectionId::Entity(HARBOR));
+    town.join("bakers_lane", SelectionId::Entity(BAKERY));
+    town.join("net_lane", SelectionId::Entity(SCHOOL));
     // Jonas's boat at the harbour, and the order at the bakery.
     for (id, by) in [(JONAS_BOAT, HARBOR), (WEDDING_ORDER, BAKERY)] {
         let selection = SelectionId::Entity(id);
@@ -395,6 +754,7 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         .iter()
         .map(|(index, _, built)| (*index, *built))
         .collect();
+    let deck = crate::story::deck();
     let works = catalog()
         .iter()
         .enumerate()
@@ -403,24 +763,43 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
             label: work.label.into(),
             shape: work.shape,
             stretch: work_stretch(work.id, index),
+            under_way: storylets::progress(state, deck, work.id) > 0,
         });
+    // What the player built on plots stands on its plot first (so no work
+    // stands hidden behind it), and everything says what it can wear and
+    // be called.
+    crate::plots::dress(world, &mut items);
+    crate::drawings::dress_art(world, &mut items);
+    let mut on_plots: [Vec<SelectionId>; 3] = Default::default();
+    town.plotted(&mut items, &mut on_plots);
     let built = town.works(&mut items, works, &done, |id| {
         crate::drawings::art_of_work(id).map(Into::into)
     });
+    // Each stretch's places, where they now stand: the school at the west
+    // end, the bakery on the square, the pub and the harbour at the east.
     let mut workplaces: [Vec<SelectionId>; 3] = [
-        vec![SelectionId::Entity(HARBOR)],
-        vec![SelectionId::Entity(BAKERY), SelectionId::Entity(PUB)],
         vec![SelectionId::Entity(SCHOOL)],
+        vec![SelectionId::Entity(BAKERY)],
+        vec![SelectionId::Entity(HARBOR), SelectionId::Entity(PUB)],
     ];
-    for (at, works) in built.into_iter().enumerate() {
-        workplaces[at].extend(works);
+    for (at, works) in built.into_iter().chain(on_plots).enumerate() {
+        workplaces[at % 3].extend(works);
     }
 
-    // What the player built on plots stands on its plot, and everything
-    // says what it can wear and be called.
-    crate::plots::dress(world, &mut items);
-    crate::drawings::dress_art(world, &mut items);
-    town.plotted(&items, &mut workplaces);
+    // What the last few days' storylets left behind them.
+    items.extend(days::town::traces(
+        world.events(),
+        world.state().world_time(),
+        crate::persistence::WORLD_DAY_TICKS,
+        TRACES,
+        |person| home_of.get(&person).copied(),
+        |work| {
+            let index = catalog().iter().position(|each| each.id == work)?;
+            let id = days::town::work_id(index);
+            town.placed.contains_key(&id).then_some(id)
+        },
+        |event| crate::projection::narrated_title(world, event),
+    ));
 
     // What answers and the player's hands put up.
     town.fixtures(&mut items, |item| item.kind == CanvasItemKind::Object);
@@ -443,8 +822,10 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
             work: work_of(state, person, &workplaces)
                 .filter(|work| town.placed.contains_key(work))
                 .map(|work| (work, false)),
+            // Out and about on the square or by the school: the east end
+            // has its fishers and the pub already.
             about: [
-                SelectionId::Entity(HARBOR),
+                SelectionId::Entity(BAKERY),
                 square,
                 SelectionId::Entity(SCHOOL),
             ][(days::mix(&[person.0, 5]) % 3) as usize],
@@ -558,6 +939,115 @@ mod tests {
     }
 
     use world_pack_testkit::town::outdoors;
+
+    /// The scene a snapshot is laid out as, at noon in a 1100 by 848
+    /// window.
+    fn stage_of(snapshot: &world_projection::ProjectionSnapshot) -> world_gpui::diorama::Stage {
+        world_gpui::diorama::stage_at(snapshot, 1100.0, 848.0, world_gpui::diorama::Clock::at(12))
+    }
+
+    /// Every water work (the pier, the boathouse, a slipway, the
+    /// lighthouse), going up or finished, stands on the water line.
+    fn check_siting(day: usize, snapshot: &world_projection::ProjectionSnapshot) {
+        let stage = stage_of(snapshot);
+        let catalog_zone = |item: &CanvasItem| {
+            catalog()
+                .iter()
+                .find(|work| work.label == item.label)
+                .map(|work| days::town::zone_of(crate::drawings::art_of_work(work.id), work.shape))
+        };
+        let astray = days::town::water_works_astray(
+            &snapshot.canvas.items,
+            |index| stage.on_water(index),
+            catalog_zone,
+        );
+        assert!(astray.is_empty(), "day {day}: off the water: {astray:?}");
+    }
+
+    /// Water works stand on the water line, never on the hill or the
+    /// field, through the harbour's first four months.
+    #[test]
+    fn water_works_stand_on_the_water_line() {
+        play(120, |day, _, snapshot| {
+            if day % 10 == 0 {
+                check_siting(day, snapshot);
+            }
+        });
+    }
+
+    /// The same over three years, a month at a time (the nightly runs it).
+    #[test]
+    #[ignore]
+    fn water_works_stand_on_the_water_line_for_three_years() {
+        play(1_080, |day, _, snapshot| {
+            if day % 30 == 0 {
+                check_siting(day, snapshot);
+            }
+        });
+    }
+
+    /// No screen-width of the harbour is bare in its first month: there is
+    /// always something built within a screen of anywhere.
+    #[test]
+    fn no_screen_width_is_bare_in_the_first_month() {
+        play(30, |day, _, snapshot| {
+            let gap = days::town::widest_gap(&snapshot.canvas);
+            assert!(gap < 1.0, "day {day}: {gap:.2} screens bare");
+        });
+    }
+
+    /// Every storylet a mark is kept for is one the harbour tells, so no
+    /// mark waits on a storylet that never comes.
+    #[test]
+    fn every_trace_is_of_a_storylet_the_place_tells() {
+        let deck = crate::story::deck();
+        for trace in TRACES {
+            let known =
+                deck.storylets
+                    .iter()
+                    .any(|storylet| match trace.storylet.strip_suffix('*') {
+                        Some(prefix) => storylet.id.starts_with(prefix),
+                        None => storylet.id == trace.storylet,
+                    });
+            assert!(known, "no storylet {}", trace.storylet);
+        }
+    }
+
+    /// The first screen (where the camera opens, on the welcomer at the
+    /// pub) shows something new on at least 8 of a warm player's first 14
+    /// days: scaffolding on the chimney, the boats racked for a storm, a
+    /// work going up on the Harbour Front.
+    #[test]
+    fn the_first_screen_changes_on_most_of_the_first_fortnight() {
+        let mut before = None;
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.begin_story().unwrap();
+        let first = branch.projection_snapshot();
+        // The camera opens on whoever welcomes the player, at the pub.
+        let screen = |snapshot: &world_projection::ProjectionSnapshot| {
+            let stage = stage_of(snapshot);
+            let pub_x = snapshot
+                .canvas
+                .items
+                .iter()
+                .position(|item| item.id == SelectionId::Entity(PUB))
+                .and_then(|index| stage.frame_of(index))
+                .map_or(stage.width / 2.0, |(x, _, w, _)| x + w / 2.0);
+            stage.screen_around(snapshot, pub_x)
+        };
+        before.replace(screen(&first));
+        let mut changed = Vec::new();
+        play(14, |day, _, snapshot| {
+            let now = screen(snapshot);
+            if before.as_ref() != Some(&now) {
+                changed.push(day);
+            }
+            before = Some(now);
+        });
+        assert!(changed.len() >= 8, "changed on days {changed:?}");
+    }
 
     fn check_outdoors(day: usize, snapshot: &world_projection::ProjectionSnapshot) {
         for hour in [10, 12, 15, 17] {

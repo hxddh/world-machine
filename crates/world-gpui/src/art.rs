@@ -752,6 +752,36 @@ impl Setting {
         }
     }
 
+    /// The place's palette (the art bible's §4): five base colours and two
+    /// accent hues. The bases are what the place is made of; the accents
+    /// are for the few marks the eye should find, at most three a screen.
+    pub fn place_paints(self) -> PlacePaints {
+        match self {
+            // Sea-green, sand, slate blue, warm stone and chalk; the
+            // harbour's red and the lamp's gold.
+            Setting::Harbour => PlacePaints {
+                base: [0x6f9a86, 0xd9c7a0, 0x5d7590, 0xc9b49a, 0xe6dccb],
+                accents: [0xb5523b, 0xe0a83a],
+            },
+            // Rust, dust, bone, oxide and smoke; teal and signal white.
+            Setting::Mars => PlacePaints {
+                base: [0xb5603c, 0xd9a27a, 0xe9e1d2, 0x7a3a26, 0x8a8078],
+                accents: [0x2f8f8a, 0xf6f4ee],
+            },
+            // Brick, asphalt, lawn, cream and sky grey; teal and magenta.
+            Setting::Street => PlacePaints {
+                base: [0xa8553e, 0x4a4c52, 0x6f9a5a, 0xe2d6bc, 0x9aa6b4],
+                accents: [0x2bb3b1, 0xe0457b],
+            },
+            // Snow, ice blue, slate, deep sea and pebble; fish orange and
+            // lantern gold.
+            Setting::Ice => PlacePaints {
+                base: [0xe8eef3, 0xa8cce0, 0x5a6878, 0x2a4a68, 0x8a8a84],
+                accents: [0xe8803a, 0xe8c050],
+            },
+        }
+    }
+
     /// The few paints its buildings take their walls and roofs from, and
     /// the colour of their trim: a limited palette per place.
     pub fn paints(self) -> (&'static [u32], &'static [u32], u32) {
@@ -776,6 +806,26 @@ impl Setting {
                 0x2d3a4a,
             ),
         }
+    }
+}
+
+/// A place's palette: five base colours and two accent hues, as
+/// `0xRRGGBB`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlacePaints {
+    pub base: [u32; 5],
+    pub accents: [u32; 2],
+}
+
+impl PlacePaints {
+    /// The base colour a muted accent, or a design shown by day, leans
+    /// toward: the place's stone, its most neutral base.
+    pub fn neutral(&self) -> u32 {
+        *self
+            .base
+            .iter()
+            .min_by(|a, b| hex(**a).s.total_cmp(&hex(**b).s))
+            .unwrap_or(&self.base[0])
     }
 }
 

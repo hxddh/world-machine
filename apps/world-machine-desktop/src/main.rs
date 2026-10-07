@@ -9,6 +9,8 @@ mod included_packs;
 #[cfg(target_os = "macos")]
 mod observer;
 #[cfg(target_os = "macos")]
+mod saving;
+#[cfg(target_os = "macos")]
 mod settings;
 #[cfg(target_os = "macos")]
 mod sharing;
@@ -275,23 +277,28 @@ impl HostProjectionController {
     }
 }
 
-/// Whether the demo holds `intent` back in this World: the day after its
-/// last, which it answers with the ending card instead.
+/// What the demo does with `intent` in this World: the day after its last
+/// is answered with the farewell instead, and a World of a Pack it does
+/// not offer is not played at all (see `demo::gate`, which fails closed).
 #[cfg(target_os = "macos")]
-fn demo_holds(session: &DurableWorldSession, intent: &world_gpui::ProjectionIntent) -> bool {
+fn demo_holds(session: &DurableWorldSession, intent: &world_gpui::ProjectionIntent) -> demo::Gate {
     if !demo::ENABLED {
-        return false;
+        return demo::Gate::Open;
     }
-    let world_gpui::ProjectionIntent::InvokeCommand(command) = intent else {
-        return false;
+    let pack = &session.pack().id;
+    let command = match intent {
+        world_gpui::ProjectionIntent::InvokeCommand(command) => command.as_str(),
+        // Choosing, branching or talking moves no time, but a World the
+        // demo does not offer is not played at all.
+        _ if !demo::offers_pack(pack) => "",
+        _ => return demo::Gate::Open,
     };
     let snapshot = session.snapshot();
     let day = snapshot
         .calendar
         .as_ref()
-        .map(|calendar| demo::day_of(snapshot.world_time, calendar.length))
-        .unwrap_or(1);
-    demo::gate(&session.pack().id, day, command) == demo::Gate::Ending
+        .map(|calendar| demo::day_of(snapshot.world_time, calendar.length));
+    demo::gate(pack, day, command)
 }
 
 /// What a World shows that its sound listens for.
@@ -339,8 +346,15 @@ impl world_gpui::ProjectionController for HostProjectionController {
         if !world_voice::voice_on() {
             return None;
         }
-        let prompt = self.document.borrow().session.hearing(to, words).ok()??;
-        Some(Box::new(move || world_voice::ask_model(&prompt)))
+        // The World says what it knows, as data; the app builds the
+        // prompt itself, so no World chooses what the player's key asks.
+        let hearing = self
+            .document
+            .borrow()
+            .session
+            .voice_hearing(to, words)
+            .ok()??;
+        Some(Box::new(move || world_voice::ask_model(&hearing)))
     }
 
     fn handle(
@@ -348,9 +362,13 @@ impl world_gpui::ProjectionController for HostProjectionController {
         intent: world_gpui::ProjectionIntent,
     ) -> Result<world_gpui::ProjectionSnapshot, String> {
         let mut document = self.document.borrow_mut();
-        if demo_holds(&document.session, &intent) {
-            self.demo_ending.set(true);
-            return Ok(world_gpui::i18n::localize(document.session.snapshot()));
+        match demo_holds(&document.session, &intent) {
+            demo::Gate::Open => {}
+            demo::Gate::Ending => {
+                self.demo_ending.set(true);
+                return Ok(world_gpui::i18n::localize(document.session.snapshot()));
+            }
+            demo::Gate::NotOffered => return Err(ui::t(demo::NOT_OFFERED).to_string()),
         }
         let registry = Arc::clone(&document.registry);
         let library = Arc::clone(&document.library);
@@ -428,6 +446,9 @@ struct WorldDocumentView {
     /// Whether the demo's ending card is up (set by the controller when the
     /// day after the demo's last is asked for; always false in the full app).
     demo_ending: Rc<std::cell::Cell<bool>>,
+    /// Set when the player chose to close this window although its World's
+    /// latest turns could not be written (see [`Self::ready_to_close`]).
+    closing_anyway: bool,
 }
 
 /// A World's own view in its window: the scene with no title bar of its
@@ -437,6 +458,163 @@ fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionVie
     world_gpui::ProjectionView::controlled(controller)
         .without_header()
         .with_strip(|window, cx| window.dispatch_action(Box::new(about::ShowAsStrip), cx))
+}
+
+/// `view`'s window asks it before closing (see
+/// [`WorldDocumentView::ready_to_close`]).
+#[cfg(target_os = "macos")]
+pub(crate) fn ask_before_closing(
+    view: Entity<WorldDocumentView>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<WorldDocumentView> {
+    let asked = view.downgrade();
+    window.on_window_should_close(cx, move |window, cx| {
+        asked
+            .update(cx, |view, cx| view.ready_to_close(window, cx))
+            .unwrap_or(true)
+    });
+    view
+}
+
+/// The World `id` as it is open in this app (in a window or a strip), if it
+/// is: Home renames, exports and removes an open World through its session,
+/// never behind its back.
+#[cfg(target_os = "macos")]
+fn open_world_document(cx: &App, id: &WorldDocumentId) -> Option<SharedDocument> {
+    open_world_where(cx, |session| session.document_id() == Some(id))
+}
+
+/// The open World whose session `is` says it is the one.
+#[cfg(target_os = "macos")]
+fn open_world_where(cx: &App, is: impl Fn(&DurableWorldSession) -> bool) -> Option<SharedDocument> {
+    let in_windows = cx.windows().into_iter().filter_map(|window| {
+        let view = window.downcast::<WorldDocumentView>()?;
+        view.read(cx).ok().map(|view| Rc::clone(&view.document))
+    });
+    in_windows
+        .chain(strip_window::documents())
+        .find(|document| {
+            document
+                .try_borrow()
+                .is_ok_and(|document| is(&document.session))
+        })
+}
+
+/// Redraws every window onto `document` with its name as it is now.
+#[cfg(target_os = "macos")]
+fn refresh_world_windows(document: &SharedDocument, cx: &mut App) {
+    for window in cx.windows() {
+        let Some(view) = window.downcast::<WorldDocumentView>() else {
+            continue;
+        };
+        let _ = view.update(cx, |view, _, cx| {
+            if Rc::ptr_eq(&view.document, document) {
+                view.refresh_document_identity();
+                cx.notify();
+            }
+        });
+    }
+}
+
+/// Brings the window of the World `id` to the front, if it is open in one.
+#[cfg(target_os = "macos")]
+fn focus_open_world(cx: &mut App, id: &WorldDocumentId) -> bool {
+    let document = open_world_document(cx, id);
+    focus_world(cx, document)
+}
+
+/// Brings the window of `document` to the front; `false` if there is none.
+#[cfg(target_os = "macos")]
+fn focus_world(cx: &mut App, document: Option<SharedDocument>) -> bool {
+    let Some(document) = document else {
+        return false;
+    };
+    let window = cx.windows().into_iter().find_map(|window| {
+        let view = window.downcast::<WorldDocumentView>()?;
+        view.read(cx)
+            .is_ok_and(|view| Rc::ptr_eq(&view.document, &document))
+            .then_some(view)
+    });
+    match window {
+        Some(window) => {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        }
+        // Shown only as a strip: its window opens again from the strip.
+        None => strip_window::show_world(&document, cx),
+    }
+    true
+}
+
+/// Every World open in this app, each once: its name, and why its latest
+/// turns could not be written, for those that could not.
+#[cfg(target_os = "macos")]
+fn unsaved_worlds(cx: &App) -> Vec<(String, String)> {
+    let mut seen: Vec<SharedDocument> = Vec::new();
+    let in_windows = cx.windows().into_iter().filter_map(|window| {
+        let view = window.downcast::<WorldDocumentView>()?;
+        view.read(cx).ok().map(|view| Rc::clone(&view.document))
+    });
+    for document in in_windows.chain(strip_window::documents()) {
+        if !seen.iter().any(|known| Rc::ptr_eq(known, &document)) {
+            seen.push(document);
+        }
+    }
+    let mut failures = seen
+        .iter()
+        .filter_map(|document| {
+            let document = document.try_borrow().ok()?;
+            let error = document.session.flush().err()?;
+            Some((session_display_name(&document.session), error.to_string()))
+        })
+        .collect::<Vec<_>>();
+    // Any World still being let go of, with no window left to name it.
+    if failures.is_empty() {
+        failures.extend(
+            world_library::flush_all_writes()
+                .into_iter()
+                .map(|error| ("A World".to_string(), error.to_string())),
+        );
+    }
+    failures
+}
+
+/// Quits once every open World's latest turns are written; if some cannot
+/// be, asks first, and keeps the app running unless told to quit anyway
+/// (v0.26 only logged them, and quit).
+#[cfg(target_os = "macos")]
+pub(crate) fn quit_after_saving(cx: &mut App) {
+    let failures = unsaved_worlds(cx);
+    if failures.is_empty() {
+        cx.quit();
+        return;
+    }
+    for (name, why) in &failures {
+        diagnostics::error(format!("saving {name} as the app quits: {why}"));
+    }
+    let (message, detail) = saving::quit_failure(&failures);
+    let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) else {
+        cx.quit();
+        return;
+    };
+    let asked = window.update(cx, |_, window, cx| {
+        let answer = window.prompt(
+            gpui::PromptLevel::Critical,
+            &message,
+            Some(&detail),
+            &saving::QUIT_CHOICES,
+            cx,
+        );
+        cx.spawn(async move |cx| {
+            if answer.await == Ok(saving::QUIT_ANYWAY) {
+                cx.update(|cx| cx.quit());
+            }
+        })
+        .detach();
+    });
+    if asked.is_err() {
+        cx.quit();
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -496,6 +674,61 @@ impl WorldDocumentView {
             next_move_at,
             share_open: false,
             demo_ending,
+            closing_anyway: false,
+        }
+    }
+
+    /// Asked before this window closes: the World's changes are written
+    /// first, and if they cannot be, the window stays open and asks what to
+    /// do (v0.26 let a failed last write go with the window, in silence).
+    fn ready_to_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.closing_anyway {
+            return true;
+        }
+        let flushed = match self.document.try_borrow() {
+            Ok(document) => document.session.flush(),
+            // Mid-turn: the turn's own error, if any, is shown by the turn.
+            Err(_) => Ok(()),
+        };
+        let Err(error) = flushed else {
+            return true;
+        };
+        let (message, detail) = saving::close_failure(&self.document_name, &error);
+        self.status = Some(DocumentStatus::error(format!("{message}. {detail}")));
+        let answer = window.prompt(
+            gpui::PromptLevel::Critical,
+            &message,
+            Some(&detail),
+            &saving::CLOSE_CHOICES,
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(choice) = answer.await else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| match choice {
+                saving::SAVE_AS => this.save_as(cx),
+                saving::CLOSE_ANYWAY => {
+                    diagnostics::error(format!(
+                        "closed {} without saving its latest turns",
+                        this.document_name
+                    ));
+                    this.closing_anyway = true;
+                    window.remove_window();
+                }
+                _ => {}
+            });
+        })
+        .detach();
+        cx.notify();
+        false
+    }
+
+    /// File → Close on a World's window: closes it once its World is
+    /// written, as the window's own close button does.
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ready_to_close(window, cx) {
+            window.remove_window();
         }
     }
 
@@ -672,67 +905,37 @@ impl WorldDocumentView {
             )))
     }
 
-    /// The demo's ending, over the World: what was done here is kept, and
-    /// the full app carries on from this evening. It asks for nothing, and
-    /// "Stay a while" puts it away; it comes back only when the next day is
-    /// asked for again.
-    fn demo_ending_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let dismiss = cx.listener(|this, _, _, cx| {
-            this.demo_ending.set(false);
+    /// The demo's ending: the farewell over the World, at dusk, recapping
+    /// the player's own moments from what the World recorded, with a
+    /// resident's goodbye and a postcard to keep. It asks for nothing;
+    /// "Stay a while" puts it away, and it comes back only when the next
+    /// day is asked for again.
+    fn show_demo_farewell(&mut self, cx: &mut Context<Self>) {
+        self.demo_ending.set(false);
+        self.projection.update(cx, |view, cx| {
+            let snapshot = view.snapshot().clone();
+            let goodbye = demo::goodbye_from(&snapshot).map(|who| (who, demo::GOODBYE.to_string()));
+            view.show_farewell(world_gpui::Farewell {
+                title: demo::ENDING_TITLE.into(),
+                recap_title: demo::RECAP_TITLE.into(),
+                recap: demo::recap(&snapshot),
+                goodbye,
+                body: demo::ENDING_BODY.into(),
+                kept: demo::ENDING_KEPT.into(),
+                postcard: demo::KEEP_POSTCARD.into(),
+                more: Some((demo::ENDING_FULL_APP.into(), about_the_full_app())),
+                stay: demo::ENDING_STAY.into(),
+                hour: demo::FAREWELL_HOUR,
+            });
             cx.notify();
         });
-        div()
-            .id("demo-ending-scrim")
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::rgba(0x0000_0055))
-            .child(
-                div()
-                    .id("demo-ending")
-                    .role(gpui::Role::Dialog)
-                    .aria_label(ui::t(demo::ENDING_TITLE))
-                    .w(px(440.0))
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(ui::color(tokens::BORDER))
-                    .bg(ui::color(tokens::SURFACE))
-                    .text_color(ui::color(tokens::TEXT))
-                    .shadow_lg()
-                    .child(ui::heading(demo::ENDING_TITLE))
-                    .child(ui::body(demo::ENDING_BODY))
-                    .child(ui::caption(demo::ENDING_KEPT))
-                    .child(
-                        div()
-                            .pt_2()
-                            .flex()
-                            .justify_end()
-                            .gap_2()
-                            .child(
-                                ui::button(
-                                    "demo-ending-full-app",
-                                    demo::ENDING_FULL_APP,
-                                    ui::ButtonKind::Secondary,
-                                )
-                                .on_click(|_, _, cx| cx.open_url(demo::FULL_APP_URL)),
-                            )
-                            .child(
-                                ui::button(
-                                    "demo-ending-stay",
-                                    demo::ENDING_STAY,
-                                    ui::ButtonKind::Primary,
-                                )
-                                .on_click(dismiss),
-                            ),
-                    ),
-            )
     }
+}
+
+/// What "About the full app" does from the demo's farewell.
+#[cfg(target_os = "macos")]
+fn about_the_full_app() -> world_gpui::FarewellAction {
+    std::rc::Rc::new(|_: &mut Window, cx: &mut gpui::App| cx.open_url(demo::FULL_APP_URL))
 }
 
 #[cfg(target_os = "macos")]
@@ -891,7 +1094,9 @@ impl Render for WorldDocumentView {
                 })),
         );
         let share = share_open.then(|| self.share_list(cx));
-        let ending = self.demo_ending.get().then(|| self.demo_ending_card(cx));
+        if self.demo_ending.get() {
+            self.show_demo_farewell(cx);
+        }
 
         div()
             .relative()
@@ -902,6 +1107,9 @@ impl Render for WorldDocumentView {
             // World window answers them and Home greys them out.
             .on_action(cx.listener(|this, _: &about::SaveWorldAs, _, cx| this.save_as(cx)))
             .on_action(cx.listener(|this, _: &about::ReloadWorld, _, cx| this.reload(cx)))
+            .on_action(
+                cx.listener(|this, _: &about::CloseWindow, window, cx| this.close(window, cx)),
+            )
             .on_action(
                 cx.listener(|this, _: &about::CopyWorldCode, _, cx| this.copy_world_code(cx)),
             )
@@ -925,7 +1133,6 @@ impl Render for WorldDocumentView {
                     .child(self.projection.clone()),
             )
             .children(share)
-            .children(ending)
     }
 }
 
@@ -1729,7 +1936,8 @@ impl WorldMachineHome {
             },
             move |window, cx| {
                 watch_appearance(window);
-                cx.new(|cx| WorldDocumentView::new(session, registry, library, cx))
+                let view = cx.new(|cx| WorldDocumentView::new(session, registry, library, cx));
+                ask_before_closing(view, window, cx)
             },
         );
 
@@ -1835,6 +2043,10 @@ impl WorldMachineHome {
     }
 
     fn open_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        // One window, and one writer, per World: an open one comes forward.
+        if focus_open_world(cx, &document_id) {
+            return;
+        }
         let summary = self
             .documents
             .iter()
@@ -1884,6 +2096,12 @@ impl WorldMachineHome {
                 PACK_BUNDLE_SUFFIX
             )));
             cx.notify();
+            return;
+        }
+        // A World file already open here comes forward rather than opening
+        // twice (it has one writer).
+        let open = open_world_where(cx, |session| session.file_path() == Some(source.as_path()));
+        if focus_world(cx, open) {
             return;
         }
         let session = match DurableWorldSession::open_file(source.clone(), &self.registry) {
@@ -2029,7 +2247,18 @@ impl WorldMachineHome {
             };
 
             let _ = this.update(cx, |this, cx| {
-                match this.library.export_file(&document_id, &destination) {
+                // An open World is exported through its session, its latest
+                // turns written first.
+                let exported = match open_world_document(cx, &document_id) {
+                    Some(document) => match document.try_borrow() {
+                        Ok(document) => document
+                            .session
+                            .export_file(&destination, &document.library),
+                        Err(_) => Err(LibraryError::InUse(this.library.path(&document_id))),
+                    },
+                    None => this.library.export_file(&document_id, &destination),
+                };
+                match exported {
                     Ok(()) => {
                         this.status = Some(HomeStatus::success(format!(
                             "Exported {} to {}",
@@ -2076,7 +2305,7 @@ impl WorldMachineHome {
             div()
                 .text_xs()
                 .text_color(ui::color(tokens::TEXT_SECONDARY))
-                .child("Order"),
+                .child(ui::t("Order")),
         );
         for sort in [WorldSort::Recent, WorldSort::Name] {
             let selected = self.world_sort == sort;
@@ -2167,10 +2396,25 @@ impl WorldMachineHome {
         let typed = draft.input.read(cx).text().trim().to_owned();
         let title = (!typed.is_empty()).then_some(typed);
         let pack_title = self.document_pack_title(&draft.document);
-        // The Library borrow ends here, before the arms take `&mut self`.
-        let renamed = self
-            .library
-            .set_display_title(&draft.document, title.as_deref());
+        // An open World is renamed through its session, so the name is
+        // written by its own writer and never races a turn being saved; a
+        // closed one in its file (refused if another app has it open).
+        let renamed = match open_world_document(cx, &draft.document) {
+            Some(document) => {
+                let renamed = match document.try_borrow_mut() {
+                    Ok(mut document) => {
+                        let library = Arc::clone(&document.library);
+                        document.session.rename(title.as_deref(), &library)
+                    }
+                    Err(_) => Err(LibraryError::InUse(self.library.path(&draft.document))),
+                };
+                refresh_world_windows(&document, cx);
+                renamed
+            }
+            None => self
+                .library
+                .set_display_title(&draft.document, title.as_deref()),
+        };
         match renamed {
             Ok(summary) => {
                 mark_library_changed();
@@ -2209,6 +2453,14 @@ impl WorldMachineHome {
         let title = self
             .document_title_for_id(&document_id)
             .unwrap_or_else(|| document_id.to_string());
+        // An open World is not removed from under its window.
+        if focus_open_world(cx, &document_id) {
+            self.status = Some(HomeStatus::error(format!(
+                "{title} is open: close its window first, then remove it."
+            )));
+            cx.notify();
+            return;
+        }
         let removed = self.library.remove(&document_id);
         match removed {
             Ok(path) => {
@@ -2238,8 +2490,30 @@ impl WorldMachineHome {
                     .descriptor_for(&document.pack)
                     .map(|descriptor| descriptor.title.clone())
                     .unwrap_or_else(|| document.pack.id.clone());
-                world_summary_title(document, &pack_title)
+                self.distinct_title(document, &pack_title)
             })
+    }
+
+    /// A World's name on Home, told apart from any other of the same name:
+    /// the second "Tiny Society" is "Tiny Society 2".
+    fn distinct_title(&self, document: &WorldDocumentSummary, pack_title: &str) -> String {
+        let title = world_summary_title(document, pack_title);
+        let titled = |other: &WorldDocumentSummary| {
+            let other_pack = self
+                .registry
+                .descriptor_for(&other.pack)
+                .map(|descriptor| descriptor.title.clone())
+                .unwrap_or_else(|| other.pack.id.clone());
+            world_summary_title(other, &other_pack)
+        };
+        let mut same = self
+            .documents
+            .iter()
+            .filter(|other| titled(other) == title)
+            .map(|other| other.id.to_string())
+            .collect::<Vec<_>>();
+        same.sort();
+        distinct(&title, &same, &document.id.to_string())
     }
 
     fn document_card(
@@ -2256,7 +2530,7 @@ impl WorldMachineHome {
             .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
-        let title = world_summary_title(&document, &pack_title);
+        let title = self.distinct_title(&document, &pack_title);
         let document_label = document.id.to_string();
 
         let mut details = div()
@@ -2316,7 +2590,9 @@ impl WorldMachineHome {
                                 .min_w(px(0.0))
                                 .text_xs()
                                 .text_color(ui::color(tokens::TEXT_SECONDARY))
-                                .child("An empty name lists this World under its own title again."),
+                                .child(ui::t(
+                                    "An empty name lists this World under its own title again.",
+                                )),
                         ),
                 ),
             );
@@ -2353,7 +2629,7 @@ impl WorldMachineHome {
                                     .bg(ui::color(tokens::DANGER_SOFT))
                                     .text_color(ui::color(tokens::DANGER))
                                     .text_sm()
-                                    .child("Remove")
+                                    .child(ui::t("Remove"))
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.confirm_removal(cx)),
                                     ),
@@ -2369,7 +2645,7 @@ impl WorldMachineHome {
                                     .border_1()
                                     .border_color(ui::color(tokens::BORDER_STRONG))
                                     .text_sm()
-                                    .child("Keep")
+                                    .child(ui::t("Keep"))
                                     .on_click(cx.listener(|this, _, _, cx| this.cancel_removal(cx))),
                             ),
                     ),
@@ -2726,7 +3002,7 @@ impl WorldMachineHome {
                     .border_1()
                     .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
-                    .child("Review & Install")
+                    .child(ui::t("Review & Install"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.review_included_pack(review_pack.clone(), false, cx)
                     })),
@@ -2964,7 +3240,7 @@ impl WorldMachineHome {
                     .border_1()
                     .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
-                    .child("Activate")
+                    .child(ui::t("Activate"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.activate_pack(activate_pack.clone(), cx)
                     })),
@@ -2983,7 +3259,7 @@ impl WorldMachineHome {
                     .border_1()
                     .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
-                    .child("Disable")
+                    .child(ui::t("Disable"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.set_pack_enabled(toggle_pack.clone(), false, cx)
                     })),
@@ -3001,7 +3277,7 @@ impl WorldMachineHome {
                     .border_1()
                     .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
-                    .child("Test & Enable")
+                    .child(ui::t("Test & Enable"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.start_pack_probe(test_pack.clone(), false, false, false, cx)
                     })),
@@ -3089,7 +3365,7 @@ impl WorldMachineHome {
                     .text_sm()
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(ui::color(tokens::ACCENT_TEXT))
-                    .child("Start a World →"),
+                    .child(ui::t("Start a World →")),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.create_world(pack_id.clone(), cx)))
     }
@@ -3104,7 +3380,8 @@ impl Render for WorldMachineHome {
         ));
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::Home);
-        window.set_window_title("World Machine");
+        // The demo says it is one.
+        window.set_window_title(demo::HOME_TITLE);
 
         // A World where nothing has happened yet is not one of My Worlds;
         // starting that kind of World again picks it back up.
@@ -3153,6 +3430,7 @@ impl Render for WorldMachineHome {
             .included_packs
             .iter()
             .find(|pack| pack.featured && !self.included_pack_is_installed(&pack.pack))
+            .filter(|pack| !demo::ENABLED || demo::offers_pack(&pack.pack.id))
             .cloned();
         let featured_review_pending = self
             .pending_pack_install
@@ -3174,7 +3452,9 @@ impl Render for WorldMachineHome {
                     .border_color(ui::color(tokens::BORDER))
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("No Worlds yet. Start one below; it keeps living while you are away."),
+                    .child(ui::t(
+                        "No Worlds yet. Start one below; it keeps living while you are away.",
+                    )),
             );
         } else if visible_documents.is_empty() {
             let empty = if search_query.is_empty() {
@@ -3269,6 +3549,7 @@ impl Render for WorldMachineHome {
             .included_packs
             .iter()
             .filter(|included| !self.included_pack_is_installed(&included.pack))
+            .filter(|included| !demo::ENABLED || demo::offers_pack(&included.pack.id))
             .filter(|included| {
                 featured_included.as_ref().is_none_or(|featured| {
                     featured.pack != included.pack || (!show_featured && !featured_review_pending)
@@ -3281,9 +3562,11 @@ impl Render for WorldMachineHome {
             included = included.child(self.included_pack_card(pack, cx));
         }
 
+        // The demo has no Packs to show beyond its own.
         let installed_packs = self
             .pack_catalog
             .as_ref()
+            .filter(|_| !demo::ENABLED)
             .map(|catalog| catalog.entries().to_vec())
             .unwrap_or_default();
         let mut installed = div().w_full().flex().flex_col().gap_3();
@@ -3300,7 +3583,11 @@ impl Render for WorldMachineHome {
                 .iter()
                 .any(|included| included.featured && included.pack.id == descriptor.pack.id)
         });
-        for descriptor in descriptors {
+        // The demo offers its one Pack, and no other.
+        for descriptor in descriptors
+            .into_iter()
+            .filter(|descriptor| !demo::ENABLED || demo::offers_pack(&descriptor.pack.id))
+        {
             available = available.child(self.new_world_card(descriptor, cx));
         }
 
@@ -3310,7 +3597,7 @@ impl Render for WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
-            .child(ui::page_title("World Machine"))
+            .child(ui::page_title(demo::HOME_TITLE))
             .child(ui::body(
                 "Small worlds that keep living while you are away.",
             ));
@@ -3567,13 +3854,12 @@ fn rename_placeholder(pack_title: &str) -> String {
 
 #[cfg(target_os = "macos")]
 fn rename_result_message(display_title: Option<&str>, pack_title: &str) -> String {
-    // The name is written into the World's own file, so a window already open
-    // on that World is one save behind until it reloads. Say so rather than
-    // letting it surface later as a changed-on-disk refusal.
-    let reload = "If this World is open in a window, choose World → Reload there.";
+    // A World open in a window is renamed through its own session (its
+    // writer writes the name in turn with its turns), so nothing there needs
+    // reloading.
     match display_title {
-        Some(title) => format!("Renamed to {title}. {reload}"),
-        None => format!("Name cleared; this World is listed as {pack_title} again. {reload}"),
+        Some(title) => format!("Renamed to {title}."),
+        None => format!("Name cleared; this World is listed as {pack_title} again."),
     }
 }
 
@@ -3694,6 +3980,16 @@ fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> Str
         .filter(|title| !title.is_empty())
         .unwrap_or(pack_title)
         .to_owned()
+}
+
+/// `title` for the World `id`, of the Worlds `same` (by id, oldest
+/// first) that share it: the first keeps it, the next are numbered.
+#[cfg(target_os = "macos")]
+fn distinct(title: &str, same: &[String], id: &str) -> String {
+    match same.iter().position(|other| other == id) {
+        Some(at) if at > 0 => format!("{title} {}", at + 1),
+        _ => title.to_owned(),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -4155,6 +4451,20 @@ mod file_type_tests {
     }
 
     #[test]
+    fn worlds_of_one_name_are_told_apart() {
+        let same = ["tiny-society-1".to_string(), "tiny-society-2".to_string()];
+        assert_eq!(
+            distinct("Tiny Society", &same, "tiny-society-1"),
+            "Tiny Society"
+        );
+        assert_eq!(
+            distinct("Tiny Society", &same, "tiny-society-2"),
+            "Tiny Society 2"
+        );
+        assert_eq!(distinct("Ares", &["ares".to_string()], "ares"), "Ares");
+    }
+
+    #[test]
     fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {
         let pack = WorldPackRef::new("pocket-universe", "0.10.0");
         let mut summary = WorldDocumentSummary {
@@ -4284,11 +4594,16 @@ mod file_type_tests {
     #[test]
     fn renaming_reports_the_name_or_the_pack_title_it_fell_back_to() {
         let named = rename_result_message(Some("Maple Street"), "Pocket Universe");
-        assert!(named.starts_with("Renamed to Maple Street."));
-        assert!(named.contains("World → Reload"));
+        assert_eq!(named, "Renamed to Maple Street.");
+        assert!(
+            !named.contains("Reload"),
+            "an open World is renamed in place"
+        );
         let cleared = rename_result_message(None, "Pocket Universe");
-        assert!(cleared.starts_with("Name cleared; this World is listed as Pocket Universe again."));
-        assert!(cleared.contains("World → Reload"));
+        assert_eq!(
+            cleared,
+            "Name cleared; this World is listed as Pocket Universe again."
+        );
         assert_eq!(
             rename_placeholder("Pocket Universe"),
             "Pocket Universe — name this World"

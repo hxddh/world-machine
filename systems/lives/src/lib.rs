@@ -2075,9 +2075,13 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
         }
     }
     // Strangers come by now and then, and more often to a place that is
-    // nearly empty.
+    // nearly empty; only while there is a name nobody here or gone has had,
+    // so nobody comes to stay as "A stranger".
     let few = people.len() * 2 < cast.most_people;
-    if people.len() < cast.most_people && now % if few { 5 } else { 7 } == 4 {
+    if people.len() < cast.most_people
+        && now % if few { 5 } else { 7 } == 4
+        && !next_names(state, cast, 1).is_empty()
+    {
         if let Some(visitor) = next_visitor(state, cast) {
             found.push((
                 if few { 120 } else { 105 },
@@ -2273,6 +2277,35 @@ const LEFT: &str = "lives.left";
 
 /// The last season something was left for the player to mark.
 const SEASON_GIFT: &str = "lives.season_gift";
+
+/// What someone says when what they meant to tell the player goes untold.
+const UNSAID: [&str; 6] = [
+    "Never mind. It was nothing.",
+    "Forget I said anything.",
+    "Another day, maybe. It'll keep.",
+    "It's fine. I'll tell you sometime.",
+    "Oh, it doesn't matter now.",
+    "I'll save it for a quieter day.",
+];
+
+/// What someone says leaving the player something as a season turns, the
+/// next of these each season.
+const SEASON_NOTES: [&str; 14] = [
+    "Something for the turn of the season.",
+    "A new season, and this made me think of you.",
+    "The season's turning. I wanted you to have this.",
+    "For the season ahead. May it be a kind one.",
+    "Saw this and thought of you. Happy new season.",
+    "Every season deserves a small gift. Here's yours.",
+    "The days are changing. This one's for you.",
+    "Kept this back for the season's first day.",
+    "To mark the turn of the season, from me to you.",
+    "Here's to the season coming in.",
+    "A little something, now the season's changed.",
+    "New season, same you. Thought you'd like this.",
+    "For the start of a fresh season.",
+    "It felt like a day for giving. Happy new season.",
+];
 
 const WELCOME: [&str; 4] = [
     "a hand-drawn map of the {settlement}",
@@ -2634,6 +2667,19 @@ impl Action for Opens {
                 .map(|prompt| fill_owned(prompt, &words))
                 .collect::<Vec<_>>(),
         };
+        // Each place starts its round of ways to put it somewhere of its
+        // own, so no two places open on the same words.
+        let place: u64 = format!("{} {}", cast.settlement, cast.unit)
+            .bytes()
+            .fold(1, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(u64::from(byte))
+            });
+        let start = (place % prompts.len().max(1) as u64) as usize;
+        let prompts = prompts[start..]
+            .iter()
+            .chain(&prompts[..start])
+            .cloned()
+            .collect::<Vec<_>>();
         situation.prompt = match prompts.iter().find(|prompt| !heard.lately(prompt)) {
             Some(prompt) => prompt.clone(),
             None => personal(
@@ -3277,10 +3323,12 @@ fn outcome(
                 w("Maybe you're right. Maybe I will."),
             )
         }
-        (Kind::Confide, "lapse") => (
-            w("{a} almost told you something"),
-            w("Never mind. It was nothing."),
-        ),
+        (Kind::Confide, "lapse") => {
+            let said = pick(&UNSAID, mix(&[a.0, now_period as u64, 13]))
+                .copied()
+                .unwrap_or("Never mind. It was nothing.");
+            (w("{a} almost told you something"), w(said))
+        }
         (Kind::Favour, "word") => {
             moves.set(a, &door_key(Kind::Favour), now_period);
             let friend = best_friend(state, a).unwrap_or(a);
@@ -3907,10 +3955,11 @@ impl Action for LeavesKeepsake {
             .and_then(|season| season.parse::<i64>().ok());
         let note = if welcome {
             format!("For your first day in the {}. Welcome.", cast.settlement)
-        } else if season.is_some() {
-            format!("Something for the turn of the season. {why}")
-                .trim()
-                .to_string()
+        } else if let Some(season) = season {
+            // A different word each season, so a year of them never
+            // repeats one.
+            let note = SEASON_NOTES[season.rem_euclid(SEASON_NOTES.len() as i64) as usize];
+            format!("{note} {why}").trim().to_string()
         } else if why.is_empty() {
             "Missed you round here.".to_string()
         } else {
@@ -4674,9 +4723,13 @@ fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str
     };
     // Names here are compared whole ("Yusuf Adeyemi") and by first name
     // ("Yusuf"), however the Pack writes its visitors' names.
-    let taken = (visitors.first..visitors.first + visitors.room)
-        .map(EntityId::new)
-        .filter(|id| state.entity(*id).is_some())
+    // Everyone the World holds counts, gone or not and wherever their id
+    // was given (a Pack's own newcomers too), as a stranger at the door
+    // takes their name only while nobody holds it.
+    let taken = state
+        .entities()
+        .filter(|entity| entity.component("name").is_some())
+        .map(|entity| entity.id)
         .chain(cast_ids(state))
         .flat_map(|id| [name(state, id), first_name(state, id)])
         .chain(waiting_strangers(state, cast))
@@ -5253,7 +5306,7 @@ pub fn how_are_you_on(world: &World, person: EntityId, seed: u64) -> Option<Stri
                 "Tired to the bone.",
             ],
             Need::Company => [
-                "A bit lonely, if I'm honest.",
+                "I'd like a bit more company, if I'm honest.",
                 "Quiet. Too quiet, some days.",
                 "I could do with some company.",
             ],

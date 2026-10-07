@@ -249,10 +249,44 @@ pub(crate) fn in_own_words(told: &str, first: &str) -> String {
     {
         return told.to_string();
     }
-    let mut line = told.to_string();
+    // The writer's surname goes with their first name: "Yusuf and Nia
+    // Adeyemi" is "Yusuf and I", never "Yusuf and I Adeyemi".
+    let mut line = told
+        .split(' ')
+        .scan(false, |after_first, word| {
+            let surname = *after_first
+                && word.chars().next().is_some_and(char::is_uppercase)
+                && word.chars().all(|c| c.is_alphabetic() || c == '-')
+                && word.len() > 1;
+            *after_first = word == first;
+            Some((!surname).then_some(word))
+        })
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Someone unnamed and the writer did something together: "A few of
+    // us", never "whoever and I was free".
+    for unnamed in [
+        "whoever was free",
+        "whoever was about",
+        "anyone who was free",
+    ] {
+        if let Some(rest) = line.strip_prefix(&format!("{first} and {unnamed} ")) {
+            return format!("A few of us {}", rest.replace(" their own", " our own"));
+        }
+    }
     let subject = if let Some(rest) = line.strip_prefix(&format!("{first} and ")) {
-        // "Greta and Leo walked out": "Leo and I walked out".
-        let (other, rest) = rest.split_once(' ').unwrap_or((rest, ""));
+        // "Greta and Leo walked out": "Leo and I walked out"; "Greta and
+        // Lin Mei became friends": "Lin Mei and I became friends".
+        let words = rest.split(' ').collect::<Vec<_>>();
+        let named = words
+            .iter()
+            .take_while(|word| word.chars().next().is_some_and(char::is_uppercase))
+            .count()
+            .max(1)
+            .min(words.len());
+        let other = words[..named].join(" ");
+        let rest = words[named..].join(" ");
         Some(format!("{other} and I {rest}"))
     } else if let Some(rest) = line.strip_prefix(&format!("{first}'s ")) {
         Some(format!("My {rest}"))
@@ -270,10 +304,18 @@ pub(crate) fn in_own_words(told: &str, first: &str) -> String {
     if let Some(subject) = subject {
         line = subject;
     }
+    // Something two people share: "Tomas Vale and Greta's party" and
+    // "Greta and Keisha's party" are "Tomas Vale's and my party" and
+    // "Keisha's and my party".
+    line = shared_with(&line, first);
     // "Leo and Greta became friends": "Leo and I".
     let pair = format!(" and {first} ");
     if let Some(at) = line.find(&pair) {
-        if !line[..at].contains(' ') {
+        // Only where what comes before is a name: "Lin Mei and Greta".
+        if line[..at]
+            .split(' ')
+            .all(|word| word.chars().next().is_some_and(char::is_uppercase))
+        {
             line.replace_range(at..at + pair.len(), " and I ");
         }
     }
@@ -289,9 +331,57 @@ pub(crate) fn in_own_words(told: &str, first: &str) -> String {
     if by_self {
         line = line
             .replace(" their own", " my own")
-            .replace(" of their ", " of my ");
+            .replace(" of their ", " of my ")
+            // "I went fishing with Miri, and they had words": we did.
+            .replace(", and they ", ", and we ");
     }
     line
+}
+
+/// `line` with what `first` shares with someone told as theirs and mine.
+fn shared_with(line: &str, first: &str) -> String {
+    let words = line.split(' ').collect::<Vec<_>>();
+    let possessive = format!("{first}'s");
+    for at in 0..words.len() {
+        // "<name> and Greta's <thing>"
+        if words[at] == "and" && words.get(at + 1) == Some(&possessive.as_str()) {
+            let start = (0..at)
+                .rev()
+                .take_while(|i| words[*i].chars().next().is_some_and(char::is_uppercase))
+                .last();
+            if let Some(start) = start {
+                let name = words[start..at].join(" ");
+                let mut out = words[..start].to_vec().join(" ");
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(&format!("{name}'s and my"));
+                for word in &words[at + 2..] {
+                    out.push(' ');
+                    out.push_str(word);
+                }
+                return out;
+            }
+        }
+        // "Greta and <name>'s <thing>"
+        if words[at] == first && words.get(at + 1) == Some(&"and") {
+            let owner = (at + 2..words.len()).find(|i| words[*i].ends_with("'s"));
+            let named = owner.is_some_and(|owner| {
+                words[at + 2..=owner]
+                    .iter()
+                    .all(|word| word.chars().next().is_some_and(char::is_uppercase))
+            });
+            if let (Some(owner), true) = (owner, named) {
+                let mut out = words[..at].to_vec();
+                out.extend_from_slice(&words[at + 2..=owner]);
+                out.push("and");
+                out.push("my");
+                out.extend_from_slice(&words[owner + 1..]);
+                return out.join(" ");
+            }
+        }
+    }
+    line.to_string()
 }
 
 /// "The harbour held its Regatta" as it reads inside a sentence: an
@@ -899,12 +989,44 @@ mod own_words {
                 "I mended the nets at the quay",
             ),
             (
+                "Greta went fishing with Miri, and they had words",
+                "I went fishing with Miri, and we had words",
+            ),
+            (
                 "Leo and Mara became firm friends",
                 "Leo and Mara became firm friends",
             ),
             (
                 "Tomas Vale shared supper with Greta",
                 "Tomas Vale shared supper with me",
+            ),
+            (
+                "Yusuf and Greta Adeyemi became firm friends",
+                "Yusuf and I became firm friends",
+            ),
+            (
+                "Greta Adeyemi and Yusuf became firm friends",
+                "Yusuf and I became firm friends",
+            ),
+            (
+                "Greta and Ines Duarte became firm friends",
+                "Ines Duarte and I became firm friends",
+            ),
+            (
+                "Lin Mei and Greta became firm friends",
+                "Lin Mei and I became firm friends",
+            ),
+            (
+                "the whole colony came to Tomas Vale and Greta's party at Ares Habitat",
+                "the whole colony came to Tomas Vale's and my party at Ares Habitat",
+            ),
+            (
+                "the whole street came to Greta and Keisha's party at Maple Arcade",
+                "the whole street came to Keisha's and my party at Maple Arcade",
+            ),
+            (
+                "Greta and whoever was free made something of their own: a mural on the arcade wall",
+                "A few of us made something of our own: a mural on the arcade wall",
             ),
         ] {
             assert_eq!(in_own_words(told, "Greta"), written);

@@ -5,6 +5,6 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-world-integrity = { path = "../world-integrity" }
-world-persistence = { path = "../world-persistence" }
-world-projection = { path = "../world-projection" }
+world-integrity = { path = "../world-integrity", version = "0.1.0" }
+world-persistence = { path = "../world-persistence", version = "0.1.0" }
+world-projection = { path = "../world-projection", version = "0.1.0" }

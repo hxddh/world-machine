@@ -238,6 +238,14 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             .find(|event| matches!(event.kind.as_str(), "keepsake_left" | "letter_written"))
         {
             if let Some(title) = lives::told(left) {
+                // What the note tells is not told again beside it.
+                let note = lives::said(left)
+                    .map(|(_, note)| note.to_lowercase())
+                    .unwrap_or_default();
+                items.retain(|item| {
+                    let told = item.title.trim_end_matches('.').to_lowercase();
+                    told.len() < 12 || !note.contains(&told)
+                });
                 items.push(BriefingItem {
                     kind: BriefingItemKind::Beat,
                     selection: Some(SelectionId::Event(left.id)),
@@ -344,16 +352,23 @@ pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
         // A narrated line is not an event of its own: it is how the event
         // it re-words gets read. What someone left or wrote the player
         // closes the return on its own, and what someone said of a deed is
-        // heard as it happens.
+        // heard as it happens. A question that came up is asked on the
+        // card, or told by how it went, never also as it came up.
         !matches!(
             event.kind.as_str(),
-            narrator::NARRATED | "keepsake_left" | "letter_written" | "reacted"
+            narrator::NARRATED | "keepsake_left" | "letter_written" | "reacted" | "situation_arose"
         ) && !conversation::favour::is_favour(event)
     }) {
-        if let Some((_, count)) = groups
-            .iter_mut()
-            .find(|(latest, _)| latest.kind == event.kind)
-        {
+        // One line a kind, and one a storylet: how a question ended is
+        // told once, by the latest of it.
+        let storylet = |event: &Event| match event.payload.get("storylet") {
+            Some(Value::Text(id)) => Some(id.clone()),
+            _ => None,
+        };
+        if let Some((_, count)) = groups.iter_mut().find(|(latest, _)| {
+            latest.kind == event.kind
+                || storylet(latest).is_some_and(|id| Some(id) == storylet(event))
+        }) {
             *count += 1;
         } else {
             groups.push((event, 1));

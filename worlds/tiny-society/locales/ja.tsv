@@ -192,6 +192,8 @@ Sunflowers	ひまわり
 Sunflower shoots	ひまわりの芽
 Herb garden	ハーブ園
 Herb seedlings	ハーブの苗
+Wildflowers	野の花
+Wildflower shoots	野の花の芽
 the harbour fund	港の基金
 A present for {}	{}への贈り物
 Invite {} to the pub	{}を酒場に誘う
@@ -445,7 +447,7 @@ Let the day pass	一日を過ごす
 Nothing is decided.	まだ何も決まっていません。
 The harbour lives its day.	港はいつもの一日を送ります。
 Jonas's catch	ジョナスの漁獲
-The bakery could not cover payroll	パン屋は給料を払えなかった
+The bakery couldn't find this week's wages	パン屋は今週の給料を工面できなかった
 {} more things happened	ほかに{}件のできごとがありました
 The whole history is in the timeline.	歴史のすべてはタイムラインにあります。
 was	だった
@@ -471,11 +473,11 @@ Harbor Bakery closed its doors	港のパン屋が店を閉めた
 Harbour Bakery closed its doors	港のパン屋が店を閉めた
 Leo started protecting his savings	レオは貯金を守りはじめた
 Emma started protecting her savings	エマは貯金を守りはじめた
-Leo's Pub income was disrupted	レオの酒場の収入が途絶えた
-Emma's School income was disrupted	エマの学校の収入が途絶えた
-Anchor Pub exhausted its payroll reserve	酒場「アンカー」の給料の積立金が底をついた
-Island School exhausted its payroll reserve	島の学校の給料の積立金が底をついた
-A workplace exhausted its payroll reserve	ある職場の給料の積立金が底をついた
+Leo's takings at the pub took a knock	レオの酒場の売り上げががくんと落ちた
+Emma's pay from the school took a knock	エマの学校からの給料が減ってしまった
+The Anchor's wage tin ran dry	酒場「アンカー」の給料袋が空っぽになった
+The school's wage tin ran dry	学校の給料袋が空っぽになった
+A wage tin in the harbour ran dry	港のある店の給料袋が空っぽになった
 Leo put his backing elsewhere	レオはほかに出資先を移した
 Jonas asked Mara for work	ジョナスはマーラに仕事を頼んだ
 Mara took Jonas back on while nobody was watching	マーラは誰も見ていない間にジョナスを雇い直した
@@ -492,7 +494,7 @@ Mara dismissed Jonas	マーラはジョナスを解雇した
 The bakery lost the wedding order	パン屋は結婚式の注文を失った
 Jonas took temporary work at the bakery	ジョナスはパン屋で臨時の仕事についた
 Jonas asked Leo for a loan	ジョナスはレオに借金を頼んだ
-A storm reached the harbor	嵐が港に到達した
+A storm reached the harbour	嵐が港にやって来た
 Mara took Mia on at the bakery counter	マーラはミアをパン屋の店番に雇った
 Someone	誰か
 {name} came down	{name}が下りてきた
@@ -1510,6 +1512,7 @@ The fiddler stayed on the mainland	フィドル弾きは本土に残った
 He's not coming back.	もう戻ってこないってさ。
 Mara's patched oven gave out	マーラの修理したオーブンが壊れた
 The patched oven's died mid-batch.	修理したオーブン、焼いてる途中で止まっちゃった。
+The patched oven's given up mid-batch.	修理したオーブン、焼いてる途中で動かなくなっちゃった。
 Buy a new one now	今度こそ新しいのを買う
 80 of Mara's savings, at last.	ついにマーラの貯金から80を。
 Should have done this weeks ago.	何週間も前にこうすればよかった。
@@ -4595,3 +4598,76 @@ Bess	ベス
 Pike	パイク
 Old Bess	ベスばあさん
 I'm grown now, with a trade of my own: {trade}	大人になって、自分の仕事を持ったんだ。{trade}だよ
+# What people at the harbour say using what the player made (v0.27).
+I could sit on this {what} all day. The tide agrees.	この{what}なら一日じゅう座っていられそう。潮もそう言ってるよ。
+Good {what}, this. Solid as the harbour wall.	いい{what}だね。港の防波堤みたいにがっしりしてる。
+You can see every boat in the harbour from here.	ここから港の船が一隻残らず見えるんだ。
+Five minutes on the {what}. Then back to the nets.	{what}で五分だけひと休み。そしたらまた網仕事。
+Whoever made this {what} knew what tired feet want.	この{what}を作った人は、疲れた足の気持ちがわかってるね。
+Sat on the {what} and watched the gulls squabble. Bliss.	{what}に座って、カモメのけんかを眺めてた。最高だよ。
+Ate my bread roll on the {what}. The gulls got the crust.	{what}でロールパンを食べたよ。耳はカモメに取られちゃった。
+Watched the ferry come and go from the {what}.	{what}から、フェリーが来ては出ていくのを眺めてたよ。
+Shared the {what} with a stranger off the ferry. Nice sort.	フェリーから降りてきた知らない人と{what}を分けあったよ。いい人だった。
+Counted the masts from the {what}. Lost count at nine.	{what}からマストを数えてたら、九本目でわからなくなっちゃった。
+The {what} smells of salt and sun. Lovely.	{what}が潮と日なたのにおいがするんだ。いいよね。
+Mended a net on the {what}. Kinder than the quay steps.	{what}で網をつくろったよ。岸壁の階段よりずっと楽。
+Took my boots off on the {what}. Don't look.	{what}でブーツを脱いじゃった。見ないでね。
+The {what} is where I go to think. Mostly about lunch.	考えごとをするなら{what}なんだ。たいていお昼ごはんのことだけど。
+Sat on the {what} and let the sea do the talking.	{what}に座って、話すのは海にまかせてた。
+A crab tried to share the {what} with me. I let it.	カニが{what}にいっしょに座ろうとしてきたから、座らせてあげた。
+The fog rolled in while I sat on the {what}. Cosy, somehow.	{what}に座ってたら霧が出てきてね。なんだか落ち着いたよ。
+Read the paper on the {what}. All of it, even the tides.	{what}で新聞を全部読んだよ。潮見表までね。
+There's a dip in the {what} just my shape now.	{what}に、ちょうど私の形のくぼみができちゃった。
+Waved at every boat from the {what}. Most waved back.	{what}から船という船に手を振ったら、だいたい振り返してくれたよ。
+The {what} creaks like an old hull. I like that.	{what}が古い船みたいにきしむんだ。そこが好き。
+Dozed on the {what} and woke to the ferry's horn.	{what}でうとうとしてたら、フェリーの汽笛で目が覚めたよ。
+Watched the tide turn from the {what}. It took its time.	{what}から潮が変わるのを見てた。ゆっくりだったなあ。
+The {what} by {place} catches the last of the sun.	{place}のそばの{what}は、最後まで日が当たるんだ。
+Wrote to my sister from the {what}. Told her about the gulls.	{what}で姉に手紙を書いたよ。カモメのことを書いておいた。
+Had a proper sit on the {what}. Doctor's orders, I told myself.	{what}でちゃんと腰を下ろしたよ。お医者さんの言いつけってことにして。
+Saw a seal off the point from the {what}. Honest.	{what}から、岬の沖にアザラシが見えたんだ。ほんとだよ。
+Half the harbour ended up by the {what} last night.	ゆうべは港の半分が{what}のそばに集まってたよ。
+{other} and I watched the lamps come on along the quay.	{other}と、岸壁の灯りがひとつずつともるのを眺めてた。
+{other} brought chips from the Anchor. We ate them by the {what}.	{other}が「アンカー」からフライドポテトを持ってきてくれて、{what}のそばで食べたよ。
+The tide came right up while {other} and I talked by the {what}.	{other}と{what}のそばで話してたら、潮がすぐそこまで満ちてきてた。
+{other} knows every boat by its lights. Showed off all night.	{other}は灯りを見ただけでどの船かわかるんだ。ひと晩じゅう自慢してたよ。
+Fog came in, so we huddled by the {what}. Didn't mind a bit.	霧が出てきたから、{what}のそばで身を寄せあったよ。ちっとも嫌じゃなかった。
+{other} and I swapped ghost stories by the {what}. I'm sleeping with a lamp on.	{other}と{what}のそばで怪談を話しあったよ。今夜は明かりをつけて寝なきゃ。
+Someone's radio by the {what} had the shipping forecast on. We all listened.	{what}のそばで誰かのラジオが海上天気予報を流してて、みんなで聞き入ってたよ。
+{other} skimmed stones by the {what} till it was too dark to see them.	{other}は{what}のそばで、暗くて石が見えなくなるまで水切りしてたよ。
+Half the quay came by the {what} with mugs of tea.	岸壁の半分くらいの人が、マグカップのお茶を手に{what}のそばに来たよ。
+{other} and I watched the last boat home from the {what}.	{other}と{what}のそばで、最後の船が帰ってくるのを見届けたよ。
+From your {what}, with the dew still on.	あなたの{what}からだよ。まだ朝露がついてる。
+The gulls had a go at your {what}. They missed these.	カモメがあなたの{what}をつついてたけど、これは無事だったよ。
+Brought you the best of your {what}. I kept the second best.	あなたの{what}からいちばんいいのを持ってきたよ。二番目は私がもらった。
+Your {what} smells of summer. Take some home.	あなたの{what}、夏のにおいがするよ。少し持って帰って。
+Sea air suits your {what}. Here's the proof.	海の風があなたの{what}に合うみたい。ほら、この通り。
+The boats knocked gently against the quay while we sat by the {what}.	{what}のそばに座ってると、船がそっと岸壁に当たる音がしてた。
+Someone started a song by the {what}. The whole quay knew the words.	{what}のそばで誰かが歌いだしたら、岸壁じゅうのみんなが歌詞を知ってたよ。
+Watched the ferry's lights go out across the water from the {what}.	{what}から、海の向こうでフェリーの灯りが消えていくのを見てた。
+The gulls finally went quiet. We stayed by the {what} anyway.	カモメがやっと静かになった。それでも{what}のそばにいたんだ。
+Toasted crumpets by the {what}. Burnt half of them.	{what}のそばでクランペットを焼いたよ。半分こがしちゃった。
+Brought my knitting to the {what}. Three rows done, and a lot of gossip.	{what}に編み物を持っていったよ。三段編んで、うわさ話もたっぷり。
+The sea was flat as glass tonight. We just sat by the {what} and looked.	今夜の海は鏡みたいに静かでね。{what}のそばに座って、ただ眺めてた。
+Somebody's dog fell asleep on my feet by the {what}.	{what}のそばで、誰かの犬が私の足の上で寝ちゃった。
+Told the old story about the big catch by the {what}. It's bigger every time.	{what}のそばで大漁の昔話をしたよ。話すたびに魚が大きくなるんだ。
+Shared a pot of mussels by the {what}. Not a scrap left.	{what}のそばでムール貝をひと鍋分けあったよ。きれいに平らげた。
+Watched the moon come up over the water from the {what}.	{what}から、海の上に月がのぼるのを見てた。
+Spotted the first star by the {what}. I made a wish. Not telling.	{what}のそばで一番星を見つけたよ。願いごとをしたけど、ないしょ。
+The tide went out and took the chatter with it. Lovely evening by the {what}.	潮が引いて、おしゃべりも一緒に連れていった。{what}のそばのすてきな夜だったよ。
+Rain came on, so we squeezed in close by the {what}. Nobody left.	雨が降ってきたから、{what}のそばでぎゅっと寄りあったよ。誰も帰らなかった。
+A fishing song by the {what}. Nobody could reach the high bit.	{what}のそばで漁師の歌を歌ったよ。高いところは誰も出なかったけど。
+Someone brought warm bread from the bakery. We ate it by the {what}.	誰かがパン屋から焼きたてのパンを持ってきて、{what}のそばで食べたよ。
+By the {what}, everyone talks a little softer.	{what}のそばだと、みんな少しだけ声がやさしくなるんだ。
+Ended the day by the {what}, salt on my lips and nothing on my mind.	{what}のそばで一日を終えたよ。くちびるに潮の味、頭の中はからっぽ。
+# Work, places and letters (v0.27).
+shop assistant	店員
+apprentice	見習い
+apprentice baker	パン職人の見習い
+bakery owner operator	パン屋の店主
+pub help	酒場の手伝い
+pub owner	酒場の主人
+retired	引退
+bakery closed	パン屋は休業中
+I'm grown now, with a trade of my own: {}	私も大人になって、{}として働きはじめたんだ
+the whole harbour came to {}'s and my party at {}	{}と私が{}で開いたパーティーに、港のみんなが来てくれたんだ

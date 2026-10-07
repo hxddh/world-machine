@@ -4,7 +4,7 @@ use std::fmt;
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
-    ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+    ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest, VoiceHearing,
 };
 
 pub trait WorldSession {
@@ -17,6 +17,19 @@ pub trait WorldSession {
     /// the words with its response. Changes nothing; `None` for a World
     /// nobody can talk to.
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        let _ = (to, words);
+        Ok(None)
+    }
+
+    /// What a language model should be told to hear the player's words to
+    /// someone, as data, for an app that builds the model's prompt itself
+    /// and then says the words with its response. Changes nothing; `None`
+    /// for a World nobody can talk to, or one that only writes prompts.
+    fn voice_hearing(
+        &self,
+        to: SelectionId,
+        words: &str,
+    ) -> Result<Option<VoiceHearing>, HostError> {
         let _ = (to, words);
         Ok(None)
     }
@@ -119,6 +132,14 @@ impl WorldSession for IntegrityCheckedSession {
 
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
         self.inner.hearing(to, words)
+    }
+
+    fn voice_hearing(
+        &self,
+        to: SelectionId,
+        words: &str,
+    ) -> Result<Option<VoiceHearing>, HostError> {
+        self.inner.voice_hearing(to, words)
     }
 
     fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {

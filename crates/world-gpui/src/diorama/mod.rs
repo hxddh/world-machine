@@ -22,6 +22,7 @@
 //! (the hour, the sky and the weather) and [`interface`] (the still layers
 //! as GPUI shows them, and the scene element).
 
+mod ground;
 mod interface;
 mod light;
 mod lived;
@@ -39,6 +40,7 @@ pub use works::*;
 use crate::age::{self, Age};
 use crate::art::{self, Figure, Inks, Palette, Pose};
 use crate::brush::{Brush, Shape, Xform};
+use crate::ladder;
 use crate::mark::{self, Picture, PlotPaint, Wear, Worn};
 use crate::painter::{self, Canvas, Key};
 use crate::scene::Daylight;
@@ -83,6 +85,11 @@ pub struct Frame {
     water: bool,
     marks: Vec<RidgeMark>,
     goals: Vec<RidgeGoal>,
+    /// Each cluster's patch of ground (scene's, A1: ground.rs).
+    patches: Vec<ground::PatchPaint>,
+    /// A nearer row of a folded postcard: its ground fades in at the top,
+    /// running on from the row behind without a seam.
+    blend_top: bool,
     buildings: Vec<BuildingPaint>,
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
@@ -94,20 +101,20 @@ pub struct Frame {
     /// Designs worn this frame, and their pictures once painted, by item.
     wearing: Vec<Worn>,
     pictures: BTreeMap<usize, Picture>,
+    /// Bunting strung between two buildings, by their items.
+    garlands: Vec<(usize, usize)>,
 }
 
 impl Frame {
-    /// The same frame graded for `hour` whatever the clock says, so a test
-    /// picture never depends on when it is drawn.
-    #[cfg(test)]
-    pub(crate) fn at_hour(mut self, hour: f32) -> Self {
+    /// The same frame graded for `hour` whatever the clock says, so a
+    /// picture (a test's, the key art) never depends on when it is drawn.
+    pub fn at_hour(mut self, hour: f32) -> Self {
         self.hour = hour;
         self
     }
 
     /// The same frame `seconds` into looking, for the boil.
-    #[cfg(test)]
-    pub(crate) fn at_seconds(mut self, seconds: f32) -> Self {
+    pub fn at_seconds(mut self, seconds: f32) -> Self {
         self.seconds = seconds;
         self
     }
@@ -209,6 +216,24 @@ impl Frame {
             let facing = person.pose.facing;
             person.pose.facing = facing + (toward - facing) * turned;
         }
+    }
+
+    /// Bunting strung from the eaves of the building at item `from` to
+    /// the one at `to`: a party's mark, or the key art dressed for one.
+    pub fn string_bunting(&mut self, from: usize, to: usize) {
+        self.garlands.push((from, to));
+    }
+
+    /// The buildings in the frame, as (item index, x on the stage, how
+    /// wide), left to right.
+    pub fn buildings_along(&self) -> Vec<(usize, f32, f32)> {
+        let mut along = self
+            .buildings
+            .iter()
+            .map(|building| (building.index, building.x, building.w))
+            .collect::<Vec<_>>();
+        along.sort_by(|a, b| a.1.total_cmp(&b.1));
+        along
     }
 
     /// The plot (by its index in the World's plots) pointed at, or chosen
@@ -314,7 +339,24 @@ pub fn frame(
     // What the World is working toward stands among them, larger, as an
     // outline that fills in part by part. Only the latest few: a long
     // ladder of works would crowd the ridge.
-    let shown_goals = &snapshot.goals[snapshot.goals.len().saturating_sub(GOALS_SHOWN)..];
+    // A goal the Pack already stands in the town (going up in scaffolding
+    // on its own site, or finished there) is not drawn again on the ridge:
+    // a pier belongs on the water, never on a hill.
+    let in_town = |goal: &world_projection::Goal| {
+        items
+            .iter()
+            .any(|item| item.px.is_some() && item.label == goal.label)
+    };
+    // A Pack that lays its place out in clusters stands its works there,
+    // and leaves the ridge to the back row.
+    let clustered = !snapshot.canvas.clusters.is_empty();
+    let off_stage = snapshot
+        .goals
+        .iter()
+        .filter(|goal| !clustered && !in_town(goal))
+        .cloned()
+        .collect::<Vec<_>>();
+    let shown_goals = &off_stage[off_stage.len().saturating_sub(GOALS_SHOWN)..];
     let goal_count = shown_goals.len();
     let building_w = stage.building_w.min(stage.building_h * 1.15);
     let goals = shown_goals
@@ -369,6 +411,20 @@ pub fn frame(
                 }
                 None => (w, h),
             };
+            // On the ladder: as tall as it stands beside a grown-up at its
+            // depth (crate::ladder), whatever room its spot was given.
+            let p = stage.figure_h * spot.scale;
+            let (w, h) = match &drawing {
+                Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+                None => ladder::Subject::Building(shape, setting, art_of(item)).sized(p, spot.w),
+            }
+            // Never much wider than the room its place was given: in a
+            // narrow gap it keeps its proportions, a little smaller.
+            .map(|(lw, lh)| {
+                let fit = (spot.w * ROOM / lw.max(1.0)).min(1.0);
+                (lw * fit, lh * fit)
+            })
+            .unwrap_or((w, h));
             BuildingPaint {
                 index: spot.index,
                 x: spot.x,
@@ -376,7 +432,7 @@ pub fn frame(
                 w,
                 h,
                 shape,
-                palette: painted_as(item, lit, setting),
+                palette: painted_as(item, lit, setting, &scenery),
                 flip: item.variant.is_some_and(|variant| variant.flip),
                 joins: item.variant.map_or((false, false), |variant| {
                     (variant.join_left, variant.join_right)
@@ -390,7 +446,7 @@ pub fn frame(
         })
         .collect();
 
-    let things = stage
+    let mut things = stage
         .things
         .iter()
         .filter(shows)
@@ -413,23 +469,42 @@ pub fn frame(
             } else {
                 0.0
             };
-            let w = spot.w;
+            // On the ladder: as tall as it stands beside a grown-up at its
+            // depth, whatever room its spot was given.
+            let p = stage.figure_h * spot.scale;
+            let drawing = snapshot.drawing_of(item).cloned();
+            let w = match &drawing {
+                Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+                None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
+            }
+            .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3));
             ThingPaint {
                 index: spot.index,
                 x: spot.x,
                 base: spot.y + bob,
                 w,
                 shape,
-                palette: painted_as(item, lit, setting),
+                palette: painted_as(item, lit, setting, &scenery),
                 sway,
                 roll,
                 glow: glow_of(item),
-                drawing: snapshot.drawing_of(item).cloned(),
+                drawing,
                 grow: 1.0,
                 flip: item.variant.is_some_and(|variant| variant.flip),
+                muted: false,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // At most three saturated accents a screen-width; the player's own
+    // designs first.
+    let designed = stage
+        .buildings
+        .iter()
+        .chain(&stage.things)
+        .filter(|spot| mark::wear_of(&items[spot.index]).is_some())
+        .map(|spot| (spot.index, spot.x))
+        .collect::<Vec<_>>();
+    budget_accents(&mut things, &designed, stage.view_w);
 
     let mut people = stage
         .people
@@ -541,6 +616,8 @@ pub fn frame(
         water,
         marks,
         goals,
+        patches: ground::patches(snapshot, stage),
+        blend_top: false,
         buildings,
         things,
         people,
@@ -561,7 +638,18 @@ pub fn frame(
             })
             .collect(),
         pictures: BTreeMap::new(),
+        garlands: Vec::new(),
     }
+}
+
+/// How far past the room its spot gives it something on the ladder may
+/// reach: a building, and a thing a little more (its spot is narrower
+/// than what it is drawn as).
+const ROOM: f32 = 1.15;
+
+/// The library drawing a Pack names for an item, if the app has it.
+fn art_of(item: &CanvasItem) -> Option<crate::works::Art> {
+    item.art.as_deref().and_then(crate::works::Art::from_key)
 }
 
 /// How many of what the World works towards stand on the ridge.

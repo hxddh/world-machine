@@ -144,3 +144,25 @@ fn every_window_speaks_chinese_in_chinese() {
     // Open, on every World on Home, is 打开, not a shop's 营业中.
     assert_eq!(catalog.translate("Open").as_deref(), Some("打开"));
 }
+
+/// Home's cards for starting a World: each built-in World's name and what
+/// it is, as Home shows them, are in Chinese too.
+#[test]
+fn home_tells_every_world_in_chinese() {
+    let mut catalog = world_i18n::Catalog::parse(world_gpui::i18n::APP_ZH_HANS);
+    for pack in world_builtins::ZH_HANS {
+        catalog.extend(pack);
+    }
+    catalog.extend(world_gpui::i18n::APP_ZH_HANS);
+    let registry = world_builtins::registry().expect("the built-in Worlds");
+    let mut missing = Vec::new();
+    for descriptor in registry.descriptors() {
+        for line in [&descriptor.title, &descriptor.description] {
+            match catalog.translate(line) {
+                Some(shown) if english_in(&shown).is_empty() => {}
+                shown => missing.push(format!("{line} → {shown:?}")),
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}

@@ -236,7 +236,8 @@ fn reload_replaces_metadata_only_after_the_replacement_world_opens() {
     let second = document(9, "second");
     library.create_from_document(id.clone(), &first).unwrap();
     let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
-    library.save_document(&id, &second).unwrap();
+    // Written by something that does not take the World's lock.
+    crate::write_document_file(&library.path(&id), &second).unwrap();
 
     let snapshot = session.reload(&registry, &library).unwrap();
 
@@ -282,7 +283,8 @@ fn metadata_only_external_changes_participate_in_revision_conflicts() {
     };
     library.create_from_document(id.clone(), &first).unwrap();
     let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
-    library.save_document(&id, &second).unwrap();
+    // Written by something that does not take the World's lock.
+    crate::write_document_file(&library.path(&id), &second).unwrap();
 
     assert!(matches!(
         session.handle(

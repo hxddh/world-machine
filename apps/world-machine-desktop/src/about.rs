@@ -67,7 +67,8 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &Settings, cx| crate::settings::open(cx));
     cx.on_action(|_: &Quit, cx| {
         diagnostics::info("quit requested from the menu");
-        cx.quit();
+        // Every open World's latest turns written first, or asked about.
+        crate::quit_after_saving(cx);
     });
     cx.on_action(|_: &CopyDiagnostics, cx| copy_diagnostics(cx));
     cx.on_action(|_: &OpenLogFolder, cx| open_log_folder(cx));

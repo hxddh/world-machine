@@ -70,6 +70,9 @@ impl PlayerWorld for TinySocietyBranch {
             .or(hands.first())
             .map(|command| command.id.clone())
     }
+    fn returned(&self, since: usize) -> Option<world_projection::BriefingProjection> {
+        Some(self.film_since(since))
+    }
 }
 
 /// The harbour, as the players' report reads it.

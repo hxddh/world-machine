@@ -25,6 +25,10 @@ pub enum Seam {
     /// "a" before a vowel, or before a name for more than one: "a
     /// engineer", "a landing lights".
     Article(String),
+    /// A writer turned into "I" in the middle of their own name, or a
+    /// slot's filler that will not go with "I": "Yusuf and I Adeyemi
+    /// became friends", "whoever and I was free".
+    Person(String),
 }
 
 /// Words that only ever stand alone in a line when a slot leaked.
@@ -116,12 +120,30 @@ pub fn seams_in(text: &str) -> Vec<Seam> {
                 && a.len() > 1
                 && !cried
             {
-                // "had had" and "that that" are English; anything else
-                // twice running is a seam.
-                if !matches!(
-                    a.to_lowercase().as_str(),
-                    "had" | "that" | "very" | "far" | "bye" | "cough" | "knock" | "there" | "hey"
-                ) {
+                // "had had" and "that that" are English, and a sound said
+                // over with commas ("Beep, beep, beep") is said on purpose;
+                // anything else twice running is a seam.
+                let echoed = sentence.contains(&format!("{a}, {b}"))
+                    && words
+                        .iter()
+                        .filter(|word| word.eq_ignore_ascii_case(a))
+                        .count()
+                        >= 3;
+                if !echoed
+                    && !matches!(
+                        a.to_lowercase().as_str(),
+                        "had"
+                            | "that"
+                            | "very"
+                            | "far"
+                            | "bye"
+                            | "cough"
+                            | "knock"
+                            | "there"
+                            | "hey"
+                            | "thousand"
+                    )
+                {
                     seams.push(Seam::Repeated(format!("{a} {b}")));
                 }
             }
@@ -139,11 +161,42 @@ pub fn seams_in(text: &str) -> Vec<Seam> {
         } else {
             text.starts_with(&said) || text.contains(&format!(" {said}"))
         };
+        // "a one-off", "a once-a-year": said with a "w", so "a" is right.
+        let said_with_w = ["one", "once"]
+            .iter()
+            .any(|w| b.to_lowercase().starts_with(w));
         if (a == "a" || a == "A")
             && written
             && b.starts_with(['a', 'e', 'i', 'o', 'A', 'E', 'I', 'O'])
+            && !said_with_w
         {
             seams.push(Seam::Article(format!("{a} {b}")));
+        }
+    }
+    // "and I" is followed by what I did, never by a name ("Yusuf and I
+    // Adeyemi"), and two people together "were", never "was".
+    for (at, _) in text.match_indices(" and I ") {
+        let next = text[at + 7..].split_whitespace().next().unwrap_or_default();
+        let before = text[..at].split_whitespace().last().unwrap_or_default();
+        let named = next
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_uppercase())
+            && next
+                .chars()
+                .all(|c| c.is_alphabetic() || c == '-' || c == '\'')
+            && !matches!(next, "I" | "I'm" | "I've" | "I'd" | "I'll");
+        let agrees = matches!(next, "was" | "is" | "has" | "wasn't" | "isn't" | "hasn't");
+        let filler = before
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_lowercase())
+            && matches!(
+                before,
+                "whoever" | "someone" | "somebody" | "anyone" | "everyone"
+            );
+        if named || agrees || filler {
+            seams.push(Seam::Person(format!("{before} and I {next}")));
         }
     }
     let lower = text.to_lowercase();
@@ -175,12 +228,33 @@ pub fn seams_in(text: &str) -> Vec<Seam> {
             }
         }
     }
+    // A sentence glued on after a comma, its capital kept: "Tomas took it
+    // on, and They shared out the supply drop".
+    for (at, _) in text.match_indices(", and ") {
+        let after = text[at + 6..].split_whitespace().next().unwrap_or_default();
+        if matches!(
+            after,
+            "The" | "They" | "A" | "An" | "Everyone" | "Nobody" | "Work"
+        ) {
+            seams.push(Seam::Glued(format!("and {after}")));
+        }
+    }
     // A colon that glues a sentence on: "Last time: Everyone", where a
     // name after the colon would be a list, not a sentence.
     for (at, _) in text.match_indices(": ") {
         let before = text[..at].split_whitespace().last().unwrap_or_default();
         let after = text[at + 2..].split_whitespace().next().unwrap_or_default();
-        let glued = before.eq_ignore_ascii_case("time")
+        // "Last time: Everyone", never "the arcade's closing time: Ricky".
+        let lead = text[..at]
+            .split_whitespace()
+            .rev()
+            .nth(1)
+            .unwrap_or_default();
+        let glued = (before.eq_ignore_ascii_case("time")
+            && matches!(
+                lead.to_lowercase().as_str(),
+                "last" | "next" | "this" | "that" | "first"
+            ))
             || (after
                 .chars()
                 .next()
@@ -264,6 +338,21 @@ mod tests {
             seams_in("Yusuf, a engineer from Phobos, wants a room.").as_slice(),
             [Seam::Article(_)]
         ));
+        assert!(matches!(
+            seams_in("Tomas took it on, and They shared out the supply drop").as_slice(),
+            [Seam::Glued(_)]
+        ));
+        for line in [
+            "In case nobody told you, Yusuf and I Adeyemi became firm friends.",
+            "Do you remember when whoever and I was free made something of my own?",
+            "Ray and I Kowalski went fishing.",
+        ] {
+            assert!(
+                matches!(seams_in(line).as_slice(), [Seam::Person(_)]),
+                "{line}: {:?}",
+                seams_in(line)
+            );
+        }
         assert!(speaks_of_self(
             "Greta",
             "In case nobody told you, Greta is grown now, with a trade of their own."
@@ -286,6 +375,13 @@ mod tests {
             "Wheee! Again, again!",
             "Hey hey! Want to sit in the booth?",
             "Mixtape for Lena: side A is loud.",
+            "Yusuf and I became firm friends.",
+            "The music night stayed a one-off.",
+            "Worked the registers with Kim. Beep, beep, beep, all day.",
+            "About the arcade's closing time: Ricky has it all wrong.",
+            "A thousand thousand penguins, all going the same way.",
+            "Leo and I'm not sure who else.",
+            "Ray and I went fishing, and I caught nothing.",
         ] {
             assert!(seams_in(line).is_empty(), "{line}: {:?}", seams_in(line));
         }

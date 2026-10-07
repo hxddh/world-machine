@@ -333,6 +333,24 @@ pub(crate) fn panel_view(
         )
 }
 
+/// Whether every panel of `moment` has been painted at `layout`'s size,
+/// asking for any that has not.
+pub(crate) fn panels_painted(
+    snapshot: &ProjectionSnapshot,
+    moment: &Moment,
+    layout: StripLayout,
+    window: &mut Window,
+) -> bool {
+    let dpr = window.scale_factor().max(1.0);
+    let (w, h) = (layout.panel_w, layout.panel_h);
+    let mut painted = true;
+    for (index, scene) in panel_scenes(snapshot, moment).iter().enumerate() {
+        let key = panel_key(&moment.id, index, scene, w, h, dpr);
+        painted &= panel_picture(window, scene, key, w, h).is_some();
+    }
+    painted
+}
+
 /// A moment as a strip: its title, three panels side by side, and the
 /// caption of each beneath it, on paper.
 pub(crate) fn moment_strip(
@@ -708,12 +726,33 @@ impl ProjectionView {
             self.reading.seen.get_or_insert_default().extend(ids);
             return;
         }
+        // A moment the film of a return has just told is not told again
+        // as a strip.
+        let filmed = self
+            .snapshot
+            .briefing
+            .as_ref()
+            .filter(|briefing| briefing.returned)
+            .map(|briefing| {
+                briefing
+                    .beats()
+                    .iter()
+                    .filter_map(|beat| match beat.selection {
+                        Some(SelectionId::Event(event)) => Some(event),
+                        _ => None,
+                    })
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         let fresh = self
             .snapshot
             .moments
             .iter()
             .rev()
-            .find(|moment| !seen.contains(&moment.id))
+            .find(|moment| {
+                !seen.contains(&moment.id)
+                    && !moment.event.is_some_and(|event| filmed.contains(&event))
+            })
             .cloned();
         let Some(fresh) = fresh else {
             return;
@@ -786,10 +825,17 @@ impl ProjectionView {
         &self,
         width: f32,
         height: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
         let (moment, _) = self.reading.shown.as_ref()?;
         let layout = strip_layout(width, height);
+        // The strip comes up once its panels are painted, never as blank
+        // paper waiting for its pictures.
+        if !panels_painted(&self.snapshot, moment, layout, window) {
+            window.request_animation_frame();
+            return None;
+        }
         let strip = moment_strip(&self.snapshot, moment, layout)
             .role(Role::Dialog)
             .child(self.strip_foot(moment.clone(), cx));

@@ -255,6 +255,23 @@ fn open(
     }
 }
 
+/// The Worlds shown as strips.
+pub fn documents() -> Vec<SharedDocument> {
+    STRIPS.with(|strips| {
+        strips
+            .borrow()
+            .iter()
+            .map(|strip| strip.document.clone())
+            .collect()
+    })
+}
+
+/// Brings the World's own window to the front, opening it again if it was
+/// closed.
+pub fn show_world(document: &SharedDocument, cx: &mut App) {
+    open_world(document, cx);
+}
+
 /// Brings the World's own window to the front, opening it again if it was
 /// closed.
 fn open_world(document: &SharedDocument, cx: &mut App) {
@@ -280,7 +297,8 @@ fn open_world(document: &SharedDocument, cx: &mut App) {
         },
         move |window, cx| {
             watch_appearance(window);
-            cx.new(|cx| WorldDocumentView::with_document(document, cx))
+            let view = cx.new(|cx| WorldDocumentView::with_document(document, cx));
+            crate::ask_before_closing(view, window, cx)
         },
     );
     if let Err(error) = opened {

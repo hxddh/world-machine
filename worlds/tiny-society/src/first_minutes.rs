@@ -9,7 +9,7 @@ use world_projection::{CanvasItem, ProjectionSnapshot, SelectionId, Weather};
 
 /// Words a new player should not read in their first days: sorrow,
 /// hardship, quarrels and being turned away.
-const UNKIND: &[&str] = &[
+pub(crate) const UNKIND: &[&str] = &[
     "sorry",
     "can't keep",
     "fell out",

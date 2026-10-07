@@ -8810,3 +8810,205 @@ Omar	オマル
 {a} and me made it up	{a}と私は仲直りした
 {a} and me drifted apart	{a}と私はなんとなく疎遠になった
 {name} brought me an offline drill.	{name}が動かないドリルを持ってきた。
+# Outcomes, roles, places and letters (v0.27).
+{a} and {b} cleaned up {place} together	{a}と{b}はいっしょに{place}を片づけた
+{a} and {b} cleaned up after the weather	{a}と{b}は荒れた天気のあと片づけをした
+{a} and {b} talked it all through	{a}と{b}はとことん話しあった
+{a} and {b} traded with a passing trader	{a}と{b}は通りがかりの商人と取り引きした
+{a} and {b} waited out the long dark together	{a}と{b}はいっしょに長い闇をやりすごした
+{a} and {b} watched the stars	{a}と{b}は星を眺めた
+{a} watched the stars alone	{a}はひとりで星を眺めた
+{a} found {b}'s wrench	{a}が{b}のレンチを見つけた
+{a} went looking for the signal	{a}は信号を探しに出かけた
+The argument simmered on	言い争いはくすぶり続けた
+late-night DJ	深夜のDJ
+night-shift student	夜勤の学生
+radio volunteer	ラジオ局のボランティア
+greenhouse keeper	温室係
+rover scout	ローバーの偵察係
+systems keeper	システム係
+bridge keeper	橋の番人
+fish-vault keeper	魚蔵の番人
+lantern keeper	ランタン係
+young fisher	若い漁師
+open late	夜遅くまで営業
+radio station	ラジオ局
+pressurized	与圧済み
+lanterns lit	ランタンがともっている
+storehouse	倉庫
+retired	引退
+a baby for {} and me, born on Mars: {}	{}と私に赤ちゃんが生まれたの。火星生まれの{}だよ
+the whole colony came to {}'s and my party at {}	{}と私が{}で開いたパーティーに、コロニーのみんなが来てくれたんだ
+the whole street came to {}'s and my party at {}	{}と私が{}で開いたパーティーに、通りのみんなが来てくれたんだ
+
+# What people say using what the player made, more of it (v0.27).
+The dome hummed while we sat by the {what}. Nobody talked. Didn't need to.	{what}のそばに座ってると、ドームが低くうなってた。誰もしゃべらなかったけど、それでよかった。
+Someone read old letters from Earth by the {what}. We all listened.	{what}のそばで誰かが地球からの古い手紙を読んで、みんなで聞き入ってたよ。
+Watched Deimos cross the sky from the {what}.	{what}から、ダイモスが空を横切るのを見てた。
+Rehydrated cocoa by the {what}. Tasted almost real.	{what}のそばで粉末ココアを溶かして飲んだよ。ほとんど本物の味がした。
+The {what} by the airlock is where the crew unwinds now.	エアロックのそばの{what}は、今じゃみんなが一息つく場所なんだ。
+Someone hummed a song from home by the {what}. We all knew it.	{what}のそばで誰かが故郷の歌を口ずさんだら、みんな知ってたよ。
+We swapped stories of our first dust storm by the {what}.	{what}のそばで、はじめての砂嵐の話をみんなで披露しあったよ。
+Fixed a glove by the light of the {what}. Good light for it.	{what}の明かりで手袋をつくろったよ。ちょうどいい明るさなんだ。
+The {what} made the long night cycle feel short.	{what}のおかげで、長い夜のサイクルもあっという間だった。
+We drew the Earth from memory by the {what}. Everyone's was different.	{what}のそばで、記憶だけで地球を描いてみたよ。みんな違う地球になった。
+Ration bars and good company by the {what}. Better than it sounds.	{what}のそばで、配給バーと気のいい仲間。聞こえるよりずっといい夜だった。
+Played twenty questions by the {what}. The answer was always "dust".	{what}のそばで二十の質問をしたよ。答えはいつも「ほこり」だった。
+Somebody brought the good coffee to the {what}. The last tin.	誰かがとっておきのコーヒーを{what}に持ってきてくれた。最後のひと缶だよ。
+The heaters ticked and the {what} glowed. Felt like a home.	ヒーターがかちかち鳴って、{what}が光ってた。まるで家みたいだったよ。
+We planned a garden for when the dome's bigger. By the {what}, naturally.	ドームが広くなったら作る庭の計画を立てたよ。もちろん{what}のそばでね。
+Stargazing by the {what}. Earth was the bright blue one. We all waved.	{what}のそばで星を見たよ。明るい青いのが地球。みんなで手を振った。
+Sat by the {what} after the shift and let my ears stop ringing.	仕事のあと{what}のそばに座って、耳鳴りがおさまるのを待ってた。
+Someone told the story of the first landing by the {what}. Again. We let them.	{what}のそばで、また最初の着陸の話が始まった。みんな黙って聞いてあげたよ。
+The {what} and a deck of cards: all a colony needs, really.	{what}とトランプがあれば、コロニーにはそれで十分なんだ。
+Dust storm outside, warm light by the {what} inside. Perfect evening.	外は砂嵐、中は{what}のあたたかい明かり。最高の夜だったよ。
+We sat by the {what} and named the craters we can see. Badly.	{what}のそばで、見えるクレーターに名前をつけたよ。ひどい名前ばかり。
+{other} and I fixed a radio by the {what}. Now it plays static. Lovely static.	{other}と{what}のそばでラジオを直したよ。今は雑音しか出ないけど、いい雑音なんだ。
+{other} showed me photos from Earth by the {what}. Their dog looks just like them.	{other}が{what}のそばで地球の写真を見せてくれた。飼ってる犬がそっくりなんだ。
+{other} and I raced toy rovers by the {what}. I won. Barely.	{other}と{what}のそばでおもちゃのローバーを競走させたよ。ぎりぎり私の勝ち。
+{other} taught me the names of the Earth constellations by the {what}.	{other}が{what}のそばで、地球の星座の名前を教えてくれたよ。
+{other} and I shared the last fresh tomato by the {what}.	{other}と{what}のそばで、最後の新鮮なトマトを分けあったよ。
+{other} fell asleep mid-story by the {what}. Best story yet.	{other}が{what}のそばで話の途中で寝ちゃった。今までで一番いい話だったのに。
+Your {what} gave us a salad. A real salad, on Mars.	あなたの{what}でサラダができたよ。火星で本物のサラダ！
+Brought you the best from your {what}. The crew voted.	あなたの{what}からいちばんいいのを持ってきたよ。みんなで投票したんだ。
+Your {what} smells like rain. We miss rain.	あなたの{what}、雨のにおいがするよ。雨が恋しいな。
+From your {what}. Fresher than anything on the supply shuttle.	あなたの{what}からだよ。補給シャトルのどれよりも新鮮なんだ。
+Your {what} is the greenest thing for a million miles. Here.	あなたの{what}は、百万マイル四方でいちばん緑なんだ。はい、どうぞ。
+Picked these from your {what} after the dust settled.	砂ぼこりがおさまってから、あなたの{what}から摘んできたよ。
+Your {what} grew this. Nia wants to study it. I said eat it.	あなたの{what}がこれを育てたの。ニアは研究したいって。私は食べようって言った。
+Somebody brought a cassette player to the {what}. We danced on the pavement.	誰かが{what}にカセットプレーヤーを持ってきて、歩道で踊ったよ。
+Played kick the can by the {what} till the streetlights buzzed on.	{what}のそばで缶けりをして、街灯がじーっとつくまで遊んだよ。
+The {what} by the arcade is where everyone ends up after the diner closes.	ゲームセンターのそばの{what}は、ダイナーが閉まったあとみんなが集まる場所なんだ。
+Lightning bugs and a warm night by the {what}. Summer, basically.	{what}のそばでホタルと暖かい夜。まさに夏だね。
+We swapped mixtapes by the {what}. I got the good one.	{what}のそばでミックステープを交換したよ。いいのをもらっちゃった。
+Ate popsicles by the {what}. Mine melted down my arm.	{what}のそばでアイスキャンディーを食べたよ。腕まで溶けてきちゃった。
+The night bus went by twice while we sat by the {what}.	{what}のそばに座ってるあいだに、夜行バスが二回通り過ぎたよ。
+Someone's mom brought lemonade out to the {what}. Best lemonade on the street.	誰かのお母さんが{what}までレモネードを持ってきてくれた。この通りで一番おいしいよ。
+We sat by the {what} and rated every car that went by.	{what}のそばに座って、通る車に一台ずつ点数をつけたよ。
+Thunder rolled in, so we crowded under by the {what}. Nobody went home.	雷が鳴ってきたから、{what}のそばに身を寄せあったよ。誰も帰らなかった。
+K-88 played the top forty by the {what}. We knew every word.	{what}のそばでK-88のトップ40がかかってて、みんな全部歌えたよ。
+Hula hoops by the {what}. I can do forty now.	{what}のそばでフラフープ。今は四十回できるんだ。
+The {what} on a Friday night. Nowhere better on Maple Street.	金曜の夜の{what}。メープル通りでこれ以上の場所はないよ。
+We made plans for the summer fair by the {what}. Big ones.	{what}のそばで夏祭りの計画を立てたよ。大きな計画をね。
+Somebody's dog sat with us by the {what} all evening. Good dog.	誰かの犬が一晩じゅう{what}のそばで一緒に座ってた。いい子だよ。
+Traded comics by the {what}. I'm still a Spider-Man short.	{what}のそばでコミックを交換したよ。スパイダーマンがまだ一冊足りない。
+The ice cream truck stopped right by the {what}. Fate.	アイスクリームのトラックが{what}のすぐそばに止まったんだ。運命だね。
+Rode bikes in circles round the {what} till the porch lights came on.	玄関の明かりがつくまで、{what}のまわりを自転車でぐるぐる回ってたよ。
+Old Walt told us about the street in the fifties, by the {what}.	{what}のそばで、ウォルトじいさんが五十年代の通りの話をしてくれた。
+Sat by the {what} and watched the arcade sign flicker. Hypnotic.	{what}のそばで、ゲームセンターの看板がちらちらするのを眺めてた。見入っちゃうよ。
+The {what} after rain smells like summer and pavement. Nice.	雨上がりの{what}のあたりは、夏とアスファルトのにおいがするんだ。いいよね。
+{other} and I recorded a radio show by the {what}. Audience of two.	{other}と{what}のそばでラジオ番組を録音したよ。聴いてるのは二人だけ。
+{other} beat me at arm wrestling by the {what}. Rematch Friday.	{other}に{what}のそばで腕相撲で負けた。金曜にリベンジだ。
+{other} and I planned a road trip by the {what}. We'll never go. Still fun.	{other}と{what}のそばでドライブ旅行の計画を立てたよ。行かないだろうけど楽しかった。
+{other} taught me to moonwalk by the {what}. Sort of.	{other}が{what}のそばでムーンウォークを教えてくれた。一応ね。
+{other} and I shared fries from the diner by the {what}.	{other}と{what}のそばで、ダイナーのフライドポテトを分けあったよ。
+{other} told me a secret by the {what}. It's a good one.	{other}が{what}のそばで秘密を教えてくれた。いい秘密なんだ。
+Your {what} gave us enough for the whole block. Here's yours.	あなたの{what}、この一画みんなの分くらい採れたよ。はい、あなたの分。
+The diner says your {what} is the real deal. Here.	ダイナーの人が、あなたの{what}は本物だって。はい。
+Fresh from your {what}, still warm from the sun.	あなたの{what}から採れたて。まだお日さまであったかいよ。
+Your {what} did great this year. Grandma's impressed, and she's never impressed.	あなたの{what}、今年は大成功だね。おばあちゃんも感心してたよ。めったにしないのに。
+Picked a bagful from your {what}. Left some for the birds.	あなたの{what}からひと袋摘んできたよ。鳥の分も少し残しておいた。
+From your {what}. I'd trade a whole mixtape for these.	あなたの{what}からだよ。ミックステープ一本と交換してもいいくらい。
+Your {what} is the talk of Maple Street. Try one.	あなたの{what}、メープル通りで評判なんだ。ひとつどうぞ。
+The aurora came out while we sat by the {what}. Green as kelp.	{what}のそばに座ってたら、オーロラが出たよ。昆布みたいな緑色。
+We shuffled closer to the {what} as the wind got up. Toasty.	風が強くなってきたから、{what}のほうへみんなで寄っていったよ。ぽかぽか。
+Someone told the tale of the great iceberg by the {what}. Shivers.	{what}のそばで誰かが大きな氷山の昔話をしてくれた。ぞくっとしたよ。
+The chicks played slide-the-pebble by the {what} till bedtime.	ひなたちが寝る時間まで{what}のそばで石すべりをして遊んでた。
+Sang the moonrise song by the {what}. Off key. Beautifully.	{what}のそばで月の出の歌を歌ったよ。音程はずれてたけど、きれいだった。
+We sat by the {what} and listened to the ice creak.	{what}のそばに座って、氷がきしむ音を聞いてた。
+A seal popped up near the {what}. Everyone pretended not to be scared.	{what}の近くにアザラシが顔を出したよ。みんな怖くないふりをしてた。
+The {what} by the bridge is where the colony gathers now.	橋のそばの{what}は、今じゃコロニーのみんなが集まる場所なんだ。
+Shared the last of the krill by the {what}. Nobody counted.	{what}のそばで最後のオキアミを分けあったよ。誰も数えなかった。
+The long night is easier by the {what}. Everyone says so.	{what}のそばだと、長い夜も楽になるんだ。みんなそう言ってる。
+We guessed the shapes of the clouds by the {what}. All fish.	{what}のそばで雲の形当てをしたよ。ぜんぶ魚に見えた。
+Snow fell soft by the {what}. Nobody wanted to move.	{what}のそばに雪がそっと降ってた。誰も動きたがらなかったよ。
+Practised the council squawk by the {what}. We're getting good.	{what}のそばで議会の鳴き声を練習したよ。上手になってきた。
+The elders told stories of the first floe by the {what}.	長老たちが{what}のそばで、最初の流氷の話をしてくれた。
+We sat by the {what} and watched the stars wheel over the ice.	{what}のそばに座って、氷の上をめぐる星を眺めてた。
+A tide of chatter by the {what} tonight. Lovely noise.	今夜は{what}のそばでおしゃべりの波。いいにぎやかさだったよ。
+Slid down the snowbank and back to the {what}. Twelve times.	雪の土手をすべって{what}まで戻る。それを十二回やったよ。
+Warm breath and a warm light by the {what}. Enough.	{what}のそばに、あたたかい息とあたたかい光。それで十分だよ。
+Watched the fish-vault lanterns from the {what}. Like little moons.	{what}から魚蔵のランタンを眺めてた。小さな月みたいだったよ。
+We told the chicks about the warm sea by the {what}. They didn't believe us.	{what}のそばで、ひなたちにあたたかい海の話をしたよ。信じてくれなかったけど。
+Huddled by the {what} through a blizzard. Laughing, mostly.	吹雪のあいだ{what}のそばで寄りそってたよ。ほとんど笑ってた。
+{other} and I built a tiny snow bridge by the {what}. It held a pebble.	{other}と{what}のそばで小さな雪の橋を作ったよ。小石が一つのった。
+{other} and I shared a sprat by the {what}. Very romantic.	{other}と{what}のそばで小魚を分けあったよ。とってもロマンチック。
+{other} taught me to toboggan on my belly by the {what}.	{other}が{what}のそばで、おなかで雪をすべるやり方を教えてくれた。
+{other} and I counted the chicks by the {what}. Twice. Different answers.	{other}と{what}のそばでひなを数えたよ。二回数えて、答えが違った。
+{other} told me where the best fish hide, by the {what}. Shh.	{other}が{what}のそばで、いい魚の隠れ場所を教えてくれた。しーっ。
+{other} fell asleep on my shoulder by the {what}. I stayed put.	{other}が{what}のそばで私の肩にもたれて寝ちゃった。じっとしてたよ。
+Your {what} fed half the colony. Here's your share.	あなたの{what}で、コロニーの半分がおなかいっぱいだよ。はい、あなたの分。
+Fresh from your {what}, before the gulls found it.	カモメに見つかる前に、あなたの{what}から採ってきたよ。
+Your {what} grew through the frost. Brave little thing.	あなたの{what}、霜をくぐりぬけて育ったんだ。けなげだね。
+From your {what}. The elders say it's lucky.	あなたの{what}からだよ。長老たちは縁起がいいって。
+Picked from your {what} under the aurora. Tastes green.	オーロラの下で、あなたの{what}から摘んだよ。緑の味がする。
+Your {what} keeps the vault full. The chicks thank you.	あなたの{what}のおかげで蔵がいっぱい。ひなたちがお礼を言ってるよ。
+The best of your {what}, wrapped in kelp. Very fancy.	あなたの{what}のいちばんいいのを、昆布で包んできたよ。とってもおしゃれでしょ。
+# Getting on with a work on their own, more of it (v0.27).
+Did a bit before the dust came up. It counts.	砂ぼこりが立つ前に少しだけ進めたよ。これも立派な一歩。
+Kestrel and I hauled the panels. Kestrel did most of it.	ケストレルと一緒にパネルを運んだよ。ほとんどケストレルがやったけど。
+Half a sol of work. My gloves are done for.	半ソル働いたよ。手袋はもうぼろぼろ。
+Another weld, another sol. It's taking shape.	また溶接して、また一ソル。だんだん形になってきた。
+I logged the hours myself. Nia can check them.	作業時間は自分で記録したよ。ニアが確かめてもいい。
+The suit's hot, but the work's going on.	スーツの中は暑いけど、作業は続いてるよ。
+Got further than I thought, working through the night cycle.	夜のサイクルも働いて、思ったより進んだよ。
+No crew to spare, so it's me and the toolkit.	手のあいてる人がいないから、私と工具箱の二人きり。
+Put the radio on and got a bit done. Good tunes, too.	ラジオをつけて少し進めたよ。いい曲もかかったし。
+Borrowed a ladder from the arcade. Don't tell them.	ゲームセンターからはしごを借りちゃった。ないしょだよ。
+An hour after my shift. Every hour counts.	仕事のあとに一時間。一時間ずつが大事なんだ。
+My hands smell of paint and I don't even mind.	手がペンキくさいけど、ちっとも気にならないよ。
+It's coming along. Slowly, but it's coming.	進んでるよ。ゆっくりだけど、ちゃんと進んでる。
+The kids from the diner helped carry stuff. Sort of.	ダイナーの子たちが荷物運びを手伝ってくれた。一応ね。
+Worked by the streetlight till my mum called me in.	母さんに呼ばれるまで、街灯の下で作業してたよ。
+One more evening and you'll see a difference.	あとひと晩やれば、違いがわかるはずだよ。
+Waddled the blocks over myself. My feet are cold.	ブロックは自分でよちよち運んだよ。足が冷たい。
+The chicks watched me work. Very serious little critics.	ひなたちが私の仕事を見てたよ。とってもまじめな小さな批評家たち。
+Got a bit done between fishing trips.	漁の合間に少し進めたよ。
+The wind blew half of it away. I put it back.	風で半分飛ばされたけど、元に戻したよ。
+Patted the snow down till it held. It held!	雪を固めてたら、ちゃんと持ちこたえた。持ちこたえたよ！
+Worked till the aurora came up. Lovely light to work by.	オーロラが出るまで働いたよ。いい明かりだった。
+One more stone on the pile. Nearly a wall now.	石をもうひとつ積んだよ。もうすぐ壁になる。
+Nobody asked me to, but someone had to.	誰にも頼まれてないけど、誰かがやらなきゃね。
+# What people say resting on what the player made, more of it (v0.27).
+Sat on the {what} and listened to the dome tick as it cooled.	{what}に座って、ドームが冷えていくかちかちという音を聞いてた。
+The {what} is the one place nobody asks me for a status report.	{what}だけは、誰にも状況報告を求められない場所なんだ。
+Read my sister's last message twice on the {what}.	{what}で、妹からの最新のメッセージを二回読んだよ。
+Five minutes on the {what} and the red outside looks almost friendly.	{what}で五分休むと、外の赤い景色もなんだか優しく見えるんだ。
+Fixed a seal on my glove sitting on the {what}. Multitasking.	{what}に座ったまま手袋のシールを直したよ。ながら作業ってやつ。
+The {what} doesn't hum or beep. That's why I like it.	{what}はうなりもしないし、ピーピーも鳴らない。だから好きなんだ。
+Watched the rover tracks fill with dust from the {what}.	{what}から、ローバーのわだちに砂がたまっていくのを眺めてた。
+Sat on the {what} and planned what I'd plant if water were free.	{what}に座って、水がただだったら何を植えるか考えてた。
+My back needed the {what} more than my schedule did.	スケジュールより、私の背中のほうが{what}を必要としてたんだ。
+Counted the panels on the dome from the {what}. Forty-two. Still.	{what}からドームのパネルを数えたよ。四十二枚。やっぱりね。
+The {what} is cold at first, then just right.	{what}は座ったばかりだと冷たいけど、すぐにちょうどよくなるんだ。
+A quiet sit on the {what} before the night cycle. Needed that.	夜のサイクルの前に{what}で静かにひと休み。これが必要だったんだ。
+Waved at the mail truck from the {what}. The driver honked back.	{what}から郵便トラックに手を振ったら、運転手がクラクションで返してくれた。
+Sat on the {what} and finished my crossword. Mostly.	{what}に座ってクロスワードを解いたよ。だいたいね。
+The {what} is the best spot to hear the arcade through the wall.	{what}は、壁越しにゲームセンターの音が聞こえる一番の場所なんだ。
+Shared the {what} with a lady and her poodle. Both very polite.	{what}を、ご婦人とプードルと分けあったよ。どちらもとても礼儀正しかった。
+Sat on the {what} with a soda till the fizz ran out.	{what}に座ってソーダを飲んでたら、炭酸が抜けちゃった。
+The {what} is where I go when the house gets too loud.	家がうるさすぎるときは、{what}に行くんだ。
+Watched the sprinklers go round from the {what}. Summer sound.	{what}から、スプリンクラーがくるくる回るのを見てた。夏の音だね。
+Five minutes on the {what} before the bus. Made it, just.	バスの前に{what}で五分休憩。ぎりぎり間に合ったよ。
+The {what} creaks when you lean back. Like an old friend.	{what}にもたれると、きしむんだ。古い友だちみたいに。
+Wrote a postcard to my cousin on the {what}. Drew the street on it.	{what}でいとこに絵はがきを書いたよ。通りの絵も描いた。
+Sat on the {what} and counted the porch lights coming on.	{what}に座って、玄関の明かりがつくのを数えてた。
+Nobody's in a hurry on the {what}. That's the rule.	{what}では誰も急がない。それがルールなんだ。
+Sat on the {what} and watched the icebergs drift past. Slow parade.	{what}に座って、氷山が流れていくのを見てた。ゆっくりしたパレードだね。
+The {what} is where I go to dry my feathers.	羽を乾かすなら{what}なんだ。
+Fluffed up on the {what} and let the wind go round me.	{what}の上でふくらんで、風をよけてたよ。
+Rested my flippers on the {what}. They'd earned it.	{what}でひれを休めたよ。よく働いたからね。
+Watched the krill shimmer from the {what}. Lunch, later.	{what}からオキアミがきらきらするのを見てた。あとでお昼にしよう。
+The {what} is the quietest spot when the chicks are napping.	ひなたちがお昼寝してるとき、{what}がいちばん静かな場所なんだ。
+Sat on the {what} and practised my best council speech.	{what}に座って、議会での一番いい演説を練習したよ。
+A seal waved from the floe while I sat on the {what}. I think.	{what}に座ってたら、流氷の上のアザラシが手を振った。気がする。
+The {what} keeps the snow off my back. Clever thing.	{what}のおかげで背中に雪がつかない。かしこいやつだ。
+Five minutes on the {what}, then back to the fish vault.	{what}で五分休んで、また魚蔵に戻るよ。
+Sat on the {what} and watched my breath turn to little clouds.	{what}に座って、吐く息が小さな雲になるのを見てた。
+The {what} by the bridge has the best view of the sunrise. When there is one.	橋のそばの{what}は、日の出がいちばんよく見えるんだ。日が出ればね。
+Tested every span with a careful waddle. All solid.	一歩ずつよちよち、全部の橋を確かめたよ。どこもがっしりしてた。
+Packed fresh snow into the cracks. Good as new.	ひび割れに新しい雪を詰めたよ。新品同様。
+The wind took a rail. I put up a better one.	風で手すりが一本飛んだ。もっといいのをつけたよ。
+{friend} brought me a fish halfway through the mending. Bless them.	修理の途中で{friend}が魚を持ってきてくれた。ありがたいね。
+Smoothed the walkway so the chicks stop slipping.	ひなたちがすべらないように、通り道をならしたよ。
+Long day on the bridge. It holds, and so do I.	橋の上で長い一日。橋はもってる。私もね。

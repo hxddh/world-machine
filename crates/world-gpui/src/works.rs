@@ -913,6 +913,7 @@ library! {
     "flag-line", Harbour, 1.0, harbour::flag_line;
     "net-rack", Harbour, 0.7, harbour::net_rack;
     "wildflowers", Harbour, 0.45, harbour::wildflowers;
+    "wildflower-patch", Harbour, 0.32, harbour::wildflower_patch;
     "fire-pit", Harbour, 0.45, harbour::fire_pit;
     "hen-house", Harbour, 0.75, harbour::hen_house;
     "lookout-seat", Harbour, 1.3, harbour::lookout_seat;

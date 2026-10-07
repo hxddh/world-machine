@@ -85,7 +85,7 @@ fn taken_up_said(answers: &[Answer], helper: &str) -> Option<Said> {
         .find(|answer| !answer.refuses && !answer.said.effects.is_empty())?;
     let said = &granting.said;
     let told = match said.told.split_once(' ') {
-        Some(("The" | "A" | "An", _)) => {
+        Some(("The" | "A" | "An" | "They" | "Everyone" | "Nobody" | "Work", _)) => {
             let mut chars = said.told.chars();
             chars
                 .next()
@@ -2094,7 +2094,16 @@ fn chapter_ending(world: &World) -> (String, String) {
         candidates.push(format!("The {season_name} {}", lowered_start(first)));
     }
     let year = world.world_time() / crate::BACKGROUND_PERIOD / YEAR + 1;
-    candidates.push(format!("{title}, {season_name} of year {year}"));
+    candidates.push(storylets::title_with_year(&title, season_name, year));
+    candidates.push(format!(
+        "The {season_name} of year {}",
+        storylets::number_word(year)
+    ));
+    let lived = (world.world_time().saturating_sub(started)) / crate::BACKGROUND_PERIOD;
+    let candidates = candidates
+        .into_iter()
+        .map(|title| storylets::fitted_title(title, lived, YEAR, season_name))
+        .collect::<Vec<_>>();
     let title = storylets::unused_title(world, &candidates);
     let mut summary = if lines.len() > 3 {
         lines.split_off(lines.len() - 3)
@@ -2659,6 +2668,32 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     Some(fill(world, outcome_of(event)?.told))
 }
 
+/// What someone says getting on with a work on their own: the next of
+/// all the place's words for it, counted over every time, so the same is
+/// not said again until each of the others has been.
+fn own_way(world: &World, event: &Event, line: &'static str) -> &'static str {
+    let Some(place) = crate::places::Place::of(world.state()) else {
+        return line;
+    };
+    let own = crate::works::on_their_own(place);
+    if !own.contains(&line) {
+        return line;
+    }
+    let all = own
+        .iter()
+        .chain(crate::works::more_on_their_own(place).iter())
+        .copied()
+        .collect::<Vec<_>>();
+    let on_their_own = |kind: &str| kind.ends_with("_went_on") || kind.ends_with("_left_to_them");
+    let before = world
+        .events()
+        .iter()
+        .take_while(|other| other.id != event.id)
+        .filter(|other| on_their_own(&other.kind))
+        .count();
+    all[before % all.len()]
+}
+
 /// Who speaks at one of the storyteller's moments, and what they say.
 pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
     if lives::is_life(event) {
@@ -2687,7 +2722,7 @@ pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
     let said = outcome_of(event)?;
     Some((
         if said.by_other { other } else { asker },
-        fill(world, said.line),
+        fill(world, own_way(world, event, said.line)),
     ))
 }
 
@@ -3495,7 +3530,18 @@ fn threads() -> Vec<Spec> {
             .and([mark("newcomer_decided")]),
         ));
     }
+    // Nobody snaps at anybody in a new player's first days, whatever they
+    // answered: it waits until the place has been lived in a while.
     threads
+        .into_iter()
+        .map(|spec| {
+            if spec.storylet.id == "snapped" {
+                after_first_days(spec)
+            } else {
+                spec
+            }
+        })
+        .collect()
 }
 
 /// A person, place or thing the tables name.

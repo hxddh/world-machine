@@ -724,7 +724,25 @@ impl WorldSession for ProcessWorldSession {
             words: words.to_string(),
         })?;
         match response {
-            PackResponse::Hearing { prompt } => Ok(prompt),
+            PackResponse::Hearing { prompt, .. } => Ok(prompt),
+            response => Err(unexpected_response("hear", &response)),
+        }
+    }
+
+    fn voice_hearing(
+        &self,
+        to: SelectionId,
+        words: &str,
+    ) -> Result<Option<world_projection::VoiceHearing>, HostError> {
+        if !self.speaks_v3() {
+            return Ok(None);
+        }
+        let response = self.client.borrow_mut().request(PackRequest::Hear {
+            to: to.into(),
+            words: words.to_string(),
+        })?;
+        match response {
+            PackResponse::Hearing { hearing, .. } => Ok(hearing.map(Into::into)),
             response => Err(unexpected_response("hear", &response)),
         }
     }

@@ -2348,10 +2348,10 @@ the whale road	鲸鱼路
 the big berg	大冰山
 Old Uko has a new pebble	老Uko有了块新石子
 The seal is back	那只海豹回来了
-Pip slid right into the vault	皮普一路滑进了鱼库
+Pip slid right into the vault	Pip一路滑进了鱼库
 The gulls are plotting	海鸥们在密谋什么
 The moon feast is early	月亮宴提前了
-Kiki learned to dive	琪琪学会潜水了
+Kiki learned to dive	Kiki学会潜水了
 Good, isn't it?	好吃吧？
 Best in the vault!	鱼库里最好的！
 More for me, then!	那我就多吃点！
@@ -3510,7 +3510,7 @@ The beacon's oil is in. It just needs lighting.	信标的油加好了。只差�
 A ramp for the old ones	给老企鹅的坡道
 the ramp for the old ones	给老企鹅的坡道
 {keeper} wants a gentle ramp for the old ones	{keeper}想给老企鹅修一条平缓的坡道
-Grandma Olo can't manage the steps any more.	奥洛奶奶已经爬不动台阶了。
+Grandma Olo can't manage the steps any more.	Olo奶奶已经爬不动台阶了。
 The ramp's packed smooth.	坡道压得很平滑。
 A wall of carved names	刻名字的墙
 the wall of carved names	刻名字的墙
@@ -8594,3 +8594,205 @@ The street's year {n}	这条街的第{n}年
 # v0.24: a chapter told as it ends
 {title} came to an end	{title}结束了
 You lent a hand with {x}	你帮着一起做{x}
+# Outcomes, roles, places and letters (v0.27).
+{a} and {b} cleaned up {place} together	{a}和{b}一起把{place}收拾干净了
+{a} and {b} cleaned up after the weather	{a}和{b}在坏天气过后收拾了残局
+{a} and {b} talked it all through	{a}和{b}把话都说开了
+{a} and {b} traded with a passing trader	{a}和{b}跟路过的商人做了笔交易
+{a} and {b} waited out the long dark together	{a}和{b}一起熬过了漫长的黑暗
+{a} and {b} watched the stars	{a}和{b}一起看了星星
+{a} watched the stars alone	{a}独自看了星星
+{a} found {b}'s wrench	{a}找到了{b}的扳手
+{a} went looking for the signal	{a}出去寻找信号了
+The argument simmered on	争吵一直没平息
+late-night DJ	深夜电台DJ
+night-shift student	上夜班的学生
+radio volunteer	电台志愿者
+greenhouse keeper	温室管理员
+rover scout	探测车侦察员
+systems keeper	系统维护员
+bridge keeper	守桥人
+fish-vault keeper	鱼窖看守
+lantern keeper	灯笼看守
+young fisher	年轻的渔夫
+open late	营业到深夜
+radio station	电台
+pressurized	已加压
+lanterns lit	灯笼点亮了
+storehouse	仓库
+retired	退休了
+a baby for {} and me, born on Mars: {}	{}和我有了个宝宝，在火星出生：{}
+the whole colony came to {}'s and my party at {}	整个殖民地的人都来参加了{}和我在{}办的派对
+the whole street came to {}'s and my party at {}	整条街的人都来参加了{}和我在{}办的派对
+
+# What people say using what the player made, more of it (v0.27).
+The dome hummed while we sat by the {what}. Nobody talked. Didn't need to.	我们坐在{what}边，穹顶嗡嗡作响。谁也没说话，也不用说。
+Someone read old letters from Earth by the {what}. We all listened.	有人在{what}边读起了地球寄来的旧信，大家都静静听着。
+Watched Deimos cross the sky from the {what}.	坐在{what}边看火卫二划过天空。
+Rehydrated cocoa by the {what}. Tasted almost real.	在{what}边泡了脱水可可，喝起来几乎跟真的一样。
+The {what} by the airlock is where the crew unwinds now.	气闸边的{what}现在成了大家放松的地方。
+Someone hummed a song from home by the {what}. We all knew it.	有人在{what}边哼起家乡的歌，大家都会唱。
+We swapped stories of our first dust storm by the {what}.	我们在{what}边交换了各自第一次遇上沙尘暴的故事。
+Fixed a glove by the light of the {what}. Good light for it.	借着{what}的光补了一只手套，光线正合适。
+The {what} made the long night cycle feel short.	有了{what}，漫长的夜周期也显得短了。
+We drew the Earth from memory by the {what}. Everyone's was different.	我们在{what}边凭记忆画地球，每个人画的都不一样。
+Ration bars and good company by the {what}. Better than it sounds.	在{what}边，口粮棒配上好伙伴，比听起来好多了。
+Played twenty questions by the {what}. The answer was always "dust".	在{what}边玩二十个问题，答案总是“灰尘”。
+Somebody brought the good coffee to the {what}. The last tin.	有人把好咖啡带到了{what}边，最后一罐。
+The heaters ticked and the {what} glowed. Felt like a home.	暖气滴答作响，{what}亮着，感觉像个家。
+We planned a garden for when the dome's bigger. By the {what}, naturally.	我们在{what}边计划着等穹顶扩大了要种的花园。
+Stargazing by the {what}. Earth was the bright blue one. We all waved.	在{what}边看星星，那颗亮蓝色的就是地球，大家都挥了挥手。
+Sat by the {what} after the shift and let my ears stop ringing.	下班后坐在{what}边，等耳朵里的嗡嗡声停下来。
+Someone told the story of the first landing by the {what}. Again. We let them.	有人在{what}边又讲起了第一次着陆的故事，我们也由着他讲。
+The {what} and a deck of cards: all a colony needs, really.	一盏{what}加一副牌，殖民地要的其实也就这些。
+Dust storm outside, warm light by the {what} inside. Perfect evening.	外面刮着沙尘暴，里面{what}边暖洋洋的，完美的夜晚。
+We sat by the {what} and named the craters we can see. Badly.	我们坐在{what}边给看得见的陨石坑起名字，起得一团糟。
+{other} and I fixed a radio by the {what}. Now it plays static. Lovely static.	我和{other}在{what}边修好了一台收音机，现在它只放杂音，好听的杂音。
+{other} showed me photos from Earth by the {what}. Their dog looks just like them.	{other}在{what}边给我看地球上的照片，他们家的狗跟他们长得一模一样。
+{other} and I raced toy rovers by the {what}. I won. Barely.	我和{other}在{what}边比赛玩具探测车，我赢了，险胜。
+{other} taught me the names of the Earth constellations by the {what}.	{other}在{what}边教我地球上那些星座的名字。
+{other} and I shared the last fresh tomato by the {what}.	我和{other}在{what}边分吃了最后一个新鲜番茄。
+{other} fell asleep mid-story by the {what}. Best story yet.	{other}在{what}边讲故事讲到一半睡着了，这是最好听的一个。
+Your {what} gave us a salad. A real salad, on Mars.	你的{what}让我们吃上了沙拉，火星上真正的沙拉。
+Brought you the best from your {what}. The crew voted.	给你带来了你{what}里最好的，大家投票选的。
+Your {what} smells like rain. We miss rain.	你的{what}闻起来像下雨，我们好想念下雨。
+From your {what}. Fresher than anything on the supply shuttle.	从你的{what}摘的，比补给飞船上的什么都新鲜。
+Your {what} is the greenest thing for a million miles. Here.	你的{what}是方圆百万英里内最绿的东西，给你。
+Picked these from your {what} after the dust settled.	沙尘落定后，从你的{what}摘的。
+Your {what} grew this. Nia wants to study it. I said eat it.	你的{what}长出了这个，Nia想研究它，我说吃掉才对。
+Somebody brought a cassette player to the {what}. We danced on the pavement.	有人把卡带机带到了{what}边，我们在人行道上跳起舞来。
+Played kick the can by the {what} till the streetlights buzzed on.	在{what}边玩踢罐子，一直玩到路灯嗡嗡地亮起来。
+The {what} by the arcade is where everyone ends up after the diner closes.	街机厅边的{what}，是餐馆打烊后大家最后都会去的地方。
+Lightning bugs and a warm night by the {what}. Summer, basically.	{what}边有萤火虫，夜晚暖暖的，这就是夏天吧。
+We swapped mixtapes by the {what}. I got the good one.	我们在{what}边交换混音磁带，我拿到了最好的那盘。
+Ate popsicles by the {what}. Mine melted down my arm.	在{what}边吃冰棍，我的那根化得顺着胳膊往下流。
+The night bus went by twice while we sat by the {what}.	我们坐在{what}边时，夜班车开过去两趟了。
+Someone's mom brought lemonade out to the {what}. Best lemonade on the street.	有人的妈妈把柠檬水端到了{what}边，整条街最好喝的柠檬水。
+We sat by the {what} and rated every car that went by.	我们坐在{what}边给每辆开过去的车打分。
+Thunder rolled in, so we crowded under by the {what}. Nobody went home.	雷声滚滚，我们挤在{what}边避雨，谁也没回家。
+K-88 played the top forty by the {what}. We knew every word.	{what}边放着K-88的流行榜四十首，我们每句都会唱。
+Hula hoops by the {what}. I can do forty now.	在{what}边转呼啦圈，我现在能转四十圈了。
+The {what} on a Friday night. Nowhere better on Maple Street.	星期五晚上的{what}边，枫树街没有比这更好的地方了。
+We made plans for the summer fair by the {what}. Big ones.	我们在{what}边计划夏季集市，计划可大了。
+Somebody's dog sat with us by the {what} all evening. Good dog.	不知谁家的狗陪我们在{what}边坐了一晚上，好狗狗。
+Traded comics by the {what}. I'm still a Spider-Man short.	在{what}边换漫画，我还差一本蜘蛛侠。
+The ice cream truck stopped right by the {what}. Fate.	冰淇淋车正好停在{what}边，这就是缘分。
+Rode bikes in circles round the {what} till the porch lights came on.	围着{what}骑车转圈，一直骑到门廊灯亮起。
+Old Walt told us about the street in the fifties, by the {what}.	老Walt在{what}边给我们讲五十年代的这条街。
+Sat by the {what} and watched the arcade sign flicker. Hypnotic.	坐在{what}边看街机厅的招牌一闪一闪，看得入迷。
+The {what} after rain smells like summer and pavement. Nice.	雨后的{what}边闻起来有夏天和柏油路的味道，真好。
+{other} and I recorded a radio show by the {what}. Audience of two.	我和{other}在{what}边录了一期电台节目，听众两个人。
+{other} beat me at arm wrestling by the {what}. Rematch Friday.	{other}在{what}边掰手腕赢了我，星期五再比。
+{other} and I planned a road trip by the {what}. We'll never go. Still fun.	我和{other}在{what}边计划了一趟公路旅行，我们永远不会去，但还是很好玩。
+{other} taught me to moonwalk by the {what}. Sort of.	{other}在{what}边教我跳太空步，算是学会了吧。
+{other} and I shared fries from the diner by the {what}.	我和{other}在{what}边分吃了餐馆的薯条。
+{other} told me a secret by the {what}. It's a good one.	{other}在{what}边告诉了我一个秘密，是个好秘密。
+Your {what} gave us enough for the whole block. Here's yours.	你的{what}收成够整个街区吃了，这是你的。
+The diner says your {what} is the real deal. Here.	餐馆说你的{what}是真材实料，给你。
+Fresh from your {what}, still warm from the sun.	刚从你的{what}摘的，还带着太阳的温度。
+Your {what} did great this year. Grandma's impressed, and she's never impressed.	你的{what}今年长得真好，连从不夸人的奶奶都夸了。
+Picked a bagful from your {what}. Left some for the birds.	从你的{what}摘了一袋，留了些给鸟儿。
+From your {what}. I'd trade a whole mixtape for these.	从你的{what}摘的，拿一整盘混音磁带跟我换我都愿意。
+Your {what} is the talk of Maple Street. Try one.	你的{what}成了枫树街的话题，尝一个。
+The aurora came out while we sat by the {what}. Green as kelp.	我们坐在{what}边时，极光出来了，绿得像海带。
+We shuffled closer to the {what} as the wind got up. Toasty.	风大起来，我们往{what}边挤了挤，暖烘烘的。
+Someone told the tale of the great iceberg by the {what}. Shivers.	有人在{what}边讲起了大冰山的传说，听得人直打哆嗦。
+The chicks played slide-the-pebble by the {what} till bedtime.	小家伙们在{what}边玩滑石子，一直玩到睡觉时间。
+Sang the moonrise song by the {what}. Off key. Beautifully.	在{what}边唱了月升之歌，跑调了，但很美。
+We sat by the {what} and listened to the ice creak.	我们坐在{what}边听冰嘎吱作响。
+A seal popped up near the {what}. Everyone pretended not to be scared.	一只海豹从{what}附近冒了出来，大家都装作不害怕。
+The {what} by the bridge is where the colony gathers now.	桥边的{what}现在是大家聚集的地方。
+Shared the last of the krill by the {what}. Nobody counted.	在{what}边分了最后一点磷虾，谁也没去数。
+The long night is easier by the {what}. Everyone says so.	有{what}在，漫漫长夜好过多了，大家都这么说。
+We guessed the shapes of the clouds by the {what}. All fish.	我们在{what}边猜云的形状，全是鱼。
+Snow fell soft by the {what}. Nobody wanted to move.	雪轻轻地落在{what}边，谁也不想动。
+Practised the council squawk by the {what}. We're getting good.	在{what}边练习议会上的嘎嘎叫，我们越来越像样了。
+The elders told stories of the first floe by the {what}.	长辈们在{what}边讲起第一块浮冰的故事。
+We sat by the {what} and watched the stars wheel over the ice.	我们坐在{what}边看着星星在冰面上空转动。
+A tide of chatter by the {what} tonight. Lovely noise.	今晚{what}边闲聊声一浪接一浪，好听的热闹。
+Slid down the snowbank and back to the {what}. Twelve times.	从雪堆上滑下来再回到{what}边，来回了十二趟。
+Warm breath and a warm light by the {what}. Enough.	{what}边有暖暖的呼吸和暖暖的光，这就够了。
+Watched the fish-vault lanterns from the {what}. Like little moons.	坐在{what}边看鱼窖的灯笼，像一个个小月亮。
+We told the chicks about the warm sea by the {what}. They didn't believe us.	我们在{what}边给小家伙们讲温暖的大海，他们不信。
+Huddled by the {what} through a blizzard. Laughing, mostly.	在{what}边挤着熬过了一场暴风雪，大部分时间都在笑。
+{other} and I built a tiny snow bridge by the {what}. It held a pebble.	我和{other}在{what}边搭了座小雪桥，它撑住了一颗石子。
+{other} and I shared a sprat by the {what}. Very romantic.	我和{other}在{what}边分吃了一条小鱼，很浪漫。
+{other} taught me to toboggan on my belly by the {what}.	{other}在{what}边教我用肚皮滑雪。
+{other} and I counted the chicks by the {what}. Twice. Different answers.	我和{other}在{what}边数小家伙，数了两遍，答案不一样。
+{other} told me where the best fish hide, by the {what}. Shh.	{other}在{what}边告诉我最好的鱼藏在哪儿，嘘。
+{other} fell asleep on my shoulder by the {what}. I stayed put.	{other}在{what}边靠着我的肩膀睡着了，我一动没动。
+Your {what} fed half the colony. Here's your share.	你的{what}喂饱了半个殖民地，这是你那份。
+Fresh from your {what}, before the gulls found it.	刚从你的{what}摘的，赶在海鸥发现之前。
+Your {what} grew through the frost. Brave little thing.	你的{what}顶着霜长出来了，勇敢的小家伙。
+From your {what}. The elders say it's lucky.	从你的{what}摘的，长辈们说这能带来好运。
+Picked from your {what} under the aurora. Tastes green.	在极光下从你的{what}摘的，吃起来有股绿色的味道。
+Your {what} keeps the vault full. The chicks thank you.	你的{what}让鱼窖一直满满的，小家伙们谢谢你。
+The best of your {what}, wrapped in kelp. Very fancy.	你{what}里最好的，用海带包着，很讲究。
+# Getting on with a work on their own, more of it (v0.27).
+Did a bit before the dust came up. It counts.	沙尘起来前干了一点，也算数。
+Kestrel and I hauled the panels. Kestrel did most of it.	我和红隼号把板材拖了过来，大部分是红隼号干的。
+Half a sol of work. My gloves are done for.	干了半个火星日，我的手套报废了。
+Another weld, another sol. It's taking shape.	又焊了一道，又过了一个火星日，渐渐有模样了。
+I logged the hours myself. Nia can check them.	工时我自己记好了，Nia可以查。
+The suit's hot, but the work's going on.	防护服闷得很，但活儿还在干。
+Got further than I thought, working through the night cycle.	熬过夜周期一直干，进度比我想的快。
+No crew to spare, so it's me and the toolkit.	没有人手可抽，就我和工具箱了。
+Put the radio on and got a bit done. Good tunes, too.	开着收音机干了一点，歌还挺好听。
+Borrowed a ladder from the arcade. Don't tell them.	从街机厅借了把梯子，别告诉他们。
+An hour after my shift. Every hour counts.	下班后又干了一个小时，每个小时都算数。
+My hands smell of paint and I don't even mind.	我手上全是油漆味，可我一点都不在意。
+It's coming along. Slowly, but it's coming.	在进展，慢是慢了点，但在进展。
+The kids from the diner helped carry stuff. Sort of.	餐馆那几个孩子帮忙搬了东西，算是吧。
+Worked by the streetlight till my mum called me in.	借着路灯干活，一直干到我妈叫我回家。
+One more evening and you'll see a difference.	再干一个晚上，你就能看出不同了。
+Waddled the blocks over myself. My feet are cold.	我自己一摇一摆把冰块搬了过来，脚都冻了。
+The chicks watched me work. Very serious little critics.	小家伙们看着我干活，一个个都是严肃的小评论家。
+Got a bit done between fishing trips.	在两趟打鱼之间干了一点。
+The wind blew half of it away. I put it back.	风把一半吹跑了，我又放回去了。
+Patted the snow down till it held. It held!	把雪拍实，直到它撑住了。它撑住了！
+Worked till the aurora came up. Lovely light to work by.	一直干到极光升起，在那光下干活真好。
+One more stone on the pile. Nearly a wall now.	石堆上又添了一块，快成一堵墙了。
+Nobody asked me to, but someone had to.	没人叫我做，但总得有人做。
+# What people say resting on what the player made, more of it (v0.27).
+Sat on the {what} and listened to the dome tick as it cooled.	坐在{what}上，听穹顶降温时滴答作响。
+The {what} is the one place nobody asks me for a status report.	{what}是唯一没人找我要状态报告的地方。
+Read my sister's last message twice on the {what}.	坐在{what}上，把妹妹最后一条消息读了两遍。
+Five minutes on the {what} and the red outside looks almost friendly.	在{what}上歇五分钟，外面那片红色看着都顺眼了。
+Fixed a seal on my glove sitting on the {what}. Multitasking.	坐在{what}上顺手修好了手套的密封条，一心二用。
+The {what} doesn't hum or beep. That's why I like it.	{what}不嗡嗡响也不哔哔叫，所以我喜欢它。
+Watched the rover tracks fill with dust from the {what}.	坐在{what}上，看着探测车的车辙被灰尘填满。
+Sat on the {what} and planned what I'd plant if water were free.	坐在{what}上盘算，要是水不要钱，我要种些什么。
+My back needed the {what} more than my schedule did.	我的背比我的日程更需要{what}。
+Counted the panels on the dome from the {what}. Forty-two. Still.	坐在{what}上数穹顶的板子，四十二块，一块不少。
+The {what} is cold at first, then just right.	{what}刚坐上去有点凉，过一会儿就正好了。
+A quiet sit on the {what} before the night cycle. Needed that.	夜周期开始前在{what}上静静坐了一会儿，正需要这个。
+Waved at the mail truck from the {what}. The driver honked back.	坐在{what}上跟邮车招手，司机按了按喇叭回应。
+Sat on the {what} and finished my crossword. Mostly.	坐在{what}上把填字游戏做完了，差不多吧。
+The {what} is the best spot to hear the arcade through the wall.	{what}是隔着墙听街机厅声音的最佳位置。
+Shared the {what} with a lady and her poodle. Both very polite.	跟一位女士和她的贵宾犬共坐一张{what}，两位都很有礼貌。
+Sat on the {what} with a soda till the fizz ran out.	坐在{what}上喝汽水，一直喝到没气了。
+The {what} is where I go when the house gets too loud.	家里太吵的时候，我就去{what}那儿。
+Watched the sprinklers go round from the {what}. Summer sound.	坐在{what}上看洒水器转圈，那是夏天的声音。
+Five minutes on the {what} before the bus. Made it, just.	赶公交前在{what}上歇了五分钟，刚好赶上。
+The {what} creaks when you lean back. Like an old friend.	往后一靠，{what}就吱呀一声，像个老朋友。
+Wrote a postcard to my cousin on the {what}. Drew the street on it.	坐在{what}上给表哥写明信片，还在上面画了这条街。
+Sat on the {what} and counted the porch lights coming on.	坐在{what}上数门廊灯一盏盏亮起来。
+Nobody's in a hurry on the {what}. That's the rule.	在{what}上谁都不着急，这是规矩。
+Sat on the {what} and watched the icebergs drift past. Slow parade.	坐在{what}上看冰山漂过，慢悠悠的游行。
+The {what} is where I go to dry my feathers.	我在{what}那儿晾干羽毛。
+Fluffed up on the {what} and let the wind go round me.	在{what}上蓬起羽毛，让风从我身边绕过去。
+Rested my flippers on the {what}. They'd earned it.	在{what}上歇了歇鳍，它们该歇了。
+Watched the krill shimmer from the {what}. Lunch, later.	坐在{what}上看磷虾闪闪发光，待会儿当午饭。
+The {what} is the quietest spot when the chicks are napping.	小家伙们午睡时，{what}是最安静的地方。
+Sat on the {what} and practised my best council speech.	坐在{what}上练习我最拿手的议会发言。
+A seal waved from the floe while I sat on the {what}. I think.	我坐在{what}上时，浮冰上一只海豹好像跟我挥了挥手。
+The {what} keeps the snow off my back. Clever thing.	{what}帮我挡住了背上的雪，聪明的小东西。
+Five minutes on the {what}, then back to the fish vault.	在{what}上歇五分钟，然后回鱼窖去。
+Sat on the {what} and watched my breath turn to little clouds.	坐在{what}上，看自己呼出的气变成小小的云。
+The {what} by the bridge has the best view of the sunrise. When there is one.	桥边的{what}看日出最好，如果有日出的话。
+Tested every span with a careful waddle. All solid.	一摇一摆地把每段桥都试了一遍，全都结实。
+Packed fresh snow into the cracks. Good as new.	把新雪塞进裂缝里，跟新的一样。
+The wind took a rail. I put up a better one.	风刮走了一根栏杆，我装了根更好的。
+{friend} brought me a fish halfway through the mending. Bless them.	补到一半，{friend}给我送来一条鱼，真贴心。
+Smoothed the walkway so the chicks stop slipping.	把走道磨平了，小家伙们就不会再滑倒了。
+Long day on the bridge. It holds, and so do I.	在桥上忙了一整天，桥撑住了，我也撑住了。

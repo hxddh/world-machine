@@ -439,6 +439,54 @@ fn boxes(
         .collect()
 }
 
+/// Nothing drawn as a building stands out on open water: a building at
+/// the water's edge stands on the quay's edge, on its deck of piles with a
+/// slipway in front; past the quay there are only boats, the lighthouse
+/// on its spit, and works that are themselves a deck or a slipway.
+#[test]
+fn no_building_stands_beyond_the_water_line_but_on_a_deck() {
+    const DECKS: &[&str] = &[
+        "new-pier",
+        "slipway",
+        "jetty-ladder",
+        "tide-board",
+        "sea-wall",
+        "sea-pool",
+        "fishing-dock",
+        "lake-dock",
+        "ice-ledge",
+        "point-lamp",
+    ];
+    const BOATS: &[&str] = &["sailboat", "rowing-boat"];
+    for snapshot in [harbour_1082()] {
+        let (width, height) = (1100.0, 848.0);
+        let stage = stage_at(&snapshot, width, height, Clock::at(12));
+        let quay_edge = stage.front + 1.5;
+        for spot in stage.buildings.iter().chain(&stage.things) {
+            if spot.y <= quay_edge {
+                continue;
+            }
+            let item = &snapshot.canvas.items[spot.index];
+            let art = item.art.as_deref();
+            let afloat = match item.shape {
+                Some(MarkShape::Boat) => art.is_none_or(|art| BOATS.contains(&art)),
+                Some(MarkShape::Tower | MarkShape::Pier) => true,
+                _ => art.is_some_and(|art| DECKS.contains(&art)),
+            };
+            assert!(
+                afloat && item.kind != CanvasItemKind::Place
+                    || item.shape == Some(MarkShape::Tower),
+                "{} ({:?}, {:?}) stands out on the water at {} (the quay's edge is {})",
+                item.label,
+                item.shape,
+                art,
+                spot.y,
+                stage.front
+            );
+        }
+    }
+}
+
 /// The v0.24 bar: on day 1,082 the harbour composes with nothing
 /// standing on anything else, at every hour and at two window sizes.
 /// Nothing in the same row overlaps; no thing overlaps a building
@@ -632,11 +680,9 @@ fn a_cottage_stands_two_and_a_half_to_three_times_a_person() {
         // A grown-up's height on the quay, at full size.
         let person = grown.height / spot.scale;
         let mut cottages = 0;
-        for building in frame
-            .buildings
-            .iter()
-            .filter(|b| b.shape == MarkShape::House && b.drawing.is_none())
-        {
+        for building in frame.buildings.iter().filter(|b| {
+            b.shape == MarkShape::House && b.drawing.is_none() && b.palette.art.is_none()
+        }) {
             let spot = stage
                 .buildings
                 .iter()
@@ -1239,4 +1285,485 @@ fn roof_slopes_are_smooth_and_what_is_laid_along_them_has_no_steps() {
         "the ink under an eave",
         middles(&bare, &inked, 30..70, 0..160),
     );
+}
+
+/// People stand in twos and threes facing each other (the art bible's
+/// §6): never more than four in a row, and each of a group turned to it.
+#[test]
+fn people_gather_in_twos_and_threes_facing_each_other() {
+    for crowd in 2..=9_u64 {
+        let mut items = vec![item(100, CanvasItemKind::Place, 0.5, None)];
+        for id in 1..=crowd {
+            items.push(item(id, CanvasItemKind::Actor, 0.5, Some(100)));
+        }
+        let snapshot = ProjectionSnapshot {
+            canvas: CanvasProjection {
+                items,
+                ..Default::default()
+            },
+            ..ProjectionSnapshot::default()
+        };
+        let stage = stage_at(&snapshot, 1400.0, 900.0, Clock::at(12));
+        let mut people = stage.people.clone();
+        people.sort_by(|a, b| a.x.total_cmp(&b.x));
+        // A row: neighbours closer than a stride, in one lane.
+        let mut longest = 1;
+        let mut run = 1;
+        for pair in people.windows(2) {
+            let close = pair[1].x - pair[0].x < stage.figure_h * TOGETHER
+                && (pair[1].y - pair[0].y).abs() < stage.figure_h * 0.3;
+            run = if close { run + 1 } else { 1 };
+            longest = longest.max(run);
+        }
+        assert!(longest <= GROUP_MOST, "{crowd} people: {longest} in a row");
+        // Between groups, at least 0.8 P of open quay shows, whatever the
+        // depth: never more than three read as one line.
+        let mut line = 1;
+        for pair in people.windows(2) {
+            let gap = pair[1].x - pair[0].x;
+            assert!(
+                gap < stage.figure_h * TOGETHER || gap >= stage.figure_h * 1.2 - 0.01,
+                "{crowd} people: a gap of {:.2} P neither joins nor parts them",
+                gap / stage.figure_h
+            );
+            line = if gap < stage.figure_h * 1.2 {
+                line + 1
+            } else {
+                1
+            };
+            assert!(
+                line <= GROUP_MOST,
+                "{crowd} people: {line} in a visible line"
+            );
+        }
+        assert!(
+            group_centres(&stage.people, stage.figure_h)
+                .iter()
+                .all(Option::is_some),
+            "{crowd} people: someone stands alone"
+        );
+        // Standing still, the ends of each group face into it.
+        let living = living(
+            &stage,
+            &snapshot,
+            3.0,
+            Daylight::Day,
+            &BTreeSet::new(),
+            None,
+        );
+        let centres = group_centres(&stage.people, stage.figure_h);
+        for ((spot, life), centre) in stage.people.iter().zip(&living).zip(centres) {
+            let centre = centre.unwrap();
+            if (centre - spot.x).abs() > 1.0 && life.pose.stride.is_none() {
+                assert!(
+                    life.pose.facing.signum() == (centre - spot.x).signum()
+                        || life.pose.facing.abs() < 0.5,
+                    "{crowd} people: someone faces away from their group"
+                );
+            }
+        }
+    }
+    assert_eq!(group_sizes(7), vec![3, 2, 2]);
+    assert_eq!(group_sizes(8), vec![3, 3, 2]);
+}
+
+/// A click finds the person nearest the pointer: the people a pointer can
+/// find never overlap, and wherever it is among a crowd it finds whoever
+/// stands nearest (v0.26 opened Noah for a click on Evan beside him).
+#[test]
+fn clicks_find_the_nearest_person() {
+    let h = 58.0;
+    let crowd = [
+        (100.0, 600.0, h),
+        (130.0, 604.0, h),
+        (168.0, 598.0, h),
+        (400.0, 600.0, h),
+        (420.0, 640.0, h * 1.1),
+    ];
+    let reach = reach_of(&crowd);
+    for (n, a) in crowd.iter().enumerate() {
+        for (m, b) in crowd.iter().enumerate().skip(n + 1) {
+            let rows = (a.1 - a.2).max(b.1 - b.2) < (a.1 + 24.0).min(b.1 + 24.0);
+            if rows {
+                assert!(
+                    (a.0 - b.0).abs() >= reach[n] + reach[m] - 0.01,
+                    "{n} and {m} can both be pointed at"
+                );
+            }
+        }
+    }
+    for px in (80..=190).map(|x| x as f32 + 0.25) {
+        let at = person_at(&crowd, px, 580.0);
+        let nearest = crowd[..3]
+            .iter()
+            .enumerate()
+            .min_by(|a, b| (a.1 .0 - px).abs().total_cmp(&(b.1 .0 - px).abs()))
+            .map(|(n, _)| n);
+        if let Some(at) = at {
+            assert_eq!(Some(at), nearest, "at {px}");
+        }
+    }
+    assert_eq!(person_at(&crowd, 131.0, 590.0), Some(1));
+    assert_eq!(person_at(&crowd, 300.0, 590.0), None);
+}
+
+/// A brush that keeps only the soft ellipses it is asked for.
+#[derive(Default)]
+struct Softs(Vec<(f32, f32, f32, f32, f32)>);
+
+impl crate::brush::Brush for Softs {
+    fn rect(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Hsla) {}
+    fn fill(&mut self, _: &crate::brush::Shape, _: Hsla) {}
+    fn stroke(&mut self, _: &crate::brush::Shape, _: f32, _: Hsla) {}
+    fn soft(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, _: f32, colour: Hsla) {
+        self.0.push((cx, cy, rx, ry, colour.a));
+    }
+    fn gradient(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: (Hsla, f32), _: (Hsla, f32)) {
+    }
+}
+
+/// Everything standing has a soft contact shadow under it, 20 to 30%
+/// dark, a flat ellipse, and cool rather than black: nothing floats (the
+/// art bible's §4).
+#[test]
+fn everything_standing_has_a_contact_shadow() {
+    let snapshot = harbour_1082();
+    let (width, height) = (1100.0, 848.0);
+    for hour in [7.0, 13.0, 19.0, 23.0] {
+        let daylight = crate::scene::daylight_at(hour as u32);
+        let stage = stage_at(&snapshot, width, height, Clock::at(hour as u8));
+        let lives = living(&stage, &snapshot, 0.0, daylight, &BTreeSet::new(), None);
+        let frame = frame(
+            &snapshot,
+            &stage,
+            &lives,
+            Camera::whole(&stage),
+            0.0,
+            daylight,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(hour);
+        let mut softs = Softs::default();
+        paint_live(&mut softs, &frame, 0.0, 0.0, width, height, [1.0; 3]);
+        let shadowed = |x: f32, base: f32, w: f32| {
+            softs.0.iter().any(|(cx, cy, rx, ry, a)| {
+                (cx - x).abs() < 2.0
+                    && (cy - base).abs() < w * 0.1 + 2.0
+                    && *rx > ry * 2.0
+                    && (0.2..=0.32).contains(a)
+            })
+        };
+        for thing in frame
+            .things
+            .iter()
+            .filter(|thing| thing.shape != MarkShape::Boat)
+        {
+            let (x, base) = frame.at(thing.x, thing.base);
+            if x < -thing.w || x > width + thing.w {
+                continue;
+            }
+            assert!(
+                shadowed(x, base, thing.w),
+                "{hour}h: {:?} at {x:.0} has no contact shadow",
+                thing.shape
+            );
+        }
+        for person in frame
+            .people
+            .iter()
+            .filter(|person| person.x > -person.height && person.x < width + person.height)
+        {
+            let nearest = softs
+                .0
+                .iter()
+                .min_by(|a, b| {
+                    let d = |s: &&(f32, f32, f32, f32, f32)| {
+                        (s.0 - person.x).abs() + (s.1 - person.y).abs()
+                    };
+                    d(a).total_cmp(&d(b))
+                })
+                .copied();
+            assert!(
+                shadowed(person.x, person.y, person.height),
+                "{hour}h: someone at {:.0},{:.0} ({}) floats; nearest soft {nearest:?}",
+                person.x,
+                person.y,
+                person.height
+            );
+        }
+        let ink = shadow_ink(hour);
+        assert!(
+            ink[2] > ink[0] || hour > 18.0,
+            "{hour}h: a shadow is cool: {ink:?}"
+        );
+        assert!(ink.iter().any(|c| *c > 0.04), "{hour}h: never black");
+    }
+}
+
+/// At most three saturated accents in any screen-width; the player's own
+/// designs are never the ones quieted (the art bible's §4).
+#[test]
+fn accents_keep_to_three_a_screen() {
+    for snapshot in [harbour_1082(), three_years()] {
+        let stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(12));
+        let lives = living(
+            &stage,
+            &snapshot,
+            0.0,
+            Daylight::Day,
+            &BTreeSet::new(),
+            None,
+        );
+        let frame = frame(
+            &snapshot,
+            &stage,
+            &lives,
+            Camera::whole(&stage),
+            0.0,
+            Daylight::Day,
+            &Glows::new(),
+            1.0,
+        );
+        let mut loud = frame
+            .things
+            .iter()
+            .filter(|thing| is_accent(thing) && !thing.muted)
+            .map(|thing| thing.x)
+            .collect::<Vec<_>>();
+        loud.extend(
+            frame
+                .wearing
+                .iter()
+                .filter_map(|worn| stage.frame_of(worn.index).map(|(x, _, w, _)| x + w / 2.0)),
+        );
+        loud.sort_by(f32::total_cmp);
+        loud.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+        for run in loud.windows(ACCENTS_A_SCREEN + 1) {
+            assert!(
+                run[ACCENTS_A_SCREEN] - run[0] >= stage.view_w - 1.0,
+                "{} accents within a screen: {run:?}",
+                ACCENTS_A_SCREEN + 1
+            );
+        }
+    }
+    for setting in art::Setting::ALL {
+        let paints = setting.place_paints();
+        let saturation = |hex: u32| art::hex(hex).s;
+        let neutral = saturation(paints.neutral());
+        assert!(
+            paints
+                .accents
+                .iter()
+                .all(|accent| saturation(*accent) > neutral || art::hex(*accent).l > 0.9),
+            "{setting:?}: an accent is quieter than its stone"
+        );
+    }
+}
+
+/// Time is light (the art bible's §4): a pink dawn, a gold dusk with the
+/// first lamps lit, every lamp along the spine lit at night and none by
+/// day, and rain that never greys the whole picture.
+#[test]
+fn time_is_light_and_lamps_light_the_spine() {
+    let snapshot = harbour_1082();
+    let stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(12));
+    let lives = living(
+        &stage,
+        &snapshot,
+        0.0,
+        Daylight::Day,
+        &BTreeSet::new(),
+        None,
+    );
+    let at = |daylight: Daylight, hour: f32| {
+        frame(
+            &snapshot,
+            &stage,
+            &lives,
+            Camera::whole(&stage),
+            0.0,
+            daylight,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(hour)
+    };
+    let rgb = |colour: Hsla| {
+        let rgba: gpui::Rgba = colour.into();
+        (rgba.r, rgba.g, rgba.b)
+    };
+    let (dawn_top, _) = sky_colours(&at(Daylight::Dawn, 6.5));
+    let (r, g, b) = rgb(dawn_top);
+    assert!(r > g && b > g, "dawn is pink: {r:.2} {g:.2} {b:.2}");
+    let (_, dusk_low) = sky_colours(&at(Daylight::Dusk, 19.0));
+    let (r, g, b) = rgb(dusk_low);
+    assert!(r > g && g > b, "dusk is gold: {r:.2} {g:.2} {b:.2}");
+    let lamps = spine_lamps(&at(Daylight::Day, 13.0));
+    assert!(lamps.len() >= 3, "lamps stand along the spine: {lamps:?}");
+    let lit = |hour: f32| {
+        (0..lamps.len())
+            .filter(|nth| lamps_lit(hour, *nth) > 0.5)
+            .count()
+    };
+    assert_eq!(lit(13.0), 0, "no lamp is lit by day");
+    let first = lit(19.0);
+    assert!(
+        first > 0 && first < lamps.len(),
+        "at dusk the first lamps are lit: {first} of {}",
+        lamps.len()
+    );
+    assert_eq!(lit(23.0), lamps.len(), "every lamp at night");
+    assert_eq!(lit(3.0), lamps.len(), "and through the small hours");
+    // Rain is a few fine streaks, and the light under it stays near a
+    // fair day's.
+    let rain = light_at(13.0, Weather::Rain);
+    assert!(
+        rain.iter().all(|channel| *channel > 0.85),
+        "rain greys: {rain:?}"
+    );
+}
+
+/// By day the player's designs sit in the place, 15 to 20% toward its
+/// own colours; at night they glow as they are (the art bible's §4).
+#[test]
+fn designs_are_toned_toward_the_place_by_day() {
+    assert!((0.15..=0.2).contains(&DESIGN_TONE));
+    let pattern = mark::Motif {
+        cells: [0; mark::CELLS],
+        palette: vec![[255, 0, 0], [0, 0, 255]],
+    };
+    let toward = art::Setting::Harbour.place_paints().neutral();
+    let toned = toned(&pattern, toward, DESIGN_TONE);
+    let target = [(toward >> 16) as u8, (toward >> 8) as u8, toward as u8];
+    for (before, after) in pattern.palette.iter().zip(&toned.palette) {
+        for channel in 0..3 {
+            let moved = f32::from(after[channel]) - f32::from(before[channel]);
+            let all = f32::from(target[channel]) - f32::from(before[channel]);
+            assert!((moved - all * DESIGN_TONE).abs() <= 1.0);
+        }
+    }
+}
+
+/// What each thing in a frame stands, read off its paint, in P at its
+/// depth: (label, art or drawing, P).
+fn painted_heights(snapshot: &ProjectionSnapshot) -> Vec<(String, String, f32)> {
+    let stage = stage_at(snapshot, 1920.0, 1080.0, Clock::at(16));
+    let lives = living(&stage, snapshot, 0.0, Daylight::Day, &BTreeSet::new(), None);
+    let frame = frame(
+        snapshot,
+        &stage,
+        &lives,
+        Camera::whole(&stage),
+        0.0,
+        Daylight::Day,
+        &Glows::new(),
+        1.0,
+    );
+    let items = &snapshot.canvas.items;
+    frame
+        .things
+        .iter()
+        .filter_map(|thing| {
+            let spot = stage.things.iter().find(|spot| spot.index == thing.index)?;
+            let p = stage.figure_h * spot.scale;
+            let item = &items[thing.index];
+            let (_, up) = crate::ladder::measure(
+                |brush, x, base| match &thing.drawing {
+                    Some(drawing) => art::paint_drawing(
+                        brush,
+                        x,
+                        base,
+                        thing.w,
+                        thing.w / drawing.aspect,
+                        drawing,
+                        &Inks::of_place(&thing.palette),
+                        Stance::Standing,
+                        world_projection::Mood::Content,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ),
+                    None => {
+                        art::paint_thing(brush, x, base, thing.w, thing.shape, &thing.palette, 0.0)
+                    }
+                },
+                thing.w,
+                thing.w * 3.0,
+            )?;
+            let name = thing
+                .drawing
+                .as_ref()
+                .map(|drawing| drawing.id.clone())
+                .or_else(|| item.art.clone())
+                .unwrap_or_else(|| format!("{:?}", thing.shape));
+            Some((item.label.clone(), name, up / p))
+        })
+        .collect()
+}
+
+/// Nothing in a garden or a field stands taller than a grown-up (the art
+/// bible's §3: a skep is about 0.45 P), in the library or as painted in a
+/// real harbour.
+#[test]
+fn no_field_prop_stands_taller_than_a_person() {
+    let field = crate::ladder::FIELD_PROPS;
+    for key in field {
+        match crate::ladder::of_art(key) {
+            Some(crate::ladder::Rung::Tall(tall)) => {
+                assert!(tall <= 1.0, "{key} is {tall} P on the ladder")
+            }
+            Some(crate::ladder::Rung::Wide(_)) => {
+                // Laid by its footprint: its height read off the paint.
+                let art = crate::works::Art::from_key(key).unwrap();
+                let subject = crate::ladder::Subject::Thing(
+                    MarkShape::Parcel,
+                    art.family().setting(),
+                    Some(art),
+                );
+                let (w, h) = subject.sized(60.0, 60.0).unwrap();
+                let (_, up) = crate::ladder::measure(
+                    |brush, x, base| subject.paint(brush, x, base, w, h),
+                    w,
+                    h,
+                )
+                .unwrap();
+                assert!(up / 60.0 <= 1.0, "{key} lies {:.2} P tall", up / 60.0);
+            }
+            None => panic!("{key} is not in the library"),
+        }
+    }
+    for snapshot in [harbour_1082(), harbour_163()] {
+        let mut wrong = Vec::new();
+        for (label, name, p) in painted_heights(&snapshot) {
+            let rung = crate::ladder::of_art(&name);
+            let most = match rung {
+                Some(crate::ladder::Rung::Tall(tall)) => tall * 1.15 + 0.1,
+                _ => 7.0,
+            };
+            if p > most || (field.contains(&name.as_str()) && p > 1.05) {
+                wrong.push(format!("{label} ({name}): {p:.2} P"));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "off the ladder as painted:\n{}",
+            wrong.join("\n")
+        );
+    }
+}
+
+pub(crate) fn harbour_163() -> ProjectionSnapshot {
+    let json = include_str!("../../tests/fixtures/harbour-day-163.json");
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(json).expect("a wire snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+#[test]
+#[ignore]
+fn print_painted_heights() {
+    for (label, name, p) in painted_heights(&harbour_163()) {
+        eprintln!("HEIGHT {p:5.2} {name} {label}");
+    }
 }

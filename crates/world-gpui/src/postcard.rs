@@ -35,7 +35,7 @@ impl Postcard {
     /// as it is.
     pub fn printed_caption(&self) -> String {
         match &self.speaker {
-            Some(_) => format!("“{}”", self.caption.trim()),
+            Some(_) => crate::i18n::quoted(&self.caption),
             None => self.caption.trim().to_string(),
         }
     }

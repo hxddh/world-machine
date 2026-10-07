@@ -1396,6 +1396,28 @@ pub fn wildflowers(p: &mut Pen) {
     }
 }
 
+/// A patch of wildflowers sown by hand: three low clumps of green,
+/// dotted with small flowers of every colour, no higher than a knee.
+pub fn wildflower_patch(p: &mut Pen) {
+    p.shadow(0.48);
+    let leaf = p.k.leaf;
+    let inks = [
+        hex(0xe86a5a),
+        hex(0xf2d06b),
+        p.k.pale,
+        hex(0x9a8ad8),
+        p.k.bloom,
+    ];
+    for (u, ru, rv) in [(-0.3, 0.2, 0.62), (0.02, 0.24, 0.9), (0.32, 0.17, 0.55)] {
+        p.dome(u, 0.0, ru, rv, shade(leaf, -0.05 + 0.1 * u));
+    }
+    for n in 0..17_usize {
+        let u = -0.44 + n as f32 * 0.055;
+        let v = 0.18 + 0.5 * (((n * 29) % 13) as f32 / 13.0) * (1.0 - (u * 1.8).powi(2)).max(0.2);
+        p.circ(u, v, 0.022, inks[n % 5]);
+    }
+}
+
 /// A fire pit: a ring of stones, logs crossed, flames up.
 pub fn fire_pit(p: &mut Pen) {
     let stone = p.k.stone;
@@ -1845,20 +1867,17 @@ pub fn boat_rack(p: &mut Pen) {
 
 /// An ice house: a stone egg half sunk in the bank, a small door.
 pub fn ice_house(p: &mut Pen) {
+    // A turf mound with a stone doorway in its face, not a dome: so it
+    // never reads as a beehive.
+    p.shadow(0.5);
     let stone = p.k.stone;
-    p.dome(0.0, 0.0, 0.46, 0.4, shade(p.k.leaf, -0.1));
-    p.dome(0.06, 0.1, 0.3, 0.9, stone);
-    for v in [0.3, 0.5, 0.7] {
-        p.curve(
-            (-0.2, v),
-            (0.06, v + 0.05),
-            (0.32, v),
-            0.006,
-            shade(stone, -0.2),
-        );
-    }
-    p.rect(-0.26, 0.0, -0.08, 0.1, shade(stone, -0.1));
-    p.arch(-0.02, 0.14, 0.1, 0.36, shade(p.trim, -0.2));
+    let turf = shade(p.k.leaf, -0.06);
+    p.dome(0.0, 0.0, 0.5, 0.78, turf);
+    p.dome(-0.12, 0.0, 0.3, 0.6, shade(turf, 0.06));
+    p.rect(-0.17, 0.0, 0.17, 0.5, stone);
+    p.rect(-0.2, 0.5, 0.2, 0.58, shade(stone, -0.15));
+    p.arch(-0.08, 0.08, 0.0, 0.4, shade(p.trim, -0.25));
+    p.rect(0.26, 0.6, 0.31, 0.86, shade(stone, -0.1));
 }
 
 /// A bench between two mooring bollards, a rope looped round one.

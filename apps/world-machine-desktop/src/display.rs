@@ -42,6 +42,7 @@ pub fn apply(settings: Option<&AppSettings>) {
             .and_then(|settings| settings.increase_contrast)
             .unwrap_or_else(system_increase_contrast),
     );
+    world_gpui::ui::set_developer(settings.is_some_and(|settings| settings.developer));
 }
 
 #[cfg(test)]
