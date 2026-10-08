@@ -301,3 +301,25 @@ fn a_pi_past_its_deadline_or_cancelled_is_stopped_whichever_transport() {
         Err(PiRpcTransportError::Cancelled)
     ));
 }
+
+/// A pi that has stopped reading is held to the deadline even while a
+/// prompt bigger than its pipe is still being written to it.
+#[cfg(unix)]
+#[test]
+fn a_pi_that_stops_reading_is_stopped_at_the_deadline() {
+    use crate::{PersistentPiRpcTransport, PiRpcTransport, PiRpcTransportError};
+    use std::time::{Duration, Instant};
+    let deaf = crate::PiCommand {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), "sleep 30".into()],
+    };
+    let prompt = "a".repeat(1 << 20);
+    let started = Instant::now();
+    let mut pi = PersistentPiRpcTransport::new(deaf);
+    assert!(matches!(
+        pi.complete_until(&prompt, Instant::now() + Duration::from_millis(150)),
+        Err(PiRpcTransportError::Timeout { .. })
+    ));
+    assert!(!pi.is_running());
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
