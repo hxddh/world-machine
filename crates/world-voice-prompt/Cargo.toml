@@ -1,0 +1,11 @@
+[package]
+name = "world-voice-prompt"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Plain data and plain functions: never world-core, a System or a
+# projection (scripts/check-boundaries.sh holds this).
+[dependencies]
+serde_json = "1"

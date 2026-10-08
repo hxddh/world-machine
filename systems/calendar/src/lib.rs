@@ -9,6 +9,8 @@
 //! an Event like any other, so a World replays without asking anything
 //! again.
 
+#![forbid(unsafe_code)]
+
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, Event, EventDraft,
     EventId, StateChange, Value, World, WorldError, WorldState,
@@ -142,7 +144,9 @@ fn against_last_year(
         std::cmp::Ordering::Greater => (", nothing like last year", "Not like last year."),
         std::cmp::Ordering::Equal => match turnout {
             Turnout::Grand => (", as good as last year", "Every bit as good as last year."),
-            Turnout::Fine => (", much as it was last year", "Just like last year."),
+            // Said aloud, "just like last year" reads as a suffix tacked
+            // on to every remark; the history says it, the people don't.
+            Turnout::Fine => (", much as it was last year", ""),
             Turnout::Thin => (", thin again this year", "Thin again. Like last year."),
         },
     };

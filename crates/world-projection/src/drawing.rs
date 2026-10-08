@@ -286,6 +286,10 @@ pub struct Drawing {
     /// How wide it is for how tall: a person about 0.45, a cottage about 1.
     pub aspect: f32,
     pub parts: Vec<DrawPart>,
+    /// How tall it stands beside a grown-up resident (or how wide a long,
+    /// low thing lies), as its Pack declares it: the app stands it to that
+    /// size whatever spot it is given. None keeps the size its spot gives.
+    pub rung: Option<world_art::Rung>,
 }
 
 impl Drawing {
@@ -294,7 +298,14 @@ impl Drawing {
             id: id.into(),
             aspect,
             parts,
+            rung: None,
         }
+    }
+
+    /// The same drawing, standing `rung` beside a resident.
+    pub fn standing(mut self, rung: world_art::Rung) -> Self {
+        self.rung = Some(rung);
+        self
     }
 
     /// A copy with more parts drawn over it: a person's own hat over the
@@ -306,6 +317,7 @@ impl Drawing {
             id: id.into(),
             aspect: self.aspect,
             parts,
+            rung: self.rung,
         }
     }
 

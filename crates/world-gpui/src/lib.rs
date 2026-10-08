@@ -1,14 +1,20 @@
+// No `unsafe` in the shipped renderer. The tests time the window's thread
+// by its own CPU time through two libc calls (`golden.rs`, and
+// `painter::thread_cpu`), each allowed where it stands.
+#![cfg_attr(not(test), forbid(unsafe_code))]
+#![cfg_attr(test, deny(unsafe_code))]
+
 pub mod age;
 pub mod art;
 pub mod brush;
 pub mod design;
 pub mod diorama;
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod golden;
 pub mod hand;
 pub mod i18n;
 pub mod ladder;
-mod macos;
 pub mod mark;
 #[cfg(test)]
 mod offscreen;
@@ -21,9 +27,11 @@ pub mod setting;
 pub mod strip;
 pub mod text_input;
 pub mod ui;
+mod window;
 pub mod works;
+pub mod wrap;
 
-pub use macos::{
+pub use window::{
     is_beginning, scene_share, speech_pages, words_at_rest, Farewell, FarewellAction,
     ProjectionView, RESTING_WORD_LIMIT,
 };

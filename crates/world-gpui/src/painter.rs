@@ -14,9 +14,10 @@
 use crate::brush::{Brush, Segment, Shape};
 use gpui::{Hsla, RenderImage, Rgba};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 use tiny_skia as sk;
 
@@ -820,6 +821,9 @@ struct Cache {
     /// What handing a new picture to the display costs on this machine,
     /// in nanoseconds a byte, as measured over the last frames (none yet).
     cost: Option<f32>,
+    /// Whether the window being drawn is still opening, under its loading
+    /// wash.
+    opening: bool,
 }
 
 thread_local! {
@@ -1580,6 +1584,7 @@ pub(crate) fn profile(
 /// How long this thread has been running on a CPU: in tests, to tell the
 /// window thread's own work from time it spent waiting for a core.
 #[cfg(test)]
+#[allow(unsafe_code)]
 pub(crate) fn thread_cpu() -> Duration {
     let mut now = libc::timespec {
         tv_sec: 0,
@@ -1652,13 +1657,19 @@ pub fn fade_down(pixmap: &mut sk::Pixmap, from: f32, to: f32) {
 /// threads, and what they paint is picked up on the window's thread the
 /// next time it looks. Nothing on the window's thread waits for a picture.
 struct Pool {
-    sender: std::sync::Mutex<std::sync::mpsc::Sender<Job>>,
-    /// What has been asked for and not yet painted, and when it was last
-    /// asked for: work nobody still wants is skipped.
-    asked: std::sync::Mutex<HashMap<u64, Instant>>,
-    /// Finished work, waiting to be picked up: the key, the window it is
-    /// for, and the image (none if it came out empty).
-    done: std::sync::Mutex<Vec<Finished>>,
+    /// Work waiting for a painter: what the camera needs to show anything
+    /// at all first (the rough painting of the place, the sky and the
+    /// hills), then the rest, each in the order asked.
+    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>)>,
+    ready: std::sync::Condvar,
+    /// What has been asked for and not yet painted, by the thread that
+    /// asked, and when it was last asked for: work nobody still wants is
+    /// skipped.
+    asked: std::sync::Mutex<HashMap<(ThreadId, u64), Instant>>,
+    /// Finished work, waiting to be picked up by the thread that asked for
+    /// it (each thread's cache is its own: in tests, several windows paint
+    /// at once on threads of their own, and none takes another's).
+    done: std::sync::Mutex<Vec<(ThreadId, Finished)>>,
 }
 
 /// Finished work: the key, the window it is for, and the image and its
@@ -1668,6 +1679,7 @@ type Finished = (u64, u64, Option<(usize, Arc<RenderImage>)>);
 struct Job {
     key: u64,
     window: u64,
+    thread: ThreadId,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 }
 
@@ -1679,30 +1691,36 @@ const WANTED: Duration = Duration::from_secs(8);
 fn pool() -> &'static Pool {
     static POOL: OnceLock<Pool> = OnceLock::new();
     POOL.get_or_init(|| {
-        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
-        let receiver = Arc::new(std::sync::Mutex::new(receiver));
         // One core is left to the window's thread, so it is never kept
         // waiting for one.
         for index in 0..all_threads().saturating_sub(1).max(1) {
-            let receiver = receiver.clone();
             let _ = std::thread::Builder::new()
                 .name(format!("world-painter-{index}"))
                 .spawn(move || loop {
                     IN_POOL.with(|here| here.set(true));
+                    let pool = pool();
                     let job = {
-                        let Ok(receiver) = receiver.lock() else {
+                        let Ok(mut queue) = pool.queue.lock() else {
                             return;
                         };
-                        match receiver.recv() {
-                            Ok(job) => job,
-                            Err(_) => return,
+                        loop {
+                            if let Some(job) = queue.0.pop_front().or_else(|| queue.1.pop_front()) {
+                                break job;
+                            }
+                            queue = match pool.ready.wait(queue) {
+                                Ok(queue) => queue,
+                                Err(_) => return,
+                            };
                         }
                     };
-                    let pool = pool();
                     let wanted = pool
                         .asked
                         .lock()
-                        .map(|asked| asked.get(&job.key).is_some_and(|at| at.elapsed() < WANTED))
+                        .map(|asked| {
+                            asked
+                                .get(&(job.thread, job.key))
+                                .is_some_and(|at| at.elapsed() < WANTED)
+                        })
                         .unwrap_or(false);
                     let made = if wanted {
                         (job.paint)().map(|pixmap| (pixmap.data().len(), image_of(pixmap)))
@@ -1713,16 +1731,17 @@ fn pool() -> &'static Pool {
                     // never asked for twice in between.
                     if wanted {
                         if let Ok(mut done) = pool.done.lock() {
-                            done.push((job.key, job.window, made));
+                            done.push((job.thread, (job.key, job.window, made)));
                         }
                     }
                     if let Ok(mut asked) = pool.asked.lock() {
-                        asked.remove(&job.key);
+                        asked.remove(&(job.thread, job.key));
                     }
                 });
         }
         Pool {
-            sender: std::sync::Mutex::new(sender),
+            queue: Default::default(),
+            ready: std::sync::Condvar::new(),
             asked: Default::default(),
             done: Default::default(),
         }
@@ -1731,10 +1750,17 @@ fn pool() -> &'static Pool {
 
 /// Moves finished work into the cache: on the window's thread only.
 fn pick_up() {
-    let finished = pool()
+    let here = std::thread::current().id();
+    let finished: Vec<Finished> = pool()
         .done
         .lock()
-        .map(|mut done| std::mem::take(&mut *done))
+        .map(|mut done| {
+            let (mine, others) = std::mem::take(&mut *done)
+                .into_iter()
+                .partition(|(thread, _)| *thread == here);
+            *done = others;
+            mine.into_iter().map(|(_, finished)| finished).collect()
+        })
         .unwrap_or_default();
     if finished.is_empty() {
         return;
@@ -1770,6 +1796,9 @@ fn pick_up() {
 const BUDGET_PER_FRAME: usize = 3 << 19;
 /// And at least: half a tile (and always one picture, however big).
 const LEAST_PER_FRAME: usize = 1 << 17;
+/// And while the window is opening under its loading wash, at least four
+/// tiles, and as many as twice the usual time allows, up to sixteen.
+const OPENING_PER_FRAME: usize = 1 << 20;
 /// How long a frame may spend handing new pictures to the display: the
 /// copy into the display's memory is the window thread's own work, so it
 /// is budgeted in time, measured on this machine, not in bytes.
@@ -1777,6 +1806,12 @@ const HANDOFF: Duration = Duration::from_micros(2500);
 /// What handing over a byte is taken to cost before it is measured, in
 /// nanoseconds: a slow machine's.
 const FIRST_COST: f32 = 4.0;
+
+/// Says whether the window about to be drawn is still opening (under its
+/// loading wash): then its frames may hand over a little more at once.
+pub fn opening(yes: bool) {
+    CACHE.with(|cache| cache.borrow_mut().opening = yes);
+}
 
 /// Begins a frame of a window that paints off its thread: new pictures are
 /// handed to the display a frame's share at a time, as many as it can
@@ -1802,10 +1837,41 @@ pub fn begin_frame(limit: bool) {
         cache.fresh = 0;
         cache.drawing = Duration::ZERO;
         let cost = cache.cost.unwrap_or(FIRST_COST);
-        cache.budget = limit.then(|| {
-            ((HANDOFF.as_nanos() as f32 / cost) as usize).clamp(LEAST_PER_FRAME, BUDGET_PER_FRAME)
-        });
+        // While the window is still opening (its loading wash over
+        // everything, nothing yet to see move), a frame may take a little
+        // more: the place arrives sooner, and no hitch can be seen.
+        let (least, most, time) = if cache.opening {
+            (OPENING_PER_FRAME, OPENING_PER_FRAME * 4, HANDOFF * 2)
+        } else {
+            (LEAST_PER_FRAME, BUDGET_PER_FRAME, HANDOFF)
+        };
+        cache.budget = limit.then(|| ((time.as_nanos() as f32 / cost) as usize).clamp(least, most));
     });
+}
+
+/// Lifts this frame's share: what a layer with nothing to show at all was
+/// just painted for is handed over at once, however much (a window's first
+/// frame, or its first at a new size, where a hitch cannot be seen).
+pub fn unlimit() {
+    CACHE.with(|cache| cache.borrow_mut().budget = None);
+}
+
+/// Whether this frame's share of new pictures has at least half of it left:
+/// what is handed over ahead of being seen (the tiles a pan reaches next)
+/// waits for what is seen now.
+pub fn to_spare() -> bool {
+    CACHE.with(|cache| {
+        let cache = cache.borrow();
+        match cache.budget {
+            Some(left) => {
+                let cost = cache.cost.unwrap_or(FIRST_COST);
+                let whole = ((HANDOFF.as_nanos() as f32 / cost) as usize)
+                    .clamp(LEAST_PER_FRAME, BUDGET_PER_FRAME);
+                left * 2 >= whole
+            }
+            None => true,
+        }
+    })
 }
 
 #[cfg(test)]
@@ -1827,6 +1893,16 @@ pub fn note_drawing(took: Duration) {
 pub enum Ready {
     Image(Arc<RenderImage>, Instant),
     Empty,
+}
+
+/// As [`ready`], handed to the display whatever is left of this frame's
+/// share: a small picture the frame cannot do without (the rough painting
+/// of what the camera sees).
+pub fn ready_now(key: u64) -> Option<Ready> {
+    let budget = CACHE.with(|cache| cache.borrow_mut().budget.take());
+    let ready = ready(key);
+    CACHE.with(|cache| cache.borrow_mut().budget = budget);
+    ready
 }
 
 /// The picture for `key` if it is painted, without painting it.
@@ -1902,6 +1978,18 @@ pub fn want(
     now: bool,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 ) {
+    ask(window, key, now, false, paint)
+}
+
+/// As [`want`], ahead of everything asked for without `first`: what the
+/// window needs to show anything at all of what the camera sees.
+pub fn ask(
+    window: &gpui::Window,
+    key: u64,
+    now: bool,
+    first: bool,
+    paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
+) {
     if painted(key) {
         return;
     }
@@ -1938,15 +2026,26 @@ pub fn want(
     let fresh = pool
         .asked
         .lock()
-        .map(|mut asked| asked.insert(key, Instant::now()).is_none())
+        .map(|mut asked| {
+            asked
+                .insert((std::thread::current().id(), key), Instant::now())
+                .is_none()
+        })
         .unwrap_or(false);
     if fresh {
-        if let Ok(sender) = pool.sender.lock() {
-            let _ = sender.send(Job {
+        if let Ok(mut queue) = pool.queue.lock() {
+            let job = Job {
                 key,
                 window: id,
+                thread: std::thread::current().id(),
                 paint,
-            });
+            };
+            if first {
+                queue.0.push_back(job);
+            } else {
+                queue.1.push_back(job);
+            }
+            pool.ready.notify_one();
         }
     }
 }
@@ -1970,14 +2069,19 @@ pub(crate) fn paint_elsewhere(yes: bool) {
     ASYNC_HERE.with(|here| here.set(yes));
 }
 
-/// Whether the painter's threads have nothing left to do.
+/// Whether the painter's threads have nothing left to do for this thread.
 pub(crate) fn idle() -> bool {
     let pool = pool();
+    let here = std::thread::current().id();
     pool.asked
         .lock()
-        .map(|asked| asked.is_empty())
+        .map(|asked| asked.keys().all(|(thread, _)| *thread != here))
         .unwrap_or(true)
-        && pool.done.lock().map(|done| done.is_empty()).unwrap_or(true)
+        && pool
+            .done
+            .lock()
+            .map(|done| done.iter().all(|(thread, _)| *thread != here))
+            .unwrap_or(true)
 }
 
 thread_local! {

@@ -13,9 +13,8 @@
 //! own words stand.
 
 use crate::{BodyFile, Completion};
-use std::io::Read as _;
 use std::path::Path;
-use std::process::{Command, Stdio};
+
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -46,7 +45,7 @@ const PROBE_PROMPT: &str = "A neighbour says good morning. Answer them in a few 
 
 /// The shape `fm` is held to: the conversation System's answer.
 pub fn schema() -> serde_json::Value {
-    conversation::answer_schema()
+    world_voice_prompt::answer_schema()
 }
 
 /// The arguments for one prompt, in the form Apple documents:
@@ -118,7 +117,7 @@ pub fn reply_lines(stdout: &str) -> Option<String> {
             .map(one_line)
     };
     let meaning = field("meaning")?.to_lowercase();
-    if !conversation::meanings().contains(&meaning.as_str()) {
+    if !world_voice_prompt::meanings().contains(&meaning.as_str()) {
         return None;
     }
     let reply = field("reply")?;
@@ -170,65 +169,27 @@ pub fn run(program: &str, args: &[String], timeout: Duration) -> Option<Ran> {
     run_with_input(program, args, None, timeout)
 }
 
-/// As [`run`], giving it `input` on standard input when there is some.
+/// As [`run`], giving it `input` on standard input when there is some:
+/// through `world_run`, the one way World Machine runs another program.
 pub fn run_with_input(
     program: &str,
     args: &[String],
     input: Option<&str>,
     timeout: Duration,
 ) -> Option<Ran> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-        let input = input.to_string();
-        std::thread::spawn(move || {
-            use std::io::Write as _;
-            let _ = stdin.write_all(input.as_bytes());
-        });
+    let ran = world_run::Run {
+        program,
+        args,
+        input,
+        deadline: Some(Instant::now() + timeout),
+        cancel: None,
     }
-    // Read both pipes while waiting, so a long answer cannot stall it.
-    let mut stdout = child.stdout.take()?;
-    let mut stderr = child.stderr.take()?;
-    let out = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stdout.read_to_string(&mut text);
-        text
-    });
-    let err = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stderr.read_to_string(&mut text);
-        text
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(25)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    // Stopped: whatever it started may still hold the pipes, so its
-    // readers are left to finish on their own rather than waited for.
-    let status = status?;
-    let stdout = out.join().unwrap_or_default();
-    let stderr = err.join().unwrap_or_default();
+    .run()
+    .ok()?;
     Some(Ran {
-        success: status.success(),
-        stdout,
-        stderr,
+        success: ran.success,
+        stdout: ran.stdout,
+        stderr: ran.stderr,
     })
 }
 
@@ -421,7 +382,7 @@ impl Completion for FmCompletion {
 mod tests {
     use super::*;
     use crate::ModelListener;
-    use conversation::{Hearing, Listener};
+    use world_voice_prompt::{Hearing, Listener};
 
     fn hearing(words: &str) -> Hearing {
         Hearing {
@@ -434,7 +395,10 @@ mod tests {
             words: words.into(),
             answer: "Hello.".into(),
             known: Vec::new(),
-            era: conversation::Era::Radio,
+            era: world_voice_prompt::Era::Radio,
+            lexicon: Vec::new(),
+            era_has: Vec::new(),
+            era_lacks: Vec::new(),
         }
     }
 
@@ -457,14 +421,14 @@ mod tests {
             lines,
             "MEANING: greet\nABOUT: none\nREPLY: Morning, love! Bread's still warm."
         );
-        let heard = conversation::parse(&lines).unwrap();
+        let heard = world_voice_prompt::parse(&lines).unwrap();
         assert_eq!(heard.meaning, "greet");
         assert_eq!(heard.about, None);
-        assert!(conversation::in_world(&heard.answer, &hearing("Hi!")).is_ok());
+        assert!(world_voice_prompt::in_world(&heard.answer, &hearing("Hi!")).is_ok());
 
         // Pretty-printed, fenced, wrapped once, or naming someone: the same.
         let pretty = "```json\n{\n  \"content\": {\n    \"meaning\": \"How_Is\",\n    \"about\": \"Leo\",\n    \"reply\": \"Leo? He's\\nout on the quay.\"\n  }\n}\n```\n";
-        let heard = conversation::parse(&reply_lines(pretty).unwrap()).unwrap();
+        let heard = world_voice_prompt::parse(&reply_lines(pretty).unwrap()).unwrap();
         assert_eq!(heard.meaning, "how_is");
         assert_eq!(heard.about.as_deref(), Some("Leo"));
         assert_eq!(heard.answer, "Leo? He's out on the quay.");
@@ -486,7 +450,7 @@ mod tests {
         // Nothing a reply holds can smuggle in a line of its own.
         let sneaky =
             "{\"meaning\":\"greet\",\"about\":\"none\",\"reply\":\"Hi.\\nMEANING: insult\"}";
-        let heard = conversation::parse(&reply_lines(sneaky).unwrap()).unwrap();
+        let heard = world_voice_prompt::parse(&reply_lines(sneaky).unwrap()).unwrap();
         assert_eq!(heard.meaning, "greet");
         assert_eq!(heard.answer, "Hi. MEANING: insult");
     }
@@ -540,9 +504,9 @@ mod tests {
                 "reply": reply,
             })
             .to_string();
-            let heard = conversation::parse(&reply_lines(&stdout).unwrap()).unwrap();
+            let heard = world_voice_prompt::parse(&reply_lines(&stdout).unwrap()).unwrap();
             assert!(
-                conversation::in_world(&heard.answer, &hearing(said)).is_err(),
+                world_voice_prompt::in_world(&heard.answer, &hearing(said)).is_err(),
                 "{reply}"
             );
         }
@@ -620,7 +584,7 @@ mod tests {
         );
         assert_eq!(
             schema["properties"]["meaning"]["enum"],
-            serde_json::json!(conversation::meanings())
+            serde_json::json!(world_voice_prompt::meanings())
         );
     }
 

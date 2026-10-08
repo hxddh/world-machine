@@ -12,6 +12,8 @@
 //! landscape, voices and the interface's acts. [`Engine::apply`] takes a
 //! [`Command`]; [`Engine::render`] fills interleaved stereo samples.
 
+#![forbid(unsafe_code)]
+
 mod acts;
 mod babble;
 mod dsp;

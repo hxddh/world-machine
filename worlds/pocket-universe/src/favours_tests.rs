@@ -123,3 +123,75 @@ fn five_players_in_every_place_see_a_favour_within_ten_periods() {
         }
     }
 }
+
+/// The person card's quick reply does its favour in every language the
+/// app speaks, in every place: said in English, or as the catalogs put it
+/// in Chinese or Japanese, it is heard as doing it.
+#[test]
+fn in_every_place_quick_replies_do_the_favour_in_every_language() {
+    use conversation::hear;
+    let catalog = |own: &str, systems: &str| {
+        let mut catalog = world_i18n::Catalog::default();
+        catalog.extend(systems);
+        catalog.extend(own);
+        catalog
+    };
+    let languages = [
+        (
+            "zh",
+            catalog(
+                include_str!("../locales/zh-Hans.tsv"),
+                include_str!("../../../crates/world-builtins/locales/systems.zh-Hans.tsv"),
+            ),
+        ),
+        (
+            "ja",
+            catalog(
+                include_str!("../locales/ja.tsv"),
+                include_str!("../../../crates/world-builtins/locales/systems.ja.tsv"),
+            ),
+        ),
+    ];
+    let mut every = std::collections::BTreeSet::new();
+    for seed in PLACES {
+        let mut universe = begun(seed);
+        let mut tried = std::collections::BTreeSet::new();
+        for step in 0..240 {
+            if tried.len() == Kind::ALL.len() {
+                break;
+            }
+            let state = universe.world().state();
+            let kit = crate::speech::kit(state);
+            if let Some(open) = favour::open(state, &kit) {
+                if tried.insert(open.kind.id()) {
+                    let reply = universe.projection_snapshot().favour.unwrap().reply;
+                    let mut said = vec![("en", reply.clone())];
+                    for (language, catalog) in &languages {
+                        let put = catalog
+                            .translate(&reply)
+                            .unwrap_or_else(|| panic!("{seed} {language}: no words for {reply:?}"));
+                        said.push((language, put.to_string()));
+                    }
+                    let state = universe.world().state();
+                    for (language, words) in said {
+                        let heard = hear(state, &kit, open.whom, &words);
+                        assert!(
+                            favour::done_by(open.kind, open.asker, heard, || true),
+                            "{seed} {language} {:?}: {words:?} heard as {heard:?}",
+                            open.kind
+                        );
+                    }
+                }
+            }
+            // A word to someone now and then keeps the favours coming.
+            if step % 9 == 8 {
+                let someone = crate::life::people_in(universe.world().state())[0];
+                universe.say(someone, "Morning!").unwrap();
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+        assert!(tried.len() >= 2, "{seed}: only {tried:?} asked");
+        every.extend(tried);
+    }
+    assert_eq!(every.len(), Kind::ALL.len(), "{every:?}");
+}

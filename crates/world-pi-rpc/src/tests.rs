@@ -231,3 +231,73 @@ fn rpc_event_parser_reports_pi_stopping_for_want_of_a_key() {
         "pi stopped (auth.missing_api_key): No API key for the model"
     );
 }
+
+/// A stand-in pi: for each prompt line on standard input, answers with
+/// the documented event lines and `agent_end`, counting the prompts it has
+/// been sent; or, with `slow`, never answers.
+#[cfg(unix)]
+fn fake_pi(slow: bool) -> crate::PiCommand {
+    let script = if slow {
+        "while read line; do sleep 5; done".to_string()
+    } else {
+        concat!(
+            "n=0; while read line; do n=$((n+1)); ",
+            "echo '{\"type\":\"response\",\"command\":\"prompt\",\"success\":true}'; ",
+            "echo \"{\\\"type\\\":\\\"text_delta\\\",\\\"delta\\\":\\\"WORLD_ACTION:act-$n\\\"}\"; ",
+            "echo '{\"type\":\"agent_end\"}'; done"
+        )
+        .to_string()
+    };
+    crate::PiCommand {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script],
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_persistent_pi_answers_many_prompts_from_one_process() {
+    use crate::{PersistentPiRpcTransport, PiRpcTransport};
+    let mut pi = PersistentPiRpcTransport::new(fake_pi(false));
+    assert_eq!(pi.complete("first").unwrap(), "WORLD_ACTION:act-1");
+    assert!(pi.is_running());
+    // The same process: it has counted both prompts.
+    assert_eq!(pi.complete("second").unwrap(), "WORLD_ACTION:act-2");
+    // It is started afresh after its most requests.
+    for _ in 2..crate::MOST_REQUESTS {
+        pi.complete("more").unwrap();
+    }
+    assert!(!pi.is_running());
+    assert_eq!(pi.complete("again").unwrap(), "WORLD_ACTION:act-1");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pi_past_its_deadline_or_cancelled_is_stopped_whichever_transport() {
+    use crate::{
+        PersistentPiRpcTransport, PiRpcTransport, PiRpcTransportError, ProcessPiRpcTransport,
+    };
+    use std::time::{Duration, Instant};
+    let soon = || Instant::now() + Duration::from_millis(150);
+    let started = Instant::now();
+    let mut once = ProcessPiRpcTransport::new(fake_pi(true));
+    assert!(matches!(
+        once.complete_until("hi", soon()),
+        Err(PiRpcTransportError::Timeout { .. })
+    ));
+    let mut kept = PersistentPiRpcTransport::new(fake_pi(true));
+    assert!(matches!(
+        kept.complete_until("hi", soon()),
+        Err(PiRpcTransportError::Timeout { .. })
+    ));
+    assert!(!kept.is_running());
+    // Neither waited out its two-minute timeout.
+    assert!(started.elapsed() < Duration::from_secs(3));
+    let cancel = world_run::Cancel::new();
+    cancel.cancel();
+    let mut cancelled = ProcessPiRpcTransport::new(fake_pi(true)).with_cancel(cancel);
+    assert!(matches!(
+        cancelled.complete("hi"),
+        Err(PiRpcTransportError::Cancelled)
+    ));
+}

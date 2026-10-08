@@ -805,6 +805,7 @@ pub(crate) fn suggestions(world: &World) -> Vec<world_projection::ProjectionComm
                 cost: None,
             }),
             preview: None,
+            role: None,
         })
         .collect()
 }

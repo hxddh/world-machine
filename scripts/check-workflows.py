@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github/workflows"
 
 # Workflows that are useless unless they can be started by hand.
-DISPATCHABLE = {"screenshots.yml", "release-package.yml", "nightly.yml"}
+DISPATCHABLE = {"screenshots.yml", "release-package.yml", "nightly.yml", "release-shots.yml"}
 
 # Workflows that are useless unless they run on their own.
 SCHEDULED = {"nightly.yml"}

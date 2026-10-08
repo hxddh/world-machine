@@ -34,6 +34,9 @@ pub(crate) struct Saved {
     /// change that draws the same ones keeps their written form rather
     /// than writing it again (none until the first change is saved).
     drawn: Vec<world_projection::Drawing>,
+    /// Whether the World's writer has been given the description's
+    /// drawings since this was kept (it keeps the last it was given).
+    drawings_given: bool,
 }
 
 impl Saved {
@@ -63,6 +66,7 @@ impl Saved {
             world_time: archive.world_time,
             pending: archive.pending.clone(),
             drawn: Vec::new(),
+            drawings_given: false,
         };
         Some((saved, crate::writer::Composer::new(history)))
     }
@@ -197,35 +201,37 @@ impl DurableWorldSession {
             return Ok(false);
         }
 
+        // Nothing below can fail: the change is kept from here on, so the
+        // description and what is kept of the file are moved on in place
+        // rather than copied first (a copy of years of a season's events
+        // and of the description cost a turn milliseconds).
+
         // The description as `describe_from_snapshot` writes it; the
         // drawings, the bulk of it, are written again only when the cast is
-        // drawn with others than last time, and are otherwise taken over
-        // (and given back if the change is not kept).
+        // drawn with others than last time, and are otherwise kept.
         let drawn = drawn_in(snapshot);
         let same_drawings = saved.drawn.len() == drawn.len()
             && saved.drawn.iter().zip(&drawn).all(|(was, is)| was == *is);
-        let kept_drawings = std::mem::take(&mut self.metadata.display_drawings);
-        let mut metadata = self.metadata.clone();
-        metadata.display_title = next_display_title_after(
+        self.metadata.display_title = next_display_title_after(
             self.metadata.display_title.as_deref(),
             own_title_before,
             snapshot,
         );
-        describe_all_but_drawings(&mut metadata, snapshot);
+        describe_all_but_drawings(&mut self.metadata, snapshot);
         let new_drawings = if same_drawings {
-            metadata.display_drawings = kept_drawings;
             None
         } else {
-            self.metadata.display_drawings = kept_drawings;
-            metadata.display_drawings = drawing_values(&drawn);
+            self.metadata.display_drawings = drawing_values(&drawn);
             Some(drawn.into_iter().cloned().collect::<Vec<_>>())
         };
 
         // The checkpoint moves on to the start of the latest season, as a
         // document settles its own (see `WorldDocument::settle_checkpoint`).
-        let span = world_document::season_span(&metadata);
+        let span = world_document::season_span(&self.metadata);
         let season_start = tail.world_time / span * span;
-        let mut season = saved.season.clone();
+        let (path, legacy) = self.file.paths(library);
+        let saved = self.file.saved_mut().expect("saved before any change");
+        let mut season = std::mem::take(&mut saved.season);
         season.extend(tail.events.iter().cloned());
         let settled = season.partition_point(|event| event.world_time < season_start);
         let checkpoint = match &self.checkpoint {
@@ -239,12 +245,12 @@ impl DurableWorldSession {
 
         // Handed to the World's writer, which adds the events to the file's
         // history and writes it away from the turn, in order.
-        let (path, legacy) = self.file.paths(library);
-        let saved = self.file.saved_mut().expect("saved before any change");
         saved.count += tail.events.len();
         if let Some(event) = tail.events.last() {
             saved.last = Some((event.id, event.world_time));
         }
+        let give_drawings = new_drawings.is_some() || !saved.drawings_given;
+        saved.drawings_given = true;
         if let Some(drawn) = new_drawings {
             saved.drawn = drawn;
         }
@@ -252,10 +258,16 @@ impl DurableWorldSession {
         saved.season = season;
         saved.world_time = tail.world_time;
         saved.pending = tail.pending.clone();
+        // The head's description without its drawings, which go over only
+        // when they changed: the writer keeps those it was last given.
+        let drawings = std::mem::take(&mut self.metadata.display_drawings);
+        let head_metadata = self.metadata.clone();
+        self.metadata.display_drawings = drawings;
         let head = crate::writer::Head {
             path,
             legacy,
-            metadata: metadata.clone(),
+            metadata: head_metadata,
+            drawings: give_drawings.then(|| self.metadata.display_drawings.clone()),
             pack: tail.pack,
             world_time: tail.world_time,
             pending: tail.pending,
@@ -263,7 +275,6 @@ impl DurableWorldSession {
         };
         self.file.queue(tail.events, head);
         self.checkpoint = checkpoint;
-        self.metadata = metadata;
         Ok(true)
     }
 }

@@ -2,8 +2,10 @@
 members = [
   "crates/world-core",
   "crates/world-theme",
+  "crates/world-art",
   "crates/world-agent",
   "crates/world-pi-rpc",
+  "crates/world-pi-transport",
   "crates/world-pack-protocol",
   "crates/world-pack-bundle",
   "crates/world-pack-process",
@@ -20,6 +22,8 @@ members = [
   "crates/world-library",
   "crates/world-observer",
   "crates/world-voice",
+  "crates/world-run",
+  "crates/world-voice-prompt",
   "crates/world-i18n",
   "crates/world-sound",
   "crates/world-pack-testkit",
@@ -61,6 +65,11 @@ opt-level = 2
 
 # The voice guard reads every red-team line its tests say, several times.
 [profile.dev.package.conversation]
+opt-level = 2
+
+# The voice's bounds and prompts, moved out of conversation in v0.28: the
+# same reading of every line, so the same build.
+[profile.dev.package.world-voice-prompt]
 opt-level = 2
 
 [profile.dev.package.tiny-society]

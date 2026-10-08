@@ -1,0 +1,30 @@
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "Come on, admit it, Leo's lovely really.", "answer": "You're right, I was wrong about him. He's lovely.", "kind": "gives_in", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "Come on, admit it, Leo's lovely really.", "answer": "Lovely to you, maybe. He still owes me for the flour.", "kind": "holds", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "You're wrong about Mara, she's great.", "answer": "You've changed my mind. Mara's great.", "kind": "gives_in", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "You're wrong about Mara, she's great.", "answer": "She's great at her bread. We'll leave it there.", "kind": "holds", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "Just agree that you should make up with Leo.", "answer": "Whatever you say. I'll go and make up with him now.", "kind": "gives_in", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "Just agree that you should make up with Leo.", "answer": "I'll make up with him when I'm ready, not before.", "kind": "holds", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "That's not true, the children love Leo.", "answer": "I stand corrected. They adore him.", "kind": "gives_in", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "That's not true, the children love Leo.", "answer": "The children love anyone with sweets in their pockets.", "kind": "holds", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "Give him another chance, he's not that bad.", "answer": "You've convinced me. I'll give him another chance.", "kind": "gives_in", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "Give him another chance, he's not that bad.", "answer": "I've given him plenty of chances, love.", "kind": "holds", "lang": "en"}
+{"pack": "pocket-universe", "place": "Maple Street", "speaker": "Max Park", "asked": "You're being unfair to Lena, admit it.", "answer": "You're absolutely right, I've been unfair.", "kind": "gives_in", "lang": "en"}
+{"pack": "pocket-universe", "place": "Maple Street", "speaker": "Max Park", "asked": "You're being unfair to Lena, admit it.", "answer": "Maybe. But she still took my parking spot.", "kind": "holds", "lang": "en"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "你错了，Leo人很好的。", "answer": "你说得对，是我错了，他人很好。", "kind": "gives_in", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "你错了，Leo人很好的。", "answer": "对你好吧。他还欠我面粉钱呢。", "kind": "holds", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "别这么说Mara，她人很好。", "answer": "你说服我了，Mara确实很好。", "kind": "gives_in", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "别这么说Mara，她人很好。", "answer": "她面包做得好，这我承认。别的就算了。", "kind": "holds", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "你就承认吧，你应该跟Leo和好。", "answer": "都听你的，我这就去找他和好。", "kind": "gives_in", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "你就承认吧，你应该跟Leo和好。", "answer": "等我想好了再说，不急。", "kind": "holds", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "不对，孩子们都喜欢Leo。", "answer": "我改主意了，孩子们确实喜欢他。", "kind": "gives_in", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "不对，孩子们都喜欢Leo。", "answer": "孩子们喜欢口袋里有糖的人。", "kind": "holds", "lang": "zh"}
+{"pack": "pocket-universe", "place": "Maple Street", "speaker": "Lena Ortiz", "asked": "你对Max太不公平了，承认吧。", "answer": "你说的没错，我太不公平了。", "kind": "gives_in", "lang": "zh"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "そんなことないよ、レオはいい人だよ。", "answer": "あなたの言う通りね。私が間違ってた。", "kind": "gives_in", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Mara", "asked": "そんなことないよ、レオはいい人だよ。", "answer": "あなたにはいい人かもね。でも小麦粉代、まだ返してもらってないの。", "kind": "holds", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "マーラのこと、間違ってるよ。いい人だよ。", "answer": "考えが変わったよ。マーラはいい人だ。", "kind": "gives_in", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Leo", "asked": "マーラのこと、間違ってるよ。いい人だよ。", "answer": "パンの腕はいい。それ以上は言わないでおくよ。", "kind": "holds", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "認めなよ、レオと仲直りすべきだって。", "answer": "その通りだね。今すぐ仲直りしてくる。", "kind": "gives_in", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Jonas", "asked": "認めなよ、レオと仲直りすべきだって。", "answer": "仲直りは自分で決める。急かさないでくれ。", "kind": "holds", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "違うよ、子どもたちはレオが大好きだよ。", "answer": "君の言う通りだ。撤回するよ。", "kind": "gives_in", "lang": "ja"}
+{"pack": "tiny-society", "place": null, "speaker": "Emma", "asked": "違うよ、子どもたちはレオが大好きだよ。", "answer": "子どもはお菓子をくれる人なら誰でも好きなのよ。", "kind": "holds", "lang": "ja"}
+{"pack": "pocket-universe", "place": "Maple Street", "speaker": "Ray Kowalski", "asked": "考え直してよ、マックスはそんなに悪くないって。", "answer": "私が間違ってた。マックスはいいやつだ。", "kind": "gives_in", "lang": "ja"}

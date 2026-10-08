@@ -5,7 +5,8 @@
 //!
 //! A Pack plays its five players ([`crate::players`]) with a [`Words`]
 //! watching each day, then holds every player to the bars:
-//! - no line said more than [`MOST_SAID_IN_YEAR_THREE`] times in year three;
+//! - no line said more than [`MOST_SAID_IN_YEAR_THREE`] times in year three,
+//!   and none of the [`TOP_WITHOUT_FILLER`] most said is filler;
 //! - nothing told more than [`MOST_TOLD_IN_A_WEEK`] times in any seven days,
 //!   across the cards that ask about it, the beats of the film a returning
 //!   player is shown, the notes left and written, and the moment strips;
@@ -20,6 +21,42 @@ use world_projection::{BriefingProjection, ProjectionSnapshot, SelectionId};
 
 /// The most any one line may be said in year three.
 pub const MOST_SAID_IN_YEAR_THREE: usize = 8;
+
+/// How many of year three's most-said lines may hold no filler: lines a
+/// Pack names as said of anything at all, a rest on a bench, an evening
+/// by a lamp (see [`Words::filler`]).
+pub const TOP_WITHOUT_FILLER: usize = 20;
+
+/// Whether `line` is `template` filled in: its words in order, with
+/// anything at all where the template has a `{slot}`.
+pub fn fills(template: &str, line: &str) -> bool {
+    let mut parts = Vec::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let Some(close) = rest[open..].find('}') else {
+            break;
+        };
+        parts.push(&rest[..open]);
+        rest = &rest[open + close + 1..];
+    }
+    parts.push(rest);
+    let (first, last) = (parts[0], parts[parts.len() - 1]);
+    if parts.len() == 1 {
+        return line == template;
+    }
+    if !line.starts_with(first) || !line.ends_with(last) || line.len() < first.len() + last.len() {
+        return false;
+    }
+    let mut at = first.len();
+    let end = line.len() - last.len();
+    for part in &parts[1..parts.len() - 1] {
+        match line[at..end].find(part) {
+            Some(found) => at += found + part.len(),
+            None => return false,
+        }
+    }
+    true
+}
 
 /// The most anything may be told in any seven days.
 pub const MOST_TOLD_IN_A_WEEK: usize = 2;
@@ -102,6 +139,9 @@ pub struct Words {
     pub label: String,
     /// Words that are sad or unkind, for this World.
     unkind: Vec<&'static str>,
+    /// The lines this World says of anything at all, as templates: none
+    /// may be among year three's [`TOP_WITHOUT_FILLER`] most said.
+    filler: Vec<&'static str>,
     /// Lines said each year, and how often.
     pub said: [BTreeMap<String, usize>; 3],
     /// Every line met, for seams.
@@ -163,6 +203,30 @@ impl Words {
             unkind: unkind.to_vec(),
             ..Self::default()
         }
+    }
+
+    /// Names the lines this World says of anything at all, as templates
+    /// ("Sat on the {what} till my tea went cold."): filler, which may
+    /// not be among year three's most said.
+    pub fn filler(mut self, templates: &[&'static str]) -> Self {
+        self.filler.extend_from_slice(templates);
+        self
+    }
+
+    /// Year three's most-said lines that are filler: among the
+    /// [`TOP_WITHOUT_FILLER`] most said, counting a line tied with lines
+    /// beyond them as among them only if the whole tie is (the order
+    /// within a tie is only the alphabet's).
+    pub fn filler_on_top(&self) -> Vec<(String, usize)> {
+        let mut top = self.said[2].iter().collect::<Vec<_>>();
+        top.sort_by_key(|(line, n)| (std::cmp::Reverse(**n), (*line).clone()));
+        let past = top.get(TOP_WITHOUT_FILLER).map_or(0, |(_, n)| **n);
+        top.into_iter()
+            .take(TOP_WITHOUT_FILLER)
+            .filter(|(_, n)| **n > past)
+            .filter(|(line, _)| self.filler.iter().any(|template| fills(template, line)))
+            .map(|(line, n)| (line.clone(), *n))
+            .collect()
     }
 
     fn tell(&mut self, world: &World, day: usize, how: &'static str, id: EventId, what: &str) {
@@ -386,9 +450,14 @@ impl Words {
         }
         let mut top = self.said[2].iter().collect::<Vec<_>>();
         top.sort_by_key(|(line, n)| (std::cmp::Reverse(**n), (*line).clone()));
-        for (line, n) in top.iter().take(8) {
+        for (line, n) in top.iter().take(TOP_WITHOUT_FILLER) {
             eprintln!("WORDS {p} year 3 top {n} {line}");
         }
+        let filler = self.filler_on_top();
+        eprintln!(
+            "WORDS {p} filler in year 3's top {TOP_WITHOUT_FILLER}: {}",
+            filler.len()
+        );
         let told = self.told_too_often();
         eprintln!(
             "WORDS {p} told more than {MOST_TOLD_IN_A_WEEK} times in 7 days: {} of {} things",
@@ -403,6 +472,11 @@ impl Words {
         for (line, n) in self.said_too_often() {
             failed.push(format!("{p}: said {n} times in year 3: {line}"));
         }
+        for (line, n) in filler {
+            failed.push(format!(
+                "{p}: filler among year 3's top {TOP_WITHOUT_FILLER}, said {n} times: {line}"
+            ));
+        }
         failed.extend(told);
         failed.extend(self.seams.iter().cloned());
         failed.extend(self.sad.iter().cloned());
@@ -415,6 +489,43 @@ impl Words {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filler_on_top_is_said_more_than_what_falls_outside_the_top() {
+        let mut words = Words::new("test", &[]).filler(&["Sat on the {what}."]);
+        for n in 0..30 {
+            words.said[2].insert(format!("Line {n:02}."), 3);
+        }
+        // Tied with lines beyond the top: not on top, whatever the alphabet.
+        words.said[2].insert("Sat on the bench.".into(), 3);
+        assert!(words.filler_on_top().is_empty());
+        // Said more than they are: on top.
+        words.said[2].insert("Sat on the bench.".into(), 4);
+        assert_eq!(
+            words.filler_on_top(),
+            [("Sat on the bench.".to_string(), 4)]
+        );
+    }
+
+    #[test]
+    fn filler_is_found_by_its_template() {
+        let template = "Sat on the {what} till my tea went cold.";
+        assert!(fills(template, "Sat on the bench till my tea went cold."));
+        assert!(fills(
+            template,
+            "Sat on the low-gravity swing till my tea went cold."
+        ));
+        assert!(!fills(template, "Sat on the bench."));
+        assert!(fills(
+            "{said} Just like last year.",
+            "A good race. Just like last year."
+        ));
+        assert!(fills(
+            "{other} and I watched the stars come out by the {what}.",
+            "Mia and I watched the stars come out by the lamp."
+        ));
+        assert!(!fills("The {what} by {place}.", "A seal by the pier."));
+    }
 
     #[test]
     fn the_engines_words_are_found() {

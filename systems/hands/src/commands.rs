@@ -89,6 +89,7 @@ pub fn deed_commands(world: &World, kit: &Kit, words: &DeedWords<'_>) -> Vec<Pro
                     cost: deed.cost,
                 }),
                 preview: None,
+                role: None,
             }
         })
         .chain(
@@ -109,6 +110,7 @@ pub fn deed_commands(world: &World, kit: &Kit, words: &DeedWords<'_>) -> Vec<Pro
                     cost: None,
                 }),
                 preview: None,
+                role: None,
             }),
         )
         .collect()

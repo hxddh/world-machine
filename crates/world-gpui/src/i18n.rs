@@ -381,15 +381,30 @@ pub fn more_kept(count: usize) -> String {
     }
 }
 
-/// "Choose where the bench goes.", 选择长椅放在哪里。, ベンチを置く場所を選んでください。
+/// "Choose a spot for the bench.", 选择长椅放在哪里。, ベンチを置く場所を選んでください。
+/// In English the thing is never the subject, so "the wildflowers" needs
+/// no verb to agree with it.
 pub fn choose_where(thing: &str, now: bool) -> String {
     match (chinese(), japanese(), now) {
         (true, _, false) => format!("选择{thing}放在哪里。"),
         (true, _, true) => format!("选择把{thing}挪到哪里。"),
         (_, true, false) => format!("{thing}を置く場所を選んでください。"),
         (_, true, true) => format!("{thing}の移動先を選んでください。"),
-        (_, _, false) => format!("Choose where the {} goes.", thing.to_lowercase()),
-        (_, _, true) => format!("Choose where the {} goes now.", thing.to_lowercase()),
+        (_, _, false) => format!("Choose a spot for the {}.", thing.to_lowercase()),
+        (_, _, true) => format!("Choose a new spot for the {}.", thing.to_lowercase()),
+    }
+}
+
+/// "More about Sofia", 关于 Sofia 的更多信息, ソフィアについてもっと: the
+/// name as the language writes it, whatever script it is in.
+pub fn more_about(name: &str) -> String {
+    let name = tr_owned(name);
+    if chinese() {
+        format!("关于 {name} 的更多信息")
+    } else if japanese() {
+        format!("{name}についてもっと")
+    } else {
+        format!("More about {name}")
     }
 }
 

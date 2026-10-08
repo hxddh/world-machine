@@ -76,6 +76,17 @@ fn names() -> BTreeSet<String> {
 /// Every text a player reads in `snapshot`, the names of its places and
 /// things among them, and the names of the people in it.
 fn read(snapshot: &ProjectionSnapshot, shown: &mut BTreeSet<String>, names: &mut BTreeSet<String>) {
+    read_letters(snapshot, &mut BTreeSet::new(), shown, names);
+}
+
+/// The same, keeping every letter in `letters` as well.
+fn read_letters(
+    snapshot: &ProjectionSnapshot,
+    letters: &mut BTreeSet<String>,
+    shown: &mut BTreeSet<String>,
+    names: &mut BTreeSet<String>,
+) {
+    letters.extend(snapshot.letters.iter().map(|letter| letter.note.clone()));
     for item in &snapshot.canvas.items {
         if item.kind == CanvasItemKind::Actor {
             names.extend(item.label.split_whitespace().map(str::to_string));
@@ -135,8 +146,14 @@ fn read(snapshot: &ProjectionSnapshot, shown: &mut BTreeSet<String>, names: &mut
     shown.extend(texts.into_iter().filter(|text| !text.trim().is_empty()));
 }
 
-/// What a place showed, the names in it, and the stories it told.
-type Shown = (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>);
+/// What a place showed, the names in it, the stories it told, and every
+/// letter written to the player.
+type Shown = (
+    BTreeSet<String>,
+    BTreeSet<String>,
+    BTreeSet<String>,
+    BTreeSet<String>,
+);
 
 /// Every story the World tells at the end: the legend of everyone and
 /// everything in the scene, every moment in the book and every year's
@@ -186,10 +203,10 @@ fn stories(session: &dyn world_host::WorldSession) -> BTreeSet<String> {
 fn tiny_society(days: usize) -> Shown {
     let registry = world_builtins::registry().unwrap();
     let mut session = registry.create(tiny_society::TINY_SOCIETY_PACK_ID).unwrap();
-    let (mut shown, mut names) = (BTreeSet::new(), names());
+    let (mut shown, mut names, mut letters) = (BTreeSet::new(), names(), BTreeSet::new());
     for day in 0..days {
         let snapshot = session.snapshot();
-        read(&snapshot, &mut shown, &mut names);
+        read_letters(&snapshot, &mut letters, &mut shown, &mut names);
         let pick = snapshot
             .commands
             .iter()
@@ -217,7 +234,7 @@ fn tiny_society(days: usize) -> Shown {
     }
     let told = stories(session.as_ref());
     shown.extend(told.iter().cloned());
-    (shown, names, told)
+    (shown, names, told, letters)
 }
 
 /// Three years of one of Pocket Universe's places.
@@ -229,12 +246,12 @@ fn pocket_universe(seed: &str, periods: usize) -> Shown {
     let mut session = registry
         .create(pocket_universe::POCKET_UNIVERSE_PACK_ID)
         .unwrap();
-    let (mut shown, mut names) = (BTreeSet::new(), names());
+    let (mut shown, mut names, mut letters) = (BTreeSet::new(), names(), BTreeSet::new());
     read(&session.snapshot(), &mut shown, &mut names);
     session.handle(InvokeCommand(seed.into())).unwrap();
     for period in 0..periods {
         let snapshot = session.snapshot();
-        read(&snapshot, &mut shown, &mut names);
+        read_letters(&snapshot, &mut letters, &mut shown, &mut names);
         let pick = snapshot
             .commands
             .iter()
@@ -262,7 +279,7 @@ fn pocket_universe(seed: &str, periods: usize) -> Shown {
     }
     let told = stories(session.as_ref());
     shown.extend(told.iter().cloned());
-    (shown, names, told)
+    (shown, names, told, letters)
 }
 
 fn english(names: &BTreeSet<String>, text: &str) -> bool {
@@ -349,12 +366,28 @@ fn a_year_of_both_packs_is_shown_in_chinese_and_japanese() {
     let mut report = String::new();
     let mut short = Vec::new();
     for (language, catalog, is_japanese) in [("zh", &chinese, false), ("ja", &japanese, true)] {
-        for (place, (shown, names, told)) in &places {
+        for (place, (shown, names, told, letters)) in &places {
             let allowed = if is_japanese {
                 &latin_in_japanese
             } else {
                 names
             };
+            // No letter is left partly English: not one.
+            let unlettered = left(catalog, letters, allowed);
+            eprintln!(
+                "{language} {place}: {} of {} letters partly untranslated",
+                unlettered.len(),
+                letters.len()
+            );
+            for (text, translated) in &unlettered {
+                eprintln!("  letter: {text}  =>  {translated}");
+            }
+            if !unlettered.is_empty() {
+                short.push(format!(
+                    "{language} {place}: {} letters partly English",
+                    unlettered.len()
+                ));
+            }
             // The stories alone keep to the same bar.
             let untold = left(catalog, told, allowed);
             let told_share = 1.0 - untold.len() as f64 / told.len().max(1) as f64;

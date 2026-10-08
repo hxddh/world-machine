@@ -12,37 +12,10 @@
 
 use super::*;
 
-/// The ground a cluster shares, as the Pack names it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(super) enum Patch {
-    Cobbles,
-    Plaza,
-    Garden,
-    Green,
-    Yard,
-    Pad,
-    Paving,
-    Snow,
-    Rock,
-    Worn,
-}
-
-impl Patch {
-    pub(super) fn of(ground: &str) -> Self {
-        match ground {
-            "cobbles" => Patch::Cobbles,
-            "plaza" => Patch::Plaza,
-            "garden" => Patch::Garden,
-            "green" => Patch::Green,
-            "yard" => Patch::Yard,
-            "pad" => Patch::Pad,
-            "paving" => Patch::Paving,
-            "snow" => Patch::Snow,
-            "rock" => Patch::Rock,
-            _ => Patch::Worn,
-        }
-    }
-}
+/// The ground a cluster shares, as the Pack names it: a closed set, so a
+/// ground the app cannot paint never reaches here (it fails where the
+/// Pack's snapshot is read).
+pub(super) type Patch = world_projection::Ground;
 
 /// A cluster's patch of ground on the stage, in stage pixels: from `x0`
 /// to `x1`, from `top` (behind its furthest row) to `bottom` (in front of
@@ -83,7 +56,7 @@ pub(super) fn patches(snapshot: &ProjectionSnapshot, stage: &Stage) -> Vec<Patch
                 x1,
                 top: top.min(bottom - stage.figure_h * 0.5),
                 bottom,
-                patch: Patch::of(&cluster.ground),
+                patch: cluster.ground,
                 water,
                 seed: art::seed_of(&cluster.id),
             }

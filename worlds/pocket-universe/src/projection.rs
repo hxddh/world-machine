@@ -34,6 +34,8 @@ fn exchanges(world: &World, commands: &[ProjectionCommand]) -> Vec<world_project
                     .iter()
                     .any(|command| &command.id == id && command.unavailable.is_none())
             }),
+            voiced: exchange.voiced,
+            reported: exchange.reported,
         })
         .collect()
 }
@@ -93,6 +95,11 @@ pub(crate) fn snapshot_since(
         voices: crate::talk::voices(world),
         talks,
         exchanges,
+        openers: if seeded {
+            conversation::openers::shown(world, &crate::speech::kit(world.state()))
+        } else {
+            Vec::new()
+        },
         drawings: crate::drawings::drawings_for(world),
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
@@ -150,6 +157,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -164,6 +172,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -178,6 +187,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             },
         ];
     }
@@ -194,6 +204,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         unavailable: None,
         hand: None,
         preview: None,
+        role: Some(world_projection::CommandRole::PassesTime),
     }];
     commands.extend(crate::story::commands(world));
     // What the player can do with their own hands comes after every card;

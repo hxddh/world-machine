@@ -1076,6 +1076,32 @@ fn more_enjoyed_lines(place: crate::places::Place) -> [&'static [&'static str]; 
     }
 }
 
+/// The lines said of anything at all, in every place, as templates: a
+/// rest, an evening, a harvest. Filler, by the words harness.
+#[cfg(test)]
+pub(crate) fn filler() -> Vec<&'static str> {
+    use crate::places::Place;
+    [Place::Ares, Place::Maple, Place::Ice]
+        .into_iter()
+        .flat_map(|place| {
+            let [rest, gather, harvest] = enjoyed_lines(place);
+            let [alone, together, gave] = more_enjoyed_lines(place);
+            [
+                rest,
+                more_rest_lines(place),
+                gather,
+                harvest,
+                alone,
+                together,
+                gave,
+            ]
+            .into_iter()
+            .flatten()
+            .copied()
+        })
+        .collect()
+}
+
 /// What someone says using something the player made, in the place's own
 /// words: the next of its lines for that thing, so the same is not said
 /// of it again until every other has been. `None` for anything else, or
@@ -1111,8 +1137,12 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
         .get(1)
         .map(|other| lives::first_name(state, *other));
     let who = event.actor?;
-    // Each use of a kind says the next of its lines, so none is heard
-    // again until every other has been.
+    // Each use of a kind spoken of says the next of its lines, so none is
+    // heard again until every other has been; a rest only one use in
+    // four, as an evening with someone, an evening alone one in three and a
+    // harvest one in two (fewer of a
+    // place's people speak each day than the harbour's), so the bench never becomes
+    // what the place talks about most (an empty line the other times).
     let before = world
         .events_of_kind(&["enjoyed"])
         .into_iter()
@@ -1122,7 +1152,16 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
                 && (used.targets.len() > 1) == with_other
         })
         .count();
-    let line = lines.get(before % lines.len().max(1))?;
+    let every = match (effect, with_other) {
+        ("rest", _) | ("gather", true) => 4,
+        ("gather", false) => 3,
+        ("harvest", _) => 2,
+        _ => 1,
+    };
+    if before % every != 0 {
+        return Some((who, String::new()));
+    }
+    let line = lines.get(before / every % lines.len().max(1))?;
     Some((
         who,
         line.replace("{what}", &what)

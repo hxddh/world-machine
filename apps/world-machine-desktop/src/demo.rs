@@ -21,8 +21,28 @@ pub const ENABLED: bool = cfg!(feature = "demo");
 /// The one World the demo holds.
 pub const PACK_ID: &str = "world-machine.tiny-society";
 
-/// Tiny Society's "Let the day pass", the one choice that moves its time.
-pub const DAY_PASS_COMMAND: &str = "tiny-society.let-day-pass";
+/// The choice that lets a World's time pass, as its Pack says with the
+/// command's role ("Let the day pass" in Tiny Society). Never guessed from
+/// an id.
+pub fn day_pass(
+    snapshot: &world_projection::ProjectionSnapshot,
+) -> Option<&world_projection::ProjectionCommand> {
+    snapshot
+        .commands
+        .iter()
+        .find(|command| command.role == Some(world_projection::CommandRole::PassesTime))
+}
+
+/// Whether choosing `command_id` in `snapshot` lets time pass: its Pack
+/// says so, or the World does not offer it at all, which the demo takes to
+/// move time too (it fails closed).
+pub fn passes_time(snapshot: &world_projection::ProjectionSnapshot, command_id: &str) -> bool {
+    snapshot
+        .commands
+        .iter()
+        .find(|command| command.id == command_id)
+        .is_none_or(|command| command.role == Some(world_projection::CommandRole::PassesTime))
+}
 
 /// The last day of the demo. A newcomer's first hour, played on the
 /// first-session clock (`tests/demo_first_hour.rs`), ends on day 10 for a
@@ -57,15 +77,16 @@ pub enum Gate {
     NotOffered,
 }
 
-/// What the demo does with `command` in a World of `pack_id` on `day`
-/// (`None` when its days cannot be counted). It fails closed: a Pack the
-/// demo does not offer is never played, and a day it cannot count is
-/// taken to be past the last.
-pub fn gate(pack_id: &str, day: Option<u32>, command: &str) -> Gate {
+/// What the demo does with a choice in a World of `pack_id` on `day`
+/// (`None` when its days cannot be counted), when the choice lets time pass
+/// or not ([`passes_time`]). It fails closed: a Pack the demo does not
+/// offer is never played, and a day it cannot count is taken to be past the
+/// last.
+pub fn gate(pack_id: &str, day: Option<u32>, passes_time: bool) -> Gate {
     if !offers_pack(pack_id) {
         return Gate::NotOffered;
     }
-    if command == DAY_PASS_COMMAND && day.is_none_or(|day| day >= LAST_DAY) {
+    if passes_time && day.is_none_or(|day| day >= LAST_DAY) {
         return Gate::Ending;
     }
     Gate::Open
@@ -99,64 +120,177 @@ pub const FAREWELL_HOUR: u32 = 18;
 pub const RECAP_LEAST: usize = 4;
 pub const RECAP_MOST: usize = 6;
 
-/// The player's own moments to recap, from what the World recorded and
-/// its Pack tells of it: how its chapters ended ("Rosa came because of the
-/// pottery you built"), the moments that made its book, what was made and
-/// who gave the player something to keep, oldest first, each once; at
-/// most [`RECAP_MOST`].
+/// The player's own deeds to recap, from what the World recorded and its
+/// Pack tells of them, in its own words (the window shows them in the
+/// player's language), each once and at most [`RECAP_MOST`]:
+/// - what the history says the player did ("You built a bench by the
+///   harbour", "You did Hana a favour"), oldest first;
+/// - what came of it ("The swallows came back to the harbour, around the
+///   bench you made", "Rosa came because of the pottery you built");
+/// - what people shared with them for it ("Sofia showed you the pub's
+///   garden swing"), two at most;
+/// - and only if that is too little, who gave them something to keep
+///   ("Jonas gave you a smooth stone.").
+///
+/// Never the weather, a season, a favour merely asked, or a note torn from
+/// what it came with.
 pub fn recap(snapshot: &world_gpui::ProjectionSnapshot) -> Vec<String> {
+    let mut items = snapshot
+        .timeline
+        .items
+        .iter()
+        .filter(|item| !item.routine)
+        .collect::<Vec<_>>();
+    items.sort_by_key(|item| item.world_time);
+    let titles = items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect::<Vec<_>>();
+    let chapters = snapshot
+        .chapters
+        .iter()
+        .flat_map(|chapter| sentences(&chapter.summary))
+        .collect::<Vec<_>>();
     let mut lines = Vec::<String>::new();
-    let mut add = |line: &str| {
-        let line = line.trim();
-        if !line.is_empty() && !lines.iter().any(|kept| kept == line) {
-            lines.push(line.to_string());
+    let add = |line: &str, lines: &mut Vec<String>| {
+        let line = closed(line.trim());
+        if !line.is_empty() && !lines.contains(&line) {
+            lines.push(line);
         }
     };
-    // First what the chapters say the player did, then the moments, then
-    // what they were given: the most telling first, so a short World still
-    // keeps its best lines.
-    let mut chosen = Vec::new();
-    for chapter in &snapshot.chapters {
-        if let Some(first) = first_sentences(&chapter.summary, 2) {
-            chosen.push(first);
+    // What the player did: the most recent, if there are too many.
+    let deeds = titles
+        .iter()
+        .chain(&chapters)
+        .filter(|line| told_of_the_player(line))
+        .copied()
+        .collect::<Vec<_>>();
+    let mut done = Vec::new();
+    for deed in deeds.iter().rev() {
+        add(deed, &mut done);
+    }
+    done.truncate(RECAP_MOST - 1);
+    done.reverse();
+    lines.extend(done);
+    // What came of it.
+    for line in titles.iter().chain(&chapters) {
+        if lines.len() < RECAP_MOST && came_of_the_player(line) {
+            add(line, &mut lines);
         }
     }
-    for moment in &snapshot.moments {
-        chosen.push(moment.title.clone());
+    // What people shared with them.
+    let mut shared = 0;
+    for line in &titles {
+        if lines.len() < RECAP_MOST && shared < 2 && shared_with_the_player(line) {
+            let before = lines.len();
+            add(line, &mut lines);
+            shared += lines.len() - before;
+        }
     }
-    for keepsake in &snapshot.keepsakes {
-        chosen.push(keepsake.note.clone());
-    }
-    for entry in snapshot
-        .book
-        .iter()
-        .filter(|entry| entry.found && entry.moment.is_none())
-    {
-        chosen.push(entry.name.clone());
-    }
-    for line in &chosen {
-        add(line);
+    if lines.len() < RECAP_LEAST {
+        for keepsake in &snapshot.keepsakes {
+            let Some(from) = name_of(snapshot, keepsake.from) else {
+                continue;
+            };
+            if lines.len() < RECAP_LEAST && !keepsake.what.trim().is_empty() {
+                add(
+                    &format!("{from} gave you {}", keepsake.what.trim()),
+                    &mut lines,
+                );
+            }
+        }
     }
     lines.truncate(RECAP_MOST);
     lines
 }
 
-/// The first `count` sentences of `text`, if it has any.
-fn first_sentences(text: &str, count: usize) -> Option<String> {
-    let mut end = 0;
-    let mut found = 0;
-    for (index, ch) in text.char_indices() {
-        if matches!(ch, '.' | '!' | '?' | '。' | '！' | '？') {
-            found += 1;
-            end = index + ch.len_utf8();
-            if found == count {
-                break;
+/// Whether a line tells something the player did: told to them, as
+/// "You …".
+fn told_of_the_player(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with("You ") && !line.starts_with("You were") && line.len() > 8
+}
+
+/// Whether a line tells what came of something the player did: "around
+/// the bench you made", "because of the pottery you built".
+fn came_of_the_player(line: &str) -> bool {
+    !told_of_the_player(line)
+        && [
+            "you made",
+            "you built",
+            "you planted",
+            "you chose",
+            "you put",
+            "your ",
+        ]
+        .iter()
+        .any(|deed| line.contains(deed))
+}
+
+/// Whether a line tells what someone shared with the player: "Sofia
+/// showed you…", "Jonas told you something…"; never a favour asked, or
+/// something almost said.
+fn shared_with_the_player(line: &str) -> bool {
+    !told_of_the_player(line)
+        && !came_of_the_player(line)
+        && mentions_the_player(line)
+        && !line.contains("asked you")
+        && !line.contains("almost")
+}
+
+/// Whether a sentence speaks of the player.
+fn mentions_the_player(sentence: &str) -> bool {
+    sentence
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .any(|word| matches!(word, "you" | "You" | "your" | "Your"))
+}
+
+/// Someone's first name, as the scene labels them.
+fn name_of(
+    snapshot: &world_gpui::ProjectionSnapshot,
+    who: world_gpui::SelectionId,
+) -> Option<String> {
+    snapshot
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.id == who)
+        .and_then(|item| item.label.split_whitespace().next())
+        .map(str::to_string)
+}
+
+/// A line closed with a full stop, if it has no closing mark of its own.
+fn closed(line: &str) -> String {
+    if line.is_empty() || line.ends_with(['.', '!', '?', '。', '！', '？']) {
+        line.to_string()
+    } else {
+        format!("{line}.")
+    }
+}
+
+/// The sentences of `text`.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let chars = text.char_indices().collect::<Vec<_>>();
+    for (n, (index, ch)) in chars.iter().enumerate() {
+        let next = chars.get(n + 1).map(|(_, next)| *next);
+        if matches!(ch, '.' | '!' | '?' | '。' | '！' | '？')
+            && next.is_none_or(char::is_whitespace)
+        {
+            let end = index + ch.len_utf8();
+            let sentence = text[start..end].trim();
+            if !sentence.is_empty() {
+                out.push(sentence);
             }
+            start = end;
         }
     }
-    let text = if found == 0 { text } else { &text[..end] };
-    let text = text.trim();
-    (!text.is_empty()).then(|| text.to_string())
+    let rest = text[start..].trim();
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out
 }
 
 /// Who says goodbye: whoever thinks best of the player, the first of
@@ -216,41 +350,28 @@ mod tests {
     #[test]
     fn only_the_day_after_the_last_is_held() {
         for day in 1..LAST_DAY {
-            assert_eq!(
-                gate(PACK_ID, Some(day), DAY_PASS_COMMAND),
-                Gate::Open,
-                "{day}"
-            );
+            assert_eq!(gate(PACK_ID, Some(day), true), Gate::Open, "{day}");
         }
-        assert_eq!(
-            gate(PACK_ID, Some(LAST_DAY), DAY_PASS_COMMAND),
-            Gate::Ending
-        );
-        assert_eq!(
-            gate(PACK_ID, Some(LAST_DAY + 3), DAY_PASS_COMMAND),
-            Gate::Ending
-        );
+        assert_eq!(gate(PACK_ID, Some(LAST_DAY), true), Gate::Ending);
+        assert_eq!(gate(PACK_ID, Some(LAST_DAY + 3), true), Gate::Ending);
         // Everything else on the last day is the full app's.
-        assert_eq!(
-            gate(PACK_ID, Some(LAST_DAY), "tiny-society.build-bench"),
-            Gate::Open
-        );
+        assert_eq!(gate(PACK_ID, Some(LAST_DAY), false), Gate::Open);
     }
 
     /// The v0.27 bar (M7): the gate uses `offers_pack` and fails closed.
     #[test]
     fn the_gate_fails_closed() {
         // A Pack the demo does not offer is never played, whatever is asked.
-        for command in [DAY_PASS_COMMAND, "pocket-universe.nudge", "anything"] {
+        for passes_time in [true, false] {
             assert_eq!(
-                gate("world-machine.pocket-universe", Some(1), command),
+                gate("world-machine.pocket-universe", Some(1), passes_time),
                 Gate::NotOffered
             );
-            assert_eq!(gate("", None, command), Gate::NotOffered);
+            assert_eq!(gate("", None, passes_time), Gate::NotOffered);
         }
         // A day that cannot be counted is past the last.
-        assert_eq!(gate(PACK_ID, None, DAY_PASS_COMMAND), Gate::Ending);
-        assert_eq!(gate(PACK_ID, None, "tiny-society.build-bench"), Gate::Open);
+        assert_eq!(gate(PACK_ID, None, true), Gate::Ending);
+        assert_eq!(gate(PACK_ID, None, false), Gate::Open);
         // And time away moves neither.
         assert_eq!(
             periods_to_catch_up("world-machine.pocket-universe", Some(1), 9),
@@ -319,36 +440,85 @@ mod tests {
     }
 
     #[test]
-    fn a_recap_is_the_players_own_lines_each_once() {
-        use world_projection::{Chapter, Keepsake, SelectionId};
-        let someone = SelectionId::from_stable_key("entity-2").unwrap();
+    fn a_recap_is_the_players_own_deeds_each_once() {
+        use world_projection::{
+            CanvasItem, CanvasItemKind, Chapter, Keepsake, Moment, SelectionId, TimelineItem,
+        };
+        let jonas = SelectionId::from_stable_key("entity-1").unwrap();
+        let item = |at: u64, title: &str| TimelineItem {
+            id: SelectionId::from_stable_key(&format!("event-{at}")).unwrap(),
+            world_time: at,
+            title: title.into(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+            routine: false,
+        };
         let mut snapshot = world_gpui::ProjectionSnapshot {
             chapters: vec![Chapter {
                 number: 1,
                 title: "A shared hard season".into(),
-                summary: "Rosa, a potter from a town with no sea, came because of the pottery you built. The harbour held. Everyone ate.".into(),
+                summary: "The harbour held. Rosa, a potter from a town with no sea, came because of the pottery you built. Everyone ate.".into(),
                 moment: None,
             }],
             ..Default::default()
         };
-        for note in [
-            "A map, so you never get lost.",
-            "A map, so you never get lost.",
-        ] {
-            snapshot.keepsakes.push(Keepsake {
-                from: someone,
-                what: "a map".into(),
-                note: note.into(),
-                moment: someone,
+        snapshot.timeline.items = vec![
+            item(30, "You built a bench"),
+            item(10, "You planted wildflowers by Anchor Pub"),
+            item(20, "The swallows came back"),
+            item(40, "You did Hana a favour"),
+            item(50, "You did Hana a favour"),
+        ];
+        for title in ["The swallows", "The storm"] {
+            snapshot.moments.push(Moment {
+                title: title.into(),
+                ..Default::default()
             });
         }
-        let lines = recap(&snapshot);
+        snapshot.canvas.items.push(CanvasItem {
+            id: jonas,
+            label: "Jonas Reed".into(),
+            kind: CanvasItemKind::Actor,
+            ..Default::default()
+        });
+        snapshot.keepsakes.push(Keepsake {
+            from: jonas,
+            what: "a smooth stone".into(),
+            note: "For your first day in the harbour. Welcome.".into(),
+            moment: jonas,
+        });
         assert_eq!(
-            lines,
+            recap(&snapshot),
             [
-                "Rosa, a potter from a town with no sea, came because of the pottery you built. The harbour held.",
-                "A map, so you never get lost.",
+                "You planted wildflowers by Anchor Pub.",
+                "You built a bench.",
+                "You did Hana a favour.",
+                "Rosa, a potter from a town with no sea, came because of the pottery you built.",
+            ],
+            "the player's deeds, oldest first, then what came of them; never \
+             the weather, a season or a note on its own"
+        );
+        // Too few deeds, and who gave the player something says it.
+        let mut quiet = snapshot.clone();
+        quiet.timeline.items.retain(|item| item.world_time == 10);
+        assert_eq!(
+            recap(&quiet),
+            [
+                "You planted wildflowers by Anchor Pub.",
+                "Rosa, a potter from a town with no sea, came because of the pottery you built.",
+                "Jonas gave you a smooth stone.",
             ]
+        );
+        // With deeds enough, nothing given is needed.
+        snapshot
+            .timeline
+            .items
+            .push(item(60, "You lent a hand with the pier"));
+        let lines = recap(&snapshot);
+        assert!(lines.len() <= RECAP_MOST, "{lines:?}");
+        assert!(
+            !lines.iter().any(|line| line.contains("gave you")),
+            "{lines:?}"
         );
     }
 }

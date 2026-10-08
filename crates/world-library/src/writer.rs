@@ -43,6 +43,9 @@ pub(crate) struct Composer {
     deflated: DeflatedHistory,
     /// The history as it was when it was first kept, being deflated whole.
     deflating: Option<JoinHandle<Option<DeflatedHistory>>>,
+    /// The drawings the file's description carries, as the latest head
+    /// that drew others gave them (see [`Head::drawings`]).
+    drawings: Vec<serde_json::Value>,
 }
 
 impl Composer {
@@ -58,6 +61,7 @@ impl Composer {
             history,
             deflated: DeflatedHistory::default(),
             deflating,
+            drawings: Vec::new(),
         }
     }
 
@@ -65,17 +69,23 @@ impl Composer {
     fn file(
         &mut self,
         events: &[Vec<ArchivedEvent>],
-        head: &Head,
+        head: &mut Head,
     ) -> Result<Vec<u8>, LibraryError> {
         for events in events {
             self.history.push(events);
+        }
+        if let Some(drawings) = head.drawings.take() {
+            self.drawings = drawings;
         }
         if let Some(deflating) = self.deflating.take() {
             if let Ok(Some(deflated)) = deflating.join() {
                 self.deflated = deflated;
             }
         }
-        Ok(WorldDocument::file_from_deflated_history(
+        // The drawings are lent to the head's description while the file
+        // is made, and taken back after.
+        std::mem::swap(&mut head.metadata.display_drawings, &mut self.drawings);
+        let file = WorldDocument::file_from_deflated_history(
             &head.metadata,
             ArchiveHead {
                 pack: &head.pack,
@@ -85,7 +95,9 @@ impl Composer {
             &self.history,
             &mut self.deflated,
             head.checkpoint.as_ref(),
-        )?)
+        );
+        std::mem::swap(&mut head.metadata.display_drawings, &mut self.drawings);
+        Ok(file?)
     }
 }
 
@@ -96,7 +108,12 @@ pub(crate) struct Head {
     /// An older name of the same file, read if `path` is not there and
     /// removed once `path` is written.
     pub legacy: Option<PathBuf>,
+    /// The file's description, all but its drawings, which are the bulk of
+    /// it and change only when the cast is drawn with others.
     pub metadata: WorldDocumentMetadata,
+    /// The description's drawings when they changed with this change;
+    /// `None` keeps those last given, so a turn need not copy them.
+    pub drawings: Option<Vec<serde_json::Value>>,
     pub pack: WorldPackRef,
     pub world_time: u64,
     pub pending: Vec<ArchivedScheduledAction>,
@@ -255,6 +272,12 @@ impl Writes {
             let mut state = self.shared.lock();
             state.on_disk.get_or_insert(on_disk);
             state.todo.push(events);
+            // Drawings handed over with a head not yet written go on with
+            // the newer head that replaces it.
+            let mut head = head;
+            if head.drawings.is_none() {
+                head.drawings = state.head.take().and_then(|older| older.drawings);
+            }
             state.head = Some(head);
             state.dirty = true;
             state.handed += 1;
@@ -401,7 +424,7 @@ fn write_in_turn(shared: &Shared) {
 /// Makes the file from the changes handed over and writes it, and records
 /// how that went.
 fn write_now(shared: &Shared) {
-    let (mut composer, todo, head, expected, handed) = {
+    let (mut composer, todo, mut head, expected, handed) = {
         let mut state = shared.lock();
         if !state.dirty {
             return;
@@ -425,7 +448,7 @@ fn write_now(shared: &Shared) {
         )
     };
     let outcome = composer
-        .file(&todo, &head)
+        .file(&todo, &mut head)
         .map_err(Failure::of)
         .and_then(|bytes| write_file(shared, &head, &bytes, expected).map(|()| bytes));
     let mut state = shared.lock();

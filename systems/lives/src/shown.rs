@@ -31,6 +31,7 @@ pub fn situation_commands(world: &World, cast: &Cast, prefix: &str) -> Vec<Proje
                     unavailable: answer.unavailable,
                     hand: None,
                     preview: None,
+                    role: None,
                 })
         })
         .collect()
@@ -132,6 +133,7 @@ pub fn memorial_commands(
                     cost: None,
                 }),
                 preview: None,
+                role: None,
             }
         })
         .collect()

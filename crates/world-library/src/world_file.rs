@@ -138,6 +138,24 @@ impl WorldFile {
             if self.writes.untouched(&path) != Some(true) {
                 self.verify(library)?;
             }
+        } else {
+            // While a write waits, its writer checks the file before it
+            // writes and the change after hears of it; but a folder that
+            // is gone (removed, or replaced by a file) can never take this
+            // change, so it is refused now, before the World moves on,
+            // rather than kept and then never saved.
+            let (path, _) = self.target.paths(library);
+            if let Some(folder) = path
+                .parent()
+                .filter(|folder| !folder.as_os_str().is_empty())
+            {
+                if !folder.is_dir() {
+                    return Err(LibraryError::Io(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("the World's folder is gone: {}", folder.display()),
+                    )));
+                }
+            }
         }
         Ok(())
     }

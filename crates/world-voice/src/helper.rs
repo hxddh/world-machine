@@ -36,7 +36,7 @@ pub struct Asked {
     /// What the player said.
     pub question: String,
     pub facts: Vec<Fact>,
-    pub era: conversation::Era,
+    pub era: world_voice_prompt::Era,
 }
 
 /// An answer the World may use: what was said, and the facts it rests on.
@@ -56,7 +56,7 @@ pub enum Unused {
     /// It cited a fact it was never given.
     Invented(u64),
     /// It went out of the World.
-    OutOfWorld(conversation::OutOfWorld),
+    OutOfWorld(world_voice_prompt::OutOfWorld),
 }
 
 impl Asked {
@@ -117,8 +117,8 @@ impl Asked {
                 .ok_or(Unused::Invented(*id))?;
             grounds.push(&fact.text);
         }
-        let grounds = conversation::Grounds::new(grounds, &self.question, self.era);
-        conversation::keeps_to(&reply, &grounds).map_err(Unused::OutOfWorld)?;
+        let grounds = world_voice_prompt::Grounds::new(grounds, &self.question, self.era);
+        world_voice_prompt::keeps_to(&reply, &grounds).map_err(Unused::OutOfWorld)?;
         Ok(Grounded { reply, cited })
     }
 
@@ -167,7 +167,7 @@ impl crate::Completion for HelperJudge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conversation::OutOfWorld;
+    use world_voice_prompt::OutOfWorld;
 
     fn asked() -> Asked {
         Asked {
@@ -184,7 +184,7 @@ mod tests {
                     text: "Leo opened the Anchor Pub late".into(),
                 },
             ],
-            era: conversation::Era::Radio,
+            era: world_voice_prompt::Era::Radio,
         }
     }
 
@@ -249,7 +249,7 @@ mod tests {
             }),
             name: "apple-on-device".into(),
         };
-        let hearing = conversation::Hearing {
+        let hearing = world_voice_prompt::Hearing {
             name: "Mara".into(),
             settlement: "the harbour".into(),
             traits: Vec::new(),
@@ -259,7 +259,10 @@ mod tests {
             words: "Hi".into(),
             answer: "Hello.".into(),
             known: Vec::new(),
-            era: conversation::Era::Radio,
+            era: world_voice_prompt::Era::Radio,
+            lexicon: Vec::new(),
+            era_has: Vec::new(),
+            era_lacks: Vec::new(),
         };
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         assert_eq!(judge.judged(&hearing, "Hi", deadline).verdict, None);

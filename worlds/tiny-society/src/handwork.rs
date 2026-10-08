@@ -460,10 +460,35 @@ const HARVEST_LINES: [&str; 11] = [
     "Sea air suits your {what}. Here's the proof.",
 ];
 
+/// The lines said of anything at all, as templates: a rest, an evening, a
+/// harvest. Filler, by the words harness.
+#[cfg(test)]
+pub(crate) fn filler() -> Vec<&'static str> {
+    REST_LINES
+        .iter()
+        .chain(&GATHER_ALONE)
+        .chain(&GATHER_WITH)
+        .chain(&HARVEST_LINES)
+        .copied()
+        .collect()
+}
+
+/// Of how many uses of a kind one is spoken of aloud: a rest one in
+/// three, as an evening with someone; an evening alone or a harvest one
+/// in two; anything else every time.
+pub(crate) fn said_every(effect: &str, with_other: bool) -> usize {
+    match (effect, with_other) {
+        ("rest", _) | ("gather", true) => 3,
+        ("gather", false) | ("harvest", _) => 2,
+        _ => 1,
+    }
+}
+
 /// What someone says using something the player made, in the harbour's
-/// own words: each use of a kind says the next of its lines, so none is
-/// heard again until every other has been. `None` for anything else, or
-/// when what was used is gone and cannot be named.
+/// own words: each use of a kind spoken of says the next of its lines, so
+/// none is heard again until every other has been, and an empty line for
+/// a use not spoken of ([`said_every`]). `None` for anything else, or when
+/// what was used is gone and cannot be named.
 pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(EntityId, String)> {
     if event.kind != "enjoyed" {
         return None;
@@ -482,7 +507,14 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
         _ => return None,
     };
     let thing = *event.targets.first()?;
-    let what = lives::name(state, state.entity(thing).map(|_| thing)?).to_lowercase();
+    let named = lives::name(state, state.entity(thing).map(|_| thing)?);
+    // A plant is spoken of by what it is ("your vegetable garden"), not
+    // the stage it has grown to ("vegetables in flower").
+    let what = THINGS
+        .iter()
+        .find(|made| made.stages.iter().any(|(stage, _)| *stage == named))
+        .map_or(named.as_str(), |made| made.name)
+        .to_lowercase();
     let place = match state.entity(thing).and_then(|thing| thing.component("at")) {
         Some(Value::Entity(at)) => lives::name(state, *at),
         _ => "the harbour".into(),
@@ -491,9 +523,16 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
         .targets
         .get(1)
         .map(|other| lives::first_name(state, *other));
-    // How many times something was used this way before: the next line.
-    let before = enjoyed_before(world, event.id)?;
-    let line = lines.get(before % lines.len().max(1))?;
+    // How many times something was used this way before: the next line,
+    // said only now and then of a rest or a quiet evening, so the bench
+    // never becomes what the harbour talks about most. Said nothing (an
+    // empty line) the other times.
+    let before = enjoyed_before(world, event)?;
+    let every = said_every(effect, with_other);
+    if before % every != 0 {
+        return Some((event.actor?, String::new()));
+    }
+    let line = lines.get(before / every % lines.len().max(1))?;
     Some((
         event.actor?,
         line.replace("{what}", &what)
@@ -506,36 +545,57 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
 /// way before it (its effect, alone or with someone), worked out once for
 /// where the World stands rather than for every line told: counting it
 /// line by line read the whole history for each, and was half of a
-/// three-year harbour's first look after a day (H, v0.27).
+/// three-year harbour's first look after a day (H, v0.27). Each way keeps
+/// its events, oldest first, so an event's place among them is the count;
+/// and as the World moves on only the events recorded since are sorted in
+/// (a kept view's history only grows: going back forgets every view), so a
+/// turn no longer reads three years of them again (H2, v0.28).
 struct EnjoyedBefore {
     standing: world_core::Standing,
-    before: std::collections::HashMap<world_core::EventId, usize>,
+    /// How many of the World's `enjoyed` events are sorted into `ways`.
+    counted: usize,
+    /// Each way's `enjoyed` events, oldest first.
+    ways: Vec<(EnjoyedWay, Vec<world_core::EventId>)>,
 }
 
-fn enjoyed_before(world: &World, event: world_core::EventId) -> Option<usize> {
+/// A way something was used: its effect, and whether with someone.
+type EnjoyedWay = (Option<Value>, bool);
+
+fn enjoyed_way(event: &world_core::Event) -> EnjoyedWay {
+    (
+        event.payload.get("effect").cloned(),
+        event.targets.len() > 1,
+    )
+}
+
+fn enjoyed_before(world: &World, event: &world_core::Event) -> Option<usize> {
     let standing = world.standing();
     let kept = world.derived::<EnjoyedBefore>(|kept| match kept {
         Some(kept) if kept.standing == standing => kept,
-        _ => {
-            // A handful of ways (effect, alone or not), so a list will do.
-            let mut counts: Vec<((Option<&Value>, bool), usize)> = Vec::new();
-            let mut before = std::collections::HashMap::new();
-            for used in world.events_of_kind(&["enjoyed"]) {
-                let way = (used.payload.get("effect"), used.targets.len() > 1);
-                let at = match counts.iter().position(|(known, _)| *known == way) {
-                    Some(at) => at,
-                    None => {
-                        counts.push((way, 0));
-                        counts.len() - 1
-                    }
-                };
-                before.insert(used.id, counts[at].1);
-                counts[at].1 += 1;
+        kept => {
+            let index = world.history_index();
+            let enjoyed = index.of_kind("enjoyed");
+            let (counted, mut ways) = match kept {
+                Some(kept) if kept.counted <= enjoyed.len() => (kept.counted, kept.ways.clone()),
+                _ => (0, Vec::new()),
+            };
+            for used in enjoyed[counted..].iter().filter_map(|id| world.event(*id)) {
+                let way = enjoyed_way(used);
+                match ways.iter_mut().find(|(known, _)| *known == way) {
+                    Some((_, events)) => events.push(used.id),
+                    None => ways.push((way, vec![used.id])),
+                }
             }
-            std::sync::Arc::new(EnjoyedBefore { standing, before })
+            std::sync::Arc::new(EnjoyedBefore {
+                standing,
+                counted: enjoyed.len(),
+                ways,
+            })
         }
     });
-    kept.before.get(&event).copied()
+    let way = enjoyed_way(event);
+    let (_, events) = kept.ways.iter().find(|(known, _)| *known == way)?;
+    events.binary_search(&event.id).ok()
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
+#![forbid(unsafe_code)]
+
 mod prompt;
-mod protocol;
-mod transport;
 
 use prompt::DecisionPrompt;
 use std::error::Error;
@@ -9,8 +9,12 @@ use world_agent::{
     AgentDecision, AgentObservation, AgentRuntime, AgentRuntimeError, AvailableAction,
 };
 
-pub use protocol::{parse_decision, PiRpcEventParser, PiRpcProtocolError};
-pub use transport::{PiCommand, PiRpcTransport, PiRpcTransportError, ProcessPiRpcTransport};
+// The transport and its protocol are world-pi-transport's, with no World
+// in them; this crate is the AgentRuntime adapter over them.
+pub use world_pi_transport::{
+    parse_decision, PersistentPiRpcTransport, PiCommand, PiRpcEventParser, PiRpcProtocolError,
+    PiRpcTransport, PiRpcTransportError, ProcessPiRpcTransport, MOST_REQUESTS,
+};
 
 pub struct PiRpcRuntime<T> {
     transport: T,

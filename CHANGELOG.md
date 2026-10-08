@@ -2,6 +2,51 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.28.0 (2026-10-08)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.27 replays event for event in both Packs, now including real v0.27 Worlds played through that release's own saving path, and a new golden of the state each one rebuilds to, from its recorded events alone, is never re-blessed.
+
+This release is the plan from the [v0.27 review](docs/REVIEW_v0.27.md), "Always painted, talk you can trust". What it met and missed, with numbers, is in that review's last section. In short: every picture is painted and the voice is held to new rules, but the blind bars for the voice, hearing and favours were missed and are reported as measured.
+
+- **Every picture you see is finished.**
+  - The World window's first frame is whole: what is not yet painted sharp stands in as a rough painting of the World's own tiles, never fog or a flat slab. A new World is painted within 3 s in 8 of 9 measured runs in a release build of the real window (v0.27 showed about 5.5 s of fog).
+  - No unpainted frame after the first, through the first launch, Find, the return film, every zoom level of a three-year town and year two. A return-film beat starts only on a painted scene; Find and camera moves land on painted ground and then sharpen.
+  - Year three's zoomed-out slab is gone: a layer that had never settled kept restarting, and now settles before the drawings boil.
+  - A new look (the hour turning) swaps in one frame once it is whole, instead of fading over the old one, so shadows are never drawn twice and the rough never shows under a sharp picture. Tests hold both, pixel for pixel.
+  - Day 1 opens on the Harbour Front with at least four residents and three whole buildings in view; each Pocket Universe place opens on its keeper beside a whole building at every hour.
+  - People keep clear of doors on the quay, and groups that would run into each other stand apart.
+  - A release-build "first ten minutes" run (`scripts/release-shots.sh`) checks every frame of the real window and saves screenshots for every release in CI.
+- **Talk you can trust (the World voice, version 3).**
+  - **Names.** Each World has a complete name list in English, Chinese and Japanese, held by tests; a person-shaped name the World does not know is declined at once, and the judge's list of names counts.
+  - **Era and language.** Word lists of what each place's time has and lacks; Japanese insult rules and brand lists; Simplified Chinese only. Real places and events of the era are part of the world; brands, celebrities, media titles and real currency are not, unless the World names them itself.
+  - **Talk never pays.** What a conversation does (warmth, favours, invitations) is decided only by the World's own ears on your words. Stage directions in brackets, words said back and a model's reading do nothing. The favour's one-click reply sends the favour itself, never words.
+  - **Care and disclosure.** Crisis and sexual topics are never sent to a model; the resident answers gently in their own words, with a helpline for a crisis. While a model writes, the card says so, and every model answer is marked "Written by AI", with a **Report** button that records the line in the World.
+  - **Openers and stances.** Two or three suggested openers from the World's own facts sit beside the text field. Residents keep their own views when pushed.
+  - One runner for every outside process, with deadlines and cancelling; a persistent pi session; the voice no longer links any World code.
+- **Words, hearing and favours.**
+  - Bench and swing lines are said only now and then: none is in year three's top 20 for any player. "Just like last year." is gone from festival remarks.
+  - No English sentence in a Chinese or Japanese letter, and no partly English line, over a year in any place.
+  - Lines break properly: no line starts with a question mark, 。、」 or a small kana, and no break inside a katakana name.
+  - About 1,500 more phrases are heard; "give him another chance" is reconciling and "don't give up" is comfort, in all three languages.
+  - Quiet players are still asked a favour about every three weeks. The thanks show on the asker's card.
+  - The demo's farewell recaps what you did there, from your World's own record; **Keep a postcard** says whether it saved; the bar hides "next day" on the farewell.
+- **Ready for Windows and a third Pack.**
+  - The art catalog is data in its own GUI-free crate: Packs declare their drawings' heights, and the ground is a fixed set.
+  - Commands declare their role (the day pass), so nothing sniffs ids.
+  - The desktop app is split by platform behind a small trait, Pack processes run on Windows, and CI checks the Windows build.
+  - Machine-checked invariants: no `unsafe` in any crate (two test helpers aside), `pi_agent_rust` banned by cargo-deny, a ratchet on Pack names in shared crates, and a count of events without a cause.
+- **Health.**
+  - A turn does 7% less work than v0.26.1's (17% less than v0.27's), and its median is back under v0.26.1's on the same machine.
+  - Pocket Universe's library tests take 2.5 minutes instead of 12.
+  - A save race that could let a turn through after its folder was removed is fixed.
+- **A store-page kit** in `docs/press/store/`: key art, five real-window shots, a 30-second capture plan and short descriptions in three languages.
+
+**Measured once, at the end, on sets written blind and never tuned on:**
+- The World voice on blind set 6 (4,801 lines): 94.0% of out-of-world answers declined and 2.4% of good answers wrongly declined (en 94.7% / 4.0%, zh 94.3% / 2.3%, ja 93.0% / 0.9%), against a bar of 95% and 1% in each language. Missed except Japanese's wrongly-declined figure.
+- Hearing on fresh28: 85.7% (en), 81.2% (zh), 77.7% (ja), bar 85%; favours done in everyday words 60.6%, bar 90%. Missed except English.
+- Talk for rewards, 300 blind tricks: 0 completed by a model or a reply, but 8 of 600 tries did a "look in on someone" favour by the player's own words, bar none. Missed.
+- The window's longest frame under 8 ms in 4 of 10 local runs, bar 10 of 10. Missed. A green nightly three nights running: one so far. Missed.
+
 ## v0.27.0 (2026-10-07)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.26 replays event for event in both Packs, now including real v0.25 and v0.26 Worlds played through the app's own saving path.
@@ -14,7 +59,7 @@ This release is the plan from the [v0.26 review](docs/REVIEW_v0.26.md), "The tow
   - Something you set going stands as scaffolding on its own site from the first answer, and shows at once even while the picture is still being painted.
   - The 20 commonest stories each leave something behind for a few days: bunting after the fete, boats racked after a storm warning, scaffolding on the pub's chimney after the fire.
   - A row of real buildings stands on the far ridge, fading toward the sky.
-  - For a warm player the first screen changes on 11 of the first 14 days.
+  - For a warm player the first screen changes on 10 of the first 14 days in the harbour and 9 in each Pocket Universe place. (This said 11 when v0.27.0 shipped; the v0.27 measurement counted 10.)
 - **A look with rules.** The art direction is now [a written bible](docs/ART_DIRECTION.md), and tests hold it:
   - every drawing has a height on one ladder against a person (a postbox at most 0.8 of one, a telescope smaller than a cottage);
   - the sky is lighter than the land, and the land than the water, by day;

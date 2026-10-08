@@ -18,6 +18,7 @@ use days::town::{CatalogWork, Quarter, Town, Trace, TraceAt, Zone, BACK, FRONT, 
 use days::{Plan, Stretch};
 use std::collections::BTreeMap;
 use world_core::{EntityId, Value, World, WorldState};
+use world_projection::Ground;
 use world_projection::{
     CanvasItem, CanvasItemKind, CanvasProjection, GroundCover, MarkShape, Season, SelectionId,
 };
@@ -265,7 +266,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         1.0,
         &[Zone::Lanes],
         true,
-        "garden",
+        Ground::Garden,
     ),
     quarter(
         "fish_quay",
@@ -273,7 +274,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         1.3,
         &[Zone::Water, Zone::Quay],
         false,
-        "cobbles",
+        Ground::Cobbles,
     ),
     quarter(
         "boatyard",
@@ -281,7 +282,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         0.4,
         &[Zone::Water, Zone::Quay],
         false,
-        "yard",
+        Ground::Yard,
     ),
     quarter(
         "net_lane",
@@ -289,7 +290,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         0.6,
         &[Zone::Lanes, Zone::Green],
         true,
-        "garden",
+        Ground::Garden,
     ),
     quarter(
         "drying_green",
@@ -297,7 +298,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         0.2,
         &[Zone::Green, Zone::Edge],
         false,
-        "green",
+        Ground::Green,
     ),
     quarter(
         "the_square",
@@ -305,16 +306,23 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         1.95,
         &[Zone::Quay, Zone::Lanes],
         false,
-        "plaza",
+        Ground::Plaza,
     ),
-    quarter("bakers_lane", "Baker's Lane", 2.2, &[], true, "garden"),
+    quarter(
+        "bakers_lane",
+        "Baker's Lane",
+        2.2,
+        &[],
+        true,
+        Ground::Garden,
+    ),
     quarter(
         "the_green",
         "the Green",
         2.7,
         &[Zone::Green],
         false,
-        "green",
+        Ground::Green,
     ),
     quarter(
         "market_row",
@@ -322,7 +330,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         1.65,
         &[Zone::Lanes, Zone::Quay],
         true,
-        "plaza",
+        Ground::Plaza,
     ),
     quarter(
         "the_slip",
@@ -330,7 +338,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         2.4,
         &[Zone::Water],
         false,
-        "cobbles",
+        Ground::Cobbles,
     ),
     quarter(
         "little_green",
@@ -338,7 +346,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         2.95,
         &[Zone::Green, Zone::Edge],
         false,
-        "green",
+        Ground::Green,
     ),
     quarter(
         "harbour_front",
@@ -346,16 +354,23 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         3.9,
         &[Zone::Quay, Zone::Lanes, Zone::Water],
         false,
-        "cobbles",
+        Ground::Cobbles,
     ),
-    quarter("the_point", "the Point", 4.3, &[Zone::Water], false, "rock"),
+    quarter(
+        "the_point",
+        "the Point",
+        4.3,
+        &[Zone::Water],
+        false,
+        Ground::Rock,
+    ),
     quarter(
         "hill_lane",
         "Hill Lane",
-        3.3,
+        3.42,
         &[Zone::Lanes],
         true,
-        "garden",
+        Ground::Garden,
     ),
     quarter(
         "chapel_hill",
@@ -363,7 +378,7 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         3.6,
         &[Zone::Edge],
         false,
-        "yard",
+        Ground::Yard,
     ),
     quarter(
         "the_orchard",
@@ -371,15 +386,15 @@ pub(crate) const QUARTERS: [Quarter; 17] = [
         3.1,
         &[Zone::Edge, Zone::Green],
         false,
-        "garden",
+        Ground::Garden,
     ),
     quarter(
         "hill_cottages",
         "Hill Cottages",
-        3.55,
+        3.3,
         &[Zone::Lanes],
         true,
-        "garden",
+        Ground::Garden,
     ),
 ];
 
@@ -390,7 +405,7 @@ const fn quarter(
     at: f32,
     zones: &'static [Zone],
     homes: bool,
-    ground: &'static str,
+    ground: Ground,
 ) -> Quarter {
     Quarter {
         id,

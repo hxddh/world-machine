@@ -6,6 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+world-art = { path = "../world-art" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 world-theme = { path = "../world-theme" }
 world-projection = { path = "../world-projection" }

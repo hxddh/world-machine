@@ -21,6 +21,8 @@
 //! a speaker uses in place of others (`=nest<tab>home`), so a line said in
 //! their own words is read as the plain one.
 
+#![forbid(unsafe_code)]
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock, RwLock};
@@ -397,7 +399,9 @@ impl Catalog {
                 return Some(format!("{bare}{}", wide_stop(&text[text.len() - 1..])));
             }
         }
-        if depth > 2 {
+        // Three slots deep at most (a letter's lead, the sentence told in
+        // it, said of oneself, and its names).
+        if depth > 3 {
             return None;
         }
         // A line the catalog knows only without its closing full stop
@@ -490,7 +494,7 @@ impl Catalog {
         // Said of oneself ("I went fishing with Miri", "Leo gave me a
         // gift"): read as told of anyone, with the speaker put in as a
         // name, then said as the language says "I".
-        if let Some(myself) = self.myself.as_ref().filter(|_| depth <= 1) {
+        if let Some(myself) = self.myself.as_ref().filter(|_| depth <= 2) {
             let told = text
                 .split(' ')
                 .map(|word| {
@@ -559,7 +563,11 @@ impl Catalog {
         .find_map(|tail| self.exact.get(&tail))?;
         // A question's ending ("..., eh?") hangs on a plain sentence.
         let head_stop = if stop == '!' { '!' } else { '.' };
-        let head = self.whole(&format!("{head}{head_stop}"), depth + 1)?;
+        // The head is the same sentence, not what fills a slot: read at
+        // the same depth, so a sentence said of oneself in a letter's slot
+        // ("Life goes on here: I went fishing with Miri, and we had
+        // words.") is still read as told of anyone.
+        let head = self.whole(&format!("{head}{head_stop}"), depth)?;
         let head = head.trim_end_matches(['。', '！', '？', '.', '!', '?']);
         let ending = ending.trim_end_matches(['。', '！', '？', '.', '!', '?']);
         Some(format!("{head}{ending}{}", wide_stop(&stop.to_string())))
@@ -1038,6 +1046,23 @@ id_like_this\tSKIP
             Some("Leo送了我一份礼物")
         );
         assert_eq!(catalog.translate("I went sailing").as_deref(), None);
+    }
+
+    /// A letter's slot told of oneself, with an ending of its own, is
+    /// read whole: never left in English inside a translated letter.
+    #[test]
+    fn a_letters_slot_told_of_oneself_with_an_ending_is_read() {
+        let catalog = Catalog::parse(
+            "@I\t我\n{name} went fishing with {other}\t{name}和{other}去钓鱼了\n\
+             , and we had words\t，我们吵了一架\n\
+             Life goes on here: {told}.\t这边的日子照常过：{told}。\n",
+        );
+        assert_eq!(
+            catalog
+                .translate("Life goes on here: I went fishing with Miri, and we had words.")
+                .as_deref(),
+            Some("这边的日子照常过：我和Miri去钓鱼了，我们吵了一架。")
+        );
     }
 
     #[test]

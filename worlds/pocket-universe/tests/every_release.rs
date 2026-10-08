@@ -10,7 +10,7 @@
 //!   `WorldDocument` writes a file (v0.27; v0.21's first fixtures were the
 //!   warm player's, the same files as v0.20's byte for byte);
 //! - v0.23 and v0.24: `v023_worlds.rs`, a builder's first 120 periods;
-//! - v0.25 and v0.26 (v0.26.1): the same builder played the app's way, a
+//! - v0.25, v0.26 (v0.26.1) and v0.27: the same builder played the app's way, a
 //!   Library World made by `DurableWorldSession::create` and changed by
 //!   `handle`, so each file is exactly what that release's app wrote.
 //!
@@ -20,7 +20,9 @@
 use pocket_universe::{PocketUniverse, NUDGE_COMMAND, POCKET_UNIVERSE_PACK_VERSION};
 use world_document::WorldDocument;
 
-const RELEASES: [&str; 7] = ["v020", "v021", "v022", "v023", "v024", "v025", "v026"];
+const RELEASES: [&str; 8] = [
+    "v020", "v021", "v022", "v023", "v024", "v025", "v026", "v027",
+];
 const PLACES: [&str; 3] = ["mars", "maple", "ice"];
 
 fn fixture(release: &str, place: &str) -> Vec<u8> {

@@ -13,8 +13,8 @@ use crate::{Plan, Row, Street, Stretch};
 use std::collections::{BTreeMap, BTreeSet};
 use world_core::{EntityId, Event, Value};
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLink, CanvasProjection, Cluster, District, GroundCover,
-    MarkShape, RoutineStop, Season, SelectionId,
+    CanvasItem, CanvasItemKind, CanvasLink, CanvasProjection, Cluster, District, Ground,
+    GroundCover, MarkShape, RoutineStop, Season, SelectionId,
 };
 
 /// Houses at the back.
@@ -40,34 +40,18 @@ pub const WATER_Y: f32 = 0.86;
 pub const WATER_TALL: usize = 6;
 
 /// Where a thing belongs, from the water to the hills (the art bible's
-/// siting zones): a pier never stands on a hill.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum Zone {
-    /// On the water line: pier, jetty, slipway, boathouse, moorings, the
-    /// lighthouse on the point.
-    Water,
-    /// On the quay, the spine people walk: stalls, carts, crates, benches,
-    /// lamp posts.
-    Quay,
-    /// In the lanes: homes, shops, the pub, the school, gardens.
-    Lanes,
-    /// On the green: the bandstand, maypole, well and fountain.
-    Green,
-    /// At the edges and up the hill: the windmill, telescope, chapel,
-    /// orchard, beehives, lookout.
-    Edge,
-}
+/// siting zones): a pier never stands on a hill. The zones, and which
+/// library drawing stands in which, are the art catalog's (`world-art`).
+pub use world_art::Zone;
 
-impl Zone {
-    /// The rows a thing of this zone may stand in, the likeliest first.
-    pub fn rows(self) -> &'static [usize] {
-        match self {
-            Zone::Water => &[WATER],
-            Zone::Quay => &[FRONT, NEARER],
-            Zone::Lanes => &[MIDDLE, NEARER, BACK],
-            Zone::Green => &[NEARER, MIDDLE, FRONT],
-            Zone::Edge => &[MIDDLE, BACK, NEARER],
-        }
+/// The rows a thing of `zone` may stand in, the likeliest first.
+pub fn rows_of(zone: Zone) -> &'static [usize] {
+    match zone {
+        Zone::Water => &[WATER],
+        Zone::Quay => &[FRONT, NEARER],
+        Zone::Lanes => &[MIDDLE, NEARER, BACK],
+        Zone::Green => &[NEARER, MIDDLE, FRONT],
+        Zone::Edge => &[MIDDLE, BACK, NEARER],
     }
 }
 
@@ -75,181 +59,8 @@ impl Zone {
 /// or else as `shape`, belongs. Every Pack's drawings are sited by the
 /// same rules, so a pier is on the water wherever it is built.
 pub fn zone_of(art: Option<&str>, shape: MarkShape) -> Zone {
-    const WATER_ART: &[&str] = &[
-        "new-pier",
-        "slipway",
-        "boathouse",
-        "jetty-ladder",
-        "boat-yard",
-        "lifeboat-station",
-        "sea-pool",
-        "rowing-club",
-        "tide-board",
-        "sea-wall",
-        "lighthouse",
-        "point-lamp",
-        "fishing-dock",
-        "sailboat",
-        "rowing-boat",
-        "lake-dock",
-        "ice-ledge",
-        "kayak",
-        "sea-slide",
-    ];
-    const QUAY_ART: &[&str] = &[
-        "market-stall",
-        "bread-cart",
-        "flower-stall",
-        "fish-market",
-        "harbour-lamp",
-        "lamp-post",
-        "streetlamp",
-        "streetlights",
-        "solar-lamp",
-        "lantern-post",
-        "mooring-bench",
-        "driftwood-bench",
-        "park-bench",
-        "metal-bench",
-        "ice-bench",
-        "crater-bench",
-        "net-rack",
-        "boat-rack",
-        "flag-line",
-        "harbour-clock",
-        "fishers-statue",
-        "fisherman-statue",
-        "quay-planters",
-        "windbreak",
-        "bin-gate",
-        "ferry-shelter",
-        "fishers-shelter",
-        "bait-shed",
-        "crab-shack",
-        "pillar-box",
-        "mailbox",
-        "message-post",
-        "bus-shelter",
-        "hot-dog-stand",
-        "snack-bar",
-        "ice-cream-stand",
-        "newspaper-bundle",
-        "pay-phone",
-        "parked-car",
-        "cargo-crate",
-        "cargo-depot",
-        "fish-stall",
-        "fish-crate",
-        "trail-marker",
-        "landing-lights",
-        "jar-lanterns",
-    ];
-    const GREEN_ART: &[&str] = &[
-        "bandstand",
-        "roofed-bandstand",
-        "bandshell",
-        "maypole",
-        "square-fountain",
-        "wishing-fountain",
-        "drinking-fountain",
-        "wall-fountain",
-        "mist-fountain",
-        "geyser",
-        "roofed-well",
-        "wellhead",
-        "water-pump",
-        "sundial",
-        "market-cross",
-        "clock-tower-square",
-        "picnic-table",
-        "picnic-tables",
-        "swing-set",
-        "playground-swing",
-        "low-g-swing",
-        "puppet-theatre",
-        "lantern-walk",
-        "gazebo",
-        "chess-tables",
-        "park-stage",
-        "dance-floor",
-        "mayor-statue",
-        "founders-statue",
-        "ice-sculpture",
-        "story-chair",
-        "skittle-alley",
-        "pebble-mosaic",
-        "sandpit",
-        "paper-lanterns",
-        "flower-beds",
-        "flower-bed",
-        "median-beds",
-        "splash-pool",
-        "paddling-pool",
-    ];
-    const EDGE_ART: &[&str] = &[
-        "windmill",
-        "telescope",
-        "telescope-pad",
-        "observatory-dome",
-        "chapel",
-        "bell-tower",
-        "orchard",
-        "apple-tree",
-        "dwarf-apple",
-        "beehives",
-        "bee-garden",
-        "hill-beacon",
-        "ridge-beacon",
-        "lookout-tower",
-        "lookout-seat",
-        "cliff-path",
-        "dovecote",
-        "cairn",
-        "marker-cairn",
-        "sheepfold",
-        "allotments",
-        "garden-plots",
-        "glasshouse",
-        "greenhouse",
-        "herb-garden",
-        "school-garden",
-        "hilltop-swing",
-        "oak-rope-swing",
-        "rope-swing",
-        "treehouse",
-        "wildflowers",
-        "hen-house",
-        "vegetable-patch",
-        "sunflowers",
-        "frog-pond",
-        "duck-pond",
-        "rose-arbour",
-        "summer-house",
-        "kites",
-        "weather-mast",
-        "survey-station",
-        "survey-rig",
-        "mine-headframe",
-        "ice-drill",
-        "solar-field",
-        "solar-array",
-        "radio-dish",
-        "radio-tower",
-        "tall-antenna",
-        "water-tower",
-        "lichen-garden",
-    ];
-    if let Some(art) = art {
-        for (zone, keys) in [
-            (Zone::Water, WATER_ART),
-            (Zone::Quay, QUAY_ART),
-            (Zone::Green, GREEN_ART),
-            (Zone::Edge, EDGE_ART),
-        ] {
-            if keys.contains(&art) {
-                return zone;
-            }
-        }
+    if let Some(zone) = art.and_then(world_art::zone) {
+        return zone;
     }
     match shape {
         MarkShape::Pier | MarkShape::Boat => Zone::Water,
@@ -435,9 +246,8 @@ pub struct Quarter {
     pub zones: &'static [Zone],
     /// Whether the homes of its stretch stand in it.
     pub homes: bool,
-    /// Its ground, as the app paints it: "cobbles", "garden", "yard",
-    /// "green", "plaza", "pad", "paving", "snow".
-    pub ground: &'static str,
+    /// Its ground, as the app paints it.
+    pub ground: Ground,
 }
 
 /// How far along the ground what stands in front of or behind a work on a
@@ -880,7 +690,7 @@ impl Town {
             let rows: &[usize] = match (zone, is_building(work.shape)) {
                 (Zone::Water, true) => &[WATER_TALL, WATER],
                 (Zone::Quay, true) => &[NEARER, MIDDLE, BACK],
-                _ => zone.rows(),
+                _ => rows_of(zone),
             };
             // A building never stands in front of a smaller thing already
             // standing just behind it, nor a smaller thing just behind a
@@ -1114,7 +924,7 @@ impl Town {
                     label: quarter.label.into(),
                     from: (from - 0.1).max(0.0),
                     to: (to + 0.1).min(self.width),
-                    ground: quarter.ground.into(),
+                    ground: quarter.ground,
                     rows: (back, front),
                 });
             }

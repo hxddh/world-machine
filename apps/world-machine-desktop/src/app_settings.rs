@@ -2,7 +2,6 @@
 //! voice, stored under Application Support.
 
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -315,14 +314,12 @@ impl fmt::Display for AppSettingsError {
 
 impl std::error::Error for AppSettingsError {}
 
+/// The folder the app keeps its settings and Worlds in: on the Mac,
+/// `~/Library/Application Support/World Machine` (see `platform.rs`).
 pub fn application_support_root() -> Result<PathBuf, AppSettingsError> {
-    let home = env::var_os("HOME").ok_or_else(|| {
+    crate::platform::current().support_dir().ok_or_else(|| {
         AppSettingsError::Io("World Machine could not locate the user's home directory".to_string())
-    })?;
-    Ok(PathBuf::from(home)
-        .join("Library")
-        .join("Application Support")
-        .join("World Machine"))
+    })
 }
 
 pub fn settings_path(root: &Path) -> PathBuf {
@@ -556,7 +553,7 @@ mod tests {
                 .as_nanos();
             let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             Self {
-                root: env::temp_dir().join(format!(
+                root: std::env::temp_dir().join(format!(
                     "world-machine-app-settings-{}-{nonce}-{sequence}",
                     std::process::id()
                 )),

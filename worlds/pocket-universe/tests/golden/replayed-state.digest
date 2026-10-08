@@ -1,0 +1,27 @@
+# The state each fixture's recorded events rebuild, in a canonical form
+# (world-pack-testkit/src/invariants.rs). Never re-blessed: a line may be
+# added for a new fixture, and no line may ever change.
+v020-ice 90d9f60764f4de55 35768 events=1536
+v020-maple 1d5f513a627efee2 32840 events=1441
+v020-mars dd38e2f56c02a7c0 31479 events=1408
+v021-ice 57face5180392327 39269 events=2005
+v021-maple 462f949227b5ec45 38230 events=1966
+v021-mars 5fee3f7db16c4f83 36249 events=1831
+v022-ice e9cf5c39bae99cb9 34544 events=1454
+v022-maple 0da82d4d7440619a 34776 events=1477
+v022-mars 581e975a5d92fd78 32021 events=1346
+v023-ice c117099876b22d0f 46256 events=1977
+v023-maple 6985d00e012518d2 46444 events=1964
+v023-mars 15ca61c10067094c 42678 events=1820
+v024-ice 9bdd29fb6f278655 41278 events=2036
+v024-maple 5c07410956080af1 41581 events=2012
+v024-mars 51831353ecde7ca2 39901 events=1832
+v025-ice 9bdd29fb6f278655 41278 events=2036
+v025-maple 5c07410956080af1 41581 events=2012
+v025-mars 51831353ecde7ca2 39901 events=1832
+v026-ice 72ec3c070fef11f4 40155 events=2053
+v026-maple 894ea27a3b980daa 40710 events=2029
+v026-mars 3b8a625138e60daa 38820 events=1849
+v027-ice 60c08f37eb26d8d2 40229 events=2041
+v027-maple 02522e5a863abe61 40726 events=2017
+v027-mars f5255be03fec569e 38834 events=1837

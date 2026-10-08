@@ -1,0 +1,27 @@
+# Lines of each shared crate's src/ that name a Pack, its places or its ids
+# (the pattern is in scripts/check-boundaries.sh). The numbers may only go
+# down: lower one when you take Pack knowledge out of a crate.
+# Recorded from v0.27 (b90e3eb); world-gpui's src/macos/ is counted as window/.
+# world-art is new in v0.28: the art catalog, recorded as P built it.
+# world-voice-prompt is new in v0.28: bounds and judge moved out of
+# systems/conversation (20 -> 13 there; its 2 are place-head words).
+crates/world-art 7
+crates/world-builtins 22
+crates/world-document 8
+crates/world-gpui 593
+crates/world-i18n 11
+crates/world-library 26
+crates/world-observer 1
+crates/world-pack-process 1
+crates/world-pack-protocol 2
+crates/world-pack-testkit 11
+crates/world-projection 31
+crates/world-sound 14
+crates/world-voice 15
+crates/world-voice-prompt 2
+systems/conversation 13
+systems/days 24
+systems/hands 23
+systems/lives 19
+systems/storylets 2
+apps/world-machine-desktop 145

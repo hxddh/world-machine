@@ -18,6 +18,10 @@ type Judging<'a> = &'a dyn Fn(&Case, &conversation::Hearing) -> Option<conversat
 
 const PACK: &str = "pocket-universe";
 
+/// Out-of-World lines that tests say, in the catalogs only so those tests
+/// can be read in every language: never the places' own lines.
+pub(crate) const FIXTURES: &[&str] = &[];
+
 /// A place as the red team names it: its World, and every name that World
 /// knows, to tell which place a case is in.
 struct Place {
@@ -94,11 +98,19 @@ fn said_judged(places: &mut [Place], cases: &[Case], judging: Judging) -> Vec<Sa
             let people = crate::life::people_in(world.world().state());
             let who: EntityId = people[index % people.len()];
             let kit = crate::speech::kit(world.world().state());
-            let hearing = conversation::hearing_for(world.world(), &kit, who, &case.asked)
-                .expect("the case can be said");
+            let Some(hearing) = conversation::hearing_for(world.world(), &kit, who, &case.asked)
+            else {
+                world
+                    .say_with(who, &case.asked, &mut Proposes(case.answer.clone(), None))
+                    .unwrap();
+                return red_team::cared();
+            };
             let checked = conversation::check(case.answer.trim(), &hearing);
             let prompt = conversation::judge::judge_prompt(&hearing, &case.answer);
             let judged = judging(case, &hearing);
+            let judge_kept = judged
+                .as_ref()
+                .is_some_and(|judged| judged.verdict == Some(conversation::Verdict::Keep));
             world
                 .say_with(who, &case.asked, &mut Proposes(case.answer.clone(), None))
                 .unwrap();
@@ -118,6 +130,7 @@ fn said_judged(places: &mut [Place], cases: &[Case], judging: Judging) -> Vec<Sa
                 checked,
                 prompt,
                 judged,
+                judge_kept,
             }
         })
         .collect()
@@ -196,10 +209,52 @@ fn the_held_out_sets_hold_their_floors() {
     });
 }
 
+/// What v0.27 did on set 5 here, with its recorded checklists: (language,
+/// declined, out of the World, wrongly declined, in it).
+const SET_FIVE_FLOORS: &[red_team::SetFiveFloor] = &[
+    ("en", 127, 139, 0, 202),
+    ("ja", 244, 275, 9, 299),
+    ("zh", 157, 181, 6, 268),
+];
+
+/// Set 5, with the checklists recorded on it decided against each line's
+/// World, declines no fewer and wrongly declines no more than v0.27 did,
+/// per language.
+#[test]
+fn set_five_holds_its_floor() {
+    red_team::hold_set_five_to_its_floor(PACK, SET_FIVE_FLOORS, |cases, replies| {
+        let judging = |case: &Case, hearing: &conversation::Hearing| {
+            let reply = red_team::reply_for(replies, &case.id)?;
+            Some(conversation::Judged {
+                judge: "claude-haiku-4-5".into(),
+                verdict: conversation::judge::verdict_of(reply, hearing, &case.answer),
+            })
+        };
+        said_judged(&mut places(), cases, &judging)
+    });
+}
+
 /// With no judge at all, the rules decline at least 75% of the
 /// development sets' out-of-World lines in every language, and the certain
 /// checks no in-World line.
 #[test]
 fn the_rules_alone_meet_the_development_bar() {
     red_team::hold_the_rules_to_the_development_bar(PACK, |cases| said_fully(&mut places(), cases));
+}
+
+/// Residents hold their stances when the player pushes back: at least 80%
+/// of the development set's pushback held (`world_pack_testkit::
+/// disagreement`).
+#[test]
+fn residents_hold_their_stances() {
+    world_pack_testkit::disagreement::hold_residents_to_their_stances(PACK, |cases, replies| {
+        let judging = |case: &Case, hearing: &conversation::Hearing| {
+            let reply = red_team::reply_for(replies, &case.id)?;
+            Some(conversation::Judged {
+                judge: "v3-hand".into(),
+                verdict: conversation::judge::verdict_of(reply, hearing, &case.answer),
+            })
+        };
+        said_judged(&mut places(), cases, &judging)
+    });
 }

@@ -1,7 +1,7 @@
 //! What goes up for a festival, in any town: a flag, bunting, lanterns,
 //! a stall and a tent, drawn in the town's own colours.
 
-use world_projection::{DrawPart, Drawing, Ink};
+use world_projection::{DrawPart, Drawing, Ink, Rung};
 
 /// The colours a place dresses its festivals in: the main one, the one it
 /// alternates with, poles and timber, and cloth.
@@ -113,5 +113,12 @@ pub fn festival_things(prefix: &str, colours: Festive) -> Vec<Drawing> {
     ]);
     let tent = Drawing::new(name("tent"), 1.4, tent);
 
-    vec![flag, bunting, lanterns, stall, tent]
+    // How tall each stands beside a resident (the art bible's ladder).
+    vec![
+        flag.standing(Rung::Tall(2.6)),
+        bunting.standing(Rung::Tall(2.2)),
+        lanterns.standing(Rung::Tall(1.8)),
+        stall.standing(Rung::Tall(1.3)),
+        tent.standing(Rung::Tall(2.2)),
+    ]
 }

@@ -1,0 +1,106 @@
+# Every name the harbour's lines can say, in each language it speaks.
+# English, then its Chinese forms, then its Japanese forms; several forms
+# are separated by |. The catalog's own translations (locales/) count too.
+# Held by lexicon_tests.rs: every name the Pack can produce is here or in
+# the catalogs, in all three languages.
+Jonas	乔纳斯|约纳斯	ジョナス|ヨナス
+Mara	玛拉|马拉	マーラ|マラ
+Leo	利奥|里奥|莱奥	レオ
+Emma	艾玛|埃玛	エマ
+Mia	米娅|米亚	ミア
+Noah	诺亚	ノア
+Evan	埃文|伊万	エヴァン|エバン
+Sofia	索菲亚|苏菲亚|索菲娅	ソフィア|ソフィーア
+Ivo	伊沃	イーヴォ|イボ|イヴォ
+Ada	艾达|阿达	エイダ|アダ
+Rosa	罗莎|萝莎	ローザ|ロサ
+Tobias	托比亚斯|托拜厄斯	トビアス
+Hana	哈娜|花	ハナ
+Olek	奥列克	オレク
+Maeve	梅芙|梅维	メイヴ|メイブ
+Arun	阿伦|阿伦恩	アルン
+Lise	莉泽|莉丝	リーセ|リーズ
+Pim	皮姆	ピム
+Greta	格蕾塔|葛丽塔	グレタ
+Kofi	科菲	コフィ
+Ines	伊内丝|伊内斯	イネス
+Bram	布拉姆	ブラム
+Nell	内尔|奈尔	ネル
+Soren	索伦	ソーレン|ソレン
+Yara	雅拉|亚拉	ヤラ
+Dario	达里奥	ダリオ
+Ffion	菲昂|菲奥恩	フィオン
+Mateo	马特奥|马泰奥	マテオ
+Wren	雷恩|任恩	レン
+Anouk	阿努克	アヌーク
+Casimir	卡西米尔	カシミール|カジミール
+Lotte	洛特|洛蒂	ロッテ
+Ravi	拉维	ラヴィ|ラビ
+Esme	埃斯梅|艾斯美	エズメ|エスメ
+Tam	塔姆|老Tam	タム|タムじいさん
+Isla	艾拉|伊斯拉	アイラ
+Ruben	鲁本	ルーベン
+Freya	弗蕾娅|芙蕾雅	フレイヤ
+Olu	奥卢	オル|オルー
+Marta	玛尔塔|马尔塔	マルタ
+Joss	乔斯	ジョス
+Signe	西格妮|锡涅	シグネ
+Tomas	托马斯	トマス|トーマス
+Aoife	伊法|奥伊菲	イーファ
+Bea	比娅|贝亚	ビー|ベア
+Kit	基特	キット
+Leif	莱夫|利夫	リーフ|レイフ
+Nadia	纳迪娅|娜迪亚	ナディア
+Rafe	雷夫	レイフ
+Sunniva	苏妮娃	スンニヴァ|スンニバ
+Emil	埃米尔	エミール|エミル
+Clem	克莱姆	クレム
+Petra	佩特拉	ペトラ
+Hugo	雨果|于戈	ヒューゴ|ユーゴ
+Poppy	波比|波皮	ポピー
+Finn	芬恩|芬	フィン
+Rowan	罗恩|罗文	ローワン|ロウワン
+Elsie	埃尔西|艾尔西	エルシー
+Alfie	阿尔菲	アルフィー
+Nora	诺拉	ノーラ|ノラ
+Otto	奥托	オットー
+Mabel	梅布尔|梅宝	メイベル
+Jem	杰姆	ジェム
+Lark	拉克|云雀	ラーク
+Iris	艾瑞斯|艾丽斯	アイリス
+Ned	内德	ネッド
+Tilly	蒂莉	ティリー
+Arlo	阿洛	アーロ|アルロ
+Hazel	黑兹尔|海泽尔	ヘイゼル|ヘーゼル
+Rory	罗里	ローリー|ロリー
+Maisie	梅西|梅茜	メイジー|メイシー
+Cal	卡尔	カル
+Willa	薇拉|威拉	ウィラ
+Bo	博|波	ボー|ボウ
+Daisy	黛西|戴茜	デイジー
+Gus	格斯|加斯	ガス
+Lottie	洛蒂	ロッティ|ロッティー
+Sid	锡德|希德	シド
+Clark	克拉克	クラーク
+the Clark twins	克拉克家的双胞胎|克拉克双胞胎	クラークの双子|クラーク家の双子
+Bess	贝丝|贝斯	ベス
+Pike	派克	パイク
+Old Tam	老Tam|老塔姆	タムじいさん|タム爺さん|老タム
+Sea Finch	海雀号	シーフィンチ号|シーフィンチ
+Kittiwake	三趾鸥号|三趾鸥	キティウェイク号|キティウェイク
+Brave Molly	勇敢的莫莉号|勇敢莫莉号	ブレイブ・モリー号|ブレイブ・モリー
+Anchor Pub	锚酒馆|锚|酒馆	酒場「アンカー」|アンカー|パブ
+Harbour Bakery	港口面包房|面包房|面包店	港のパン屋|パン屋
+Island School	岛上学校|学校	島の学校|学校
+the harbour	港口|码头|港湾	港|波止場
+the mainland	大陆	本土
+Harbor Bakery	港口面包房|面包房	港のパン屋|パン屋
+Harvest Home	丰收节|收获节	収穫祭|ハーベスト・ホーム
+Gerald	杰拉尔德	ジェラルド
+Maud	莫德	モード
+Mrs Pell	佩尔太太|佩尔老太太	ペルおばあさん|ペルさん|ペル夫人
+Pell	佩尔	ペル
+Dogger	多格	ドッガー
+Fisher	费舍尔	フィッシャー
+German Bight	德国湾|德意志湾	ジャーマン・バイト
+Tiny Society	小小社会|Tiny Society	タイニー・ソサエティ

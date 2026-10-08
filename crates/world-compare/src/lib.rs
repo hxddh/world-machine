@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, StateEvidenceEdge,
@@ -992,6 +994,7 @@ mod tests {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             }],
         );
 
@@ -1303,6 +1306,7 @@ mod tests {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             }],
         );
         let right = snapshot(
@@ -1321,6 +1325,7 @@ mod tests {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             }],
         );
 

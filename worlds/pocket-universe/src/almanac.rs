@@ -8,7 +8,7 @@ use world_core::{EntityId, StateChange, Value, WorldState};
 /// Periods in a year, everywhere.
 pub(crate) const YEAR: u64 = crate::story::SEASON_PERIODS * 4;
 
-const MARS: &[Festival] = &[
+pub(crate) const MARS: &[Festival] = &[
     Festival {
         id: "landing_day",
         name: "Landing Day",
@@ -319,7 +319,7 @@ const MARS: &[Festival] = &[
     },
 ];
 
-const TOWN: &[Festival] = &[
+pub(crate) const TOWN: &[Festival] = &[
     Festival {
         id: "spring_dance",
         name: "the Spring Dance",
@@ -606,7 +606,7 @@ const TOWN: &[Festival] = &[
     },
 ];
 
-const ICE: &[Festival] = &[
+pub(crate) const ICE: &[Festival] = &[
     Festival {
         id: "sun_return",
         name: "the Sun's Return",

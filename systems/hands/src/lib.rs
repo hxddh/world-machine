@@ -14,6 +14,8 @@
 //! decoration comes down after a while. This System knows nothing about
 //! harbours or colonies: a World Pack gives it a [`Kit`].
 
+#![forbid(unsafe_code)]
+
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, Event, EventDraft,
     EventId, StateChange, Value, World, WorldError, WorldState,

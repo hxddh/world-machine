@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use tiny_society::TinySociety;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -6,7 +6,7 @@ use days::festive::{festival_things, Festive};
 use std::sync::OnceLock;
 use world_core::{EntityId, Value, World};
 use world_projection::figure::{ellipse, line, polygon, rect};
-use world_projection::{person_base, short_hair, DrawPart, Drawing, Ink, Stance};
+use world_projection::{person_base, short_hair, DrawPart, Drawing, Ink, Rung, Stance};
 
 const PERSON: &str = "harbour-folk";
 
@@ -15,11 +15,13 @@ pub(crate) fn drawings() -> &'static [Drawing] {
     static DRAWINGS: OnceLock<Vec<Drawing>> = OnceLock::new();
     DRAWINGS.get_or_init(|| {
         let base = person_base(PERSON);
+        // Each place stands its own height beside a resident (the art
+        // bible's ladder): the lighthouse on the point 6 P, the pub 3.3.
         let mut drawings = vec![
-            lighthouse(),
-            bakery(),
-            school(),
-            pub_(),
+            lighthouse().standing(Rung::Tall(6.0)),
+            bakery().standing(Rung::Tall(3.0)),
+            school().standing(Rung::Tall(3.3)),
+            pub_().standing(Rung::Tall(3.3)),
             base.with(PERSON, short_hair()),
         ];
         drawings.extend(festival_things(

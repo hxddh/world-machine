@@ -3540,6 +3540,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                 unavailable: unmet.first().map(|condition| why_not(world, condition)),
                 hand: None,
                 preview: None,
+                role: None,
             })
         })
         .collect()

@@ -16,17 +16,7 @@ pub fn language(settings: Option<&AppSettings>) -> Language {
 
 /// Whether the Mac asks for more contrast.
 pub fn system_increase_contrast() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("/usr/bin/defaults")
-            .args(["read", "com.apple.universalaccess", "increaseContrast"])
-            .output()
-            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
+    crate::platform::current().increase_contrast()
 }
 
 /// Shows the app as the player chose.

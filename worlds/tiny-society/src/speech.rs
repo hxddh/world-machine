@@ -19,7 +19,7 @@ fn text(world: &World, id: EntityId, key: &str) -> Option<String> {
 /// harbour's own lines name it in English and in Chinese: the mainland
 /// over the water, the boats, everyone who lives or will live here, and
 /// the people they remember.
-const ELSEWHERE: &[&str] = &[
+pub(crate) const ELSEWHERE: &[&str] = &[
     "the mainland",
     "大陆",
     "Sea Finch",
@@ -45,10 +45,109 @@ const ELSEWHERE: &[&str] = &[
     "Pike",
 ];
 
+/// Every name the harbour's lines can say, in each language it speaks:
+/// its people and everyone who may come to live here, the people they
+/// remember, its places, boats and days, each in translation.
+pub(crate) const NAMES: &str = include_str!("../lexicon/names.tsv");
+
+/// What the harbour has that is the real world's own: its coins.
+const ERA_HAS: &[&str] = &[
+    "penny",
+    "pennies",
+    "pence",
+    "shilling*",
+    "便士",
+    "先令",
+    "ペニー",
+    "シリング",
+];
+
+/// What the harbour lacks beyond what its time (before television) does:
+/// its era lexicon, in English, Chinese and Japanese.
+const ERA_LACKS: &[&str] = &[
+    "fax",
+    "faxed",
+    "fax machine",
+    "photocopier",
+    "photocopy",
+    "jet",
+    "jets",
+    "jet plane",
+    "jumbo jet",
+    "helicopter*",
+    "motorway",
+    "supermarket*",
+    "washing machine*",
+    "dishwasher*",
+    "freezer*",
+    "transistor*",
+    "tape recorder*",
+    "satellite*",
+    "astronaut*",
+    "nuclear",
+    "plastic bag*",
+    "传真",
+    "复印机",
+    "喷气式",
+    "直升机",
+    "高速公路",
+    "超市",
+    "洗衣机",
+    "洗碗机",
+    "冰柜",
+    "晶体管",
+    "录音机",
+    "卫星",
+    "宇航员",
+    "核电",
+    "塑料袋",
+    "ファックス",
+    "ファクス",
+    "コピー機",
+    "ジェット機",
+    "ヘリコプター",
+    "高速道路",
+    "スーパーマーケット",
+    "洗濯機",
+    "食洗機",
+    "冷凍庫",
+    "トランジスタ",
+    "テープレコーダー",
+    "人工衛星",
+    "宇宙飛行士",
+    "原発",
+    "レジ袋",
+];
+
+/// Every name the harbour knows, read once: [`NAMES`], every name the
+/// harbour's people can have, and each by its other names.
+fn lexicon() -> &'static [String] {
+    static LEXICON: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LEXICON.get_or_init(|| {
+        let people = crate::people_names();
+        conversation::lexicon_of(
+            people
+                .iter()
+                .copied()
+                .chain(ELSEWHERE.iter().copied())
+                .chain(
+                    crate::almanac::FESTIVALS
+                        .iter()
+                        .map(|festival| festival.name),
+                ),
+            aliases,
+            NAMES,
+        )
+    })
+}
+
 pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
     conversation::Kit {
         era: conversation::Era::Radio,
         elsewhere: ELSEWHERE,
+        lexicon,
+        era_has: ERA_HAS,
+        era_lacks: ERA_LACKS,
         period: crate::persistence::WORLD_DAY_TICKS,
         unit: "day",
         settlement: "the harbour",
@@ -81,7 +180,7 @@ pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
 }
 
 /// The other names the harbour's people and places go by.
-fn aliases(name: &str) -> Vec<String> {
+pub(crate) fn aliases(name: &str) -> Vec<String> {
     let names: &[&str] = match name {
         "Jonas" => &["乔纳斯", "ジョナス"],
         "Mara" => &["玛拉", "マーラ", "マラ"],
@@ -105,6 +204,7 @@ fn aliases(name: &str) -> Vec<String> {
         .chain(in_chinese(crate::ZH_HANS, name))
         .chain(in_chinese(crate::JA, name))
         .map(str::to_string)
+        .chain(conversation::forms_in(NAMES, name))
         .collect()
 }
 
@@ -157,8 +257,12 @@ fn place_line(world: &World, who: EntityId, place: EntityId) -> String {
 }
 
 fn need_line(world: &World, who: EntityId) -> (String, Option<String>) {
-    let commands = crate::projection::available_commands(world);
-    crate::talk::request(world, who, &commands)
+    // Worked out once for where the World stands, not once for everyone
+    // asked: the openers ask it of every resident in every snapshot, which
+    // made a three-year turn a quarter slower (H2, v0.28).
+    struct Available(Vec<world_projection::ProjectionCommand>);
+    let commands = world.as_it_stands(|| Available(crate::projection::available_commands(world)));
+    crate::talk::request(world, who, &commands.0)
         .unwrap_or_else(|| ("Nothing, really. Thanks for asking.".into(), None))
 }
 
@@ -189,7 +293,7 @@ pub(crate) fn voice_hearing(
     words: &str,
 ) -> Option<world_projection::VoiceHearing> {
     conversation::hearing_for(world, &kit(world.state()), who, words)
-        .map(|hearing| hearing.to_voice())
+        .map(|hearing| conversation::to_voice(&hearing))
 }
 
 /// How someone the player can talk to stands with them.
@@ -207,6 +311,16 @@ pub(crate) fn say(
     listener: &mut dyn conversation::Listener,
 ) -> Result<ActionRequest, String> {
     conversation::say_with(world, &kit(world.state()), who, words, listener)
+}
+
+/// The open favour's quick reply, chosen with a click: done as offered,
+/// never heard (`conversation::say_offered`).
+pub(crate) fn say_offered(
+    world: &World,
+    who: EntityId,
+    words: &str,
+) -> Result<ActionRequest, String> {
+    conversation::say_offered(world, &kit(world.state()), who, words)
 }
 
 /// Records a favour done, if what the player just said (`spoken`) did it.

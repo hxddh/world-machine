@@ -526,8 +526,8 @@ Photo saved to Pictures	照片已保存到“图片”
 Photo	照片
 Choose who to give a present to.	选择要把礼物送给谁。
 Choose who to invite out.	选择要邀请谁出去。
-Choose where the {} goes now.	选择{}现在放在哪里。
-Choose where the {} goes.	选择{}放在哪里。
+Choose a new spot for the {}.	选择{}现在放在哪里。
+Choose a spot for the {}.	选择{}放在哪里。
 Something else	别的东西
 {thing_name} · {cost}	{thing_name} · {cost}
 Less	更少
@@ -821,3 +821,11 @@ Come back when you can. We'll keep the lamps lit.	有空就回来吧。我们会
 The demo plays Tiny Society. This World opens in the full app.	试玩版只能玩 Tiny Society。这个世界请用完整版打开。
 World Machine Demo	World Machine 试玩版
 On the house, to welcome you.	送你的，欢迎你来。
+Postcard saved to Pictures	明信片已保存到“图片”
+Couldn't save the postcard	没能保存这张明信片
+Keeping the postcard…	正在留下明信片…
+World voice is on: an AI model is writing this answer. The World decides what happens.	世界之声已开启：这句回答由 AI 模型撰写。发生什么由世界决定。
+Written by AI	AI 撰写
+Reported	已举报
+Report this line	举报这句话
+Report	举报

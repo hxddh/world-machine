@@ -1,0 +1,12 @@
+[package]
+name = "world-pi-transport"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# How to talk to a local pi program, and nothing of any World: the
+# AgentRuntime adapter over it is world-pi-rpc.
+[dependencies]
+serde_json = "1"
+world-run = { path = "../world-run" }

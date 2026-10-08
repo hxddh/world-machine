@@ -1661,7 +1661,7 @@ fn actor_node(
             // Backed like the name above it, so it reads over any ground,
             // night-time streets and red dust included.
             node.child(
-                ui::caption(crate::macos::capitalize(detail))
+                ui::caption(crate::window::capitalize(detail))
                     .px_1()
                     .rounded_sm()
                     .bg(ui::color(tokens::SURFACE).opacity(0.72))
@@ -1750,7 +1750,7 @@ fn place_node(
                 .child(ui::row_title(name.to_string()).truncate())
                 .child(match changes.first() {
                     Some(change) => change_chip(change),
-                    None => ui::caption(crate::macos::capitalize(detail)).truncate(),
+                    None => ui::caption(crate::window::capitalize(detail)).truncate(),
                 }),
         )
 }
