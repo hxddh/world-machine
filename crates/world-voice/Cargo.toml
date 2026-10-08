@@ -5,8 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 
+# Asking a model links no World code: no world-core, no System, no
+# projection (scripts/check-boundaries.sh holds this).
 [dependencies]
-conversation = { path = "../../systems/conversation" }
-world-projection = { path = "../world-projection" }
 serde_json = "1"
-world-pi-rpc = { path = "../world-pi-rpc" }
+world-pi-transport = { path = "../world-pi-transport" }
+world-run = { path = "../world-run" }
+world-voice-prompt = { path = "../world-voice-prompt" }

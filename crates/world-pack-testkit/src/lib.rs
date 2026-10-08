@@ -4,7 +4,13 @@
 //! check it (replay-identical fixtures, long runs, five players, the red team
 //! and the seams between Systems) live here, free of any one Pack's concepts.
 
+#![forbid(unsafe_code)]
+
 pub mod density;
+pub mod disagreement;
+pub mod exploit;
+pub mod invariants;
+pub mod lexicon;
 pub mod players;
 pub mod red_team;
 pub mod replay;

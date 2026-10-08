@@ -119,10 +119,24 @@ pub(super) fn paint_harbour_life(
         let pick = painter::hash2(view, 12, seed);
         let x = (view as f32 + 0.18 + (pick % 250) as f32 / 1000.0) * frame.view_w;
         let w = fig * 1.15;
-        if !clear(x, frame.quay_top() + fig * 0.18, w * 0.7, false) || !seen(x, w * z) {
+        // Clear of the things beside it, and of every building standing
+        // as near as it or nearer (a tower out on its spit): a prop
+        // never stands against a building's base.
+        let y = frame.quay_top() + fig * 0.18;
+        let free = x - w * 0.7 > 0.0
+            && x + w * 0.7 < frame.width
+            && taken.iter().all(|(at, band, reach, building)| {
+                (at - x).abs() > reach + w * 0.7
+                    || if *building {
+                        *band < y - fig * 0.7
+                    } else {
+                        (band - y).abs() > fig * 0.7
+                    }
+            });
+        if !free || !seen(x, w * z) {
             continue;
         }
-        let (sx, base) = screen(x, frame.quay_top() + fig * 0.18);
+        let (sx, base) = screen(x, y);
         let w = w * z;
         let wood = art::hex(0x8a6446);
         tinted.soft(sx, base, w * 0.55, w * 0.07, w * 0.06, contact);
@@ -256,7 +270,15 @@ fn taken(frame: &Frame) -> Vec<Taken> {
     frame
         .buildings
         .iter()
-        .map(|building| (building.x, building.base, building.w / 2.0 + room, true))
+        .map(|building| {
+            // A tower's spit of rock reaches out either side of it.
+            let half = if building.shape == MarkShape::Tower {
+                building.w
+            } else {
+                building.w / 2.0
+            };
+            (building.x, building.base, half + room, true)
+        })
         .chain(
             frame
                 .things

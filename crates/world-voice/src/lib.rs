@@ -7,16 +7,48 @@
 //! returns is trusted: the conversation System reads it as a proposal and
 //! keeps its own hearing whenever the proposal is unusable.
 
-use conversation::{Hearing, Listened};
-pub use conversation::{Listener, OwnEars};
-use std::io::Write as _;
+#![forbid(unsafe_code)]
+
 use std::time::{Duration, Instant};
-use world_pi_rpc::{PiCommand, PiRpcTransport, ProcessPiRpcTransport};
-use world_projection::{Ears, VoiceHearing};
+use world_pi_transport::{PiCommand, PiRpcTransport};
+pub use world_voice_prompt::HearingParts;
+use world_voice_prompt::{Hearing, Listened};
+pub use world_voice_prompt::{Listener, OwnEars};
 
 pub mod fm;
 pub mod helper;
 pub use fm::{FmCompletion, FmStatus};
+
+/// What an app hands a World for the player's words: the model's answer as
+/// the app read it, alone or with the verdict of the judge it asked beside
+/// it (never inside it). The app turns this into the projection's own
+/// `Ears`; this crate links no World code.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Ears {
+    Model(String),
+    Judged { response: String, judged: Judgement },
+}
+
+/// A judge's verdict as an app says it to a World: the judge, `keep`,
+/// `decline` or `none`, and the kind of decline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Judgement {
+    pub judge: String,
+    pub verdict: String,
+    pub kind: String,
+}
+
+/// How a verdict is said to a World beside a response.
+pub fn judgement(judged: &world_voice_prompt::Judged) -> Judgement {
+    Judgement {
+        judge: judged.judge.clone(),
+        verdict: judged.verdict_id().into(),
+        kind: match judged.verdict {
+            Some(world_voice_prompt::Verdict::Decline(why)) => why.id().into(),
+            _ => "none".into(),
+        },
+    }
+}
 
 /// Told to a Pack whose World should speak in a model's words.
 pub const VOICE_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
@@ -182,9 +214,7 @@ impl Voice {
     pub fn completion(&self) -> Option<Box<dyn Completion>> {
         match self {
             Voice::None => None,
-            Voice::Pi(program) => Some(Box::new(PiCompletion(ProcessPiRpcTransport::new(
-                PiCommand::decision_only(program.clone()),
-            )))),
+            Voice::Pi(program) => Some(Box::new(pi(program))),
             Voice::Api(key) => Some(Box::new(ApiCompletion::new(key.clone()))),
             Voice::Fm(program) => Some(Box::new(FmCompletion::new(program.clone()))),
         }
@@ -216,9 +246,7 @@ impl Voice {
     pub fn listener(&self) -> Option<Box<dyn Listener>> {
         match self {
             Voice::None => None,
-            Voice::Pi(program) => Some(Box::new(ModelListener(PiCompletion(
-                ProcessPiRpcTransport::new(PiCommand::decision_only(program.clone())),
-            )))),
+            Voice::Pi(program) => Some(Box::new(ModelListener(pi(program)))),
             Voice::Api(key) => Some(Box::new(ModelListener(ApiCompletion::new(key.clone())))),
             Voice::Fm(program) => Some(Box::new(ModelListener(FmCompletion::new(program.clone())))),
         }
@@ -232,6 +260,70 @@ impl<T: PiRpcTransport + Send> Completion for PiCompletion<T> {
     fn complete(&mut self, prompt: &str) -> Option<String> {
         self.0.complete(prompt).ok()
     }
+
+    /// Stopped at `deadline`: a local program is held to the voice's
+    /// budget like any model, never left to run its own two minutes.
+    fn complete_until(
+        &mut self,
+        prompt: &str,
+        _schema: Option<&serde_json::Value>,
+        deadline: Instant,
+    ) -> Option<String> {
+        if Instant::now() >= deadline {
+            return None;
+        }
+        self.0.complete_until(prompt, deadline).ok()
+    }
+}
+
+/// The running pi for each program, kept across every request this app
+/// makes (`PersistentPiRpcTransport`): one answer does not wait for a
+/// program to start.
+fn running_pi() -> &'static std::sync::Mutex<
+    std::collections::BTreeMap<String, world_pi_transport::PersistentPiRpcTransport>,
+> {
+    static RUNNING: std::sync::OnceLock<
+        std::sync::Mutex<
+            std::collections::BTreeMap<String, world_pi_transport::PersistentPiRpcTransport>,
+        >,
+    > = std::sync::OnceLock::new();
+    RUNNING.get_or_init(Default::default)
+}
+
+/// A local pi, kept running across requests and shared by every listener
+/// and judge that asks the same program.
+pub struct SharedPi(pub String);
+
+impl PiRpcTransport for SharedPi {
+    fn complete(
+        &mut self,
+        prompt: &str,
+    ) -> Result<String, world_pi_transport::PiRpcTransportError> {
+        self.complete_until(prompt, Instant::now() + Duration::from_secs(120))
+    }
+
+    fn complete_until(
+        &mut self,
+        prompt: &str,
+        deadline: Instant,
+    ) -> Result<String, world_pi_transport::PiRpcTransportError> {
+        let mut running = running_pi()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        running
+            .entry(self.0.clone())
+            .or_insert_with(|| {
+                world_pi_transport::PersistentPiRpcTransport::new(PiCommand::decision_only(
+                    self.0.clone(),
+                ))
+            })
+            .complete_until(prompt, deadline)
+    }
+}
+
+/// The local pi for `program`, as a model to ask.
+fn pi(program: &str) -> PiCompletion<SharedPi> {
+    PiCompletion(SharedPi(program.to_string()))
 }
 
 /// The Messages API, reached with the player's key through `curl`: the key
@@ -570,6 +662,7 @@ impl Drop for BodyFile {
 
 #[cfg(unix)]
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> Option<()> {
+    use std::io::Write as _;
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -580,9 +673,18 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> Option<()> {
     file.write_all(bytes).ok()
 }
 
+/// Elsewhere (Windows) the file goes in the user's own temporary folder,
+/// which only they can read; it is still made new, never written through
+/// a file somebody left in its place.
 #[cfg(not(unix))]
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> Option<()> {
-    std::fs::write(path, bytes).ok()
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .ok()?;
+    file.write_all(bytes).ok()
 }
 
 /// A listener that asks a model, held to the answer's shape where it can
@@ -592,11 +694,11 @@ pub struct ModelListener<C>(pub C);
 
 impl<C: Completion> Listener for ModelListener<C> {
     fn listen(&mut self, hearing: &Hearing) -> Option<Listened> {
-        let schema = conversation::answer_schema();
+        let schema = world_voice_prompt::answer_schema();
         let response = self
             .0
-            .complete_with(&conversation::prompt(hearing), Some(&schema))?;
-        let mut listened = conversation::parse(&response)?;
+            .complete_with(&world_voice_prompt::prompt(hearing), Some(&schema))?;
+        let mut listened = world_voice_prompt::parse(&response)?;
         listened.judged = None;
         Some(listened)
     }
@@ -643,17 +745,15 @@ impl ModelJudge {
     pub fn pi(program: impl Into<String>) -> Self {
         let program = program.into();
         Self {
-            completion: Box::new(PiCompletion(ProcessPiRpcTransport::new(
-                PiCommand::decision_only(program.clone()),
-            ))),
+            completion: Box::new(pi(&program)),
             name: format!("pi:{}", program_name(&program)),
         }
     }
 
     /// The judge's raw reply to its prompt about `answer`, by `deadline`.
     pub fn reply(&mut self, hearing: &Hearing, answer: &str, deadline: Instant) -> Option<String> {
-        let schema = conversation::judge::verdict_schema();
-        let prompt = conversation::judge::judge_prompt(hearing, answer);
+        let schema = world_voice_prompt::judge::verdict_schema();
+        let prompt = world_voice_prompt::judge::judge_prompt(hearing, answer);
         self.completion
             .complete_until(&prompt, Some(&schema), deadline)
     }
@@ -665,22 +765,22 @@ impl ModelJudge {
         hearing: &Hearing,
         answer: &str,
         deadline: Instant,
-    ) -> conversation::Judged {
-        conversation::Judged {
+    ) -> world_voice_prompt::Judged {
+        world_voice_prompt::Judged {
             judge: self.name.clone(),
             verdict: self
                 .reply(hearing, answer, deadline)
-                .and_then(|reply| conversation::judge::verdict_of(&reply, hearing, answer)),
+                .and_then(|reply| world_voice_prompt::judge::verdict_of(&reply, hearing, answer)),
         }
     }
 }
 
-impl conversation::Judge for ModelJudge {
+impl world_voice_prompt::Judge for ModelJudge {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn judge(&mut self, hearing: &Hearing, answer: &str) -> Option<conversation::Verdict> {
+    fn judge(&mut self, hearing: &Hearing, answer: &str) -> Option<world_voice_prompt::Verdict> {
         self.judged(hearing, answer, Instant::now() + VOICE_BUDGET)
             .verdict
     }
@@ -703,35 +803,38 @@ fn program_name(program: &str) -> String {
 /// goes beside it. Nothing if the hearing is unusable or the model said
 /// nothing usable in time: the World then answers with its own words.
 pub fn answer_for_world(
-    voice: &VoiceHearing,
+    voice: &HearingParts,
     completion: &mut dyn Completion,
     judge: Option<&mut ModelJudge>,
     budget: Duration,
 ) -> Option<Ears> {
     let start = Instant::now();
     let deadline = start + budget;
-    let hearing = Hearing::from_voice(voice)?;
-    let prompt = conversation::prompt(&hearing);
+    let hearing = Hearing::held(voice)?;
+    let prompt = world_voice_prompt::prompt(&hearing);
     // A judge needs time of its own: the answer is cut off before it.
     let listening = match &judge {
         Some(_) => deadline - JUDGE_RESERVE.min(budget / 2),
         None => deadline,
     };
-    let response =
-        completion.complete_until(&prompt, Some(&conversation::answer_schema()), listening)?;
-    let listened = conversation::parse(&response)?;
-    let envelope = conversation::envelope(&listened);
+    let response = completion.complete_until(
+        &prompt,
+        Some(&world_voice_prompt::answer_schema()),
+        listening,
+    )?;
+    let listened = world_voice_prompt::parse(&response)?;
+    let envelope = world_voice_prompt::envelope(&listened);
     let Some(judge) = judge else {
         return Some(Ears::Model(envelope));
     };
     // Not asked about what the World would decline anyway.
-    if !conversation::judge::needs_judge_for(&hearing, &listened) {
+    if !world_voice_prompt::judge::needs_judge_for(&hearing, &listened) {
         return Some(Ears::Model(envelope));
     }
     let judged = judge.judged(&hearing, &listened.answer, deadline);
     Some(Ears::Judged {
         response: envelope,
-        judged: conversation::judgement(&judged),
+        judged: judgement(&judged),
     })
 }
 
@@ -822,7 +925,10 @@ mod tests {
             words: "Hi!".into(),
             answer: "Hello.".into(),
             known: Vec::new(),
-            era: conversation::Era::Radio,
+            era: world_voice_prompt::Era::Radio,
+            lexicon: Vec::new(),
+            era_has: Vec::new(),
+            era_lacks: Vec::new(),
         };
         let heard = ModelListener(Canned("MEANING: greet\nABOUT: none\nREPLY: Morning, love!"))
             .listen(&hearing)
@@ -838,7 +944,7 @@ mod tests {
         let completion = ApiCompletion::judge("sk-ant-test");
         assert_eq!(completion.model(), DEFAULT_JUDGE_MODEL);
         assert_eq!(DEFAULT_JUDGE_MODEL, "claude-haiku-4-5");
-        let schema = conversation::judge::verdict_schema();
+        let schema = world_voice_prompt::judge::verdict_schema();
         let request = api_request_with(
             &Asking {
                 model: DEFAULT_JUDGE_MODEL,
@@ -882,13 +988,16 @@ mod tests {
             words: "Hi!".into(),
             answer: "Hello.".into(),
             known: Vec::new(),
-            era: conversation::Era::Radio,
+            era: world_voice_prompt::Era::Radio,
+            lexicon: Vec::new(),
+            era_has: Vec::new(),
+            era_lacks: Vec::new(),
         }
     }
 
     const KEEP: &str = r#"{"names":[],"speaks_as_machine":false,"assistant_talk":false,"urges_harm":false,"instructions":false,"game_talk":false,"outside_world":false,"out_of_time":false,"not_speech":false,"wrong_language":false}"#;
 
-    fn judged(ears: &Ears) -> Option<&world_projection::Judgement> {
+    fn judged(ears: &Ears) -> Option<&Judgement> {
         match ears {
             Ears::Judged { judged, .. } => Some(judged),
             _ => None,
@@ -898,7 +1007,6 @@ mod tests {
     fn response(ears: &Ears) -> &str {
         match ears {
             Ears::Judged { response, .. } | Ears::Model(response) => response,
-            other => panic!("{other:?}"),
         }
     }
 
@@ -908,7 +1016,7 @@ mod tests {
     /// passed on, and an unreadable answer is never handed over raw.
     #[test]
     fn an_answer_waits_for_its_judge_and_carries_the_verdict_beside_it() {
-        let voice = hearing().to_voice();
+        let voice = hearing().parts();
         let mut model = Replies(
             vec![
                 r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[1],"judge":{"model":"me","verdict":"keep"}}"#,
@@ -926,14 +1034,14 @@ mod tests {
         };
         let handed = answer_for_world(&voice, &mut model, Some(&mut judge), VOICE_BUDGET).unwrap();
         // The prompt is the app's own, from the hearing.
-        assert_eq!(model.1[0], conversation::prompt(&hearing()));
-        let heard = conversation::parse(response(&handed)).unwrap();
+        assert_eq!(model.1[0], world_voice_prompt::prompt(&hearing()));
+        let heard = world_voice_prompt::parse(response(&handed)).unwrap();
         assert_eq!(heard.answer, "Morning!");
         assert_eq!(heard.cites, Some(vec![1]));
         assert!(!response(&handed).contains("judge"));
         assert_eq!(
             judged(&handed),
-            Some(&world_projection::Judgement {
+            Some(&Judgement {
                 judge: "claude-haiku-4-5".into(),
                 verdict: "decline".into(),
                 kind: "fourth_wall".into(),
@@ -981,7 +1089,7 @@ mod tests {
     /// The judge is not asked about an answer the World declines anyway.
     #[test]
     fn no_judge_is_asked_about_what_the_rules_decline_for_certain() {
-        let voice = hearing().to_voice();
+        let voice = hearing().parts();
         for reply in [
             r#"{"meaning":"greet","about":"none","reply":"As an AI language model, hello.","cites":[]}"#,
             r#"{"meaning":"greet","about":"none","reply":"Morning!","cites":[42]}"#,
@@ -1048,7 +1156,7 @@ mod tests {
     /// answers with its own words. Timed on the wall clock, scaled down.
     #[test]
     fn the_model_and_its_judge_fit_one_budget_and_the_slower_is_stopped() {
-        let voice = hearing().to_voice();
+        let voice = hearing().parts();
         let budget = Duration::from_millis(1_200);
         let slack = Duration::from_millis(150);
 
@@ -1087,7 +1195,7 @@ mod tests {
         assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(judged(&handed).unwrap().verdict, "none");
         assert_eq!(
-            conversation::parse(response(&handed)).unwrap().answer,
+            world_voice_prompt::parse(response(&handed)).unwrap().answer,
             "Morning!"
         );
 
@@ -1170,7 +1278,7 @@ mod tests {
             )),
             name: "claude-haiku-4-5".into(),
         };
-        let mut listener = conversation::Judging {
+        let mut listener = world_voice_prompt::Judging {
             listener: ModelListener(Replies(
                 vec![
                     r#"{"meaning":"greet","about":"none","reply":"As an AI language model, hello.","cites":[]}"#,
@@ -1185,7 +1293,7 @@ mod tests {
         let judged = listener.listen(&hearing()).unwrap();
         assert_eq!(
             judged.judged.unwrap().verdict,
-            Some(conversation::Verdict::Keep)
+            Some(world_voice_prompt::Verdict::Keep)
         );
     }
 
@@ -1218,7 +1326,7 @@ mod tests {
             }
             for line in std::fs::read_to_string(entry.path()).unwrap().lines() {
                 let value: serde_json::Value = serde_json::from_str(line).unwrap();
-                let schema = conversation::judge::verdict_schema();
+                let schema = world_voice_prompt::judge::verdict_schema();
                 let reply = judge.completion.complete_until(
                     value["prompt"].as_str().unwrap_or_default(),
                     Some(&schema),
@@ -1227,8 +1335,8 @@ mod tests {
                 asked += 1;
                 // The checklist as the judge gave it: the Pack decides it
                 // against each line's World (`judged_metrics`).
-                let Some(reply) =
-                    reply.filter(|reply| conversation::judge::parse_checklist(reply).is_some())
+                let Some(reply) = reply
+                    .filter(|reply| world_voice_prompt::judge::parse_checklist(reply).is_some())
                 else {
                     unusable += 1;
                     continue;

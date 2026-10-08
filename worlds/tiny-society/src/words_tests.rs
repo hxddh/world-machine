@@ -23,7 +23,9 @@ impl TinySocietyBranch {
 
 /// Plays `player` for `days` days, watching every word.
 pub(crate) fn words_of(player: Player, days: usize) -> Words {
-    let mut words = Words::new(format!("{player:?}"), crate::first_minutes::UNKIND);
+    let mut words = Words::new(format!("{player:?}"), crate::first_minutes::UNKIND)
+        .filler(&crate::handwork::filler())
+        .filler(&["{said} Just like last year."]);
     let branch = TinySocietyBranch::new_world().unwrap();
     players::play_watched(
         format!("{player:?}"),

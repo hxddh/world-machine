@@ -7,3 +7,4 @@ publish = false
 
 [dependencies]
 world-core = { path = "../world-core" }
+world-art = { path = "../world-art" }

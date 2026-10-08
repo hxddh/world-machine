@@ -17,7 +17,9 @@ use world_pack_testkit::words::Words;
 /// every word.
 pub(crate) fn words_of(place: &str, seed: &str, player: Player, days: usize) -> Words {
     let label = format!("{place} {player:?}");
-    let mut words = Words::new(label.clone(), crate::first_minutes::UNKIND);
+    let mut words = Words::new(label.clone(), crate::first_minutes::UNKIND)
+        .filler(&crate::handwork::filler())
+        .filler(&["{said} Just like last year."]);
     let mut universe = PocketUniverse::new().unwrap();
     universe.invoke_projection_command(seed).unwrap();
     players::play_watched(

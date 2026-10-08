@@ -25,7 +25,7 @@ pub fn enabled() -> bool {
 /// closes the output.
 pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Relaxed);
-    #[cfg(target_os = "macos")]
+    #[cfg(gui)]
     if !on {
         player::stop();
     }
@@ -103,7 +103,7 @@ pub fn level(channel: Channel) -> u8 {
 /// Record the player's level for a channel; what plays follows at once.
 pub fn set_level(channel: Channel, percent: u8) {
     LEVELS[slot(channel)].store(percent.min(100), Ordering::Relaxed);
-    #[cfg(target_os = "macos")]
+    #[cfg(gui)]
     player::levels_changed();
 }
 
@@ -186,7 +186,7 @@ pub fn scene(
 }
 
 /// A World's weather as its sound hears it.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub fn sky(weather: world_projection::Weather) -> Sky {
     match weather {
         world_projection::Weather::Clear => Sky::Clear,
@@ -247,7 +247,7 @@ pub fn letter_came(before: Tally, after: Tally) -> bool {
     after.letters > before.letters
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub mod player {
     //! One output stream for the whole app, opened the first time sound is
     //! wanted and closed when the player turns sound off. The window's

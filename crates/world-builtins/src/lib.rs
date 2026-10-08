@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use world_host::{HostError, WorldPackSource, WorldRegistration, WorldRegistry};
 
 pub struct BuiltinWorlds;

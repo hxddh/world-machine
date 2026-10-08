@@ -1,26 +1,28 @@
-#[cfg(target_os = "macos")]
+#![forbid(unsafe_code)]
+
+#[cfg(gui)]
 mod about;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod build_info;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod diagnostics;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod included_packs;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod observer;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod saving;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod settings;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod sharing;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod strip_window;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod system_open;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 mod updates;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 /// A light-palette colour adapted to the current appearance.
 pub(crate) fn theme_rgb(hex: u32) -> gpui::Rgba {
     gpui::rgb(world_theme::adapt(hex))
@@ -28,234 +30,101 @@ pub(crate) fn theme_rgb(hex: u32) -> gpui::Rgba {
 
 /// Re-renders every window when the system switches between light and dark;
 /// each window root then records the new appearance before it draws.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub(crate) fn watch_appearance(window: &mut Window) {
     window
         .observe_window_appearance(|_, cx| cx.refresh_windows())
         .detach();
 }
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
+mod library_setup;
+#[cfg(gui)]
+mod window_geometry;
+#[cfg(gui)]
+mod world_files;
+#[cfg(gui)]
 mod world_voice;
+#[cfg(gui)]
+use library_setup::*;
+#[cfg(gui)]
+use window_geometry::*;
+#[cfg(gui)]
+use world_files::*;
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use gpui::{
     div, point, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, Global,
     IntoElement, PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds,
     WindowOptions,
 };
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::cell::RefCell;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::env;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::process;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::rc::Rc;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_gpui::text_input::{self as text_field, TextInput};
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_gpui::ui;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_library::{
     DurableWorldSession, LibraryError, UnreadableWorldFile, WorldDocumentId, WorldDocumentSummary,
     WorldLibrary, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_machine_desktop::ambience;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_machine_desktop::demo;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_machine_desktop::window_state::{self, StoredWindowBounds};
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_pack_bundle::PACK_BUNDLE_SUFFIX;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_pack_catalog::{
     InstalledPack, PackAvailability, PackCatalog, PackInstallPreview, PackRefresh,
 };
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_persistence::WorldPackRef;
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 use world_theme::tokens;
 
-#[cfg(target_os = "macos")]
-const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
-#[cfg(target_os = "macos")]
-const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
-/// 200 ms ticks between writes of changed window geometry.
-#[cfg(target_os = "macos")]
-const WINDOW_GEOMETRY_FLUSH_TICKS: u32 = 5;
-
-/// Which window a remembered rectangle belongs to. World windows share one
-/// entry: reopening a World puts it where the last World window was, which is
-/// what "the app opens where I left it" means with several Worlds open.
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RememberedWindow {
-    Home,
-    World,
-}
-
-/// The latest geometry each window has reported, and what is already on disk.
-/// Windows report while they render; the Home background loop writes the
-/// difference a few times a second, so dragging a window is not a stream of
-/// file writes.
-#[cfg(target_os = "macos")]
-struct WindowGeometry {
-    home: Option<StoredWindowBounds>,
-    world: Option<StoredWindowBounds>,
-    saved_home: Option<StoredWindowBounds>,
-    saved_world: Option<StoredWindowBounds>,
-}
-
-#[cfg(target_os = "macos")]
-static WINDOW_GEOMETRY: Mutex<WindowGeometry> = Mutex::new(WindowGeometry {
-    home: None,
-    world: None,
-    saved_home: None,
-    saved_world: None,
-});
-
-#[cfg(target_os = "macos")]
-fn stored_bounds(bounds: Bounds<gpui::Pixels>) -> StoredWindowBounds {
-    StoredWindowBounds::new(
-        f32::from(bounds.origin.x),
-        f32::from(bounds.origin.y),
-        f32::from(bounds.size.width),
-        f32::from(bounds.size.height),
-    )
-}
-
-#[cfg(target_os = "macos")]
-fn restored_bounds(stored: StoredWindowBounds) -> Bounds<gpui::Pixels> {
-    Bounds::new(
-        point(px(stored.x), px(stored.y)),
-        size(px(stored.width), px(stored.height)),
-    )
-}
-
-/// The displays a window could be reopened onto right now.
-#[cfg(target_os = "macos")]
-fn display_bounds(cx: &App) -> Vec<StoredWindowBounds> {
-    cx.displays()
-        .into_iter()
-        .map(|display| stored_bounds(display.bounds()))
-        .collect()
-}
-
-/// Note where a window is now. Only an ordinary windowed rectangle is worth
-/// remembering: a maximized or full-screen window should not reopen at the
-/// size of somebody's screen.
-#[cfg(target_os = "macos")]
-fn remember_window_geometry(window: &Window, which: RememberedWindow) {
-    let WindowBounds::Windowed(bounds) = window.window_bounds() else {
-        return;
-    };
-    let stored = stored_bounds(bounds);
-    if !stored.is_plausible() {
-        return;
-    }
-    let Ok(mut geometry) = WINDOW_GEOMETRY.lock() else {
-        return;
-    };
-    match which {
-        RememberedWindow::Home => geometry.home = Some(stored),
-        RememberedWindow::World => geometry.world = Some(stored),
-    }
-}
-
-/// Where a window should open, or `None` for its default place.
-#[cfg(target_os = "macos")]
-fn remembered_window_bounds(which: RememberedWindow, cx: &App) -> Option<Bounds<gpui::Pixels>> {
-    let geometry = WINDOW_GEOMETRY.lock().ok()?;
-    let stored = match which {
-        RememberedWindow::Home => geometry.home,
-        RememberedWindow::World => geometry.world,
-    };
-    drop(geometry);
-    StoredWindowBounds::restorable(stored, &display_bounds(cx)).map(restored_bounds)
-}
-
-/// Write any geometry that changed since the last write. Cheap and silent when
-/// nothing moved, which is the common case.
-#[cfg(target_os = "macos")]
-fn flush_window_geometry() {
-    let Ok(geometry) = WINDOW_GEOMETRY.lock() else {
-        return;
-    };
-    if geometry.home == geometry.saved_home && geometry.world == geometry.saved_world {
-        return;
-    }
-    let (home, world) = (geometry.home, geometry.world);
-    drop(geometry);
-
-    let Ok(root) = world_machine_desktop::app_settings::application_support_root() else {
-        return;
-    };
-    let mut state = window_state::load(&root);
-    state.home = home.or(state.home);
-    state.world = world.or(state.world);
-    match window_state::save(&root, &state) {
-        Ok(()) => {
-            if let Ok(mut geometry) = WINDOW_GEOMETRY.lock() {
-                geometry.saved_home = home;
-                geometry.saved_world = world;
-            }
-        }
-        // Where the windows were is a convenience; failing to record it is a
-        // line in the log, never something in front of somebody.
-        Err(error) => diagnostics::error(format!("could not record window positions: {error}")),
-    }
-}
-
-/// Seed the remembered geometry from disk at launch.
-#[cfg(target_os = "macos")]
-fn load_window_geometry() {
-    let Ok(root) = world_machine_desktop::app_settings::application_support_root() else {
-        return;
-    };
-    let state = window_state::load(&root);
-    if let Ok(mut geometry) = WINDOW_GEOMETRY.lock() {
-        geometry.home = state.home;
-        geometry.world = state.world;
-        geometry.saved_home = state.home;
-        geometry.saved_world = state.world;
-    }
-}
-
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 static LIBRARY_CHANGE_REVISION: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub(crate) fn mark_library_changed() {
     LIBRARY_CHANGE_REVISION.fetch_add(1, Ordering::Relaxed);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn library_change_revision() -> u64 {
     // A World's file written away from its turn changes the library too.
     LIBRARY_CHANGE_REVISION.load(Ordering::Relaxed) + world_library::files_written()
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct SharedDocumentState {
     session: DurableWorldSession,
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 type SharedDocument = Rc<RefCell<SharedDocumentState>>;
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct HostProjectionController {
     document: SharedDocument,
     /// What the World held when last seen, for the sound to hear a letter
@@ -266,7 +135,7 @@ struct HostProjectionController {
     demo_ending: Rc<std::cell::Cell<bool>>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl HostProjectionController {
     fn new(document: SharedDocument, demo_ending: Rc<std::cell::Cell<bool>>) -> Self {
         Self {
@@ -280,29 +149,31 @@ impl HostProjectionController {
 /// What the demo does with `intent` in this World: the day after its last
 /// is answered with the farewell instead, and a World of a Pack it does
 /// not offer is not played at all (see `demo::gate`, which fails closed).
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn demo_holds(session: &DurableWorldSession, intent: &world_gpui::ProjectionIntent) -> demo::Gate {
     if !demo::ENABLED {
         return demo::Gate::Open;
     }
     let pack = &session.pack().id;
-    let command = match intent {
-        world_gpui::ProjectionIntent::InvokeCommand(command) => command.as_str(),
+    let snapshot = session.snapshot();
+    let passes_time = match intent {
+        world_gpui::ProjectionIntent::InvokeCommand(command) => {
+            demo::passes_time(&snapshot, command)
+        }
         // Choosing, branching or talking moves no time, but a World the
         // demo does not offer is not played at all.
-        _ if !demo::offers_pack(pack) => "",
+        _ if !demo::offers_pack(pack) => false,
         _ => return demo::Gate::Open,
     };
-    let snapshot = session.snapshot();
     let day = snapshot
         .calendar
         .as_ref()
         .map(|calendar| demo::day_of(snapshot.world_time, calendar.length));
-    demo::gate(pack, day, command)
+    demo::gate(pack, day, passes_time)
 }
 
 /// What a World shows that its sound listens for.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn tally(snapshot: &world_gpui::ProjectionSnapshot) -> ambience::Tally {
     ambience::Tally {
         built: snapshot.canvas.marks.len(),
@@ -311,7 +182,7 @@ fn tally(snapshot: &world_gpui::ProjectionSnapshot) -> ambience::Tally {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl world_gpui::ProjectionController for HostProjectionController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
         let snapshot = world_gpui::i18n::localize(self.document.borrow().session.snapshot());
@@ -394,21 +265,21 @@ impl world_gpui::ProjectionController for HostProjectionController {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DocumentStatusTone {
     Success,
     Error,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct DocumentStatus {
     message: String,
     tone: DocumentStatusTone,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl DocumentStatus {
     fn success(message: impl Into<String>) -> Self {
         Self {
@@ -427,7 +298,7 @@ impl DocumentStatus {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct WorldDocumentView {
     /// The durable identity of the World's file. Stays visible so a World can
     /// always be matched to the file it lives in.
@@ -453,7 +324,7 @@ struct WorldDocumentView {
 
 /// A World's own view in its window: the scene with no title bar of its
 /// own (the window has one), and a handle that shows it as a strip.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionView {
     world_gpui::ProjectionView::controlled(controller)
         .without_header()
@@ -462,7 +333,7 @@ fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionVie
 
 /// `view`'s window asks it before closing (see
 /// [`WorldDocumentView::ready_to_close`]).
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub(crate) fn ask_before_closing(
     view: Entity<WorldDocumentView>,
     window: &mut Window,
@@ -480,13 +351,13 @@ pub(crate) fn ask_before_closing(
 /// The World `id` as it is open in this app (in a window or a strip), if it
 /// is: Home renames, exports and removes an open World through its session,
 /// never behind its back.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn open_world_document(cx: &App, id: &WorldDocumentId) -> Option<SharedDocument> {
     open_world_where(cx, |session| session.document_id() == Some(id))
 }
 
 /// The open World whose session `is` says it is the one.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn open_world_where(cx: &App, is: impl Fn(&DurableWorldSession) -> bool) -> Option<SharedDocument> {
     let in_windows = cx.windows().into_iter().filter_map(|window| {
         let view = window.downcast::<WorldDocumentView>()?;
@@ -502,7 +373,7 @@ fn open_world_where(cx: &App, is: impl Fn(&DurableWorldSession) -> bool) -> Opti
 }
 
 /// Redraws every window onto `document` with its name as it is now.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn refresh_world_windows(document: &SharedDocument, cx: &mut App) {
     for window in cx.windows() {
         let Some(view) = window.downcast::<WorldDocumentView>() else {
@@ -518,14 +389,14 @@ fn refresh_world_windows(document: &SharedDocument, cx: &mut App) {
 }
 
 /// Brings the window of the World `id` to the front, if it is open in one.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn focus_open_world(cx: &mut App, id: &WorldDocumentId) -> bool {
     let document = open_world_document(cx, id);
     focus_world(cx, document)
 }
 
 /// Brings the window of `document` to the front; `false` if there is none.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn focus_world(cx: &mut App, document: Option<SharedDocument>) -> bool {
     let Some(document) = document else {
         return false;
@@ -548,7 +419,7 @@ fn focus_world(cx: &mut App, document: Option<SharedDocument>) -> bool {
 
 /// Every World open in this app, each once: its name, and why its latest
 /// turns could not be written, for those that could not.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn unsaved_worlds(cx: &App) -> Vec<(String, String)> {
     let mut seen: Vec<SharedDocument> = Vec::new();
     let in_windows = cx.windows().into_iter().filter_map(|window| {
@@ -582,7 +453,7 @@ fn unsaved_worlds(cx: &App) -> Vec<(String, String)> {
 /// Quits once every open World's latest turns are written; if some cannot
 /// be, asks first, and keeps the app running unless told to quit anyway
 /// (v0.26 only logged them, and quit).
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 pub(crate) fn quit_after_saving(cx: &mut App) {
     let failures = unsaved_worlds(cx);
     if failures.is_empty() {
@@ -617,7 +488,7 @@ pub(crate) fn quit_after_saving(cx: &mut App) {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl WorldDocumentView {
     fn new(
         session: DurableWorldSession,
@@ -915,10 +786,13 @@ impl WorldDocumentView {
         self.projection.update(cx, |view, cx| {
             let snapshot = view.snapshot().clone();
             let goodbye = demo::goodbye_from(&snapshot).map(|who| (who, demo::GOODBYE.to_string()));
+            // The recap in the World's own words, which the farewell shows
+            // in the player's language.
+            let recorded = self.document.borrow().session.snapshot();
             view.show_farewell(world_gpui::Farewell {
                 title: demo::ENDING_TITLE.into(),
                 recap_title: demo::RECAP_TITLE.into(),
-                recap: demo::recap(&snapshot),
+                recap: demo::recap(&recorded),
                 goodbye,
                 body: demo::ENDING_BODY.into(),
                 kept: demo::ENDING_KEPT.into(),
@@ -933,12 +807,12 @@ impl WorldDocumentView {
 }
 
 /// What "About the full app" does from the demo's farewell.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn about_the_full_app() -> world_gpui::FarewellAction {
     std::rc::Rc::new(|_: &mut Window, cx: &mut gpui::App| cx.open_url(demo::FULL_APP_URL))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         world_theme::set_dark(matches!(
@@ -999,9 +873,11 @@ impl Render for WorldDocumentView {
                     .unwrap_or_else(|| "day".into()),
             )
         };
+        // Nor while the demo's farewell shows: there is no next day there.
+        let farewell = self.projection.read(cx).farewell_shown();
         let keeps_going = self
             .next_move_at
-            .filter(|_| moves_alone)
+            .filter(|_| moves_alone && !farewell)
             .zip(unix_now())
             .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit));
         // The World is called by its name, and only by its name; which file
@@ -1136,7 +1012,7 @@ impl Render for WorldDocumentView {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HomeStatusTone {
     Info,
@@ -1144,14 +1020,14 @@ enum HomeStatusTone {
     Error,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct HomeStatus {
     message: String,
     tone: HomeStatusTone,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl HomeStatus {
     fn info(message: impl Into<String>) -> Self {
         Self {
@@ -1177,7 +1053,7 @@ impl HomeStatus {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct WorldMachineHome {
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
@@ -1217,13 +1093,13 @@ struct WorldMachineHome {
 
 /// A World name being typed on Home. Only one World is renamed at a time, so
 /// the field lives here rather than one per card.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct RenameDraft {
     document: WorldDocumentId,
     input: Entity<TextInput>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl WorldMachineHome {
     fn start_system_open_listener(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
@@ -3371,7 +3247,7 @@ impl WorldMachineHome {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl Render for WorldMachineHome {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         world_theme::set_dark(matches!(
@@ -3779,7 +3655,7 @@ impl Render for WorldMachineHome {
 }
 
 /// How My Worlds is ordered.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WorldSort {
     /// The Library's own order: most recently played first.
@@ -3788,7 +3664,7 @@ enum WorldSort {
     Name,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl WorldSort {
     fn label(self) -> &'static str {
         match self {
@@ -3800,17 +3676,17 @@ impl WorldSort {
 
 /// Beyond this many Worlds the list needs finding and ordering; below it the
 /// controls would be clutter on a screen that shows every World at once.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 const WORLD_SEARCH_THRESHOLD: usize = 10;
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn normalize_world_search(query: &str) -> String {
     query.trim().to_lowercase()
 }
 
 /// A World matches what was typed when the text appears in something the card
 /// itself shows: its name, its World Pack's title, or its file identity.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_matches_search(title: &str, pack_title: &str, document_id: &str, query: &str) -> bool {
     if query.is_empty() {
         return true;
@@ -3823,7 +3699,7 @@ fn world_matches_search(title: &str, pack_title: &str, document_id: &str, query:
 /// Order the cards. `Recent` leaves the Library's own most-recently-played
 /// order alone; `Name` sorts by what the card shows, ignoring case, with the
 /// file identity breaking ties so the order never wobbles between renders.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn sort_world_cards(cards: &mut [(String, WorldDocumentSummary)], sort: WorldSort) {
     if sort == WorldSort::Name {
         cards.sort_by(|(left_title, left), (right_title, right)| {
@@ -3836,7 +3712,7 @@ fn sort_world_cards(cards: &mut [(String, WorldDocumentSummary)], sort: WorldSor
 }
 
 /// What the My Worlds heading says once some Worlds are filtered out.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn my_worlds_title(visible: usize, total: usize) -> String {
     if visible == total {
         format!("My Worlds · {total}")
@@ -3847,12 +3723,12 @@ fn my_worlds_title(visible: usize, total: usize) -> String {
 
 /// The placeholder in the name field: an unnamed World shows the World Pack's
 /// own title, which is exactly what the card falls back to.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn rename_placeholder(pack_title: &str) -> String {
     format!("{pack_title} — name this World")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn rename_result_message(display_title: Option<&str>, pack_title: &str) -> String {
     // A World open in a window is renamed through its own session (its
     // writer writes the name in turn with its turns), so nothing there needs
@@ -3863,7 +3739,7 @@ fn rename_result_message(display_title: Option<&str>, pack_title: &str) -> Strin
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn removal_result_message(title: &str) -> String {
     format!(
         "Removed {title}. Its file moved to the {} folder inside your Worlds folder.",
@@ -3871,12 +3747,12 @@ fn removal_result_message(title: &str) -> String {
     )
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 const UNREADABLE_DOCUMENT_NAME_LIMIT: usize = 3;
 
 /// Name the files that could not be read, without letting a folder full of
 /// them push every World off the screen.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn unreadable_documents_note(unreadable: &[UnreadableWorldFile]) -> Option<String> {
     if unreadable.is_empty() {
         return None;
@@ -3905,7 +3781,7 @@ fn unreadable_documents_note(unreadable: &[UnreadableWorldFile]) -> Option<Strin
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
     for file in unreadable {
         diagnostics::error(format!(
@@ -3916,36 +3792,36 @@ fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
 }
 
 /// A heading over one group of cards on Home.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn home_section_title(text: impl Into<SharedString>) -> gpui::Div {
     div().pt_4().child(ui::heading(text))
 }
 
 /// Whether anything has happened in a World yet.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn has_begun(document: &WorldDocumentSummary) -> bool {
     document.event_count > 0 || document.world_time > 0
 }
 
 /// How tall a World's cover stands on Home.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 const WORLD_COVER_HEIGHT: f32 = 196.0;
 
 /// How long a World has been living without you, in its own unit:
 /// "1 sol has passed", "3 nights have passed".
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn time_waiting_line(periods: u64, unit: &str) -> String {
     world_gpui::i18n::time_passed(periods, unit)
 }
 
 /// "1 sol", "3 nights".
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn count_of(count: u64, unit: &str) -> String {
     world_gpui::i18n::count_of(count, unit)
 }
 
 /// The line under a World's name on Home.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_card_meta(
     title: &str,
     pack_title: &str,
@@ -3971,7 +3847,7 @@ fn world_card_meta(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
     document
         .display_title
@@ -3984,7 +3860,7 @@ fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> Str
 
 /// `title` for the World `id`, of the Worlds `same` (by id, oldest
 /// first) that share it: the first keeps it, the next are numbered.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn distinct(title: &str, same: &[String], id: &str) -> String {
     match same.iter().position(|other| other == id) {
         Some(at) if at > 0 => format!("{title} {}", at + 1),
@@ -3992,12 +3868,12 @@ fn distinct(title: &str, same: &[String], id: &str) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_matches_pack_filter(document: &WorldDocumentSummary, pack_id: Option<&str>) -> bool {
     pack_id.is_none_or(|pack_id| document.pack.id == pack_id)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_pack_filter_is_available(
     documents: &[WorldDocumentSummary],
     pack_id: Option<&str>,
@@ -4005,7 +3881,7 @@ fn world_pack_filter_is_available(
     pack_id.is_none_or(|pack_id| documents.iter().any(|document| document.pack.id == pack_id))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn world_pack_filter_counts(documents: &[WorldDocumentSummary]) -> Vec<(String, usize)> {
     let mut filters = Vec::<(String, usize)>::new();
     for document in documents {
@@ -4023,7 +3899,7 @@ fn world_pack_filter_counts(documents: &[WorldDocumentSummary]) -> Vec<(String, 
 
 /// What a World is called: the name its owner gave it, or the durable identity
 /// of its file when it has no name.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn document_display_name(display_title: Option<&str>, durable_label: &str) -> String {
     display_title
         .map(str::trim)
@@ -4032,23 +3908,23 @@ fn document_display_name(display_title: Option<&str>, durable_label: &str) -> St
         .to_owned()
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn session_display_name(session: &DurableWorldSession) -> String {
     let durable_label = session.display_name();
     document_display_name(session.metadata().display_title.as_deref(), &durable_label)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn document_window_title(document_label: &str) -> String {
     format!("{document_label} — World Machine")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn start_after_install_matches(pending: Option<&WorldPackRef>, pack: &WorldPackRef) -> bool {
     pending == Some(pack)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn format_program_size(bytes: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = 1024 * KIB;
@@ -4061,226 +3937,7 @@ fn format_program_size(bytes: u64) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn discover_library() -> std::io::Result<WorldLibrary> {
-    if let Some(path) = env::var_os(LIBRARY_OVERRIDE_ENV) {
-        return Ok(WorldLibrary::new(PathBuf::from(path)));
-    }
-    let home = env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| std::io::Error::other("HOME is not set"))?;
-    Ok(WorldLibrary::new(
-        home.join("Library")
-            .join("Application Support")
-            .join("World Machine")
-            .join("Worlds"),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-fn discover_pack_catalog_path(library: &WorldLibrary) -> PathBuf {
-    if let Some(path) = env::var_os(PACK_CATALOG_OVERRIDE_ENV) {
-        return PathBuf::from(path);
-    }
-    if env::var_os(LIBRARY_OVERRIDE_ENV).is_some() {
-        return library
-            .root()
-            .join(".world-machine-packs")
-            .join("catalog.json");
-    }
-    library
-        .root()
-        .parent()
-        .unwrap_or_else(|| library.root())
-        .join("Packs")
-        .join("catalog.json")
-}
-
-#[cfg(target_os = "macos")]
-/// The Worlds this app can create and open.
-///
-/// Installed Packs go in first and the in-process copies only fill the gaps
-/// they leave. The two overlap: a World that ships as a real Pack is also
-/// compiled into this binary, and the Host refuses to register one Pack id and
-/// version twice — rightly, since two registrations claiming to be the same
-/// Pack version cannot both be it. Installing the built-ins first made that
-/// collision fail the Pack the observer actually installed, so Home reported a
-/// Registry rebuild failure on every launch and the installed Pack never
-/// became reachable. An installed Pack is the one that wins.
-fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegistry, String> {
-    let mut registry = world_host::WorldRegistry::new();
-    if let Some(catalog) = catalog {
-        let source = catalog
-            .trusted_source()
-            .map_err(|error| error.to_string())?;
-        let source = world_voice::with_settings(source, world_voice::pack_settings());
-        registry
-            .install_source(&source)
-            .map_err(|error| error.to_string())?;
-    }
-    registry
-        .install_fallback_source(&world_builtins::BuiltinWorlds)
-        .map_err(|error| error.to_string())?;
-    Ok(registry)
-}
-
-/// Now, in Unix seconds.
-#[cfg(target_os = "macos")]
-fn unix_now() -> Option<u64> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .map(|elapsed| elapsed.as_secs())
-}
-
-/// "Keeps going without you · next sol in 5 h": what the app is about, in
-/// one line, with the one number that makes it true.
-#[cfg(target_os = "macos")]
-fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
-    world_gpui::i18n::keeps_going(remaining_seconds, unit)
-}
-
-#[cfg(target_os = "macos")]
-fn new_document_id(pack_id: &str, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
-    unique_document_id(sanitize_document_base(pack_id), Some(library))
-}
-
-#[cfg(target_os = "macos")]
-fn imported_document_id(
-    source: &Path,
-    library: &WorldLibrary,
-) -> Result<WorldDocumentId, LibraryError> {
-    let file_name = source
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("imported-world");
-    let base = file_name
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))
-        .unwrap_or(file_name);
-    unique_document_id(sanitize_document_base(base), Some(library))
-}
-
-#[cfg(target_os = "macos")]
-fn library_document_id_for_path(source: &Path, library: &WorldLibrary) -> Option<WorldDocumentId> {
-    if source.parent()? != library.root() {
-        return None;
-    }
-    let file_name = source.file_name()?.to_str()?;
-    let raw_id = file_name
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))?;
-    let id = WorldDocumentId::new(raw_id).ok()?;
-    library
-        .contains(&id)
-        .ok()
-        .filter(|exists| *exists)
-        .map(|_| id)
-}
-
-#[cfg(target_os = "macos")]
-fn unique_document_id(
-    mut base: String,
-    library: Option<&WorldLibrary>,
-) -> Result<WorldDocumentId, LibraryError> {
-    if base.is_empty() {
-        base = "imported-world".into();
-    }
-    let candidate = WorldDocumentId::new(base.clone())?;
-    match library {
-        Some(library) if library.contains(&candidate)? => {}
-        _ => return Ok(candidate),
-    }
-
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    WorldDocumentId::new(format!("{base}-{}-{nonce}", process::id()))
-}
-
-#[cfg(target_os = "macos")]
-fn sanitize_document_base(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .take(80)
-        .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn suggested_world_file_name(semantic_title: &str, fallback_label: &str) -> String {
-    let semantic_title = semantic_title.trim();
-    let source = if semantic_title.is_empty() {
-        fallback_label
-    } else {
-        semantic_title
-    };
-    let source = source
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| source.strip_suffix(WORLD_DOCUMENT_SUFFIX))
-        .unwrap_or(source);
-    let stem = source
-        .chars()
-        .map(|ch| {
-            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-            {
-                '-'
-            } else {
-                ch
-            }
-        })
-        .take(80)
-        .collect::<String>();
-    let stem = stem.trim_matches(|ch: char| ch.is_whitespace() || matches!(ch, '.' | '-'));
-    let stem = if stem.is_empty() { "World" } else { stem };
-    format!("{stem}{WORLD_DOCUMENT_SUFFIX}")
-}
-
-#[cfg(target_os = "macos")]
-fn canonical_world_path(mut path: PathBuf) -> PathBuf {
-    let Some(file_name) = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(str::to_owned)
-    else {
-        return path;
-    };
-
-    if file_name.ends_with(WORLD_DOCUMENT_SUFFIX) {
-        return path;
-    }
-    if let Some(base) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-        path.set_file_name(format!("{base}{WORLD_DOCUMENT_SUFFIX}"));
-    } else {
-        path.set_extension("world");
-    }
-    path
-}
-
-#[cfg(target_os = "macos")]
-fn is_world_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| {
-            name.ends_with(WORLD_DOCUMENT_SUFFIX) || name.ends_with(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        })
-}
-
-#[cfg(target_os = "macos")]
-fn is_world_pack_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(PACK_BUNDLE_SUFFIX))
-}
-
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, gui))]
 mod file_type_tests {
     use super::*;
 
@@ -4732,7 +4389,7 @@ mod file_type_tests {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui_platform::application;
 
@@ -4904,7 +4561,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// listener and Pack activation state survive Cmd-W.
 /// Turns on the gentle pointers from the record in the app's settings,
 /// writing it back, off the window's thread, whenever it grows.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn install_pointers(saved: Option<&world_machine_desktop::app_settings::AppSettings>) {
     use world_machine_desktop::app_settings::{self, HintSettings};
     let hints = saved
@@ -4925,15 +4582,15 @@ fn install_pointers(saved: Option<&world_machine_desktop::app_settings::AppSetti
     );
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 struct HomeEntity(Entity<WorldMachineHome>);
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 impl Global for HomeEntity {}
 
 /// Brings Home back when no World, strip or Home window is left open, so
 /// closing the last of them never leaves the app with nothing on screen.
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn restore_home_if_nothing_open(cx: &mut App) {
     let windows = cx.windows();
     let world_or_home_open = windows.iter().any(|window| {
@@ -4948,7 +4605,7 @@ fn restore_home_if_nothing_open(cx: &mut App) {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(gui)]
 fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
     let bounds = remembered_window_bounds(RememberedWindow::Home, cx)
         .unwrap_or_else(|| Bounds::centered(None, size(px(760.0), px(760.0)), cx));
@@ -4966,7 +4623,9 @@ fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(gui))]
 fn main() {
-    eprintln!("world-machine-desktop currently targets macOS; the Host layer is cross-platform");
+    eprintln!(
+        "world-machine-desktop has no window on this platform; on Linux, build it with --features linux-window"
+    );
 }

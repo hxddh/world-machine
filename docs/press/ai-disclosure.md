@@ -2,7 +2,7 @@
 
 Text for Steam's content survey ("AI Generated Content Disclosure", https://partner.steamgames.com/doc/gettingstarted/contentsurvey), and for any other store page that asks. Steam's survey splits the answer in two: **pre-generated** content, which AI tools helped make during development and which ships with the game, and **live-generated** content, which AI makes while the game runs. For live-generated content, Steam also asks what guardrails keep it from making illegal content.
 
-Checked against the code at `v0.27`. The checks, the judge and its record are in `systems/conversation` (`bounds`, `judge.rs`) and `crates/world-voice`; check them before publishing, and leave out any sentence they do not bear out.
+Checked against the code at `v0.27`; the guardrails paragraph updated for v0.28 by V3. The checks, the judge and its record are in `systems/conversation` (`bounds`, `judge.rs`) and `crates/world-voice`; check them before publishing, and leave out any sentence they do not bear out.
 
 ---
 
@@ -36,7 +36,7 @@ An answer that fails any check is replaced by the game's own written line. The g
 
 ### Guardrails (the survey's question)
 
-The model can only speak within the World's recorded facts and a closed set of meanings. It cannot change the game's state. Deterministic checks decline harmful, sexual, off-topic, invented or out-of-character answers, and a judge model's checklist can decline more but never keep what the checks found harmful; a declined answer is replaced by fixed, pre-written text. The feature is off by default and uses the player's own model access.
+The model can only speak within the World's recorded facts and a closed set of meanings. It cannot change the game's state: what a reply does is decided by the game's rules from the player's own words, never from the model's reply or a judge's verdict. Suicide, self-harm, sexual content and mental-health crises are never sent to a model; the resident answers with the game's own gentle line and, for a crisis, a pointer to real help. Replies written by a model are labelled as AI-written, and each has a Report button recorded in the save (the full text for Steam is in `steam-guardrails.md`). Deterministic checks decline harmful, sexual, off-topic, invented or out-of-character answers, and a judge model's checklist can decline more but never keep what the checks found harmful; a declined answer is replaced by fixed, pre-written text. The feature is off by default and uses the player's own model access.
 
 ---
 

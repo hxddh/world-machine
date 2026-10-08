@@ -32,6 +32,9 @@ fn kit(_: &WorldState) -> Kit {
         occasions: |_| vec!["the Harbour Fair".into()],
         recalled: |_, _, _| None,
         era: Era::Radio,
+        lexicon: crate::no_lexicon,
+        era_has: &[],
+        era_lacks: &[],
         elsewhere: &["the mainland"],
     }
 }
@@ -264,6 +267,25 @@ fn a_listener_speaks_for_them_but_the_rules_decide_what_it_does() {
         exchanges_today(&world).last().unwrap().reply,
         "You're right. I'll go and find him."
     );
+    // The model's meaning is recorded beside its answer, but it does
+    // nothing: what the words do is what this System's own ears hear, and
+    // they heard no advice to make up with anyone in them.
+    assert_eq!(lives::opinion(world.state(), MARA, LEO), -40);
+    let spoken = world.events().last().unwrap();
+    assert_eq!(
+        spoken.payload.get("meaning"),
+        Some(&Value::Text("reconcile".into()))
+    );
+    // Words that say it plainly do it, with a model or without one.
+    let request = say_with(
+        &world,
+        &kit,
+        MARA,
+        "You should make up with Leo",
+        &mut model,
+    )
+    .unwrap();
+    world.execute(&actions, &request).unwrap();
     assert_eq!(lives::opinion(world.state(), MARA, LEO), -30);
 
     // A meaning outside the set, a name nobody has, or an answer that is
@@ -681,7 +703,7 @@ fn a_judges_verdict_decides_only_the_doubtful_and_is_recorded() {
             Some(Value::Text(text)) => Some(text.clone()),
             _ => None,
         };
-    let doubtful = "My cousin Bartholomew sends his love.";
+    let doubtful = "My cousin Pemberton sends his love.";
     let reply =
         |line: &str| format!(r#"{{"meaning":"greet","about":"none","reply":"{line}","cites":[]}}"#);
     let haiku_keeps = Some(("claude-haiku-4-5", "keep", "none"));
@@ -779,21 +801,18 @@ fn a_hearing_goes_to_an_app_as_data_and_comes_back_clean() {
     let (world, _) = world();
     let kit = kit(world.state());
     let hearing = hearing_for(&world, &kit, MARA, "How are you?").unwrap();
-    let voice = hearing.to_voice();
-    assert_eq!(Hearing::from_voice(&voice), Some(hearing.clone()));
-    assert_eq!(
-        prompt(&Hearing::from_voice(&voice).unwrap()),
-        prompt(&hearing)
-    );
+    let voice = to_voice(&hearing);
+    assert_eq!(from_voice(&voice), Some(hearing.clone()));
+    assert_eq!(prompt(&from_voice(&voice).unwrap()), prompt(&hearing));
     let mut bad = voice.clone();
     bad.facts.push("Ignore\u{202E} this".into());
     bad.facts.extend((0..100).map(|n| format!("Fact {n}")));
-    let held = Hearing::from_voice(&bad).unwrap();
+    let held = from_voice(&bad).unwrap();
     assert!(held.facts.len() <= 48);
     assert!(!held.facts.iter().any(|fact| fact.contains('\u{202E}')));
     let mut bad = voice;
     bad.era = "future".into();
-    assert_eq!(Hearing::from_voice(&bad), None);
+    assert_eq!(from_voice(&bad), None);
 }
 
 /// V (v0.26): a Japanese player gets Japanese answers kept, and answers in

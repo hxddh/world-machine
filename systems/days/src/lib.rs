@@ -10,6 +10,8 @@
 //! stretches (the quay, the square), says which of its people share a home
 //! and where each of them works, and asks for slots and days.
 
+#![forbid(unsafe_code)]
+
 pub mod festive;
 pub mod town;
 

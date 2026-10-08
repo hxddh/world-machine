@@ -6,6 +6,10 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+world-pi-transport = { path = "../world-pi-transport" }
 serde_json = "1"
 world-agent = { path = "../world-agent" }
 world-core = { path = "../world-core" }
+
+[dev-dependencies]
+world-run = { path = "../world-run" }

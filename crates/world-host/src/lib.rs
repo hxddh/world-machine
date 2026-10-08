@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -677,6 +679,7 @@ mod tests {
                     unavailable: None,
                     hand: None,
                     preview: None,
+                    role: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

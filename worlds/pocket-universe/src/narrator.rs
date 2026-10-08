@@ -161,20 +161,24 @@ pub(crate) fn narrate_return(
     let lines = narrator.narrate_all(&facts);
     // A line is kept to the World like anything a model says: nothing of
     // machines, the world outside or names the World never had.
-    let summaries = facts
-        .iter()
-        .map(|facts| facts.table_summary.as_str())
-        .collect::<Vec<_>>();
-    let grounds =
-        conversation::world_grounds(world, &crate::speech::kit(world.state()), &summaries);
+    // The grounds are worked out for the first usable line, so a narrator
+    // that answers for none of them (the default, and every preview's copy)
+    // never pays for every name the World knows in every language. They are
+    // the same World's either way: nothing is recorded before the first.
+    let mut grounds = None;
 
     let mut recorded = 0;
     for ((about, _), line) in pending.iter().zip(lines) {
-        let Some(text) = line
-            .as_deref()
-            .and_then(usable_narration)
-            .filter(|text| conversation::keeps_to(text, &grounds).is_ok())
-        else {
+        let Some(text) = line.as_deref().and_then(usable_narration).filter(|text| {
+            let grounds = grounds.get_or_insert_with(|| {
+                let summaries = facts
+                    .iter()
+                    .map(|facts| facts.table_summary.as_str())
+                    .collect::<Vec<_>>();
+                conversation::world_grounds(world, &crate::speech::kit(world.state()), &summaries)
+            });
+            conversation::keeps_to(text, grounds).is_ok()
+        }) else {
             continue;
         };
         let request = ActionRequest::new("narrate_world")

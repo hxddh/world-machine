@@ -1,0 +1,72 @@
+name: Release shots
+
+# The first ten minutes and the key moments of the release app, in its real
+# window: `scripts/release-shots.sh` builds the desktop app in release, runs
+# it under Xvfb at the World window's default size, plays a new World, a
+# Find, a return film, every zoom level, a second year and each place at
+# noon, dusk and night, and saves what the window showed. It fails if a key
+# moment shows an unpainted frame, or if a new World's town is not painted
+# within 3 seconds. The pictures are kept as an artifact of the run, for the
+# art director's sign-off and the store page.
+#
+# It runs for every release tag, as the release package does, and by hand:
+#   gh workflow run release-shots.yml --ref main
+#
+# Linux is not a Mac: fonts and window chrome differ, and the renderer is a
+# software one. What it proves is that every picture the player is shown is
+# a painted one, in the release build, in the real window.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    tags:
+      - 'v*-pre.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-shots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-release-shots:
+    name: The first ten minutes in the real window (release, Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - name: Make room for a release build of the app
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-shots
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+      # The window's Linux build (GPUI on X11 with a software Vulkan
+      # renderer, cpal on ALSA), the harness's tools, and fonts for every
+      # language the app shows.
+      - name: Install the window's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xdotool x11-utils imagemagick \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libvulkan-dev mesa-vulkan-drivers \
+            libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \
+            fonts-dejavu-core fonts-noto-cjk
+      - name: Play the first ten minutes and the key moments
+        run: bash scripts/release-shots.sh "$RUNNER_TEMP/shots"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-shots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: error
+          retention-days: 30

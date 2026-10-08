@@ -172,3 +172,15 @@ Signed off by the art director on 2026-10-07 after three rounds.
 - Accepted deviations:
   - The Point is the east end of the stage, so in the harbour key art the lighthouse sits at about 0.76 of the width. That is inside the right third, not on the line.
   - In year three, three residents by the lifeboat station overlap its front and read as standing on it. Fix in v0.28.
+
+## v0.28 sign-off
+
+Signed off by the art director on 2026-10-08 after three rounds, on real-window screenshots from a release build (`scripts/release-shots.sh`).
+- [Contact sheet](art/v0.28-contact-sheet.jpg): the harbour on day 1, in year two and zoomed in at year three, at dusk and at night; Ares at noon and night; Maple Street at noon, dusk and night; Icebridge at noon and night. The v0.27 key art stands.
+- Round 1 was not signed off: fog in the first one to two seconds, Maple Street empty at night, a home cut at the edge on day 1, and people overlapping the quay's buildings in year two. Round 2 fixed all four. Round 3 fixed a regression round 2 showed: a hard-edged dark slab at the lighthouse's base and under the Anchor Pub, where the rough painting showed through a fading sharp picture and shadows were drawn twice during a look change. Tests now hold that the rough never shows where a sharp picture is, and that a look change never darkens a frame.
+- Accepted deviations, to fix in v0.29:
+  - Each Pocket Universe place opens on its one keeper beside a whole building; the four-residents rule is waived there, since the places start with one keeper.
+  - The year-two first screen cuts a building at its left edge.
+  - A speech bubble can leave one short word alone on a line ("the"); the bubble's width should be balanced.
+  - During the welcome the buildings read slightly softer than on day 1, though they are drawn 1:1. Cause not found.
+  - The frame bar (8 ms in 10 of 10 runs) is not met locally; this is a measurement, not a look, but a hitch on a pan is seen.

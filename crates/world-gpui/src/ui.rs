@@ -76,7 +76,7 @@ pub fn page_title(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.25))
         .text_color(color(tokens::TEXT))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// A heading inside a page: a panel title or a story beat.
@@ -86,7 +86,7 @@ pub fn heading(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.35))
         .text_color(color(tokens::TEXT))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// A short heading for a row or card.
@@ -96,7 +96,7 @@ pub fn row_title(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::MEDIUM)
         .line_height(relative(1.4))
         .text_color(color(tokens::TEXT))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// Running text under a heading.
@@ -105,7 +105,7 @@ pub fn body(text: impl Into<SharedString>) -> Div {
         .text_sm()
         .line_height(relative(1.55))
         .text_color(color(tokens::TEXT_SECONDARY))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// Small supporting text: a row's second line.
@@ -114,7 +114,7 @@ pub fn detail(text: impl Into<SharedString>) -> Div {
         .text_xs()
         .line_height(relative(1.5))
         .text_color(color(tokens::TEXT_SECONDARY))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// A section label: names a region without competing with its content.
@@ -131,7 +131,7 @@ pub fn caption(text: impl Into<SharedString>) -> Div {
     div()
         .text_xs()
         .text_color(color(tokens::TEXT_TERTIARY))
-        .child(t(text))
+        .child(crate::wrap::text(t(text)))
 }
 
 /// A raised card on the window.

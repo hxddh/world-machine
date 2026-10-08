@@ -43,16 +43,14 @@ rm -rf "$SRC"
 mkdir -p "$SRC"
 tar -C "$ROOT_DIR" --exclude ./target --exclude ./.git -cf - . | tar -C "$SRC" -xf -
 
-# Lift the macOS gate in the copy.
-grep -rl 'target_os = "macos"' "$SRC/apps/world-machine-desktop" \
-    | xargs sed -i 's/target_os = "macos"/unix/g'
-sed -i 's/features = \["font-kit"\]/features = ["font-kit", "x11"]/' \
-    "$SRC/apps/world-machine-desktop/Cargo.toml"
+# The window builds on Linux with the desktop app's `linux-window`
+# feature (see its build.rs); nothing in the copy is changed.
 
 export CARGO_TARGET_DIR="$WORK/target"
 (
     cd "$SRC"
     cargo build -q -p world-machine-desktop \
+        --features world-machine-desktop/linux-window \
         -p pocket-universe-pack -p tiny-society-pack
 )
 BIN="$CARGO_TARGET_DIR/debug"

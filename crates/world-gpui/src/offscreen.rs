@@ -7,14 +7,19 @@
 //! The golden pictures use it (see `golden.rs`), and so does the key art
 //! example, which includes this file by its path: so it stands alone,
 //! with nothing from the crate.
+//!
+//! It keeps to GPUI's public drawing seam where one exists: it draws the
+//! scene's batches in the order `Scene::batches` gives them (the order
+//! GPUI's own renderers draw), and reads only each primitive's public
+//! fields and the atlas tiles it hands out itself.
 
 #![allow(dead_code)]
 
 use gpui::{
     div, point, prelude::*, px, size, AnyElement, App, AtlasKey, AtlasTextureId, AtlasTextureKind,
     AtlasTile, Background, Bounds, Corners, DevicePixels, Edges, HeadlessAppContext, Hsla,
-    NoopTextSystem, Path, PlatformAtlas, PlatformHeadlessRenderer, Rgba, ScaledPixels, Scene,
-    Shadow, Size, TileId, Window,
+    NoopTextSystem, Path, PlatformAtlas, PlatformHeadlessRenderer, PrimitiveBatch, Rgba,
+    ScaledPixels, Scene, Shadow, Size, TileId, Window,
 };
 use image::RgbaImage;
 use std::borrow::Cow;
@@ -162,35 +167,32 @@ pub fn rasterise(scene: &Scene, size: Size<DevicePixels>, atlas: &Atlas) -> Rgba
         height,
         pixels: vec![[0.0; 4]; width * height],
     };
-    // In draw order, and within one order in the order GPUI batches kinds.
-    enum Primitive<'a> {
-        Shadow(&'a Shadow),
-        Quad(&'a gpui::Quad),
-        Path(&'a Path<ScaledPixels>),
-        Sprite(&'a gpui::PolychromeSprite),
-    }
-    let mut all = Vec::new();
-    all.extend(
-        scene
-            .shadows
-            .iter()
-            .map(|s| (s.order, 0, Primitive::Shadow(s))),
-    );
-    all.extend(scene.quads.iter().map(|q| (q.order, 1, Primitive::Quad(q))));
-    all.extend(scene.paths.iter().map(|p| (p.order, 2, Primitive::Path(p))));
-    all.extend(
-        scene
-            .polychrome_sprites
-            .iter()
-            .map(|sprite| (sprite.order, 3, Primitive::Sprite(sprite))),
-    );
-    all.sort_by_key(|(order, kind, _)| (*order, *kind));
-    for (_, _, primitive) in all {
-        match primitive {
-            Primitive::Shadow(shadow) => draw_shadow(&mut canvas, shadow),
-            Primitive::Quad(quad) => draw_quad(&mut canvas, quad),
-            Primitive::Path(path) => draw_path(&mut canvas, path),
-            Primitive::Sprite(sprite) => draw_sprite(&mut canvas, sprite, atlas),
+    // In GPUI's own draw order: the batches its GPU renderers draw, so
+    // nothing here re-derives how primitives of one order are layered.
+    for batch in scene.batches() {
+        match batch {
+            PrimitiveBatch::Shadows(range) => {
+                for shadow in &scene.shadows[range] {
+                    draw_shadow(&mut canvas, shadow);
+                }
+            }
+            PrimitiveBatch::Quads(range) => {
+                for quad in &scene.quads[range] {
+                    draw_quad(&mut canvas, quad);
+                }
+            }
+            PrimitiveBatch::Paths(range) => {
+                for path in &scene.paths[range] {
+                    draw_path(&mut canvas, path);
+                }
+            }
+            PrimitiveBatch::PolychromeSprites { range, .. } => {
+                for sprite in &scene.polychrome_sprites[range] {
+                    draw_sprite(&mut canvas, sprite, atlas);
+                }
+            }
+            // Text and surfaces are not drawn.
+            _ => {}
         }
     }
     let mut image = RgbaImage::new(width as u32, height as u32);

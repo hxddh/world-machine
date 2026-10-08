@@ -62,19 +62,13 @@ struct LogSink {
 
 static SINK: OnceLock<Option<LogSink>> = OnceLock::new();
 
-/// Where the log directory lives: the override, else Apple's per-user log
-/// folder so Console.app and Finder both find it.
+/// Where the log directory lives: the override, else the platform's (on the
+/// Mac, Apple's per-user log folder, so Console.app and Finder find it).
 pub fn log_dir() -> Option<PathBuf> {
     if let Some(dir) = env::var_os(LOG_DIR_OVERRIDE_ENV) {
         return Some(PathBuf::from(dir));
     }
-    let home = env::var_os("HOME")?;
-    Some(
-        PathBuf::from(home)
-            .join("Library")
-            .join("Logs")
-            .join("World Machine"),
-    )
+    world_machine_desktop::platform::current().log_dir()
 }
 
 /// The log file path once the sink is open. `None` when logging could not
@@ -217,31 +211,10 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
-/// `macOS 15.1 (24B83)` from SystemVersion.plist, or a fallback that still
-/// names the platform.
+/// The operating system and machine, as the platform describes it:
+/// `macOS 15.1 (24B83) · aarch64` on the Mac.
 pub fn host_description() -> String {
-    let plist =
-        fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").unwrap_or_default();
-    describe_host(&plist, env::consts::OS, env::consts::ARCH)
-}
-
-fn describe_host(system_version_plist: &str, os: &str, arch: &str) -> String {
-    let version = plist_string(system_version_plist, "ProductVersion");
-    let build = plist_string(system_version_plist, "ProductBuildVersion");
-    match (version, build) {
-        (Some(version), Some(build)) => format!("macOS {version} ({build}) · {arch}"),
-        (Some(version), None) => format!("macOS {version} · {arch}"),
-        _ => format!("{os} · {arch}"),
-    }
-}
-
-fn plist_string(plist: &str, key: &str) -> Option<String> {
-    let marker = format!("<key>{key}</key>");
-    let after_key = &plist[plist.find(&marker)? + marker.len()..];
-    let start = after_key.find("<string>")? + "<string>".len();
-    let end = after_key[start..].find("</string>")? + start;
-    let value = after_key[start..end].trim();
-    (!value.is_empty()).then(|| value.to_string())
+    world_machine_desktop::platform::current().host_description()
 }
 
 /// Facts the About window shows and the report includes.
@@ -447,10 +420,13 @@ mod tests {
 </dict>
 </plist>"#;
         assert_eq!(
-            describe_host(plist, "macos", "aarch64"),
+            world_machine_desktop::platform::describe_host(plist, "macos", "aarch64"),
             "macOS 15.1 (24B83) · aarch64"
         );
-        assert_eq!(describe_host("", "linux", "x86_64"), "linux · x86_64");
+        assert_eq!(
+            world_machine_desktop::platform::describe_host("", "linux", "x86_64"),
+            "linux · x86_64"
+        );
     }
 
     #[test]

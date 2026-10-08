@@ -6,11 +6,238 @@ use crate::{SLOT_A, SLOT_B, SLOT_C, SLOT_E};
 use conversation::faces::in_chinese;
 use world_core::{ActionRequest, EntityId, World, WorldState};
 
+/// Every name the three places' lines can say, in each language they
+/// speak: their people and everyone who may come, their figures, places
+/// and days, each in translation.
+pub(crate) const NAMES: &str = include_str!("../lexicon/names.tsv");
+
+/// Every name any of the three places knows, read once: [`NAMES`], every
+/// name a Pocket Universe person can have, what each place speaks of
+/// elsewhere and its days, and each by its other names.
+fn lexicon() -> &'static [String] {
+    static LEXICON: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LEXICON.get_or_init(|| {
+        let people = crate::people_names();
+        let festivals = crate::almanac::MARS
+            .iter()
+            .chain(crate::almanac::TOWN)
+            .chain(crate::almanac::ICE)
+            .map(|festival| festival.name);
+        conversation::lexicon_of(
+            people
+                .iter()
+                .copied()
+                .chain(
+                    ["sol", "week", "day"]
+                        .iter()
+                        .flat_map(|unit| elsewhere(unit).iter().copied()),
+                )
+                .chain(festivals),
+            aliases,
+            NAMES,
+        )
+    })
+}
+
+/// What each place has that its time otherwise would not: the colony
+/// knows its planets by name; Maple Street in the late eighties has its
+/// modems, answering machines and the first e-mail at work.
+fn era_has(unit: &str) -> &'static [&'static str] {
+    match unit {
+        // The planets and their places, as a settlement between worlds
+        // knows them.
+        "sol" => &[
+            "earth",
+            "mars",
+            "venus",
+            "jupiter",
+            "saturn",
+            "mercury",
+            "the moon",
+            "luna",
+            "phobos",
+            "deimos",
+            "olympus mons",
+            "valles marineris",
+            "hellas",
+            "hellas planitia",
+            "tharsis",
+            "elysium",
+            "elysium planitia",
+            "utopia planitia",
+            "arcadia planitia",
+            "gale crater",
+            "jezero",
+            "jezero crater",
+            "syrtis major",
+            "the asteroid belt",
+            "ceres",
+            "europa",
+            "titan",
+            "ganymede",
+            "io",
+            "callisto",
+            "the sun",
+            "alpha centauri",
+            "milky way",
+            "the milky way",
+            "地球",
+            "火星",
+            "金星",
+            "木星",
+            "土星",
+            "水星",
+            "月球",
+            "月亮",
+            "火卫一",
+            "火卫二",
+            "奥林匹斯山",
+            "水手号峡谷",
+            "水手谷",
+            "希腊平原",
+            "塔尔西斯",
+            "埃律西昂",
+            "乌托邦平原",
+            "盖尔陨石坑",
+            "小行星带",
+            "谷神星",
+            "木卫二",
+            "土卫六",
+            "太阳",
+            "银河",
+            "半人马座",
+            "フォボス",
+            "ダイモス",
+            "オリンポス山",
+            "マリネリス峡谷",
+            "ヘラス平原",
+            "タルシス",
+            "エリシウム",
+            "ユートピア平原",
+            "ゲール・クレーター",
+            "小惑星帯",
+            "ケレス",
+            "エウロパ",
+            "タイタン",
+            "天の川",
+        ],
+        "week" => &[
+            "fax",
+            "fax machine",
+            "answering machine",
+            "pager",
+            "beeper",
+            "modem",
+            "bulletin board",
+            "floppy disk",
+            "floppy",
+            "car phone",
+            "email",
+            "e-mail",
+            "传真",
+            "传呼机",
+            "寻呼机",
+            "调制解调器",
+            "软盘",
+            "电子邮件",
+            "ファックス",
+            "留守番電話",
+            "ポケベル",
+            "モデム",
+            "フロッピー",
+            "パソコン通信",
+            "メール",
+            // Its own money.
+            "dollar*",
+            "buck*",
+            "quarter*",
+            "美元",
+            "块钱",
+            "ドル",
+            "セント",
+        ],
+        _ => &[],
+    }
+}
+
+/// What each place lacks beyond what its time does: the penguins of
+/// Icebridge have no engines, wires or money, only ice, fish and each
+/// other.
+fn era_lacks(unit: &str) -> &'static [&'static str] {
+    match unit {
+        "sol" | "week" => &[],
+        _ => &[
+            "car",
+            "cars",
+            "truck*",
+            "lorry",
+            "lorries",
+            "petrol",
+            "gasoline",
+            "diesel",
+            "train",
+            "trains",
+            "railway*",
+            "aeroplane*",
+            "airplane*",
+            "motorbike*",
+            "motorcycle*",
+            "factory",
+            "factories",
+            "telephone*",
+            "telegram*",
+            "telegraph*",
+            "electricity",
+            "bank",
+            "banks",
+            "banknote*",
+            "rifle*",
+            "tractor*",
+            "bicycle*",
+            "汽车",
+            "卡车",
+            "汽油",
+            "柴油",
+            "火车",
+            "铁路",
+            "飞机",
+            "摩托车",
+            "工厂",
+            "电话",
+            "电报",
+            "电力",
+            "银行",
+            "步枪",
+            "拖拉机",
+            "自行车",
+            "自動車",
+            "トラック",
+            "ガソリン",
+            "軽油",
+            "電車",
+            "汽車",
+            "鉄道",
+            "飛行機",
+            "オートバイ",
+            "工場",
+            "電話",
+            "電報",
+            "電気",
+            "銀行",
+            "トラクター",
+            "自転車",
+        ],
+    }
+}
+
 pub(crate) fn kit(state: &WorldState) -> conversation::Kit {
     let cast = crate::life::cast(state);
     conversation::Kit {
         era: era(cast.unit),
         elsewhere: elsewhere(cast.unit),
+        lexicon,
+        era_has: era_has(cast.unit),
+        era_lacks: era_lacks(cast.unit),
         period: crate::BACKGROUND_PERIOD,
         unit: cast.unit,
         settlement: cast.settlement,
@@ -55,7 +282,7 @@ fn era(unit: &str) -> conversation::Era {
 /// What each seed's people speak of that is not on the scene: the places
 /// over the horizon and the things of their day, as the seed's own lines
 /// name them.
-fn elsewhere(unit: &str) -> &'static [&'static str] {
+pub(crate) fn elsewhere(unit: &str) -> &'static [&'static str] {
     match unit {
         "sol" => &[
             "Earth",
@@ -122,7 +349,7 @@ fn elsewhere(unit: &str) -> &'static [&'static str] {
     }
 }
 
-fn aliases(name: &str) -> Vec<String> {
+pub(crate) fn aliases(name: &str) -> Vec<String> {
     let names: &[&str] = match name {
         "Nia Chen" => &["妮娅", "ニア"],
         "Tomas Vale" => &["托马斯", "トマス"],
@@ -154,6 +381,7 @@ fn aliases(name: &str) -> Vec<String> {
         .chain(in_chinese(include_str!("../locales/zh-Hans.tsv"), name))
         .chain(in_chinese(include_str!("../locales/ja.tsv"), name))
         .map(str::to_string)
+        .chain(conversation::forms_in(NAMES, name))
         .collect()
 }
 
@@ -201,8 +429,11 @@ fn place_line(world: &World, who: EntityId, place: EntityId) -> String {
 }
 
 fn need_line(world: &World, who: EntityId) -> (String, Option<String>) {
-    let commands = crate::projection::commands_on_offer(world);
-    crate::talk::request(world, who, &commands)
+    // Worked out once for where the World stands, not once for everyone
+    // asked: the openers ask it of every resident in every snapshot.
+    struct OnOffer(Vec<world_projection::ProjectionCommand>);
+    let commands = world.as_it_stands(|| OnOffer(crate::projection::commands_on_offer(world)));
+    crate::talk::request(world, who, &commands.0)
         .unwrap_or_else(|| ("Nothing right now. Just time.".into(), None))
 }
 
@@ -229,7 +460,7 @@ pub(crate) fn voice_hearing(
     words: &str,
 ) -> Option<world_projection::VoiceHearing> {
     conversation::hearing_for(world, &kit(world.state()), who, words)
-        .map(|hearing| hearing.to_voice())
+        .map(|hearing| conversation::to_voice(&hearing))
 }
 
 /// How someone the player can talk to stands with them.
@@ -247,6 +478,16 @@ pub(crate) fn say(
     listener: &mut dyn conversation::Listener,
 ) -> Result<ActionRequest, String> {
     conversation::say_with(world, &kit(world.state()), who, words, listener)
+}
+
+/// The open favour's quick reply, chosen with a click: done as offered,
+/// never heard (`conversation::say_offered`).
+pub(crate) fn say_offered(
+    world: &World,
+    who: EntityId,
+    words: &str,
+) -> Result<ActionRequest, String> {
+    conversation::say_offered(world, &kit(world.state()), who, words)
 }
 
 /// Records a favour done, if what the player just said (`spoken`) did it.

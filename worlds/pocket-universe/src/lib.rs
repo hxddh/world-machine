@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod almanac;
 mod almanac_page;
 mod arrival;
@@ -9,6 +11,8 @@ mod density;
 mod drawings;
 mod eras;
 #[cfg(test)]
+mod exploit_tests;
+#[cfg(test)]
 mod favours_tests;
 #[cfg(test)]
 mod first_minutes;
@@ -16,6 +20,8 @@ mod firsts;
 mod handwork;
 mod kin;
 mod legends;
+#[cfg(test)]
+mod lexicon_tests;
 mod life;
 mod moments;
 pub mod narrator;
@@ -278,6 +284,20 @@ impl PocketUniverse {
     ) -> Result<EventId, Box<dyn Error>> {
         let request =
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
+        self.said(request)
+    }
+
+    /// Says the open favour's quick reply to someone, chosen with a click:
+    /// done as the favour offers, never heard, whatever language the
+    /// player's button showed it in.
+    pub fn say_offered(&mut self, who: EntityId, words: &str) -> Result<EventId, Box<dyn Error>> {
+        let request =
+            speech::say_offered(&self.world, who, words).map_err(std::io::Error::other)?;
+        self.said(request)
+    }
+
+    /// Records what the player said, and what it did.
+    fn said(&mut self, request: world_core::ActionRequest) -> Result<EventId, Box<dyn Error>> {
         let event = self.world.execute(&self.actions, &request)?.id;
         speech::favour_done(&mut self.world, &self.actions, event)?;
         story::after_first_deed(&mut self.world, &self.actions)?;
@@ -324,6 +344,12 @@ impl PocketUniverse {
             return returned
                 .or_else(|| self.world.events().last().map(|event| event.id))
                 .ok_or_else(|| std::io::Error::other("nothing happened").into());
+        }
+
+        // "Report this line": an Event caused by the exchange it reports.
+        if let Some(spoken) = conversation::report::parse_command(command_id) {
+            return conversation::report::report(&mut self.world, &self.actions, spoken)
+                .map_err(|error| std::io::Error::other(error).into());
         }
 
         if let Some((storylet, choice)) = story::parse_command(command_id) {
@@ -615,10 +641,19 @@ impl WorldSession for PocketUniverseSession {
                         "only someone can be spoken to",
                     )));
                 };
+                if ears == world_projection::Ears::Offered {
+                    self.world
+                        .say_offered(who, &words)
+                        .map_err(HostError::session)?;
+                    self.return_since_event_count = None;
+                    return Ok(self.snapshot());
+                }
                 let mut answered;
                 let mut own = conversation::OwnEars;
                 let listener: &mut dyn conversation::Listener = match ears {
-                    world_projection::Ears::World => self.listener.as_mut(),
+                    world_projection::Ears::World | world_projection::Ears::Offered => {
+                        self.listener.as_mut()
+                    }
                     world_projection::Ears::Model(response) => {
                         answered = conversation::Answered::new(response);
                         &mut answered
@@ -803,6 +838,7 @@ pub fn pocket_universe_registration_with_voices(
         world_projection::capability::DESIGNS,
         world_projection::capability::NAMES,
         world_projection::capability::STORY,
+        world_projection::capability::OFFERED_REPLIES,
     ])
 }
 
@@ -1689,6 +1725,9 @@ mod tests {
         }
         let before = session.snapshot();
 
+        // The turns above are written away from them; once they are on
+        // disk, nothing is writing into the folder while it is taken away.
+        session.flush().unwrap();
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::File::create(&root).unwrap();
         assert!(session

@@ -131,9 +131,17 @@ pub(super) const GROUP_MOST: usize = 3;
 /// run of people standing shoulder to shoulder is split into twos and
 /// threes, a pair close and side by side, a three as a little ring with
 /// the middle one a step further back, and a stride between groups. Each
-/// run stays centred where it stood, in its own lane. Nobody is moved
-/// who stands alone.
-pub(super) fn gather(people: &mut [Spot], figure_h: f32, quay: f32, blocked: &[(f32, f32)]) {
+/// run stays centred where it stood, in its own lane, nudged clear of what
+/// stands on the quay (`blocked`, for the lane among it) and of the doors
+/// of what stands in front of it (`fronted`, for both lanes). Nobody is
+/// moved who stands alone.
+pub(super) fn gather(
+    people: &mut [Spot],
+    figure_h: f32,
+    quay: f32,
+    blocked: &[(f32, f32)],
+    fronted: &[(f32, f32)],
+) {
     let lane_of = |spot: &Spot| (spot.y - quay > figure_h * 0.3) as u8;
     let mut order = (0..people.len()).collect::<Vec<_>>();
     order.sort_by(|a, b| {
@@ -164,11 +172,35 @@ pub(super) fn gather(people: &mut [Spot], figure_h: f32, quay: f32, blocked: &[(
     // read as one line.
     let (near, between) = (figure_h * 0.64, figure_h * GROUP_GAP);
     let room = figure_h * 0.5;
+    let width_of = |size: usize| near * (size - 1) as f32;
+    // How wide a run stands once it is spread into its groups.
+    let spread = |count: usize| {
+        let sizes = group_sizes(count);
+        sizes.iter().map(|size| width_of(*size)).sum::<f32>()
+            + between * sizes.len().saturating_sub(1) as f32
+    };
+    // Two runs that would stand closer than a stride once each is spread
+    // out (a crowd along the front, a year on) are one run: otherwise each
+    // spreads into the next and the groups at their seam become one line.
+    loop {
+        let extent = |run: &Vec<usize>| {
+            let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
+            let half = spread(run.len()) / 2.0;
+            (centre - half, centre + half)
+        };
+        let merge = runs.windows(2).position(|pair| {
+            let (a, b) = (&pair[0], &pair[1]);
+            lane_of(&people[a[0]]) == lane_of(&people[b[0]]) && extent(b).0 - extent(a).1 < between
+        });
+        let Some(at) = merge else {
+            break;
+        };
+        let next = runs.remove(at + 1);
+        runs[at].extend(next);
+    }
     for run in runs.into_iter().filter(|run| run.len() > 1) {
         let sizes = group_sizes(run.len());
-        let width_of = |size: usize| near * (size - 1) as f32;
-        let total = sizes.iter().map(|size| width_of(*size)).sum::<f32>()
-            + between * (sizes.len() - 1) as f32;
+        let total = spread(run.len());
         let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
         let line = run.iter().map(|at| people[*at].y).sum::<f32>() / run.len() as f32;
         // Where each member would stand, from the run's left edge.
@@ -188,35 +220,70 @@ pub(super) fn gather(people: &mut [Spot], figure_h: f32, quay: f32, blocked: &[(
             left += width_of(*size) + between;
         }
         // Centred where the run stood, or nudged a little either way to
-        // stand clear of what is on the quay; with no room, as they were.
+        // stand clear of what stands there; with no room, group by group.
         let front_lane = line - quay > figure_h * 0.3;
-        let clear = |shift: f32| {
-            front_lane
-                || places.iter().all(|(x, _)| {
-                    let x = shift + x;
-                    blocked
-                        .iter()
-                        .all(|(l, r)| x + room / 2.0 <= *l || x - room / 2.0 >= *r)
-                })
+        let open_at = |x: f32| {
+            let off = |(l, r): &(f32, f32)| x + room / 2.0 <= *l || x - room / 2.0 >= *r;
+            (front_lane || blocked.iter().all(off)) && fronted.iter().all(off)
         };
+        let clear = |shift: f32| places.iter().all(|(x, _)| open_at(shift + x));
         let home = centre - total / 2.0;
         let nudge = figure_h * 0.2;
-        let Some(start) = (0..=16)
+        let Some(start) = (0..=40)
             .flat_map(|step| [step, -step])
             .map(|step| home + step as f32 * nudge)
             .find(|shift| clear(*shift))
         else {
-            // No room to spread out: where they stand, but every other
-            // group a clear step further back, so it is not one queue.
+            // No room for the run in one piece (a building's base, a
+            // stall): each group on its own, as near where its members
+            // stood as it can, clear of what stands there and a full
+            // gap from every group placed before it, so groups never close
+            // up into one line. A group with no room near at all stands
+            // where it was, a clear step further back than its neighbour.
             let mut at = 0;
+            let mut stood: Vec<(f32, f32)> = Vec::new();
             for (group, size) in sizes.iter().enumerate() {
-                for _ in 0..*size {
-                    let spot = &mut people[run[at]];
-                    if group % 2 == 1 {
-                        spot.y = line - figure_h * 0.4;
-                        spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+                let members = run[at..at + size].to_vec();
+                let own = places[at..at + size].to_vec();
+                at += size;
+                let first = own[0].0;
+                let width = width_of(*size);
+                let centre = members.iter().map(|m| people[*m].x).sum::<f32>() / *size as f32;
+                let fits = |start: f32| {
+                    own.iter().all(|(x, _)| open_at(start + x - first))
+                        && stood
+                            .iter()
+                            .all(|(l, r)| start + width + between <= *l || start >= *r + between)
+                };
+                let home = centre - width / 2.0;
+                match (0..=60)
+                    .flat_map(|step| [step, -step])
+                    .map(|step| home + step as f32 * nudge)
+                    .find(|start| fits(*start))
+                {
+                    Some(start) => {
+                        for (member, (x, back)) in members.iter().zip(&own) {
+                            let spot = &mut people[*member];
+                            let seed = spot.index as f32 * 0.37;
+                            spot.x = start + x - first;
+                            spot.y = line - back + seed.sin() * figure_h * 0.02;
+                            spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+                        }
+                        stood.push((start, start + width));
                     }
-                    at += 1;
+                    None => {
+                        let (mut l, mut r) = (f32::MAX, f32::MIN);
+                        for member in &members {
+                            let spot = &mut people[*member];
+                            if group % 2 == 1 {
+                                spot.y = line - figure_h * 0.4;
+                                spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+                            }
+                            l = l.min(spot.x);
+                            r = r.max(spot.x);
+                        }
+                        stood.push((l, r));
+                    }
                 }
             }
             continue;
@@ -227,6 +294,58 @@ pub(super) fn gather(people: &mut [Spot], figure_h: f32, quay: f32, blocked: &[(
             spot.x = start + x;
             spot.y = line - back + seed.sin() * figure_h * 0.02;
             spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
+        }
+    }
+    // Someone a step nearer, in the front lane, never stands in front of
+    // a group behind them, closing it up into one line of four: they step
+    // clear of it, a full gap either side, if there is room near.
+    let mut behind: Vec<(f32, f32)> = Vec::new();
+    let mut xs = people
+        .iter()
+        .filter(|spot| lane_of(spot) == 0)
+        .map(|spot| spot.x)
+        .collect::<Vec<_>>();
+    xs.sort_by(f32::total_cmp);
+    for x in xs {
+        match behind.last_mut() {
+            Some((_, right)) if x - *right < between * 0.9 => *right = x,
+            _ => behind.push((x, x)),
+        }
+    }
+    let mut front = (0..people.len())
+        .filter(|at| lane_of(&people[*at]) == 1)
+        .collect::<Vec<_>>();
+    front.sort_by(|a, b| people[*a].x.total_cmp(&people[*b].x));
+    let nudge = figure_h * 0.2;
+    for at in front {
+        let x = people[at].x;
+        let apart = |x: f32| {
+            behind
+                .iter()
+                .all(|(l, r)| x <= l - between || x >= r + between)
+        };
+        if apart(x) {
+            continue;
+        }
+        let others = people
+            .iter()
+            .enumerate()
+            .filter(|(other, spot)| *other != at && lane_of(spot) == 1)
+            .map(|(_, spot)| spot.x)
+            .collect::<Vec<_>>();
+        let open = |x: f32| {
+            apart(x)
+                && fronted
+                    .iter()
+                    .all(|(l, r)| x + room / 2.0 <= *l || x - room / 2.0 >= *r)
+                && others.iter().all(|other| (other - x).abs() >= near)
+        };
+        if let Some(to) = (1..=40)
+            .flat_map(|step| [step, -step])
+            .map(|step| x + step as f32 * nudge)
+            .find(|x| open(*x))
+        {
+            people[at].x = to;
         }
     }
 }

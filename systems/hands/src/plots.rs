@@ -404,6 +404,7 @@ pub fn naming_cards(
                     unavailable: None,
                     hand: None,
                     preview: None,
+                    role: None,
                 })
         })
         .collect()

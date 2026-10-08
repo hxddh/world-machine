@@ -16,6 +16,8 @@
 //! makes sure something is always open. When a gauge the Pack reports is
 //! pinned at one end, it reaches first for a storylet that eases it back.
 
+#![forbid(unsafe_code)]
+
 pub mod script;
 
 use std::collections::BTreeMap;

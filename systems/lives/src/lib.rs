@@ -19,6 +19,8 @@
 //! to decide anything again. It knows nothing about harbours or colonies:
 //! a World Pack gives it a [`Cast`], with its people, places and words.
 
+#![forbid(unsafe_code)]
+
 mod voice;
 
 pub mod generations;

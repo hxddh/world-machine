@@ -1,17 +1,19 @@
 //! Update check against the GitHub Releases API.
 //!
-//! One request per launch to `api.github.com`, made with the `curl` that
-//! ships with macOS so the app carries no HTTP client. The request sends
+//! One request per launch to `api.github.com`, made with the `curl` the
+//! operating system ships (see `platform.rs`) so the app carries no HTTP
+//! client. A store build (`channel.rs`) never makes it. The request sends
 //! nothing about the user beyond what any HTTPS request does; the response
 //! is the latest release's tag and page URL. `WORLD_MACHINE_NO_UPDATE_CHECK=1`
 //! turns the check off, which the screenshot job and privacy-conscious users
 //! rely on. A failed or slow check is silent: Home simply shows no banner.
 
 use std::env;
-use std::process::Command;
 use std::time::Duration;
 
 use crate::build_info;
+use world_machine_desktop::channel;
+use world_machine_desktop::platform::{self, Fetch};
 
 pub const DISABLE_ENV: &str = "WORLD_MACHINE_NO_UPDATE_CHECK";
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/hxddh/world-machine/releases/latest";
@@ -25,32 +27,25 @@ pub struct AvailableUpdate {
 }
 
 pub fn enabled() -> bool {
-    env::var_os(DISABLE_ENV).is_none()
+    channel::CURRENT.checks_github_for_updates() && env::var_os(DISABLE_ENV).is_none()
 }
 
 /// Blocking; run it on the background executor. `None` means "nothing newer
 /// or could not tell", which the caller treats the same way.
 pub fn check() -> Option<AvailableUpdate> {
-    let output = Command::new("/usr/bin/curl")
-        .args([
-            "-fsSL",
-            "--max-time",
-            &TIMEOUT.as_secs().to_string(),
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            &format!("User-Agent: world-machine/{}", build_info::APP_VERSION),
-            LATEST_RELEASE_URL,
-        ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
+    if !enabled() {
         return None;
     }
-    newer_than_current(
-        &String::from_utf8_lossy(&output.stdout),
-        build_info::APP_VERSION,
-    )
+    let headers = [
+        "Accept: application/vnd.github+json".to_string(),
+        format!("User-Agent: world-machine/{}", build_info::APP_VERSION),
+    ];
+    let body = platform::current().fetch(&Fetch {
+        url: LATEST_RELEASE_URL,
+        headers: &headers,
+        timeout: TIMEOUT,
+    })?;
+    newer_than_current(&body, build_info::APP_VERSION)
 }
 
 fn newer_than_current(body: &str, current: &str) -> Option<AvailableUpdate> {
@@ -109,6 +104,14 @@ mod tests {
             newer_than_current(r#"{"tag_name":"nightly"}"#, "0.2.0"),
             None
         );
+    }
+
+    #[test]
+    fn a_store_build_never_asks_github() {
+        if cfg!(feature = "channel-store") {
+            assert!(!enabled());
+            assert_eq!(check(), None);
+        }
     }
 
     #[test]

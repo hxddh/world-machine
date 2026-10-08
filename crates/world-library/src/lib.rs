@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod change;
 mod lock;
 mod revision;
@@ -1852,6 +1854,7 @@ mod tests {
                     unavailable: None,
                     hand: None,
                     preview: None,
+                    role: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

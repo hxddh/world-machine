@@ -415,6 +415,196 @@ fn the_scene_draws_at_once_and_its_still_layers_arrive_and_fade_in() {
     matches_golden("diorama-day", &settled);
 }
 
+/// Paints `frame` in a window of its own, the still layers painted
+/// elsewhere as in the app, until they settle: every frame drawn once all
+/// the pictures are painted, and the settled frame.
+fn settle(frame: diorama::Frame, (width, height): (f32, f32)) -> (Vec<RgbaImage>, RgbaImage) {
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| SceneView(frame.clone()))
+        })
+        .expect("a window");
+    cx.run_until_parked();
+    let refresh = |cx: &mut HeadlessAppContext| {
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("a window");
+        cx.run_until_parked();
+    };
+    let _ = diorama::rough_overlap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !crate::painter::idle() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the still layers arrive"
+        );
+        let overlap = diorama::rough_overlap();
+        assert!(
+            overlap < 1.0,
+            "the rough painting drawn where a sharp picture is: {overlap} px²"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        refresh(&mut cx);
+    }
+    // Painted: the pictures are handed to the display a frame's share at a
+    // time, and what arrives fades in. Every one of these frames is looked at.
+    let mut between = Vec::new();
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        refresh(&mut cx);
+        between.push(cx.capture_screenshot(window.into()).expect("a picture"));
+        let overlap = diorama::rough_overlap();
+        assert!(
+            overlap < 1.0,
+            "the rough painting drawn where a sharp picture is: {overlap} px²"
+        );
+    }
+    std::thread::sleep(std::time::Duration::from_millis(450));
+    refresh(&mut cx);
+    refresh(&mut cx);
+    let settled = cx.capture_screenshot(window.into()).expect("a picture");
+    (between, settled)
+}
+
+/// How many pixels of `a` differ from `b` by more than a few levels.
+fn differing(a: &RgbaImage, b: &RgbaImage) -> usize {
+    a.pixels()
+        .zip(b.pixels())
+        .filter(|(p, q)| (0..4).any(|c| (p.0[c] as i16 - q.0[c] as i16).abs() > 4))
+        .count()
+}
+
+/// The rough painting only ever stands in where a sharp picture is not
+/// there yet: never under one, never over one. A settled scene is the same
+/// with it as without it, and so is every frame once all the sharp pictures
+/// are painted and with the display (the rough would otherwise show through
+/// what is transparent in a picture fading in: its shadows doubled, its
+/// tile's edge drawn). In a town and at a place of a second Pack.
+#[test]
+fn the_rough_painting_never_shows_where_a_sharp_picture_is() {
+    crate::painter::paint_elsewhere(true);
+    for (name, snapshot) in [("town", town()), ("maple", place("maple"))] {
+        let size = (900.0, 560.0);
+        let frame = || diorama_frame(&snapshot, size.0, size.1, Daylight::Day, 13.0);
+        diorama::set_rough_off(false);
+        let (between, settled) = settle(frame(), size);
+        diorama::set_rough_off(true);
+        let (_, without) = settle(frame(), size);
+        diorama::set_rough_off(false);
+        let tolerance = (size.0 * size.1 * 0.001) as usize;
+        let off = differing(&settled, &without);
+        if off > tolerance {
+            let _ = settled.save(format!("/tmp/world-gpui-rough-{name}-with.png"));
+            let _ = without.save(format!("/tmp/world-gpui-rough-{name}-without.png"));
+        }
+        assert!(
+            off <= tolerance,
+            "{name}: settled with the rough painting differs in {off} pixels"
+        );
+        // Once a frame matches, it stays matched: no rough drawn back.
+        let first = between
+            .iter()
+            .position(|image| differing(image, &without) <= tolerance);
+        for (index, image) in between
+            .iter()
+            .enumerate()
+            .skip(first.unwrap_or(between.len()))
+        {
+            let off = differing(image, &without);
+            if off > tolerance {
+                let _ = image.save(format!("/tmp/world-gpui-rough-{name}-{index}.png"));
+            }
+            assert!(
+                off <= tolerance,
+                "{name}: frame {index} after painting differs in {off} pixels"
+            );
+        }
+    }
+    crate::painter::paint_elsewhere(false);
+}
+
+/// A new look fades in over the old one without drawing anything twice:
+/// while it fades, no pixel is darker than both the old settled picture
+/// and the new (a contact shadow drawn under its own replacement, half
+/// faded, is darker than either). A town, at noon and then at three.
+#[test]
+fn a_new_look_fades_in_without_doubling_its_shadows() {
+    crate::painter::paint_elsewhere(true);
+    let snapshot = town();
+    let (width, height) = (900.0, 560.0);
+    let noon = diorama_frame(&snapshot, width, height, Daylight::Day, 12.0);
+    let three = diorama_frame(&snapshot, width, height, Daylight::Day, 15.0);
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| SceneView(noon.clone()))
+        })
+        .expect("a window");
+    cx.run_until_parked();
+    let refresh = |cx: &mut HeadlessAppContext| {
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("a window");
+        cx.run_until_parked();
+    };
+    let settle = |cx: &mut HeadlessAppContext| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut frames = Vec::new();
+        while !crate::painter::idle() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the still layers arrive"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            refresh(cx);
+            frames.push(cx.capture_screenshot(window.into()).expect("a picture"));
+        }
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            refresh(cx);
+            frames.push(cx.capture_screenshot(window.into()).expect("a picture"));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        refresh(cx);
+        refresh(cx);
+        (
+            frames,
+            cx.capture_screenshot(window.into()).expect("a picture"),
+        )
+    };
+    let (_, before) = settle(&mut cx);
+    window
+        .update(&mut cx, |view, _, cx| {
+            view.0 = three.clone();
+            cx.notify();
+        })
+        .expect("a window");
+    let (between, after) = settle(&mut cx);
+    crate::painter::paint_elsewhere(false);
+    let tolerance = (width * height * 0.001) as usize;
+    for (index, image) in between.iter().enumerate() {
+        let darker = image
+            .pixels()
+            .zip(before.pixels().zip(after.pixels()))
+            .filter(|(p, (a, b))| luma(p) + 10.0 < luma(a).min(luma(b)))
+            .count();
+        if darker > tolerance {
+            let _ = image.save(format!("/tmp/world-gpui-fade-{index}.png"));
+            let _ = before.save("/tmp/world-gpui-fade-before.png");
+            let _ = after.save("/tmp/world-gpui-fade-after.png");
+        }
+        assert!(
+            darker <= tolerance,
+            "frame {index} of the fade: {darker} pixels darker than before and after"
+        );
+    }
+}
+
 /// How long this thread has been running on a CPU, so a frame is timed by
 /// its own work and not by the other programs a busy machine is running
 /// meanwhile.
@@ -448,12 +638,12 @@ impl gpui::Render for LiveScene {
         let (width, height) = (frame.width_of_view(), frame.height_of_view());
         let started = std::time::Instant::now();
         let strip = self.1.borrow().as_ref().map(|(snapshot, moment)| {
-            let layout = crate::macos::strip_layout(width, height);
+            let layout = crate::window::strip_layout(width, height);
             div()
                 .absolute()
                 .left(px(layout.x))
                 .top(px(layout.y))
-                .child(crate::macos::moment_strip(snapshot, moment, layout))
+                .child(crate::window::moment_strip(snapshot, moment, layout))
         });
         crate::painter::note_frame(started.elapsed());
         div()
@@ -510,8 +700,12 @@ fn a_three_year_world_never_waits_for_painting() {
             cx.new(|_| LiveScene(view.clone(), strip.clone()))
         })
         .expect("a window");
+    // Opening the window paints what its first frame shows right there,
+    // before the window is shown (the rough painting of what the camera
+    // sees, the sky and the hills): no frame the player sees waits for it,
+    // so it has a bar of its own.
     let opening = on_cpu().saturating_sub(started);
-    let mut worst = opening;
+    let mut worst = Duration::ZERO;
     let mut frames = 0;
     let settle = |cx: &mut HeadlessAppContext, worst: &mut Duration, frames: &mut u32| {
         let deadline = Instant::now() + Duration::from_secs(30);
@@ -699,8 +893,17 @@ fn a_three_year_world_never_waits_for_painting() {
         worst.as_secs_f64() * 1000.0,
         opening.as_secs_f64() * 1000.0
     );
+    // Through every phase (the opening, the pan, the zooms, the boil) the
+    // rough painting is never drawn where a sharp picture is: no frame
+    // pays for the same ground twice.
+    let overlap = diorama::rough_overlap();
+    assert!(
+        overlap < 1.0,
+        "the rough painting drawn under or over a sharp picture: {overlap} px²"
+    );
     if !cfg!(debug_assertions) {
         assert!(worst < Duration::from_millis(8), "{worst:?}");
+        assert!(opening < Duration::from_millis(250), "opening {opening:?}");
     }
 }
 
@@ -740,7 +943,7 @@ fn the_postcard_matches_its_golden_picture() {
             .size_full()
             .relative()
             .child(painted(frame.clone()))
-            .child(crate::macos::postcard_paper(&card, width, height))
+            .child(crate::window::postcard_paper(&card, width, height))
             .into_any_element()
     });
     matches_golden("postcard", &image);
@@ -751,8 +954,8 @@ fn the_postcard_matches_its_golden_picture() {
 /// little arrow, and the accent edge that sets it apart from a card.
 #[test]
 fn the_pointers_and_the_zoom_control_match_their_golden_picture() {
-    use crate::macos::{pointer_hint, zoom_button, Caret};
     use crate::pointers::Pointer;
+    use crate::window::{pointer_hint, zoom_button, Caret};
     let snapshot = town();
     let (width, height) = (720.0, 420.0);
     let frame = diorama_frame(&snapshot, width, height, Daylight::Day, 13.0);
@@ -994,20 +1197,16 @@ fn a_wedding_a_birth_and_a_farewell_match_their_golden_pictures() {
         ),
     ] {
         let (width, height) = (900.0, 480.0);
-        let layout = crate::macos::strip_layout(width, height);
+        let layout = crate::window::strip_layout(width, height);
         let strip_snapshot = snapshot.clone();
         let image = draw(width, height, move || {
             div()
                 .size_full()
                 .bg(gpui::rgb(0x6f7a70))
                 .relative()
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(layout.x))
-                        .top(px(layout.y))
-                        .child(crate::macos::moment_strip(&strip_snapshot, &moment, layout)),
-                )
+                .child(div().absolute().left(px(layout.x)).top(px(layout.y)).child(
+                    crate::window::moment_strip(&strip_snapshot, &moment, layout),
+                ))
                 .into_any_element()
         });
         matches_golden(name, &image);
@@ -1041,7 +1240,7 @@ fn a_moment_at_a_designed_place_shows_the_design() {
         "Mara and Leo marry",
         [&[1, 3], &[1, 3], &[1, 3, 4]],
     );
-    let scenes = crate::macos::panel_scenes(&snapshot, &moment);
+    let scenes = crate::window::panel_scenes(&snapshot, &moment);
     assert!(
         scenes.iter().all(|scene| scene
             .place
@@ -1050,7 +1249,7 @@ fn a_moment_at_a_designed_place_shows_the_design() {
         "every panel's place wears the design"
     );
     let (width, height) = (900.0, 480.0);
-    let layout = crate::macos::strip_layout(width, height);
+    let layout = crate::window::strip_layout(width, height);
     let image = draw(width, height, move || {
         div()
             .size_full()
@@ -1061,7 +1260,7 @@ fn a_moment_at_a_designed_place_shows_the_design() {
                     .absolute()
                     .left(px(layout.x))
                     .top(px(layout.y))
-                    .child(crate::macos::moment_strip(&snapshot, &moment, layout)),
+                    .child(crate::window::moment_strip(&snapshot, &moment, layout)),
             )
             .into_any_element()
     });
@@ -1444,7 +1643,7 @@ fn world_window(
     let window = cx
         .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
             cx.new(|_| {
-                let mut view = crate::macos::ProjectionView::controlled(Fixed(snapshot.clone()))
+                let mut view = crate::window::ProjectionView::controlled(Fixed(snapshot.clone()))
                     .with_strip(|_, _| {});
                 view.looking.opening = None;
                 view.looking.photographing = !controls;
@@ -1668,4 +1867,79 @@ fn the_ground_has_no_seam_where_the_postcard_rows_meet() {
             );
         }
     }
+}
+
+/// v0.27's year-three zoom-out: the nearer rows of the folded postcard
+/// stayed a flat slab for good, because the still things' boil sent the
+/// painter after each new drawing before the last one was with the
+/// display, and those rows' layers never settled. Zoomed right out on a
+/// three-year World, with the boil running as it runs in the window, every
+/// layer settles, and nothing the camera sees is left unpainted.
+#[test]
+fn a_zoomed_out_town_settles_while_the_boil_runs() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    let make = |seconds: f32| {
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(12));
+        let living = diorama::living(
+            &stage,
+            &snapshot,
+            0.0,
+            Daylight::Day,
+            &Default::default(),
+            None,
+        );
+        let least = Camera::least(&stage);
+        assert!(least < 0.8, "a three-year World folds (least zoom {least})");
+        let camera = Camera::around(&stage, least, stage.width / 2.0, height / 2.0);
+        diorama::frame(
+            &snapshot,
+            &stage,
+            &living,
+            camera,
+            0.0,
+            Daylight::Day,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(12.0)
+        .at_seconds(seconds)
+    };
+    let shared = std::rc::Rc::new(std::cell::RefCell::new(make(0.0)));
+    let strip = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let view = shared.clone();
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| LiveScene(view.clone(), strip.clone()))
+        })
+        .expect("a window");
+    let started = Instant::now();
+    let mut boils = std::collections::BTreeSet::new();
+    let mut settled = false;
+    while started.elapsed() < Duration::from_secs(60) {
+        std::thread::sleep(Duration::from_millis(8));
+        let frame = make(started.elapsed().as_secs_f32());
+        boils.insert(frame.boil());
+        *shared.borrow_mut() = frame;
+        let (done, gaps) = cx
+            .update_window(window.into(), |_, window, _| {
+                window.refresh();
+                (diorama::settled(window), diorama::unpainted(window))
+            })
+            .expect("a window");
+        cx.run_until_parked();
+        if done && gaps == 0 && boils.len() > 1 {
+            settled = true;
+            break;
+        }
+    }
+    crate::painter::paint_elsewhere(false);
+    assert!(boils.len() > 1, "the boil ran");
+    assert!(settled, "every layer of the zoomed-out town settles");
 }

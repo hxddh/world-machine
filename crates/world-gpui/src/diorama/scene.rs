@@ -660,6 +660,16 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
             inside.push((index, to));
         }
     }
+    // A place of a keeper or two (a new place, its first night) is never shown
+    // empty: when the hour has everyone indoors, the first of them is out
+    // at their own door, beside the place they keep.
+    let actors = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .count();
+    if actors <= 3 && !inside.is_empty() && inside.len() == actors {
+        inside.remove(0);
+    }
     let indoors = inside
         .iter()
         .map(|(person, _)| *person)
@@ -720,6 +730,20 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         })
         .map(|spot| (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0))
         .collect::<Vec<_>>();
+    // What stands on the water line in front of the quay (the tower on
+    // the point, a boathouse) opens onto it: nobody stands in its door, or
+    // in front of it at all, in either lane.
+    let fronted = buildings
+        .iter()
+        .filter(|spot| {
+            matches!(Depth::at(spot.y, height), Depth::Quay | Depth::Water) && spot.y > quay
+        })
+        .map(|spot| (spot.x - spot.w * 0.45, spot.x + spot.w * 0.45))
+        .collect::<Vec<_>>();
+    let blocked = blocked
+        .into_iter()
+        .chain(fronted.iter().copied())
+        .collect::<Vec<_>>();
     // The quay has two lanes: among what stands on it, and a step nearer,
     // in front of everything, for a crowd the first has no room for.
     let lane = figure_h * 0.45;
@@ -734,6 +758,9 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
                     || blocked
                         .iter()
                         .all(|(left, right)| x + room / 2.0 <= *left || x - room / 2.0 >= *right))
+                && fronted
+                    .iter()
+                    .all(|(left, right)| x + room / 2.0 <= *left || x - room / 2.0 >= *right)
                 && people
                     .iter()
                     .filter(|other| other.y == y)
@@ -779,7 +806,7 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
     }
     // People stand in twos and threes facing each other, not in rows (A2).
-    super::people::gather(&mut people, figure_h, quay, &blocked);
+    super::people::gather(&mut people, figure_h, quay, &blocked, &fronted);
     people.sort_by_key(|spot| spot.index);
     let routes = leaving
         .into_iter()

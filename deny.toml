@@ -11,7 +11,10 @@
 #   been yanked. An unmaintained crate is reported only when the app uses it
 #   directly; the ones gpui brings in are its to replace.
 # - bans: two versions of one crate are allowed (gpui alone brings several),
-#   but a wildcard version requirement is not.
+#   but a wildcard version requirement is not. `pi_agent_rust` may never be
+#   in the build, under any name a crate can be published as: pi runs out of
+#   process behind the `world-pi-rpc` adapter, so its licence cannot reach
+#   the app, the kernel or the agent protocol (AGENTS.md invariant 8).
 # - sources: crates come from crates.io, and from the git repositories of
 #   the window toolkit and its forks, each pinned by commit in Cargo.lock.
 
@@ -61,6 +64,13 @@ multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true
 highlight = "all"
+deny = [
+  # Invariant 8: pi is an out-of-process RPC adapter, never a dependency.
+  # cargo-deny matches crate names exactly, and a published crate's `-` and
+  # `_` are the same name to Cargo, so both spellings are listed.
+  { name = "pi_agent_rust", reason = "pi runs out of process (world-pi-rpc); AGENTS.md invariant 8" },
+  { name = "pi-agent-rust", reason = "pi runs out of process (world-pi-rpc); AGENTS.md invariant 8" },
+]
 
 [sources]
 unknown-registry = "deny"

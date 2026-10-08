@@ -1,0 +1,224 @@
+# Every name the three places' lines can say, in each language they speak.
+# English, then its Chinese forms, then its Japanese forms; several forms
+# are separated by |. The catalog's own translations (locales/) count too.
+# Held by lexicon_tests.rs: every name the Pack can produce is here or in
+# the catalogs, in all three languages.
+Nia Chen	妮娅·陈|妮娅|陈妮娅	ニア・チェン|ニア
+Tomas Vale	托马斯·维尔|托马斯	トマス・ヴェイル|トマス
+Ines Duarte	伊内丝·杜阿尔特|伊内丝|伊内斯	イネス・ドゥアルテ|イネス
+Lena Ortiz	莉娜·奥尔蒂斯|莉娜|蕾娜	レナ・オルティス|レナ|レーナ
+Max Park	马克斯·帕克|马克斯	マックス・パーク|マックス
+Ray Kowalski	雷·科瓦尔斯基|雷	レイ・コワルスキー|レイ
+Piko	皮可|皮科	ピコ
+Miri	米丽|米莉	ミリ
+Tuk	图克	トゥク|トゥック
+Uko	Uko|乌科|老Uko	ウコ|ウコじいさん
+Old Uko	老Uko|乌科爷爷|老乌科	ウコじいさん|ウコ爺さん
+Gus	格斯|加斯	ガス
+Dunn	邓恩	ダン
+Henderson	亨德森	ヘンダーソン
+the Hendersons	亨德森一家|亨德森家	ヘンダーソン家|ヘンダーソンさんち
+Kowalski	科瓦尔斯基	コワルスキー
+Yusuf Adeyemi	尤素福·阿德耶米|尤素福	ユスフ・アデイェミ|ユスフ
+Sasha Petrov	萨沙·彼得罗夫|萨沙	サーシャ・ペトロフ|サーシャ
+Lin Mei	林梅|林美	リン・メイ|リンメイ
+Oskar Holm	奥斯卡·霍尔姆|奥斯卡	オスカル・ホルム|オスカル|オスカー
+Priya Raman	普丽娅·拉曼|普丽娅	プリヤ・ラマン|プリヤ
+Dmitri Sokol	德米特里·索科尔|德米特里	ドミトリ・ソコル|ドミトリ
+Amara Obi	阿玛拉·奥比|阿玛拉	アマラ・オビ|アマラ
+Freya Lund	弗蕾娅·伦德|弗蕾娅	フレイヤ・ルンド|フレイヤ
+Kofi Mensah	科菲·门萨|科菲	コフィ・メンサー|コフィ
+Elena Ruiz	埃莱娜·鲁伊斯|埃莱娜|叶莲娜	エレナ・ルイス|エレナ
+Hiro Tanaka	田中浩|浩|希罗	ヒロ・タナカ|ヒロ|田中ヒロ
+Nadia Haddad	纳迪娅·哈达德|纳迪娅	ナディア・ハダッド|ナディア
+Ravi Kapoor	拉维·卡普尔|拉维	ラヴィ・カプール|ラヴィ
+Greta Nilsson	格蕾塔·尼尔森|格蕾塔	グレタ・ニルソン|グレタ
+Tariq Bashir	塔里克·巴希尔|塔里克	タリク・バシール|タリク
+Chloe Martin	克洛伊·马丁|克洛伊	クロエ・マルタン|クロエ
+Mateo Silva	马特奥·席尔瓦|马特奥	マテオ・シルバ|マテオ
+Ada Nwosu	艾达·恩沃苏|艾达	エイダ・ヌウォス|エイダ
+Jonas Berg	约纳斯·贝里|约纳斯|乔纳斯	ジョナス・ベリ|ジョナス|ヨナス
+Leila Karimi	莱拉·卡里米|莱拉	レイラ・カリミ|レイラ
+Pavel Novak	帕维尔·诺瓦克|帕维尔	パヴェル・ノヴァーク|パヴェル
+Sun Li	孙丽|孙莉	スン・リー|スン|孫麗
+Marisol Vega	玛丽索尔·维加|玛丽索尔	マリソル・ベガ|マリソル
+Ibrahim Diallo	易卜拉欣·迪亚洛|易卜拉欣	イブラヒム・ディアロ|イブラヒム
+Hanna Virtanen	汉娜·维尔塔宁|汉娜	ハンナ・ヴィルタネン|ハンナ
+Kai Keawe	凯·基阿维|凯	カイ・ケアヴェ|カイ
+Zofia Nowak	索菲娅·诺瓦克|索菲娅	ゾフィア・ノヴァク|ゾフィア
+Arjun Mehta	阿尔琼·梅塔|阿尔琼	アルジュン・メータ|アルジュン
+Ingrid Dahl	英格丽德·达尔|英格丽德	イングリッド・ダール|イングリッド
+Tomasz Kral	托马什·克拉尔|托马什	トマシュ・クラール|トマシュ
+Wanjiru Kamau	万吉鲁·卡毛|万吉鲁	ワンジル・カマウ|ワンジル
+Felix Braun	费利克斯·布劳恩|费利克斯	フェリックス・ブラウン|フェリックス
+Rosa Delgado	罗莎·德尔加多|罗莎	ローザ・デルガド|ローザ
+Emeka Okafor	埃梅卡·奥卡福|埃梅卡	エメカ・オカフォー|エメカ
+Mira Stein	米拉·斯坦|米拉	ミラ・シュタイン|ミラ
+Diego Castro	迭戈·卡斯特罗|迭戈	ディエゴ・カストロ|ディエゴ
+Omar Farouk	奥马尔·法鲁克|奥马尔	オマル・ファルーク|オマル
+Aiko Mori	森爱子|爱子	アイコ・モリ|アイコ|森愛子
+Donna	唐娜	ドナ|ドンナ
+Ricky	里奇|瑞奇	リッキー
+Tanya	坦娅|塔尼娅	ターニャ|タニヤ
+Walt	沃尔特	ウォルト
+Keisha	基莎|凯莎	キーシャ
+Eddie	埃迪|艾迪	エディ|エディー
+Joanie	乔妮	ジョーニー
+Mikey	迈奇|麦奇	マイキー
+Carla	卡拉	カーラ
+Dwayne	德韦恩|道恩	ドウェイン
+Stacy	斯泰西|史黛西	ステイシー
+Kevin	凯文	ケビン|ケヴィン
+Brenda	布伦达	ブレンダ
+Tony	托尼	トニー
+Lisa	丽莎|莉莎	リサ
+Marcus	马库斯	マーカス
+Wendy	温迪	ウェンディ
+Rodney	罗德尼	ロドニー
+Tina	蒂娜	ティナ
+Duane	杜安|德韦恩	デュエイン|デュアン
+Sheila	希拉	シーラ
+Jimmy	吉米	ジミー
+Denise	丹妮丝|德尼丝	デニス|デニーズ
+Troy	特洛伊	トロイ
+Angie	安吉	アンジー
+Curtis	柯蒂斯	カーティス
+Patty	帕蒂	パティ
+Lamar	拉马尔	ラマー
+Heather	希瑟	ヘザー
+Vince	文斯	ヴィンス|ビンス
+Rosa	罗莎|萝莎	ローザ|ロサ
+Gary	加里	ゲイリー|ゲーリー
+Yolanda	约兰达	ヨランダ
+Scott	斯科特	スコット
+Debbie	黛比|戴比	デビー
+Andre	安德烈|安德雷	アンドレ
+Kim	金|基姆	キム
+Terry	特里	テリー
+Shawn	肖恩	ショーン
+Nicole	妮可|尼科尔	ニコール
+Pip	皮普	ピップ
+Olo	奥洛	オロ
+Nessa	内莎|奈莎	ネッサ
+Brr	布尔	ブルル|ブル
+Kiki	琪琪|基基	キキ
+Umi	乌米	ウミ
+Flo	弗洛	フロー|フロ
+Wob	沃布	ウォブ
+Tiki	蒂基	ティキ
+Snow	斯诺|小雪	スノウ|スノー
+Nib	尼布	ニブ
+Tolo	托洛	トロ|トーロ
+Suki	苏琪	スキ|スーキー
+Frost	弗罗斯特|霜霜	フロスト
+Puff	帕夫|噗噗	パフ
+Dot	多特|点点	ドット
+Ploo	普鲁	プルー|プルウ
+Yuki	由纪|尤基	ユキ
+Bibi	比比	ビビ
+Momo	莫莫|桃桃	モモ
+Taku	塔库|拓	タク
+Lumi	卢米	ルミ
+Kip	基普	キップ
+Noa	诺阿	ノア
+Skip	斯基普	スキップ
+Fizz	菲兹	フィズ
+Oona	乌娜	ウーナ
+Bo	博|波	ボー|ボウ
+Tuft	塔夫特|簇簇	タフト
+Minnow	米诺|小鱼	ミノー
+Sleet	斯利特	スリート
+Ripple	里普尔|涟漪	リプル|リップル
+Squall	斯阔尔	スコール
+Drift	德里夫特	ドリフト
+Pebble	佩布尔|小石子	ペブル|ペッブル
+Hush	哈什	ハッシュ
+Wren	雷恩	レン
+Nuk	努克	ヌク|ヌック
+Tay	泰	テイ
+Zuzu	祖祖	ズズ
+Luna	卢娜|露娜	ルナ
+Orion	奥赖恩|欧瑞恩	オリオン
+Vesta	维斯塔	ヴェスタ|ベスタ
+Kian	基安	キアン
+Nova	诺娃	ノヴァ|ノバ
+Remy	雷米	レミー|レミ
+Soleil	索蕾|索莱伊	ソレイユ
+Ezra	埃兹拉	エズラ
+Talia	塔莉娅	タリア
+Juno	朱诺	ジュノー|ジュノ
+Kayla	凯拉	ケイラ
+Jason	杰森	ジェイソン
+Bethany	贝瑟尼	ベサニー
+Tyler	泰勒	タイラー
+Ashley	阿什莉|艾希莉	アシュリー
+Justin	贾斯汀	ジャスティン
+Amber	安伯|琥珀	アンバー
+Kyle	凯尔	カイル
+Megan	梅根	メーガン|メガン
+Cody	科迪	コーディ|コディ
+Pippa	皮帕	ピッパ
+Nubbin	纳宾	ナビン
+Floe	弗洛|浮冰	フロウ
+Tuffet	塔费特	タフェット
+Mookie	穆基	ムーキー
+Sprat	斯普拉特	スプラット
+Wibble	维布尔	ウィブル
+Kelp	凯尔普|海带	ケルプ
+Dimple	丁普尔|酒窝	ディンプル
+Squeak	斯奎克|吱吱	スクイーク
+Ares Habitat	阿瑞斯基地|阿瑞斯|基地|栖息地|居住区	アレス居住区|アレス|ドーム
+Hydroponics Bay	水培舱|水培区|温室	水耕ベイ|水耕区画|温室
+Kestrel Rover	红隼号|红隼漫游车	ケストレル号|ケストレル・ローバー
+Maple Street	枫树街|枫叶街	メープル通り|メイプル・ストリート|メープルストリート
+Maple Arcade	枫树街机厅|游戏厅|街机厅	メープル・アーケード|ゲームセンター|ゲーセン
+Elm Street	榆树街	エルム通り|エルム・ストリート
+K-88 Radio	K-88电台|电台	K-88ラジオ|ラジオ局
+Night Bus 6	6路夜班车|夜班车	夜行バス6番|6番の夜行バス
+the Rialto	里亚托|里亚托影院	リアルト|リアルト劇場
+Icebridge	冰桥	アイスブリッジ|氷の橋
+Fish Vault	鱼库|鱼仓	魚の貯蔵庫|魚倉|フィッシュ・ボールト
+Aurora Council	极光议会	オーロラ評議会|オーロラ会議
+the Huddle	抱团|大抱团	ハドル|おしくらまんじゅう
+Earthrise	地出	アースライズ|地球の出
+Tharsis	塔尔西斯	タルシス
+Hellas	希腊平原	ヘラス
+Elysium	埃律西昂	エリシウム
+Phobos	火卫一	フォボス
+Earth	地球	地球|アース
+Mars	火星	火星|マーズ
+Landing Day	着陆日|登陆日	着陸の日|ランディング・デー
+the Dust Drill	沙尘演习|防尘演习	砂嵐訓練|ダスト訓練
+the Water Feast	水之宴|用水节|水宴	水の祝宴|水まつり
+the Spring Dance	春之舞|春季舞会	春のダンス|春のダンスパーティー
+the Fireworks	烟花|烟火大会	花火|花火大会|はなび
+the Krill Harvest	磷虾大丰收|磷虾收获节	オキアミの収穫|オキアミ祭り
+Pocket Colony	口袋殖民地|殖民地	ポケット・コロニー|コロニー
+Ares Pocket Colony	阿瑞斯口袋殖民地	アレス・ポケット・コロニー
+Pac-Man	吃豆人	パックマン
+Centipede	蜈蚣|蜈蚣游戏	センチピード
+Galaga	大蜜蜂|嘎拉嘎	ギャラガ
+Tetris	俄罗斯方块	テトリス
+Donkey Kong	大金刚	ドンキーコング
+Walkman	随身听	ウォークマン
+Nintendo	任天堂	任天堂|ニンテンドー
+Rubik	魔方|鲁比克	ルービック|ルービックキューブ
+MTV	MTV|音乐电视	MTV|エムティービー
+Springsteen	斯普林斯汀|斯普林斯廷	スプリングスティーン
+Bee Gees	比吉斯|Bee Gees	ビー・ジーズ|ビージーズ
+Chevy	雪佛兰	シボレー|シェビー
+Ford	福特	フォード
+Greyhound	灰狗巴士|灰狗	グレイハウンド
+Dana	达娜|黛娜	ダナ|デイナ
+Sura	苏拉	スーラ|スラ
+Lutz	卢茨	ルッツ
+Mr Lutz	卢茨先生	ルッツさん|ルッツじいさん
+Old Mr Lutz	老卢茨|老卢茨先生	ルッツじいさん
+Stephen King	斯蒂芬·金	スティーヴン・キング|スティーブン・キング
+Die Hard	虎胆龙威	ダイ・ハード
+Moby Dick	白鲸|白鲸记	白鯨|モビー・ディック
+Magna Carta	大宪章	マグナ・カルタ
+Walk of Fame	星光大道	ウォーク・オブ・フェーム
+San Jose	圣何塞	サンノゼ
+Little League	少年棒球联盟|少棒	リトルリーグ
+Big Burger	大汉堡|超大汉堡	ビッグ・バーガー|ビッグバーガー

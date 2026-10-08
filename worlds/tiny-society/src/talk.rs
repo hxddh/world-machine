@@ -187,6 +187,10 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         return Some((who, line));
     }
     if let Some((who, line)) = crate::handwork::enjoyed_line(world, event) {
+        // A use not spoken of says nothing at all.
+        if line.is_empty() {
+            return None;
+        }
         world.state().entity(who)?;
         return Some((who, line));
     }

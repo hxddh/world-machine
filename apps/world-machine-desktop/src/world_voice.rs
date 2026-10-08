@@ -91,7 +91,44 @@ pub(crate) fn ask_model(hearing: &world_gpui::VoiceHearing) -> Option<world_gpui
     let mut judge = judge_for(settings.configured_judge(key));
     // Reading the settings and the key came out of the same budget.
     let budget = ::world_voice::VOICE_BUDGET.saturating_sub(started.elapsed());
-    ::world_voice::answer_for_world(hearing, completion.as_mut(), judge.as_mut(), budget)
+    let parts = parts_of(hearing);
+    ::world_voice::answer_for_world(&parts, completion.as_mut(), judge.as_mut(), budget)
+        .map(ears_of)
+}
+
+/// The World's hearing as world-voice reads it: the same fields, so asking
+/// a model links no World code.
+fn parts_of(hearing: &world_gpui::VoiceHearing) -> ::world_voice::HearingParts {
+    ::world_voice::HearingParts {
+        name: hearing.name.clone(),
+        settlement: hearing.settlement.clone(),
+        traits: hearing.traits.clone(),
+        facts: hearing.facts.clone(),
+        people: hearing.people.clone(),
+        places: hearing.places.clone(),
+        words: hearing.words.clone(),
+        answer: hearing.answer.clone(),
+        known: hearing.known.clone(),
+        era: hearing.era.clone(),
+        lexicon: hearing.lexicon.clone(),
+        era_has: hearing.era_has.clone(),
+        era_lacks: hearing.era_lacks.clone(),
+    }
+}
+
+/// What world-voice heard, as the projection hands it to a World.
+fn ears_of(ears: ::world_voice::Ears) -> world_gpui::Ears {
+    match ears {
+        ::world_voice::Ears::Model(response) => world_gpui::Ears::Model(response),
+        ::world_voice::Ears::Judged { response, judged } => world_gpui::Ears::Judged {
+            response,
+            judged: world_projection::Judgement {
+                judge: judged.judge,
+                verdict: judged.verdict,
+                kind: judged.kind,
+            },
+        },
+    }
 }
 
 /// The judge a configured choice reaches: this Mac's own model only once

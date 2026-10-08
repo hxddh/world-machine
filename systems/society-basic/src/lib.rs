@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, StateChange, Value,
     WorldState,

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod actions;
 #[cfg(test)]
 mod agency;
@@ -11,6 +13,8 @@ mod book;
 mod drawings;
 mod drift;
 #[cfg(test)]
+mod exploit_tests;
+#[cfg(test)]
 mod favours_tests;
 #[cfg(test)]
 mod first_minutes;
@@ -22,6 +26,8 @@ mod host;
 mod interventions;
 mod kin;
 mod legends;
+#[cfg(test)]
+mod lexicon_tests;
 mod life;
 mod livelihood;
 mod local_economy;
@@ -48,6 +54,8 @@ mod staffing;
 mod story;
 mod talk;
 mod town;
+#[cfg(test)]
+mod voice_tests;
 mod voices;
 #[cfg(test)]
 mod words_tests;
@@ -193,13 +201,61 @@ pub(crate) fn shown(world: &World, since: Option<usize>) -> ProjectionSnapshot {
     let standing = world.standing();
     let kept = world.derived::<Shown>(|kept| match kept {
         Some(kept) if kept.standing == standing && kept.since == since => kept,
-        _ => std::sync::Arc::new(Shown {
-            standing,
-            since,
-            snapshot: show(world, since),
-        }),
+        kept => {
+            if let Some(stale) = kept {
+                let_go_later(stale);
+            }
+            std::sync::Arc::new(Shown {
+                standing,
+                since,
+                snapshot: show(world, since),
+            })
+        }
     });
     kept.snapshot.clone()
+}
+
+/// Lets go of a snapshot the World no longer stands as away from the turn:
+/// a three-year harbour's takes milliseconds to free, which a turn would
+/// otherwise wait for. It is freed once nothing else holds it (the World
+/// keeps it until the new one replaces it, and a copy of the World may keep
+/// it longer).
+fn let_go_later(stale: std::sync::Arc<Shown>) {
+    use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::Duration;
+    static LET_GO: OnceLock<Option<Mutex<Sender<Arc<Shown>>>>> = OnceLock::new();
+    let sender = LET_GO.get_or_init(|| {
+        let (sender, receiver) = channel::<Arc<Shown>>();
+        std::thread::Builder::new()
+            .name("tiny-society-let-go".into())
+            .spawn(move || {
+                let mut held = Vec::new();
+                loop {
+                    // Asleep while it holds nothing; while it holds
+                    // something still in use, it looks again now and then.
+                    let next = if held.is_empty() {
+                        receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+                    } else {
+                        receiver.recv_timeout(Duration::from_millis(50))
+                    };
+                    match next {
+                        Ok(stale) => held.push(stale),
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                    held.retain(|stale| Arc::strong_count(stale) > 1);
+                }
+            })
+            .ok()
+            .map(|_| Mutex::new(sender))
+    });
+    if let Some(sender) = sender {
+        if let Ok(sender) = sender.lock() {
+            // With nowhere to send it, it is let go of here, as before.
+            let _ = sender.send(stale);
+        }
+    }
 }
 
 /// The harbour's snapshot, with what each choice would do worked out on a
@@ -387,6 +443,9 @@ impl TinySocietyBranch {
             _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
             _ if plots::parse_command(command_id).is_some() => self.mark(command_id),
             _ if command_id.starts_with(life::SUGGEST_COMMAND) => self.suggest(command_id),
+            _ if conversation::report::parse_command(command_id).is_some() => {
+                self.report(command_id)
+            }
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -415,6 +474,17 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         let request = lives::suggestion_request(idea, life::fair(&self.world));
         Ok(vec![self.world.execute(actions, &request)?.id])
+    }
+
+    /// Reports something said to the player ("report this line"): an
+    /// Event caused by the exchange it reports, nothing else.
+    fn report(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let spoken = conversation::report::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a report: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let id = conversation::report::report(&mut self.world, actions, spoken)
+            .map_err(std::io::Error::other)?;
+        Ok(vec![id])
     }
 
     /// Answers one of the storyteller's storylets, and lets the town react.
@@ -493,6 +563,24 @@ impl TinySocietyBranch {
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
         let request =
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
+        self.said(request)
+    }
+
+    /// Says the open favour's quick reply to someone, chosen with a click:
+    /// done as the favour offers, never heard, whatever language the
+    /// player's button showed it in.
+    pub fn say_offered(
+        &mut self,
+        who: world_core::EntityId,
+        words: &str,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request =
+            speech::say_offered(&self.world, who, words).map_err(std::io::Error::other)?;
+        self.said(request)
+    }
+
+    /// Records what the player said, and what it did.
+    fn said(&mut self, request: world_core::ActionRequest) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         let event = self.world.execute(actions, &request)?.id;
         let mut events = vec![event];

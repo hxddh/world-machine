@@ -7,6 +7,8 @@
 //! background, borders stay visible, and text and accents become light. The
 //! window root sets the mode from the macOS appearance before it renders.
 
+#![forbid(unsafe_code)]
+
 pub mod tokens;
 
 use std::cell::Cell;

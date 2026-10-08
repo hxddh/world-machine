@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod causal;
 pub mod derived;
 mod drawing;
@@ -38,6 +40,7 @@ pub use stories::{
 };
 /// Text from outside a World, cleaned of characters that change how it
 /// reads without being seen (see [`world_core::text`]).
+pub use world_art::{Ground, Rung};
 pub use world_core::text::clean_text;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
@@ -257,6 +260,13 @@ pub enum Ears {
     /// verdict travels here, beside the response and never inside it, so
     /// no model can write one of its own.
     Judged { response: String, judged: Judgement },
+    /// Nobody needs to hear these words: they are the reply the World
+    /// itself offered with its open favour (`Favour::reply`), chosen with a
+    /// click. The World does the favour as offered, if it is still open
+    /// for whom they are said to, and never runs the words through its
+    /// hearing, so a translated button cannot fail to mean what it says.
+    /// A World that cannot read this hears the words as [`Ears::World`].
+    Offered,
 }
 
 /// A judge's verdict on a model's answer, as the app that asked the judge
@@ -291,9 +301,26 @@ pub struct VoiceHearing {
     /// How far along the World's things are: `radio`, `television` or
     /// `spacefaring`.
     pub era: String,
+    /// Every name the World's lines can say that is on no list above (its
+    /// newcomers-to-be, its names in translation): checked against, never
+    /// put in a prompt.
+    pub lexicon: Vec<String>,
+    /// What the place has, and lacks, beyond what its time does.
+    pub era_has: Vec<String>,
+    pub era_lacks: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// What a command is for, said by the Pack that offers it, when a screen
+/// treats commands of that kind in a way of its own. A screen never guesses
+/// a role from a command's id or title.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandRole {
+    /// Lets the World's time pass ("Let the day pass", "Nudge"): a screen
+    /// keeps Enter from choosing it by accident, and a demo can end on it.
+    PassesTime,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
@@ -329,6 +356,9 @@ pub struct ProjectionCommand {
     /// buildings and drawings, for a screen to draw the choice as a
     /// picture of the place rather than a landscape alone.
     pub preview: Option<Box<Preview>>,
+    /// What the command is for, when a screen treats it in a way of its
+    /// own. `None` for an ordinary choice.
+    pub role: Option<CommandRole>,
 }
 
 /// Something the player does in the place with their own hands.
@@ -513,6 +543,9 @@ pub mod capability {
     pub const NAMES: &str = "names";
     /// Its Worlds tell stories: legends, moments and almanacs.
     pub const STORY: &str = "story";
+    /// It reads [`crate::Ears::Offered`]: a favour's quick reply, chosen
+    /// with a click, done as offered rather than heard as words.
+    pub const OFFERED_REPLIES: &str = "offered-replies";
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -553,6 +586,9 @@ pub struct ProjectionSnapshot {
     /// What the player has said to people today in their own words, and
     /// what they answered, oldest first.
     pub exchanges: Vec<Exchange>,
+    /// What the player might say to someone, from the World's own facts:
+    /// two or three openers beside the words they can type.
+    pub openers: Vec<Openers>,
     /// The drawings the scene's items are drawn with, when the Pack ships
     /// its own.
     pub drawings: Vec<Drawing>,
@@ -715,6 +751,19 @@ pub struct Exchange {
     /// The recorded moment: a timeline item when History tells it.
     pub moment: SelectionId,
     pub asks_for: Option<String>,
+    /// Whether the answer's words were written by a language model (the
+    /// World voice) rather than the World's own: a screen says so.
+    pub voiced: bool,
+    /// Whether the player reported the answer.
+    pub reported: bool,
+}
+
+/// What the player might open with to someone, from what the World knows
+/// of them: a few lines, each sendable as it is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Openers {
+    pub who: SelectionId,
+    pub lines: Vec<String>,
 }
 
 /// How someone looks, as hints: the colour of their clothes, hair and skin
@@ -1673,10 +1722,8 @@ pub struct Cluster {
     /// Where it begins and ends along the panorama, in panorama units.
     pub from: f32,
     pub to: f32,
-    /// What its ground is, in the Pack's words: "cobbles", "garden",
-    /// "yard", "plaza", "snow", "pad", "paving". A ground the app does not
-    /// know is drawn as plain worn ground.
-    pub ground: String,
+    /// What its ground is: cobbles, a garden, a yard, a plaza, snow…
+    pub ground: Ground,
     /// How far back it reaches, as the Pack's rows (`CanvasItem::y`): its
     /// furthest row and its nearest.
     pub rows: (f32, f32),
@@ -3018,6 +3065,7 @@ mod tests {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             }],
             ..ProjectionSnapshot::default()
         };

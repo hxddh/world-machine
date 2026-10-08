@@ -2530,6 +2530,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                 unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
                 hand: None,
                 preview: None,
+                role: None,
             })
         })
         .collect()
@@ -2703,7 +2704,12 @@ pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
         return calendar::said(event);
     }
     if hands::is_hands(event) {
-        return crate::handwork::enjoyed_line(world, event).or_else(|| hands::said(event));
+        // A use not spoken of (an empty line) says nothing at all.
+        return match crate::handwork::enjoyed_line(world, event) {
+            Some((_, line)) if line.is_empty() => None,
+            Some(said) => Some(said),
+            None => hands::said(event),
+        };
     }
     let spec = storylet_of(event)?;
     let asker = spec.storylet.asker;

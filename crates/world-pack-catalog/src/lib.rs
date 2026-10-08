@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1071,10 +1073,14 @@ fn cleanup_managed_pack(catalog_path: &Path, entry: &InstalledPack) {
 }
 
 fn sync_directory(path: &Path) {
+    // Only unix can open a directory to sync it; elsewhere the rename is
+    // as durable as the file system makes it.
     #[cfg(unix)]
     if let Ok(directory) = OpenOptions::new().read(true).open(path) {
         let _ = directory.sync_all();
     }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 fn validate_entries(entries: &[InstalledPack]) -> Result<(), CatalogError> {

@@ -97,6 +97,7 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         exchanges: exchanges(world, &commands_on_offer),
+        openers: conversation::openers::shown(world, &crate::speech::kit(world.state())),
         drawings: crate::drawings::drawings_for(world),
         talks,
         goals: crate::story::goals(world),
@@ -292,6 +293,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             unavailable: None,
             hand: None,
             preview: None,
+            role: None,
         });
     }
 
@@ -312,6 +314,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
     preview: None,
+    role: None,
 });
     }
 
@@ -327,6 +330,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
     preview: None,
+    role: None,
 });
     }
 
@@ -340,6 +344,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
     preview: None,
+    role: None,
 });
     }
 
@@ -351,6 +356,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
             preview: None,
+            role: None,
         });
         commands.push(ProjectionCommand {
             id: crate::SELL_BOAT_COMMAND.into(),
@@ -362,6 +368,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
     preview: None,
+    role: None,
 });
     }
 
@@ -375,6 +382,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
     preview: None,
+    role: None,
 });
     }
 
@@ -394,6 +402,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         unavailable: None,
         hand: None,
         preview: None,
+        role: Some(world_projection::CommandRole::PassesTime),
     });
     // What the player can do with their own hands comes after every
     // card; a screen offers it apart from them.
@@ -817,6 +826,8 @@ fn exchanges(world: &World, on_offer: &[String]) -> Vec<world_projection::Exchan
             asks_for: exchange
                 .asks_for
                 .filter(|command| on_offer.contains(command)),
+            voiced: exchange.voiced,
+            reported: exchange.reported,
         })
         .collect()
 }

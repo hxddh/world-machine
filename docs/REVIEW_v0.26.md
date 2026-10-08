@@ -270,7 +270,7 @@ v0.27.0 shipped on 2026-10-07. Each area of the plan, with its bars marked **met
 - The 20 commonest storylets each leave a prop for 2–5 days (`every_trace_is_of_a_storylet_the_place_tells`): **met**.
 - Paths join works into clusters (17 named in the harbour, 8 in each Pocket Universe place): **met**.
 - No seams in the goldens (`the_ground_has_no_seam_where_the_postcard_rows_meet`) and props at human scale (`the_bibles_ladder_holds`, a postbox at most 0.8 P): **met**.
-- **Bar:** the first screen changes on at least 8 of the first 14 days for a warm player: **met**, 11 of 14 in the harbour, and at least 8 in each Pocket Universe place.
+- **Bar:** the first screen changes on at least 8 of the first 14 days for a warm player: **met**, 10 of 14 in the harbour, and 9 in each Pocket Universe place. (Corrected after the v0.27 measurement: this said 11.)
 - Also: the art bible's scale ladder, value bands, accent budget, contact shadows, lamps along the spine and lighter rain, each with a test; people in groups of two and three; clicks to the nearest person; names only on hover or for the speaker; key art at 3840×2160 (`cargo run -p world-gpui --example key_art`).
 
 **2. Favours you see and can do.**
@@ -289,7 +289,7 @@ v0.27.0 shipped on 2026-10-07. Each area of the plan, with its bars marked **met
 - No sad line in days 1–5: **met**, 0.
 - Strips with their titled object or 2 named people, and no lighthouse a town lacks: **met**, 0 at fault (was 85–130).
 - Inspector behind a developer setting, engine words banned (0 found), chapter titles fitted, every keepsake drawn, distinct default World names: **met**.
-- Chinese and Japanese at most 0.05% partly untranslated in a year: **met**, 0.015% / 0.015% in Tiny Society and at most 0.041% / 0.020% in Pocket Universe. Person card, Home and the Pocket Universe description in the walk tests, 「」 in Japanese, no leading punctuation, one name rule per language, a live language switch: **met**.
+- Chinese and Japanese at most 0.05% partly untranslated in a year: **met**, 0.015% / 0.015% in Tiny Society and at most 0.041% / 0.035% in Pocket Universe (corrected: this said 0.020% for Japanese; Icebridge is 0.035%). Every partly-English line is a letter with a whole English sentence in it, which the percentage understates. Person card, Home and the Pocket Universe description in the walk tests, 「」 in Japanese, no leading punctuation, one name rule per language, a live language switch: **met**.
 
 **5. The voice, v2.** Every change in the plan is in: `machine_named` and `refusal_cannot` certain; harm, real-world and unambiguous instruction findings firm, so the judge cannot keep them; a checklist judge decided in code; a katakana stranger check and Japanese rules from new development data; one time budget with the judge skipped when the rules decline anyway and late requests stopped; the verdict carried beside the answer, never in model text; host-built prompts; `is_clean_text` on replies.
 - **Bar:** at least 95% declined and at most 1% wrongly declined per language on blind set 5 (2,806 lines; 2,488 checklists from read-only Haiku 4.5 agents): **missed**. With the judge 91.0% (CI 89.3–92.5) and 1.6% (1.1–2.4); en 93.2% / 0.2%, zh 89.0% / 2.1%, ja 90.9% / 2.5%. Only English's wrongly-declined figure meets the bar.
@@ -307,7 +307,7 @@ v0.27.0 shipped on 2026-10-07. Each area of the plan, with its bars marked **met
 - First snapshot after a day under 20 ms: **missed**, 25–36 ms at load 9–15 (v0.26 on the same runs: 27–38 ms). A quadratic regression found on the way (64–72 ms) was fixed.
 - Memory at most 100 MB after 20 days: **missed**, 104–107 MB (v0.26: 105–109 MB).
 - A turn with its save under 30 ms: **missed**, 51–70 ms at load 9–15 (v0.26 on the same runs: 41–61 ms).
-- A green nightly three nights running: **missed**. Its v0.26 failures (the `debug_assert!`, the env-needing tools) are fixed, and the failures a full local run of the nightly found on the v0.27 work are fixed for release: every long bar of both Packs (17 in Tiny Society, 13 in Pocket Universe) passes on the release tree, run locally in a debug build with optimised Pack crates, and the 20 ms legend timing passes in release. The nightly itself has not yet been green three nights running.
+- A green nightly three nights running: **missed**. Its v0.26 failures (the `debug_assert!`, the env-needing tools) are fixed, and the failures a full local run of the nightly found on the v0.27 work are fixed for release: every long bar of both Packs (17 in Tiny Society, 13 in Pocket Universe) passes on the release tree, run locally in a debug build with optimised Pack crates, and the 20 ms legend timing passes in release. The nightly itself has not yet been green three nights running. (Corrected after the v0.27 measurement: that local run was not the nightly's own command, which builds the whole workspace in release; every nightly from 1 to 7 October was red on v0.26 code, and none had run on v0.27 code when it shipped.)
 
 **7. Velocity.**
 - One `WorldFile` owner, host-built prompts, streaming golden digests (TS replay 25 s to 17 s CPU, snapshot JSON 17.7 s to 7.5 s), one language walk for all languages, and `cargo-deny` in CI: **met**.

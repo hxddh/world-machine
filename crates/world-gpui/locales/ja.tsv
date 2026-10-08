@@ -526,8 +526,8 @@ Photo saved to Pictures	写真を「ピクチャ」に保存しました
 Photo	写真
 Choose who to give a present to.	贈り物をする相手を選んでください。
 Choose who to invite out.	誘う相手を選んでください。
-Choose where the {} goes now.	{}の移動先を選んでください。
-Choose where the {} goes.	{}を置く場所を選んでください。
+Choose a new spot for the {}.	{}の移動先を選んでください。
+Choose a spot for the {}.	{}を置く場所を選んでください。
 Something else	ほかのもの
 {thing_name} · {cost}	{thing_name} · {cost}
 Less	閉じる
@@ -821,3 +821,11 @@ Come back when you can. We'll keep the lamps lit.	また来てね。明かりを
 The demo plays Tiny Society. This World opens in the full app.	デモで遊べるのはTiny Societyだけです。このワールドは製品版で開けます。
 World Machine Demo	World Machine デモ版
 On the house, to welcome you.	ようこそ。これはお祝いの贈り物です。
+Postcard saved to Pictures	絵はがきを「ピクチャ」に保存しました
+Couldn't save the postcard	絵はがきを保存できませんでした
+Keeping the postcard…	絵はがきを残しています…
+World voice is on: an AI model is writing this answer. The World decides what happens.	ワールドの声がオン：この答えは AI モデルが書いています。何が起きるかはワールドが決めます。
+Written by AI	AI が書いた言葉
+Reported	報告済み
+Report this line	このせりふを報告
+Report	報告

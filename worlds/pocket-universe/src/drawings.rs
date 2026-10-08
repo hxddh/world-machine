@@ -7,7 +7,7 @@ use days::festive::{festival_things, Festive};
 use std::sync::OnceLock;
 use world_core::{EntityId, World};
 use world_projection::figure::{ellipse, line, polygon, rect};
-use world_projection::{person_base, short_hair, DrawPart, Drawing, Ink, Stance};
+use world_projection::{person_base, short_hair, DrawPart, Drawing, Ink, Rung, Stance};
 
 /// Every drawing the Pack ships, for every seed.
 pub(crate) fn drawings() -> &'static [Drawing] {
@@ -18,14 +18,16 @@ pub(crate) fn drawings() -> &'static [Drawing] {
         colonist.extend(jumpsuit());
         let mut townie = short_hair();
         townie.extend(jacket());
+        // Each place stands its own height beside a resident (the art
+        // bible's ladder); the ice bridge lies across its width.
         vec![
-            habitat(),
-            greenhouse(),
-            arcade(),
-            radio(),
-            icebridge(),
-            fish_vault(),
-            council(),
+            habitat().standing(Rung::Tall(2.6)),
+            greenhouse().standing(Rung::Tall(2.4)),
+            arcade().standing(Rung::Tall(3.0)),
+            radio().standing(Rung::Tall(5.0)),
+            icebridge().standing(Rung::Wide(5.0)),
+            fish_vault().standing(Rung::Tall(2.6)),
+            council().standing(Rung::Tall(2.6)),
             base.with("colonist", colonist.clone()),
             base.with("nia", [colonist.clone(), headset()].concat()),
             base.with("tomas", [colonist, goggles()].concat()),

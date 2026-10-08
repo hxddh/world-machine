@@ -1,3 +1,8 @@
+#![deny(unsafe_code)]
+
+// The only `unsafe` in the package: the unix pipe calls that bound a
+// write by a deadline (see the module).
+#[allow(unsafe_code)]
 mod deadline_stdin;
 
 use sha2::{Digest, Sha256};
@@ -6,7 +11,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{self, Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{self, Child, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
@@ -703,9 +708,13 @@ impl WorldSession for ProcessWorldSession {
         };
         let intent = if typed { intent } else { intent.as_command() };
         let mut intent = ProjectionIntentWire::from(intent);
-        // A Pack on an older protocol hears everything in its own way.
+        // A Pack on an older protocol hears everything in its own way, and
+        // one that never said it reads an offered reply hears its words.
         if let ProjectionIntentWire::Say { ears, .. } = &mut intent {
-            if !self.speaks_v3() {
+            if !self.speaks_v3()
+                || (*ears == EarsWire::Offered
+                    && !self.can(world_projection::capability::OFFERED_REPLIES))
+            {
                 *ears = EarsWire::World;
             }
         }
@@ -962,7 +971,7 @@ fn finish_frame(
 
 struct ProcessClient {
     child: Child,
-    stdin: Option<ChildStdin>,
+    stdin: Option<deadline_stdin::BoundedStdin>,
     responses: Receiver<io::Result<String>>,
     protocol_version: u32,
     next_request_id: u64,
@@ -1010,16 +1019,19 @@ impl ProcessClient {
             .stdin
             .take()
             .ok_or_else(|| HostError::session("external Pack stdin was not piped"))?;
-        if let Err(error) = deadline_stdin::configure(&stdin) {
-            let _ = child.kill();
-            let _ = child.wait();
-            if let Some(path) = launch_cleanup.as_ref() {
-                let _ = fs::remove_file(path);
+        let stdin = match deadline_stdin::configure(stdin) {
+            Ok(stdin) => stdin,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                if let Some(path) = launch_cleanup.as_ref() {
+                    let _ = fs::remove_file(path);
+                }
+                return Err(HostError::session(format!(
+                    "could not configure external Pack stdin: {error}"
+                )));
             }
-            return Err(HostError::session(format!(
-                "could not configure external Pack stdin: {error}"
-            )));
-        }
+        };
         let stdout = child
             .stdout
             .take()
@@ -1302,10 +1314,13 @@ mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::time::{SystemTime, UNIX_EPOCH};
+    #[cfg(unix)]
     use world_host::WorldRegistry;
+    #[cfg(unix)]
     use world_pack_protocol::{
         encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionSnapshotWire,
     };
+    #[cfg(unix)]
     use world_persistence::{ArchivedEvent, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
     struct ObservedRead {
@@ -1412,6 +1427,7 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     fn descriptor() -> PackDescriptor {
         PackDescriptor::new(
             WorldPackRef::new("fixture.external", "1"),
@@ -1420,6 +1436,7 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
     fn wire_snapshot(world_time: u64, title: &str) -> ProjectionSnapshotWire {
         ProjectionSnapshotWire {
             title: title.into(),
@@ -1433,6 +1450,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn response_line(request_id: u64, response: PackResponse) -> String {
         encode_response(&PackResponseEnvelope::new(request_id, response)).unwrap()
     }
@@ -1637,6 +1655,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_host_cannot_reshape_a_pack_environment_under_the_guise_of_a_setting() {
         let root = temp_dir("settings-refused");

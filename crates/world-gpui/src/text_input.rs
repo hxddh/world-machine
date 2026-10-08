@@ -513,7 +513,13 @@ impl Element for TextElement {
         let cursor = input.cursor_offset();
         let style = window.text_style();
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), hsla(0., 0., 0., 0.28))
+            // Put in the language shown now, so a switch made while the
+            // field is open shows at once (the placeholder is kept as
+            // given, in English).
+            (
+                crate::ui::t(input.placeholder.clone()),
+                hsla(0., 0., 0., 0.28),
+            )
         } else {
             (content, style.color)
         };

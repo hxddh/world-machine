@@ -15,6 +15,7 @@ use days::town::{CatalogWork, Quarter, Town, Trace, TraceAt, Zone, BACK, FRONT};
 use days::{Plan, Stretch};
 use std::collections::BTreeMap;
 use world_core::{EntityId, Value, World, WorldState};
+use world_projection::Ground;
 use world_projection::{
     CanvasItem, CanvasItemKind, CanvasLink, CanvasProjection, GroundCover, MarkShape, Season,
     SelectionId,
@@ -142,7 +143,7 @@ const fn quarter(
     at: f32,
     zones: &'static [Zone],
     homes: bool,
-    ground: &'static str,
+    ground: Ground,
 ) -> Quarter {
     Quarter {
         id,
@@ -184,7 +185,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.3,
                 &[Zone::Lanes],
                 true,
-                "pad",
+                Ground::Pad,
             ),
             quarter(
                 "dome_garden",
@@ -192,7 +193,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.72,
                 &[Zone::Green],
                 false,
-                "garden",
+                Ground::Garden,
             ),
             quarter(
                 "airlock_apron",
@@ -200,7 +201,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.3,
                 &[Zone::Quay, Zone::Water, Zone::Lanes],
                 true,
-                "pad",
+                Ground::Pad,
             ),
             quarter(
                 "the_ridge",
@@ -208,7 +209,7 @@ fn layout(place: Place) -> &'static Layout {
                 2.05,
                 &[Zone::Edge, Zone::Lanes],
                 true,
-                "yard",
+                Ground::Yard,
             ),
             quarter(
                 "crater_rim",
@@ -216,7 +217,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.0,
                 &[Zone::Water, Zone::Quay],
                 false,
-                "pad",
+                Ground::Pad,
             ),
             quarter(
                 "east_ring",
@@ -224,7 +225,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.55,
                 &[Zone::Lanes, Zone::Green],
                 true,
-                "pad",
+                Ground::Pad,
             ),
             quarter(
                 "the_mine",
@@ -232,7 +233,7 @@ fn layout(place: Place) -> &'static Layout {
                 2.35,
                 &[Zone::Edge, Zone::Water],
                 false,
-                "yard",
+                Ground::Yard,
             ),
             quarter(
                 "solar_flats",
@@ -240,7 +241,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.6,
                 &[Zone::Edge, Zone::Green],
                 false,
-                "pad",
+                Ground::Pad,
             ),
         ],
     };
@@ -277,7 +278,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.45,
                 &[Zone::Lanes, Zone::Quay],
                 true,
-                "paving",
+                Ground::Paving,
             ),
             quarter(
                 "elm_court",
@@ -285,7 +286,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.15,
                 &[Zone::Lanes],
                 true,
-                "garden",
+                Ground::Garden,
             ),
             quarter(
                 "the_park",
@@ -293,7 +294,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.6,
                 &[Zone::Green, Zone::Quay],
                 false,
-                "green",
+                Ground::Green,
             ),
             quarter(
                 "school_yard",
@@ -301,7 +302,7 @@ fn layout(place: Place) -> &'static Layout {
                 2.45,
                 &[Zone::Lanes, Zone::Edge, Zone::Water],
                 true,
-                "paving",
+                Ground::Paving,
             ),
             quarter(
                 "main_street",
@@ -309,16 +310,23 @@ fn layout(place: Place) -> &'static Layout {
                 0.8,
                 &[Zone::Quay, Zone::Lanes],
                 false,
-                "paving",
+                Ground::Paving,
             ),
-            quarter("oak_lane", "Oak Lane", 0.15, &[Zone::Lanes], true, "garden"),
+            quarter(
+                "oak_lane",
+                "Oak Lane",
+                0.15,
+                &[Zone::Lanes],
+                true,
+                Ground::Garden,
+            ),
             quarter(
                 "the_lake",
                 "the Lake",
                 2.8,
                 &[Zone::Water, Zone::Green],
                 false,
-                "green",
+                Ground::Green,
             ),
             quarter(
                 "town_square",
@@ -326,7 +334,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.85,
                 &[Zone::Quay, Zone::Green],
                 false,
-                "paving",
+                Ground::Paving,
             ),
         ],
     };
@@ -359,7 +367,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.3,
                 &[Zone::Lanes],
                 true,
-                "snow",
+                Ground::Snow,
             ),
             quarter(
                 "ice_plaza",
@@ -367,7 +375,7 @@ fn layout(place: Place) -> &'static Layout {
                 0.72,
                 &[Zone::Green],
                 false,
-                "snow",
+                Ground::Snow,
             ),
             quarter(
                 "the_causeway",
@@ -375,7 +383,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.3,
                 &[Zone::Quay, Zone::Water, Zone::Lanes],
                 true,
-                "snow",
+                Ground::Snow,
             ),
             quarter(
                 "far_floe",
@@ -383,16 +391,23 @@ fn layout(place: Place) -> &'static Layout {
                 2.05,
                 &[Zone::Edge, Zone::Lanes, Zone::Water],
                 true,
-                "snow",
+                Ground::Snow,
             ),
-            quarter("nest_row", "Nest Row", 0.55, &[Zone::Lanes], true, "snow"),
+            quarter(
+                "nest_row",
+                "Nest Row",
+                0.55,
+                &[Zone::Lanes],
+                true,
+                Ground::Snow,
+            ),
             quarter(
                 "floe_edge",
                 "the Floe Edge",
                 1.0,
                 &[Zone::Water, Zone::Quay],
                 false,
-                "snow",
+                Ground::Snow,
             ),
             quarter(
                 "kelp_beds",
@@ -400,7 +415,7 @@ fn layout(place: Place) -> &'static Layout {
                 2.35,
                 &[Zone::Edge, Zone::Water],
                 false,
-                "snow",
+                Ground::Snow,
             ),
             quarter(
                 "the_bridge",
@@ -408,7 +423,7 @@ fn layout(place: Place) -> &'static Layout {
                 1.6,
                 &[Zone::Quay, Zone::Green],
                 false,
-                "snow",
+                Ground::Snow,
             ),
         ],
     };

@@ -83,10 +83,17 @@ impl WorldSession for TinySocietySession {
                         "only someone can be spoken to",
                     )));
                 };
+                if ears == Ears::Offered {
+                    self.branch
+                        .say_offered(who, &words)
+                        .map_err(HostError::session)?;
+                    self.background_cursor = None;
+                    return Ok(self.snapshot());
+                }
                 let mut answered;
                 let mut own = conversation::OwnEars;
                 let listener: &mut dyn conversation::Listener = match ears {
-                    Ears::World => self.listener.as_mut(),
+                    Ears::World | Ears::Offered => self.listener.as_mut(),
                     Ears::Model(response) => {
                         answered = conversation::Answered::new(response);
                         &mut answered
@@ -214,11 +221,12 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
 }
 
 /// What the harbour can do beyond the core of the Pack protocol.
-pub const PACK_CAPABILITIES: [&str; 4] = [
+pub const PACK_CAPABILITIES: [&str; 5] = [
     world_projection::capability::PLOTS,
     world_projection::capability::DESIGNS,
     world_projection::capability::NAMES,
     world_projection::capability::STORY,
+    world_projection::capability::OFFERED_REPLIES,
 ];
 
 #[cfg(test)]

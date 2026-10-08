@@ -82,6 +82,7 @@ fn play(pace: Pace, seconds: f32, until: u32) -> Played {
     let registry = world_builtins::registry().unwrap();
     let mut session = registry.create(demo::PACK_ID).unwrap();
     let mut snapshot = session.snapshot();
+    let pass = demo::day_pass(&snapshot).expect("a day to pass").id.clone();
     let mut clock = 2.0;
     let mut heard = Vec::new();
     let mut passed = 0;
@@ -109,7 +110,7 @@ fn play(pace: Pace, seconds: f32, until: u32) -> Played {
                 .find(|command| {
                     command.unavailable.is_none()
                         && (command.question.is_some() || command.hand.is_some())
-                        && command.id != demo::DAY_PASS_COMMAND
+                        && command.id != pass
                 })
                 .cloned();
             let Some(command) = next.filter(|_| asked < 6) else {
@@ -177,9 +178,7 @@ fn play(pace: Pace, seconds: f32, until: u32) -> Played {
         // Let the day pass.
         clock += 3.0;
         snapshot = session
-            .handle(ProjectionIntent::InvokeCommand(
-                demo::DAY_PASS_COMMAND.to_string(),
-            ))
+            .handle(ProjectionIntent::InvokeCommand(pass.clone()))
             .expect("a day passes");
         passed += 1;
         if snapshot.chapters.len() > chapters.len() {
@@ -194,14 +193,19 @@ fn the_day_pass_command_is_the_one_the_demo_holds() {
     let session = registry.create(demo::PACK_ID).unwrap();
     let snapshot = session.snapshot();
     assert_eq!(day(&snapshot), 1, "a new harbour opens on day 1");
-    assert!(
-        snapshot
-            .commands
-            .iter()
-            .any(|command| command.id == demo::DAY_PASS_COMMAND),
-        "Tiny Society lets a day pass with {}",
-        demo::DAY_PASS_COMMAND
-    );
+    // The Pack says which choice lets the day pass, with its role; nothing
+    // in the app knows its id.
+    let pass = demo::day_pass(&snapshot).expect("Tiny Society lets a day pass");
+    assert!(demo::passes_time(&snapshot, &pass.id));
+    let others = snapshot
+        .commands
+        .iter()
+        .filter(|command| command.id != pass.id)
+        .collect::<Vec<_>>();
+    assert!(!others.is_empty());
+    for command in others {
+        assert!(!demo::passes_time(&snapshot, &command.id), "{}", command.id);
+    }
 }
 
 /// The demo holds the whole first hour at every pace, a brisk one's too.

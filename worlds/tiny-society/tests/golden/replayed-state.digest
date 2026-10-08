@@ -1,0 +1,11 @@
+# The state each fixture's recorded events rebuild, in a canonical form
+# (world-pack-testkit/src/invariants.rs). Never re-blessed: a line may be
+# added for a new fixture, and no line may ever change.
+v020-harbour b153b0a6ac5e3031 42246 events=2470
+v021-harbour 012dc41767fb3591 51510 events=3109
+v022-harbour 26de4bf91f116d38 40741 events=2350
+v023-harbour 5d26fd445d93b327 55190 events=3003
+v024-harbour 47202f23cdce3bdd 56028 events=3298
+v025-harbour 47202f23cdce3bdd 56028 events=3298
+v026-harbour ddb6628df99cdb16 55028 events=3316
+v027-harbour 013953b50d4bd696 55046 events=3304

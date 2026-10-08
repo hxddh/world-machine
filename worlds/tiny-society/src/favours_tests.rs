@@ -224,12 +224,39 @@ fn five_players_see_a_favour_within_ten_days() {
     }
 }
 
+/// The v0.28 bar: a player who never talks is still asked a favour now
+/// and then, about once every three weeks, for as long as they play;
+/// never left out for good.
+#[test]
+fn a_quiet_player_is_still_asked_about_every_three_weeks() {
+    let mut branch = TinySocietyBranch::new_world().unwrap();
+    for _ in 0..150 {
+        pass(&mut branch);
+    }
+    let on = asks(branch.world())
+        .iter()
+        .map(|ask| ask.world_time / crate::persistence::WORLD_DAY_TICKS + 1)
+        .collect::<Vec<_>>();
+    let gaps = on
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .collect::<Vec<_>>();
+    eprintln!("a quiet player was asked on days {on:?}");
+    assert!(on.len() >= 7, "{on:?}");
+    assert!(
+        gaps.iter()
+            .all(|gap| *gap as i64 <= favour::QUIET_PERIODS + 3),
+        "{on:?}"
+    );
+    assert!(day(&branch) - on.last().unwrap() <= 24, "{on:?}");
+}
+
 /// The v0.27 bars, for players who answer the first question, the last,
 /// or none, over their first 30 days: every favour is asked aloud by
 /// someone on the scene, at the moment the window opens on (so the camera
 /// turns to them), with its note in the drawer and its words on whom it
-/// is for's card; and none lapses unseen. Nobody here talks, so after
-/// three lapses in a row nobody asks.
+/// is for's card; and none lapses unseen. Nobody here talks, so the asks
+/// slow down after each lapse.
 #[test]
 fn players_see_every_favour_asked() {
     for player in [Player::Warm, Player::Last, Player::Never] {
@@ -294,6 +321,7 @@ fn players_see_every_favour_asked() {
             seen, asked,
             "{player:?}: every favour seen, none lapses unseen"
         );
+        // Nobody here talks, so the asks slow to about one in three weeks.
         assert!(asked <= favour::MOST_LAPSED as usize, "{player:?}: {asked}");
     }
 }
@@ -365,17 +393,42 @@ fn quick_replies_do_the_favour_in_every_language() {
     assert_eq!(tried.len(), Kind::ALL.len(), "{tried:?}");
 }
 
+/// The folder of a fresh set kept in the repository.
+fn fresh_dir(set: &str) -> String {
+    format!(
+        "{}/../../systems/conversation/tests/{set}",
+        env!("CARGO_MANIFEST_DIR")
+    )
+}
+
 /// How well the World's own ears hear phrases written fresh for v0.27
 /// (`systems/conversation/tests/fresh27`), in one split, per language:
 /// (meanings heard right, of how many; favours done, of how many).
 fn fresh_heard(split: &str) -> Vec<(&'static str, usize, usize, usize, usize)> {
+    let dir = std::env::var("FRESH_DIR").unwrap_or_else(|_| fresh_dir("fresh27"));
+    fresh_heard_in(&dir, split, split == "held")
+}
+
+/// The file of one split of a set (`fresh_en.held.tsv`), or the set's
+/// one file if it has no splits (`fresh_en.tsv`).
+fn in_split(stem: &str, split: &str) -> String {
+    let split_file = format!("{stem}.{split}.tsv");
+    if std::path::Path::new(&split_file).exists() {
+        split_file
+    } else {
+        format!("{stem}.tsv")
+    }
+}
+
+/// How well the World's own ears hear the fresh set in `dir`, in one
+/// split, per language. A `blind` set's misses are never printed, only
+/// its totals.
+fn fresh_heard_in(
+    dir: &str,
+    split: &str,
+    blind: bool,
+) -> Vec<(&'static str, usize, usize, usize, usize)> {
     use conversation::{hear, Intent};
-    let dir = std::env::var("FRESH_DIR").unwrap_or_else(|_| {
-        format!(
-            "{}/../../systems/conversation/tests/fresh27",
-            env!("CARGO_MANIFEST_DIR")
-        )
-    });
     let branch = TinySocietyBranch::new_world().unwrap();
     let world = branch.world();
     let state = world.state();
@@ -401,14 +454,14 @@ fn fresh_heard(split: &str) -> Vec<(&'static str, usize, usize, usize, usize)> {
     let mut scores = Vec::new();
     for lang in ["en", "zh", "ja"] {
         let (mut right, mut total) = (0, 0);
-        for (meant, about, words) in lines(format!("{dir}/fresh_{lang}.{split}.tsv")) {
+        for (meant, about, words) in lines(in_split(&format!("{dir}/fresh_{lang}"), split)) {
             let meant = Intent::from_id(&meant).unwrap();
             let heard = hear(state, &kit, crate::EMMA, &words);
             let ok =
                 heard.intent == meant && (about.is_empty() || heard.about == Some(named(&about)));
             total += 1;
             right += usize::from(ok);
-            if !ok && split != "held" {
+            if !ok && !blind {
                 eprintln!(
                     "FRESH {lang} {split} meant {} heard {heard:?} | {words}",
                     meant.id()
@@ -416,7 +469,7 @@ fn fresh_heard(split: &str) -> Vec<(&'static str, usize, usize, usize, usize)> {
             }
         }
         let (mut done, mut asked) = (0, 0);
-        for (kind, asker, words) in lines(format!("{dir}/favour_{lang}.{split}.tsv")) {
+        for (kind, asker, words) in lines(in_split(&format!("{dir}/favour_{lang}"), split)) {
             let kind = Kind::from_id(&kind).unwrap();
             let asker = if asker.is_empty() {
                 crate::MARA
@@ -427,7 +480,7 @@ fn fresh_heard(split: &str) -> Vec<(&'static str, usize, usize, usize, usize)> {
             let ok = favour::done_by(kind, asker, heard, || true);
             asked += 1;
             done += usize::from(ok);
-            if !ok && split != "held" {
+            if !ok && !blind {
                 eprintln!(
                     "FAVOUR {lang} {split} {} heard {heard:?} | {words}",
                     kind.id()
@@ -435,7 +488,8 @@ fn fresh_heard(split: &str) -> Vec<(&'static str, usize, usize, usize, usize)> {
             }
         }
         eprintln!(
-            "fresh27 {split} {lang}: heard {right}/{total} ({:.1}%), favours done {done}/{asked} ({:.1}%)",
+            "{} {split} {lang}: heard {right}/{total} ({:.1}%), favours done {done}/{asked} ({:.1}%)",
+            dir.trim_end_matches('/').rsplit('/').next().unwrap_or(dir),
             100.0 * right as f64 / total as f64,
             100.0 * done as f64 / asked.max(1) as f64
         );
@@ -471,4 +525,57 @@ fn fresh_phrases_are_heard() {
             );
         }
     }
+}
+
+/// v0.28's development set (`systems/conversation/tests/fresh28dev`),
+/// written before v0.28's hearing work and tuned on: what was tuned on
+/// stays heard.
+#[test]
+fn fresh28_development_phrases_stay_heard() {
+    for split in ["dev", "check", "check2", "check3", "check4", "check5"] {
+        for (lang, right, total, done, asked) in
+            fresh_heard_in(&fresh_dir("fresh28dev"), split, false)
+        {
+            assert!(
+                right * 100 >= total * 95,
+                "fresh28dev {split} {lang}: {right}/{total}"
+            );
+            assert!(
+                done * 100 >= asked * 95,
+                "fresh28dev {split} {lang}: favours {done}/{asked}"
+            );
+        }
+    }
+}
+
+/// Measures a blind fresh set kept outside the repository, once, and
+/// prints only its totals: `FRESH_DIR` names its folder and `FRESH_SPLIT`
+/// its split (`held` if unset). Bars: at least 85% heard per language,
+/// and at least 90% of favours done in all.
+#[test]
+#[ignore = "measures a blind set kept outside the repository"]
+fn a_blind_fresh_set_is_heard() {
+    let dir = std::env::var("FRESH_DIR").expect("FRESH_DIR names the blind set's folder");
+    let split = std::env::var("FRESH_SPLIT").unwrap_or_else(|_| "held".into());
+    let scores = fresh_heard_in(&dir, &split, true);
+    let (done, asked) = scores.iter().fold((0, 0), |(done, asked), score| {
+        (done + score.3, asked + score.4)
+    });
+    eprintln!(
+        "blind favours: {done}/{asked} ({:.1}%)",
+        100.0 * done as f64 / asked.max(1) as f64
+    );
+    for (lang, right, total, ..) in &scores {
+        eprintln!(
+            "blind heard {lang}: {right}/{total} ({:.1}%)",
+            100.0 * *right as f64 / (*total).max(1) as f64
+        );
+    }
+    for (lang, right, total, ..) in &scores {
+        assert!(
+            right * 100 >= total * 85,
+            "{lang}: {right} of {total} heard right"
+        );
+    }
+    assert!(done * 100 >= asked * 90, "favours: {done} of {asked}");
 }

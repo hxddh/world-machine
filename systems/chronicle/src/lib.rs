@@ -13,6 +13,8 @@
 //! situations and life beats, `storylets`' questions, `calendar`'s
 //! festivals, `hands`' deeds); a Pack says the rest through [`Teller`].
 
+#![forbid(unsafe_code)]
+
 pub mod kit;
 
 use std::collections::BTreeSet;

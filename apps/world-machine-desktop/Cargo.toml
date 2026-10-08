@@ -1,6 +1,6 @@
 [package]
 name = "world-machine-desktop"
-version = "0.27.0"
+version = "0.28.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -9,6 +9,22 @@ publish = false
 # The free demo: the first hour of Tiny Society, then an ending card that
 # keeps the World for the full app (src/demo.rs).
 demo = []
+# Builds the window on Linux too (cfg(gui), see build.rs), for the
+# real-window screenshot harness and previews under Xvfb. Needs GPUI's
+# Linux build dependencies (libxkbcommon-x11, Vulkan).
+linux-window = [
+  "dep:cpal",
+  "dep:gpui",
+  "dep:gpui_platform",
+  "dep:url",
+  "dep:world-pack-bundle",
+  "dep:world-pack-catalog",
+  "dep:world-pack-process",
+  "dep:world-persistence",
+]
+# Where this build is distributed. A store build (Steam) is updated by the
+# store, so it never asks GitHub for a newer release; see src/channel.rs.
+channel-store = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -30,9 +46,11 @@ world-projection = { path = "../../crates/world-projection" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-# Sound output only; the sound itself is made by world-sound on any
-# platform, so Linux builds need no audio libraries.
+# The window: where the app has a GPUI platform (cfg(gui), see build.rs).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+# Sound output only (Core Audio, WASAPI); the sound itself is made by
+# world-sound on any platform, so a Linux build without a window needs no
+# audio libraries.
 cpal = "0.18"
 gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui_platform", features = ["font-kit"] }
@@ -42,3 +60,13 @@ world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-pack-process = { path = "../../crates/world-pack-process" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", optional = true }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui", optional = true }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui_platform", features = ["font-kit", "x11"], optional = true }
+url = { version = "2", optional = true }
+world-pack-bundle = { path = "../../crates/world-pack-bundle", optional = true }
+world-pack-catalog = { path = "../../crates/world-pack-catalog", optional = true }
+world-pack-process = { path = "../../crates/world-pack-process", optional = true }
+world-persistence = { path = "../../crates/world-persistence", optional = true }

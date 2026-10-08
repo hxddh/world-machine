@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use pocket_universe::{
     pocket_universe_descriptor, pocket_universe_registration,
     pocket_universe_registration_with_voices,

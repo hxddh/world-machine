@@ -42,10 +42,14 @@ pub const FIRST_PERIOD: i64 = 2;
 pub const OPEN_PERIODS: i64 = 3;
 /// For this many periods a World asks only the gentlest favours.
 const GENTLE_PERIODS: i64 = 5;
-/// After this many favours in a row have lapsed with no word from the
-/// player to anyone since, nobody asks another until the player talks to
-/// someone. Each lapse before that makes the next ask wait longer.
+/// Each favour in a row that lapses with no word from the player to
+/// anyone since makes the next ask wait longer, up to [`QUIET_PERIODS`]:
+/// after this many, a player who never talks is still asked, about once
+/// every three weeks, and never left out for good.
 pub const MOST_LAPSED: i64 = 3;
+/// The longest wait between asks for a player who lets them lapse, give
+/// or take a period or two: about three weeks.
+pub const QUIET_PERIODS: i64 = 20;
 
 /// What a favour is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -301,6 +305,21 @@ pub fn done_by(kind: Kind, asker: EntityId, heard: Heard, accepts: impl Fn() -> 
     }
 }
 
+/// What the open favour's quick reply means said to `who`: the System's own
+/// reply ([`Kind::reply`], as [`shown`] offers it) heard by the System's own
+/// ears, never the words a screen showed. `None` unless a favour is open
+/// for `who`. Whether it is done is still the rules' to say, as for any
+/// words: an invitation can be turned down.
+pub(crate) fn offered(state: &WorldState, kit: &Kit, who: EntityId) -> Option<Heard> {
+    let favour = open(state, kit).filter(|favour| favour.whom == who)?;
+    let words = filled(
+        favour.kind.reply(),
+        &lives::first_name(state, favour.asker),
+        &lives::first_name(state, who),
+    );
+    Some(crate::hear(state, kit, who, &words))
+}
+
 /// Adds to what someone answers when the player's words do the favour
 /// open for them: they can tell who sent the player.
 pub(crate) fn answer(world: &World, kit: &Kit, who: EntityId, heard: Heard, reply: &mut Reply) {
@@ -382,15 +401,15 @@ pub fn proposal(world: &World, kit: &Kit) -> Option<ActionRequest> {
         return None;
     }
     let last = state.entities().filter_map(last_asked).max();
-    // A player who lets favours lapse is asked less often, and after
-    // [`MOST_LAPSED`] in a row not at all, until they talk to someone.
+    // A player who lets favours lapse is asked less often, down to about
+    // once every three weeks, until they talk to someone.
     let lapsed = lapsed_in_a_row(state, kit);
-    if lapsed >= MOST_LAPSED {
-        return None;
-    }
     let due = match last {
         None => began + FIRST_PERIOD + (lives::mix(&[began as u64, 0xfa]) % 3) as i64,
-        Some((at, _)) => at + (6 + (lives::mix(&[at as u64, 0xfa]) % 5) as i64) * (1 + lapsed),
+        Some((at, _)) => {
+            let turn = (lives::mix(&[at as u64, 0xfa]) % 5) as i64;
+            at + ((6 + turn) * (1 + lapsed)).min(QUIET_PERIODS + turn % 3)
+        }
     };
     if now < due {
         return None;
@@ -779,6 +798,9 @@ mod tests {
             occasions: |_| Vec::new(),
             recalled: |_, _, _| None,
             era: Era::Radio,
+            lexicon: crate::no_lexicon,
+            era_has: &[],
+            era_lacks: &[],
             elsewhere: &[],
         }
     }
@@ -987,8 +1009,9 @@ mod tests {
         );
     }
 
-    /// The v0.27 bar: a player who lets favours lapse is asked less often,
-    /// and after three in a row not at all, until they talk to someone.
+    /// The v0.28 bar: a player who lets favours lapse is asked less often,
+    /// down to about once every three weeks and never less, and asked
+    /// sooner again once they talk to someone.
     #[test]
     fn lapsed_favours_slow_the_asks_and_talk_starts_them_again() {
         let (mut world, actions) = world();
@@ -1002,15 +1025,21 @@ mod tests {
                 asked.push(period as i64);
             }
         }
-        assert_eq!(asked.len() as i64, MOST_LAPSED, "asked on {asked:?}");
         let gaps = asked
             .windows(2)
             .map(|pair| pair[1] - pair[0])
             .collect::<Vec<_>>();
-        // A week or so after the first; twice that after one lapse.
+        // Twice the week or so after one lapse; then about three weeks,
+        // never longer, for as long as nobody talks.
         assert!(gaps[0] >= 12, "{asked:?}");
         assert!(gaps[1] >= 18, "{asked:?}");
-        assert_eq!(lapsed_in_a_row(world.state(), &any_kit()), MOST_LAPSED);
+        for gap in &gaps[1..] {
+            assert!((18..=QUIET_PERIODS + 2).contains(gap), "{asked:?}");
+        }
+        assert!(
+            *asked.last().unwrap() >= 200 - QUIET_PERIODS - 2,
+            "{asked:?}"
+        );
         // A word to anyone, and someone asks again within a fortnight.
         talk(&mut world, &actions, LEO, "Morning!");
         assert_eq!(lapsed_in_a_row(world.state(), &any_kit()), 0);

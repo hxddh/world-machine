@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use flate2::read::DeflateDecoder;
@@ -852,6 +854,11 @@ pub enum EarsWire {
         judged: Option<JudgementWire>,
     },
     Own,
+    /// A favour's quick reply, chosen with a click: done as offered, never
+    /// heard. Sent only to a Pack that says it reads it
+    /// ([`world_projection::capability::OFFERED_REPLIES`]); any other is
+    /// sent `world`, and hears the words as it always did.
+    Offered,
 }
 
 /// A judge's verdict, as an app says it beside a model's response.
@@ -910,6 +917,12 @@ pub struct VoiceHearingWire {
     pub known: Vec<String>,
     #[serde(default)]
     pub era: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lexicon: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub era_has: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub era_lacks: Vec<String>,
 }
 
 impl From<VoiceHearing> for VoiceHearingWire {
@@ -925,6 +938,9 @@ impl From<VoiceHearing> for VoiceHearingWire {
             answer: hearing.answer,
             known: hearing.known,
             era: hearing.era,
+            lexicon: hearing.lexicon,
+            era_has: hearing.era_has,
+            era_lacks: hearing.era_lacks,
         }
     }
 }
@@ -942,6 +958,9 @@ impl From<VoiceHearingWire> for VoiceHearing {
             answer: hearing.answer,
             known: hearing.known,
             era: hearing.era,
+            lexicon: hearing.lexicon,
+            era_has: hearing.era_has,
+            era_lacks: hearing.era_lacks,
         }
     }
 }
@@ -965,6 +984,7 @@ impl From<Ears> for EarsWire {
                 judged: Some(judged.into()),
             },
             Ears::Own => Self::Own,
+            Ears::Offered => Self::Offered,
         }
     }
 }
@@ -987,6 +1007,7 @@ impl From<EarsWire> for Ears {
                 judged: judged.into(),
             },
             EarsWire::Own => Self::Own,
+            EarsWire::Offered => Self::Offered,
         }
     }
 }
@@ -1132,6 +1153,8 @@ pub struct ProjectionSnapshotWire {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exchanges: Vec<ExchangeWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openers: Vec<OpenersWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub goals: Vec<GoalWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chapters: Vec<ChapterWire>,
@@ -1236,6 +1259,64 @@ pub struct DrawingWire {
     pub id: String,
     pub aspect: f32,
     pub parts: Vec<DrawPartWire>,
+    /// How tall it stands beside a resident, as its Pack declares it
+    /// (v0.28): `{"tall": 3.3}` in P, or `{"wide": 4.0}` for a long, low
+    /// thing. An older Pack sends none, and its drawing keeps the size its
+    /// spot gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rung: Option<RungWire>,
+}
+
+/// A drawing's rung on the art bible's ladder, as it crosses the boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RungWire {
+    Tall(f32),
+    Wide(f32),
+}
+
+impl From<world_projection::Rung> for RungWire {
+    fn from(rung: world_projection::Rung) -> Self {
+        match rung {
+            world_projection::Rung::Tall(tall) => RungWire::Tall(tall),
+            world_projection::Rung::Wide(wide) => RungWire::Wide(wide),
+        }
+    }
+}
+
+impl From<RungWire> for world_projection::Rung {
+    fn from(rung: RungWire) -> Self {
+        match rung {
+            RungWire::Tall(tall) => world_projection::Rung::Tall(tall),
+            RungWire::Wide(wide) => world_projection::Rung::Wide(wide),
+        }
+    }
+}
+
+/// The ground a cluster stands on, as it crosses the boundary: its name.
+/// A name the app does not know fails the snapshot loudly rather than
+/// being drawn as plain grass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct GroundWire(pub world_projection::Ground);
+
+impl TryFrom<String> for GroundWire {
+    type Error = String;
+
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        world_projection::Ground::of_name(&name)
+            .map(GroundWire)
+            .ok_or_else(|| {
+                let known = world_projection::Ground::ALL.map(|ground| ground.name());
+                format!("a cluster's ground {name:?} is not one the app paints: {known:?}")
+            })
+    }
+}
+
+impl From<GroundWire> for String {
+    fn from(ground: GroundWire) -> Self {
+        ground.0.name().to_string()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1295,6 +1376,7 @@ impl From<&Drawing> for DrawingWire {
         Self {
             id: drawing.id.clone(),
             aspect: drawing.aspect,
+            rung: drawing.rung.map(RungWire::from),
             parts: drawing
                 .parts
                 .iter()
@@ -1346,6 +1428,11 @@ impl From<DrawingWire> for Drawing {
         Self {
             id: drawing.id,
             aspect: drawing.aspect,
+            // A rung nobody could stand by is no rung.
+            rung: drawing
+                .rung
+                .map(world_projection::Rung::from)
+                .filter(|rung| rung.is_sensible()),
             parts: drawing
                 .parts
                 .into_iter()
@@ -1484,6 +1571,18 @@ pub struct ExchangeWire {
     pub moment: SelectionIdWire,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_for: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub voiced: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reported: bool,
+}
+
+/// What the player might open with to someone.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OpenersWire {
+    pub who: SelectionIdWire,
+    #[serde(default)]
+    pub lines: Vec<String>,
 }
 
 /// How someone looks. Every part is optional; colours are 0xRRGGBB.
@@ -1850,6 +1949,16 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     answer: exchange.answer.clone(),
                     moment: exchange.moment.into(),
                     asks_for: exchange.asks_for.clone(),
+                    voiced: exchange.voiced,
+                    reported: exchange.reported,
+                })
+                .collect(),
+            openers: snapshot
+                .openers
+                .iter()
+                .map(|openers| OpenersWire {
+                    who: openers.who.into(),
+                    lines: openers.lines.clone(),
                 })
                 .collect(),
             goals: snapshot
@@ -2033,7 +2142,28 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     asks_for: exchange
                         .asks_for
                         .filter(|command| !command.trim().is_empty()),
+                    voiced: exchange.voiced,
+                    reported: exchange.reported,
                 })
+                .collect(),
+            // An opener is a short line of plain words; a few at most.
+            openers: snapshot
+                .openers
+                .into_iter()
+                .map(|openers| world_projection::Openers {
+                    who: openers.who.into(),
+                    lines: openers
+                        .lines
+                        .into_iter()
+                        .filter(|line| {
+                            !line.trim().is_empty()
+                                && line.chars().count() <= 120
+                                && !line.chars().any(char::is_control)
+                        })
+                        .take(3)
+                        .collect(),
+                })
+                .filter(|openers| !openers.lines.is_empty())
                 .collect(),
             // A goal needs a name and at least one part; no more can be done
             // than it takes.
@@ -2207,6 +2337,37 @@ pub struct ProjectionCommandWire {
     /// Optional both ways: the World this choice starts, as it first stands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewWire>,
+    /// What the command is for (additive: an older app passes over it, and
+    /// a role this build does not know reads as none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<CommandRoleWire>,
+}
+
+/// [`world_projection::CommandRole`] on the wire.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandRoleWire {
+    PassesTime,
+    /// A role from a newer Pack: the command is an ordinary one here.
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<world_projection::CommandRole> for CommandRoleWire {
+    fn from(role: world_projection::CommandRole) -> Self {
+        match role {
+            world_projection::CommandRole::PassesTime => Self::PassesTime,
+        }
+    }
+}
+
+impl CommandRoleWire {
+    fn known(self) -> Option<world_projection::CommandRole> {
+        match self {
+            Self::PassesTime => Some(world_projection::CommandRole::PassesTime),
+            Self::Unknown => None,
+        }
+    }
 }
 
 /// How a World a choice would start first stands.
@@ -2356,6 +2517,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 canvas: (&preview.canvas).into(),
                 drawings: preview.drawings.iter().map(Into::into).collect(),
             }),
+            role: command.role.map(Into::into),
         }
     }
 }
@@ -2417,6 +2579,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
                     by: step.by.clamp(-1000, 1000),
                 })
                 .collect(),
+            role: command.role.and_then(CommandRoleWire::known),
         }
     }
 }
@@ -2684,7 +2847,7 @@ pub struct ClusterWire {
     pub from: f32,
     pub to: f32,
     #[serde(default)]
-    pub ground: String,
+    pub ground: GroundWire,
     #[serde(default)]
     pub rows: (f32, f32),
 }
@@ -2940,7 +3103,7 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
                     label: cluster.label.clone(),
                     from: cluster.from,
                     to: cluster.to,
-                    ground: cluster.ground.clone(),
+                    ground: GroundWire(cluster.ground),
                     rows: cluster.rows,
                 })
                 .collect(),
@@ -3011,7 +3174,7 @@ impl From<CanvasProjectionWire> for CanvasProjection {
                     label: cluster.label,
                     from: cluster.from,
                     to: cluster.to,
-                    ground: cluster.ground,
+                    ground: cluster.ground.0,
                     rows: cluster.rows,
                 })
                 .collect(),
@@ -3668,6 +3831,7 @@ mod tests {
                 unavailable: None,
                 hand: None,
                 preview: None,
+                role: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -3759,6 +3923,7 @@ mod tests {
             goals: Vec::new(),
             weather: Default::default(),
             exchanges: Vec::new(),
+            openers: Vec::new(),
             drawings: Vec::new(),
             keepsakes: Vec::new(),
             letters: Vec::new(),
@@ -4030,6 +4195,7 @@ mod tests {
                 },
                 drawings: vec![person],
             })),
+            role: None,
         };
         let json = serde_json::to_string(&ProjectionCommandWire::from(&command)).unwrap();
         let back =
@@ -4231,5 +4397,53 @@ mod tests {
         assert!(!serde_json::to_string(&self::descriptor())
             .unwrap()
             .contains("capabilities"));
+    }
+
+    /// A command's role crosses the wire, an older snapshot has none, and a
+    /// role from a newer Pack reads as an ordinary command.
+    #[test]
+    fn command_roles_cross_the_wire_and_unknown_roles_are_ordinary() {
+        let command = ProjectionCommand {
+            id: "x.pass".into(),
+            title: "Let the day pass".into(),
+            role: Some(world_projection::CommandRole::PassesTime),
+            ..ProjectionCommand::default()
+        };
+        let json = serde_json::to_value(ProjectionCommandWire::from(&command)).unwrap();
+        assert_eq!(json["role"], "passes_time");
+        let back: ProjectionCommandWire = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(ProjectionCommand::from(back), command);
+
+        let mut newer = json.clone();
+        newer["role"] = "summons_dragons".into();
+        let newer: ProjectionCommandWire = serde_json::from_value(newer).unwrap();
+        assert_eq!(ProjectionCommand::from(newer).role, None);
+
+        let mut older = json;
+        older.as_object_mut().unwrap().remove("role");
+        let older: ProjectionCommandWire = serde_json::from_value(older).unwrap();
+        assert_eq!(ProjectionCommand::from(older).role, None);
+        // An ordinary command says nothing about a role.
+        let plain = ProjectionCommand {
+            role: None,
+            ..command
+        };
+        assert!(serde_json::to_value(ProjectionCommandWire::from(&plain))
+            .unwrap()
+            .get("role")
+            .is_none());
+    }
+
+    /// An offered quick reply crosses the wire as itself.
+    #[test]
+    fn an_offered_reply_crosses_the_wire() {
+        let wire = EarsWire::from(Ears::Offered);
+        assert_eq!(
+            serde_json::to_value(&wire).unwrap(),
+            serde_json::json!({ "type": "offered" })
+        );
+        let back: EarsWire =
+            serde_json::from_value(serde_json::json!({ "type": "offered" })).unwrap();
+        assert_eq!(Ears::from(back), Ears::Offered);
     }
 }

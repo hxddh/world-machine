@@ -296,10 +296,10 @@ fn no_motion_is_linear() {
         ("art.rs", include_str!("../art.rs")),
         ("scene.rs", include_str!("../scene.rs")),
         (
-            "macos/world_window.rs",
-            include_str!("../macos/world_window.rs"),
+            "window/world_window.rs",
+            include_str!("../window/world_window.rs"),
         ),
-        ("macos.rs", include_str!("../macos.rs")),
+        ("window.rs", include_str!("../window.rs")),
     ];
     let drawing = [
         "let fx = left + (right - left) * t;",
@@ -1707,8 +1707,13 @@ fn painted_heights(snapshot: &ProjectionSnapshot) -> Vec<(String, String, f32)> 
 /// real harbour.
 #[test]
 fn no_field_prop_stands_taller_than_a_person() {
-    let field = crate::ladder::FIELD_PROPS;
-    for key in field {
+    let field = world_art::entries()
+        .iter()
+        .filter(|entry| entry.field)
+        .map(|entry| entry.key)
+        .collect::<Vec<_>>();
+    assert!(field.len() > 30, "{} things of fields", field.len());
+    for key in field.iter().copied() {
         match crate::ladder::of_art(key) {
             Some(crate::ladder::Rung::Tall(tall)) => {
                 assert!(tall <= 1.0, "{key} is {tall} P on the ladder")
@@ -1741,7 +1746,7 @@ fn no_field_prop_stands_taller_than_a_person() {
                 Some(crate::ladder::Rung::Tall(tall)) => tall * 1.15 + 0.1,
                 _ => 7.0,
             };
-            if p > most || (field.contains(&name.as_str()) && p > 1.05) {
+            if p > most || (crate::ladder::in_a_field(&name) && p > 1.05) {
                 wrong.push(format!("{label} ({name}): {p:.2} P"));
             }
         }

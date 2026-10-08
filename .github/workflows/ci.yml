@@ -101,6 +101,35 @@ jobs:
           command: check
           arguments: --locked
 
+  # The app on Windows, as far as compiling it: the whole workspace, the
+  # desktop app's window included (`cfg(gui)`, apps/world-machine-desktop/
+  # build.rs), its demo and store builds, with every warning an error. It
+  # also runs the one Windows-only path that has tests of its own: the
+  # writer-thread bound on a Pack's standard input (world-pack-process
+  # `deadline_stdin`), which is how Pack processes keep their deadlines
+  # where pipes cannot be made non-blocking.
+  windows-check:
+    needs: changes
+    if: needs.changes.outputs.gpui == 'true'
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: windows
+      - run: cargo check --locked --workspace
+      - run: cargo check --locked -p world-machine-desktop --features demo
+      - run: cargo check --locked -p world-machine-desktop --features channel-store
+      - run: cargo check --locked -p world-pack-process -p world-machine-desktop --all-targets
+      - run: cargo test --locked -p world-pack-process --lib deadline_stdin
+
   gpui-macos:
     needs: changes
     if: needs.changes.outputs.gpui == 'true'

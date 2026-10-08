@@ -24,9 +24,6 @@
 //! which is the same state as never having entered one: the World keeps its
 //! built-in copy and the app says the voice is not configured.
 
-use std::io::Write;
-use std::process::{Command, Stdio};
-
 const SECURITY: &str = "/usr/bin/security";
 /// What the key is called in Keychain Access, so somebody can find, inspect, or
 /// delete it without this app.
@@ -97,35 +94,7 @@ pub fn save(key: &str) -> Result<(), String> {
     if !::world_voice::is_plausible_api_key(key) {
         return Err("that is not an API key: a key is letters, digits, - and _".into());
     }
-    let mut child = Command::new(SECURITY)
-        .args(save_args())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("could not reach the keychain: {error}"))?;
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "could not hand the keychain the key".to_string())?;
-        stdin
-            .write_all(save_command(key).as_bytes())
-            .map_err(|error| format!("could not hand the keychain the key: {error}"))?;
-        // Closing standard input is what ends the interactive session.
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("the keychain did not answer: {error}"))?;
-    if load().as_deref() == Some(key) {
-        return Ok(());
-    }
-    let complaint = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    Err(if complaint.is_empty() {
-        "the keychain did not keep the key".to_string()
-    } else {
-        format!("the keychain refused to store the key: {complaint}")
-    })
+    crate::platform::current().save_secret(key)
 }
 
 /// The stored key, if there is one this app can read right now.
@@ -133,32 +102,86 @@ pub fn save(key: &str) -> Result<(), String> {
 /// Deliberately not a `Result`: every way this can fail — no keychain, locked,
 /// refused, nothing stored — means the same thing to everything upstream.
 pub fn load() -> Option<String> {
-    let output = Command::new(SECURITY).args(load_args()).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let key = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    ::world_voice::is_plausible_api_key(&key).then_some(key)
+    crate::platform::current().load_secret()
 }
 
 /// Forget the key. Forgetting one that is not there is not a failure.
 pub fn clear() -> Result<(), String> {
-    let output = Command::new(SECURITY)
-        .args(clear_args())
-        .output()
-        .map_err(|error| format!("could not reach the keychain: {error}"))?;
-    if output.status.success() || load().is_none() {
-        return Ok(());
-    }
-    Err(format!(
-        "the keychain refused to forget the key: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    ))
+    crate::platform::current().clear_secret()
 }
 
 /// Whether a key is stored, without reading it.
 pub fn is_configured() -> bool {
     load().is_some()
+}
+
+/// The Mac's login keychain, through `security`: what
+/// [`crate::platform::Platform`] keeps a key in on the Mac.
+pub mod keychain {
+    use super::{clear_args, load_args, save_args, save_command, SECURITY};
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    /// Store the key, proving it by reading it back.
+    pub fn save(key: &str) -> Result<(), String> {
+        let mut child = Command::new(SECURITY)
+            .args(save_args())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("could not reach the keychain: {error}"))?;
+        {
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| "could not hand the keychain the key".to_string())?;
+            stdin
+                .write_all(save_command(key).as_bytes())
+                .map_err(|error| format!("could not hand the keychain the key: {error}"))?;
+            // Closing standard input is what ends the interactive session.
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("the keychain did not answer: {error}"))?;
+        if load().as_deref() == Some(key) {
+            return Ok(());
+        }
+        let complaint = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        Err(if complaint.is_empty() {
+            "the keychain did not keep the key".to_string()
+        } else {
+            format!("the keychain refused to store the key: {complaint}")
+        })
+    }
+
+    /// The stored key, if there is one this app can read right now.
+    ///
+    /// Deliberately not a `Result`: every way this can fail — no keychain, locked,
+    /// refused, nothing stored — means the same thing to everything upstream.
+    pub fn load() -> Option<String> {
+        let output = Command::new(SECURITY).args(load_args()).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let key = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+        ::world_voice::is_plausible_api_key(&key).then_some(key)
+    }
+
+    /// Forget the key. Forgetting one that is not there is not a failure.
+    pub fn clear() -> Result<(), String> {
+        let output = Command::new(SECURITY)
+            .args(clear_args())
+            .output()
+            .map_err(|error| format!("could not reach the keychain: {error}"))?;
+        if output.status.success() || load().is_none() {
+            return Ok(());
+        }
+        Err(format!(
+            "the keychain refused to forget the key: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 #[cfg(test)]
