@@ -342,11 +342,11 @@ v0.28.0 shipped the plan above on 2026-10-08. Every blind set was written by age
 | Blind set 6: ≥95% declined, ≤1% wrongly, per language | en 94.7% / 4.0%, zh 94.3% / 2.3%, ja 93.0% / 0.9% (all 94.0% / 2.4%, 4,801 lines) | missed (ja's wrongly met) |
 | Talk for rewards: 0 completions (300 blind lines × 2 people × 31 readings) | 0 by a model or reply; 8 of 600 own-words tries did a "look in on" favour | missed |
 | Disagreement set: ≥80% of pushback held | 30 of 30 on the dev set; no blind set was written | met on dev only |
-| Sets 3–5 gated on recorded verdicts | every floor held; set 5 by the new code: en 95.8 / 0.2, zh 96.5 / 1.9, ja 94.0 / 1.3 | **met** |
+| Sets 3–5 gated on recorded verdicts | every floor held; set 5 by the new code: en 95.8 / 0.4 (2 of 520; corrected by the v0.28 review), zh 96.5 / 1.9, ja 94.0 / 1.3 | **met** |
 | fresh28: ≥85% heard per language | en 85.7%, zh 81.2%, ja 77.7% | missed (en met) |
 | ≥90% of favours done with everyday words | 60.6% (57 of 94) | missed |
 | No filler in year three's top 20 | 0 for every player in every place | **met** |
-| 0 partly English letters | 0 in every place, zh and ja | **met** |
+| 0 partly English letters | 0 in every place, zh and ja, over a year; over three years, 2 Maple Street letters in Chinese (found by the v0.28 review) | met over a year |
 | Windows compile check in CI | `windows-check` job; clean by cross-compile | **met** |
 | Invariants machine-checked | forbid(unsafe), cargo-deny ban, replayed-state golden, Pack-name ratchet, `caused_by` count | **met** |
 | Green nightly three nights running | one green run, on v0.27 code | missed |
@@ -356,9 +356,9 @@ v0.28.0 shipped the plan above on 2026-10-08. Every blind set was written by age
 
 **What the misses say.**
 - **The voice.** Set 6's misses are mostly invented names and places (79 of 108) and things out of their time (22). Its wrong declines are mostly the judge (58 of 72): Haiku reads nicknames such as "the Skipper", real places of the era and figures of speech as out of the world. Eleven are a rule: an English answer quoting a resident's own name in katakana is taken for the wrong language. The new policy (era places in, brands out) moved the line in a way the judge does not yet follow. English's 4.0% is the worst figure, and it is almost all the judge.
-- **Hearing and favours.** The phrase table gained about 1,500 phrases and still misses new phrasing, worst in Japanese. Favours done in everyday words fell from v0.27's 75% to 60.6% on a harder set; four of those lines passed on an apology without naming who it was from, which the rules need (the brief allowed it, a defect of the brief).
+- **Hearing and favours.** The phrase table gained about 1,500 phrases and still misses new phrasing, worst in Japanese. Favours done in everyday words: 60.6%, against v0.27's 57.4% on the same set (corrected by the v0.28 review; an earlier version of this line said v0.27 had 75%); four of those lines passed on an apology without naming who it was from, which the rules need (the brief allowed it, a defect of the brief).
 - **Talk for rewards.** No model or reply can pay, by construction. The 8 completions are the rule for "look in on someone": any understood words said to that person count, so "free drink, free drink" said to the right person does the favour.
-- **Frames.** The slow frames are image uploads with page faults when a pan reaches a new column. The bar passes on GitHub's runners and needs a quiet or target machine.
+- **Frames.** The slow frames are image uploads with page faults when a pan reaches a new column. The bar passes on GitHub's runners. (Corrected by the v0.28 review: it also fails 9 of 15 runs on a quiet box, so the slow frames are the app's own work.)
 - **The nightly** cannot be made green three nights running inside a release; the scheduled runs will tell.
 
 **Found on the way.** Most events record no cause: in a harbour of 30 days, 3,674 of 4,073 events have no `caused_by`, and 7,208 of 7,372 in Pocket Universe. Invariant 5 holds only where a System chooses to set it. A test now counts them and fails on new uncaused kinds.

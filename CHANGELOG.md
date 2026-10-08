@@ -15,7 +15,7 @@ This release is the plan from the [v0.27 review](docs/REVIEW_v0.27.md), "Always 
   - A new look (the hour turning) swaps in one frame once it is whole, instead of fading over the old one, so shadows are never drawn twice and the rough never shows under a sharp picture. Tests hold both, pixel for pixel.
   - Day 1 opens on the Harbour Front with at least four residents and three whole buildings in view; each Pocket Universe place opens on its keeper beside a whole building at every hour.
   - People keep clear of doors on the quay, and groups that would run into each other stand apart.
-  - A release-build "first ten minutes" run (`scripts/release-shots.sh`) checks every frame of the real window and saves screenshots for every release in CI.
+  - A release-build "first ten minutes" run (`scripts/release-shots.sh`) checks every frame of the real window and saves its screenshots. (Correction: its CI workflow did not run for v0.28.0, because a tag pushed by the release workflow triggers no other workflow; see the [v0.28 review](docs/REVIEW_v0.28.md#corrections-to-v028s-notes).)
 - **Talk you can trust (the World voice, version 3).**
   - **Names.** Each World has a complete name list in English, Chinese and Japanese, held by tests; a person-shaped name the World does not know is declined at once, and the judge's list of names counts.
   - **Era and language.** Word lists of what each place's time has and lacks; Japanese insult rules and brand lists; Simplified Chinese only. Real places and events of the era are part of the world; brands, celebrities, media titles and real currency are not, unless the World names them itself.
@@ -25,7 +25,7 @@ This release is the plan from the [v0.27 review](docs/REVIEW_v0.27.md), "Always 
   - One runner for every outside process, with deadlines and cancelling; a persistent pi session; the voice no longer links any World code.
 - **Words, hearing and favours.**
   - Bench and swing lines are said only now and then: none is in year three's top 20 for any player. "Just like last year." is gone from festival remarks.
-  - No English sentence in a Chinese or Japanese letter, and no partly English line, over a year in any place.
+  - No English sentence in a Chinese or Japanese letter, and no partly English line, over a year in any place. (Over three years, two Maple Street letters in Chinese still carry English sentences.)
   - Lines break properly: no line starts with a question mark, 。、」 or a small kana, and no break inside a katakana name.
   - About 1,500 more phrases are heard; "give him another chance" is reconciling and "don't give up" is comfort, in all three languages.
   - Quiet players are still asked a favour about every three weeks. The thanks show on the asker's card.
@@ -34,7 +34,7 @@ This release is the plan from the [v0.27 review](docs/REVIEW_v0.27.md), "Always 
   - The art catalog is data in its own GUI-free crate: Packs declare their drawings' heights, and the ground is a fixed set.
   - Commands declare their role (the day pass), so nothing sniffs ids.
   - The desktop app is split by platform behind a small trait, Pack processes run on Windows, and CI checks the Windows build.
-  - Machine-checked invariants: no `unsafe` in any crate (two test helpers aside), `pi_agent_rust` banned by cargo-deny, a ratchet on Pack names in shared crates, and a count of events without a cause.
+  - Machine-checked invariants: `unsafe` forbidden in 39 of 40 crates (`world-pack-process` denies it and allows it only for its unix pipe calls; two test helpers aside), `pi_agent_rust` banned by cargo-deny, a ratchet on Pack names in shared crates, and a count of events without a cause.
 - **Health.**
   - A turn does 7% less work than v0.26.1's (17% less than v0.27's), and its median is back under v0.26.1's on the same machine.
   - Pocket Universe's library tests take 2.5 minutes instead of 12.
