@@ -24,7 +24,7 @@ Store pages want 16:9 at 1920×1080 or larger. Each shot is the 1100×900 window
 | 4 | `shot-4-dusk.png` | Day 21 at dusk: lit windows, lamps along the quay, bunting from the fete | `places` (`P-07-harbour-19`) | The light follows the clock; the end of the demo's three weeks. |
 | 5 | `shot-5-year-three.png` | Day 1,002, pulled back: the whole town your answers built | `zoom` (`P-05-year3-zoom-out4`) | Years of a town; every zoom level painted. |
 
-All five are from P's v0.28 harness run (release build, the real 1100×900 window under Xvfb with a software renderer), copied from `scratchpad/v028/shots/`. Signed off by the art director on 2026-10-08; the zh and ja descriptions still need a native reader.
+All five are from P's v0.28 harness run (release build, the real 1100×900 window under Xvfb with a software renderer), copied from `scratchpad/v028/shots/`. Signed off by the art director on 2026-10-08; the zh and ja descriptions still need a native reader. **Under review:** the [v0.28 review](../../REVIEW_v0.28.md#what-the-art-director-found) found that `shot-2-return.png` is the sharp version of a frame players see blurred, and that the dusk shot reads grey; from v0.29 every store shot must match the frame the player sees at that moment.
 
 ## How the kit is made again
 

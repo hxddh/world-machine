@@ -164,6 +164,14 @@ The key art is rendered by the engine itself, from a fixed seed, at 3840×2160.
 
 Each release that changes the look ships a contact sheet: 12 frames covering each place at noon, dusk and night, day 1 and year three, and the first screen. The art director checks every rule above against it.
 
+From v0.29 the sheet comes from scripted free play, not frames chosen by the team:
+- it covers day 1's first 90 seconds, days 5, 13 in rain and 21 at dusk, a return film, Find, Esc, each Pocket Universe place opening, and Chinese and Japanese;
+- it includes frames 0.3, 1.0 and 2.5 s after every camera move, not only settled ones;
+- the harness picks at least a third of the frames at random;
+- every store-page shot must match the frame the player sees at that moment.
+
+(The v0.28 sign-off below was given on settled, harness-picked frames, and was withdrawn in the [v0.28 review](REVIEW_v0.28.md#what-the-art-director-found).)
+
 ## v0.27 sign-off
 
 Signed off by the art director on 2026-10-07 after three rounds.
@@ -175,7 +183,7 @@ Signed off by the art director on 2026-10-07 after three rounds.
 
 ## v0.28 sign-off
 
-Signed off by the art director on 2026-10-08 after three rounds, on real-window screenshots from a release build (`scripts/release-shots.sh`).
+Signed off by the art director on 2026-10-08 after three rounds, on real-window screenshots from a release build (`scripts/release-shots.sh`). **Withdrawn on review** (2026-10-08): in free play the rough stand-in stays on the subject of a moment for about 2.5 s, each Pocket Universe place opens on the harbour's meadow, and the lighthouse's shadow box is still there; see the [v0.28 review](REVIEW_v0.28.md#what-the-art-director-found).
 - [Contact sheet](art/v0.28-contact-sheet.jpg): the harbour on day 1, in year two and zoomed in at year three, at dusk and at night; Ares at noon and night; Maple Street at noon, dusk and night; Icebridge at noon and night. The v0.27 key art stands.
 - Round 1 was not signed off: fog in the first one to two seconds, Maple Street empty at night, a home cut at the edge on day 1, and people overlapping the quay's buildings in year two. Round 2 fixed all four. Round 3 fixed a regression round 2 showed: a hard-edged dark slab at the lighthouse's base and under the Anchor Pub, where the rough painting showed through a fading sharp picture and shadows were drawn twice during a look change. Tests now hold that the rough never shows where a sharp picture is, and that a look change never darkens a frame.
 - Accepted deviations, to fix in v0.29:

@@ -230,7 +230,11 @@ pub const MOST_REQUESTS: u32 = 8;
 
 struct Live {
     child: std::process::Child,
-    stdin: std::process::ChildStdin,
+    /// Requests for pi, written to its stdin on a thread of their own: a pi
+    /// that stops reading blocks only that thread, never the deadline.
+    requests: std::sync::mpsc::Sender<String>,
+    /// Whether each request was written.
+    written: std::sync::mpsc::Receiver<std::io::Result<()>>,
     lines: std::sync::mpsc::Receiver<String>,
     served: u32,
 }
@@ -277,7 +281,7 @@ impl PersistentPiRpcTransport {
             .stderr(Stdio::null())
             .spawn()
             .map_err(PiRpcTransportError::Spawn)?;
-        let stdin = child.stdin.take().ok_or_else(|| {
+        let mut stdin = child.stdin.take().ok_or_else(|| {
             PiRpcTransportError::Stdin(std::io::Error::other("Pi stdin was not piped"))
         })?;
         let stdout = child.stdout.take().ok_or_else(|| {
@@ -293,9 +297,22 @@ impl PersistentPiRpcTransport {
                 }
             }
         });
+        let (requests, waiting) = std::sync::mpsc::channel::<String>();
+        let (done, written) = std::sync::mpsc::channel();
+        // Ends when pi is stopped (its pipe breaks) or the transport lets go.
+        thread::spawn(move || {
+            for request in waiting {
+                let result = writeln!(stdin, "{request}").and_then(|()| stdin.flush());
+                let failed = result.is_err();
+                if done.send(result).is_err() || failed {
+                    break;
+                }
+            }
+        });
         Ok(Live {
             child,
-            stdin,
+            requests,
+            written,
             lines,
             served: 0,
         })
@@ -310,9 +327,47 @@ impl PersistentPiRpcTransport {
         let request_id = format!("world-machine-{}", self.request_sequence);
         self.request_sequence += 1;
         let request = json!({ "id": request_id, "type": "prompt", "message": prompt });
-        if let Err(error) = writeln!(live.stdin, "{request}").and_then(|()| live.stdin.flush()) {
+        if live.requests.send(request.to_string()).is_err() {
             live.stop();
-            return Err(PiRpcTransportError::Stdin(error));
+            return Err(PiRpcTransportError::Stdin(std::io::Error::other(
+                "Pi stdin is closed",
+            )));
+        }
+        // Written, by the deadline and unless cancelled: stopping pi breaks
+        // its pipe, which frees the thread writing to it.
+        loop {
+            if self
+                .cancel
+                .as_ref()
+                .is_some_and(world_run::Cancel::is_cancelled)
+            {
+                live.stop();
+                return Err(PiRpcTransportError::Cancelled);
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                live.stop();
+                return Err(PiRpcTransportError::Timeout {
+                    millis: started.elapsed().as_millis(),
+                });
+            }
+            match live
+                .written
+                .recv_timeout(left.min(Duration::from_millis(25)))
+            {
+                Ok(Ok(())) => break,
+                Ok(Err(error)) => {
+                    live.stop();
+                    return Err(PiRpcTransportError::Stdin(error));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    live.stop();
+                    return Err(PiRpcTransportError::Stdin(std::io::Error::other(
+                        "Pi stdin is closed",
+                    )));
+                }
+            }
         }
         let mut parser = PiRpcEventParser::default();
         loop {
