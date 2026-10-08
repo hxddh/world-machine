@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 use tiny_skia as sk;
 
@@ -1661,12 +1662,14 @@ struct Pool {
     /// hills), then the rest, each in the order asked.
     queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>)>,
     ready: std::sync::Condvar,
-    /// What has been asked for and not yet painted, and when it was last
-    /// asked for: work nobody still wants is skipped.
-    asked: std::sync::Mutex<HashMap<u64, Instant>>,
-    /// Finished work, waiting to be picked up: the key, the window it is
-    /// for, and the image (none if it came out empty).
-    done: std::sync::Mutex<Vec<Finished>>,
+    /// What has been asked for and not yet painted, by the thread that
+    /// asked, and when it was last asked for: work nobody still wants is
+    /// skipped.
+    asked: std::sync::Mutex<HashMap<(ThreadId, u64), Instant>>,
+    /// Finished work, waiting to be picked up by the thread that asked for
+    /// it (each thread's cache is its own: in tests, several windows paint
+    /// at once on threads of their own, and none takes another's).
+    done: std::sync::Mutex<Vec<(ThreadId, Finished)>>,
 }
 
 /// Finished work: the key, the window it is for, and the image and its
@@ -1676,6 +1679,7 @@ type Finished = (u64, u64, Option<(usize, Arc<RenderImage>)>);
 struct Job {
     key: u64,
     window: u64,
+    thread: ThreadId,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 }
 
@@ -1712,7 +1716,11 @@ fn pool() -> &'static Pool {
                     let wanted = pool
                         .asked
                         .lock()
-                        .map(|asked| asked.get(&job.key).is_some_and(|at| at.elapsed() < WANTED))
+                        .map(|asked| {
+                            asked
+                                .get(&(job.thread, job.key))
+                                .is_some_and(|at| at.elapsed() < WANTED)
+                        })
                         .unwrap_or(false);
                     let made = if wanted {
                         (job.paint)().map(|pixmap| (pixmap.data().len(), image_of(pixmap)))
@@ -1723,11 +1731,11 @@ fn pool() -> &'static Pool {
                     // never asked for twice in between.
                     if wanted {
                         if let Ok(mut done) = pool.done.lock() {
-                            done.push((job.key, job.window, made));
+                            done.push((job.thread, (job.key, job.window, made)));
                         }
                     }
                     if let Ok(mut asked) = pool.asked.lock() {
-                        asked.remove(&job.key);
+                        asked.remove(&(job.thread, job.key));
                     }
                 });
         }
@@ -1742,10 +1750,17 @@ fn pool() -> &'static Pool {
 
 /// Moves finished work into the cache: on the window's thread only.
 fn pick_up() {
-    let finished = pool()
+    let here = std::thread::current().id();
+    let finished: Vec<Finished> = pool()
         .done
         .lock()
-        .map(|mut done| std::mem::take(&mut *done))
+        .map(|mut done| {
+            let (mine, others) = std::mem::take(&mut *done)
+                .into_iter()
+                .partition(|(thread, _)| *thread == here);
+            *done = others;
+            mine.into_iter().map(|(_, finished)| finished).collect()
+        })
         .unwrap_or_default();
     if finished.is_empty() {
         return;
@@ -2011,13 +2026,18 @@ pub fn ask(
     let fresh = pool
         .asked
         .lock()
-        .map(|mut asked| asked.insert(key, Instant::now()).is_none())
+        .map(|mut asked| {
+            asked
+                .insert((std::thread::current().id(), key), Instant::now())
+                .is_none()
+        })
         .unwrap_or(false);
     if fresh {
         if let Ok(mut queue) = pool.queue.lock() {
             let job = Job {
                 key,
                 window: id,
+                thread: std::thread::current().id(),
                 paint,
             };
             if first {
@@ -2049,14 +2069,19 @@ pub(crate) fn paint_elsewhere(yes: bool) {
     ASYNC_HERE.with(|here| here.set(yes));
 }
 
-/// Whether the painter's threads have nothing left to do.
+/// Whether the painter's threads have nothing left to do for this thread.
 pub(crate) fn idle() -> bool {
     let pool = pool();
+    let here = std::thread::current().id();
     pool.asked
         .lock()
-        .map(|asked| asked.is_empty())
+        .map(|asked| asked.keys().all(|(thread, _)| *thread != here))
         .unwrap_or(true)
-        && pool.done.lock().map(|done| done.is_empty()).unwrap_or(true)
+        && pool
+            .done
+            .lock()
+            .map(|done| done.iter().all(|(thread, _)| *thread != here))
+            .unwrap_or(true)
 }
 
 thread_local! {
