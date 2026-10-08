@@ -402,6 +402,11 @@ Invariant 8 holds too, but Packs still run pi or `fm` themselves, outside the ap
 | **Counsel** | One review of the memo on SB 243 / SB 1119, the EU and China before the demo goes public. |
 | **An API key for measurement** | A small budget, so the voice is measured through the app's real request. |
 
+**The owner's answers (2026-10-08):**
+- **Apple Developer Program:** not now; enrol later. v0.29 keeps the Mac build ad-hoc signed, and nothing in it waits on notarization.
+- **Next Fest:** no rush to register for February 2027. Plan item 7 still builds the demo, but not to the fest's dates.
+- v0.29 goes ahead on the plan above.
+
 ## Corrections to v0.28's notes
 
 The measurement found five statements in v0.28's CHANGELOG, KNOWN_ISSUES and the v0.27 review's last section wrong or misleading. They are corrected in this change:
