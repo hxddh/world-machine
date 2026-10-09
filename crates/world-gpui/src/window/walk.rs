@@ -389,7 +389,7 @@ fn a_world_in(words: &Words) -> (ProjectionSnapshot, Vec<String>) {
     // it, and something someone gave them, as it is shown.
     snapshot.openers = vec![world_projection::Openers {
         who: someone,
-        lines: vec![format!("{}opener", words.said), words.talk_question.into()],
+        lines: vec![words.said.to_string(), words.talk_question.into()],
     }];
     snapshot
         .exchanges
