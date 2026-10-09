@@ -58,7 +58,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xvfb xdotool x11-utils imagemagick \
+            xvfb xdotool x11-utils x11-apps imagemagick \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libxcb1-dev libx11-xcb-dev libvulkan-dev mesa-vulkan-drivers \
             libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \

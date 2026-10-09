@@ -16,7 +16,7 @@
 # working tree into the workspace's own target directory: no copy of the
 # source, so a release build from the tree never links what a copy built.
 #
-# Needs: Xvfb, xdotool, x11-utils (xwininfo, xwd), imagemagick, python3,
+# Needs: Xvfb, xdotool, x11-utils (xwininfo), x11-apps (xwd), imagemagick, python3,
 # and the GPUI Linux build dependencies (libxkbcommon-x11-dev,
 # libvulkan-dev, mesa-vulkan-drivers for a software renderer).
 #
