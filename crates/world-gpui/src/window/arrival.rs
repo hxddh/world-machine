@@ -890,4 +890,85 @@ mod tests {
             }
         }
     }
+
+    /// The ice place opens on its nests, its plaza and its bridge, every one
+    /// whole and clear of the window's edges, with its keeper in view, on
+    /// one framing at noon, at dusk and at night, at the release window's
+    /// size and a larger one (v0.29 round 3: night cut the nests at the
+    /// left edge and the bridge at the right; noon left the nests out).
+    #[test]
+    fn the_ice_place_opens_on_its_nests_and_its_bridge_at_every_hour() {
+        use crate::diorama::{stage_at, Clock, Stage};
+        let wire: world_pack_protocol::ProjectionSnapshotWire =
+            serde_json::from_str(include_str!("../../tests/fixtures/start-ice.json"))
+                .expect("a place's snapshot");
+        let snapshot = ProjectionSnapshot::try_from(wire).expect("a snapshot");
+        let keeper = |stage: &Stage| {
+            let spot = stage.people.first().expect("someone is out");
+            let (x, _, w, _) = stage.frame_of(spot.index).expect("framed");
+            x + w / 2.0
+        };
+        // As the window opens (`ProjectionView::opening_view`): the best
+        // view round the keeper, or, where it leaves a building against
+        // an edge, the nearest to noon's that keeps them all clear.
+        let opening = |stage: &Stage, x: f32, noon: f32| {
+            let own = best_view(stage, x);
+            if crowded_at_the_edges(stage, own) == 0 {
+                own
+            } else {
+                framed_as_at_noon(stage, x, own, noon)
+            }
+        };
+        for (width, height) in [(1100.0, 848.0), (1400.0, 950.0)] {
+            let noon_stage = stage_at(&snapshot, width, height, Clock::at(12));
+            let noon = best_view(&noon_stage, keeper(&noon_stage));
+            let at_noon = opening(&noon_stage, keeper(&noon_stage), noon);
+            for hour in [12, 19, 23] {
+                let stage = stage_at(&snapshot, width, height, Clock::at(hour));
+                let x = keeper(&stage);
+                let centre = opening(&stage, x, noon);
+                let half = stage.view_w / 2.0;
+                let shown = centre.clamp(half, stage.width - half);
+                let (left, right) = (shown - half, shown + half);
+                let at = format!("{width}x{height} at {hour}:00");
+                let mut nests = 0;
+                let mut bridge = false;
+                for spot in &stage.buildings {
+                    let item = &snapshot.canvas.items[spot.index];
+                    let is_nest = item.art.as_deref() == Some("snow-nest");
+                    let is_bridge = item.shape == Some(world_projection::MarkShape::Bridge);
+                    if !is_nest && !is_bridge {
+                        continue;
+                    }
+                    let (from, to) = (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0);
+                    assert!(
+                        from >= left + EDGE_ROOM && to <= right - EDGE_ROOM,
+                        "{at}: the {} ({from:.0}..{to:.0}) is whole and clear of the edges \
+                         of {left:.0}..{right:.0}",
+                        item.label
+                    );
+                    nests += usize::from(is_nest);
+                    bridge |= is_bridge;
+                }
+                assert!(
+                    nests >= 2 && bridge,
+                    "{at}: the nests and the bridge are there"
+                );
+                assert_eq!(cut_at_the_edges(&stage, centre), 0, "{at}: nothing cut");
+                assert_eq!(
+                    crowded_at_the_edges(&stage, centre),
+                    0,
+                    "{at}: nothing against the edges"
+                );
+                assert!(
+                    (x - shown).abs() <= half - 8.0,
+                    "{at}: the keeper is in view"
+                );
+                assert!(
+                    (centre - at_noon).abs() <= stage.view_w * 0.03,
+                    "{at}: framed as at noon ({centre:.0} against {at_noon:.0})"
+                );
+            }
+        }
+    }
 }

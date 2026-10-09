@@ -532,8 +532,12 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
             // At the water's edge: a pier's foot a little out in the
             // water, a building's on the quay's edge, its slipway or jetty
             // running down in front of it.
-            // A lighthouse stands out on its spit of rock.
-            let place = item.kind == CanvasItemKind::Place && item.shape != Some(MarkShape::Tower);
+            // A lighthouse stands out on its spit of rock. A work going up
+            // stands in its scaffolding at the water's edge too, its site on
+            // the land, never out over the water (v0.29 round 3).
+            let place = (item.kind == CanvasItemKind::Place
+                && item.shape != Some(MarkShape::Tower))
+                || item.art.as_deref() == Some("scaffold");
             return Spot {
                 index,
                 x,
@@ -1654,7 +1658,16 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
             canvas.stroke(&crest, 1.1, rim);
         }
     }
-    // The air between: every range paler toward its foot.
+    // The air between: every range paler toward its foot. On the ice the
+    // flat field fades in over the band's foot, so the air thickens on
+    // down under it rather than levelling off where the field begins (v0.29
+    // round 3: the gradient's knee showed there as a faint line across the
+    // ice).
+    let (thickest, knee) = if frame.setting == art::Setting::Ice {
+        (0.5, 1.0)
+    } else {
+        (0.3, 0.55)
+    };
     canvas.gradient(
         from,
         band.above - band.view_h * 0.1,
@@ -1662,7 +1675,7 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
         band.view_h * 0.1 + band.below,
         180.0,
         (haze.opacity(0.0), 0.0),
-        (haze.opacity(0.3), 0.55),
+        (haze.opacity(thickest), knee),
     );
     // The back row: the place's own drawings, far off and pale with the
     // air between (ground.rs).
@@ -1928,64 +1941,93 @@ pub(super) fn paint_land_tile(
 
 /// On the ice, a lead of open water along the back of the causeway, so it
 /// runs between two waters and reads as a causeway, not a shoreline: one
-/// continuous dark channel, its edges soft where the ice thins toward it,
-/// a few pale glints on it, and the bridge standing over it (v0.29 round
-/// 2: cut into dashes by its snow crossings it read as a rail or a road
-/// marking, not water, and the bridge stood out on the snow).
-fn paint_lead(canvas: &mut Canvas, frame: &Frame, (from, to): (f32, f32), top: f32, k: f32) {
-    let half = frame.figure_h * 0.1;
-    // Under the bridge, where one stands on it, so it spans the water.
-    let mid = frame
-        .buildings
-        .iter()
-        .find(|building| building.shape == MarkShape::Bridge)
-        .map_or(top - frame.figure_h * 0.14, |bridge| {
-            bridge.base + half * 0.2
-        });
-    if half < 1.5 {
+/// continuous channel of dark water (`Frame::lead`), its far edge soft
+/// where the ice thins toward it, its near edge the causeway's lit lip, a
+/// few pale glints on it, and the bridge's feet standing in it so the dark
+/// shows through the arch (v0.29 round 3: twelve pixels of dark behind the
+/// causeway read as its edge, not as water the bridge spans).
+fn paint_lead(canvas: &mut Canvas, frame: &Frame, (from, to): (f32, f32), k: f32) {
+    let Some((far, near)) = frame.lead() else {
+        return;
+    };
+    let deep = near - far;
+    if deep < 3.0 {
         return;
     }
     let water = art::hex(frame.scenery.near);
     let seed = seed_of_scenery(&frame.scenery);
     let step = 14.0 * k;
     let (a, b) = (((from - 60.0) / step).floor(), ((to + 60.0) / step).ceil());
-    // The channel's edges wander a little, by the stage position, so tiles
-    // meet without a seam and a pan never changes them.
-    let edge = |x: f32, side: i32| {
+    // The edges wander a little, by the stage position, so tiles meet
+    // without a seam and a pan never changes them.
+    let wander = |x: f32, side: i32, by: f32| {
         let n = (x / step).round() as i32;
         let wob = (painter::hash2(n, 131 + side, seed) % 100) as f32 / 100.0 - 0.5;
-        wob * half * 0.35
+        wob * by
     };
-    // Soft from the outside in: the thinning ice, then the open water.
-    for (grow, opacity) in [(1.9_f32, 0.12_f32), (1.55, 0.22), (1.25, 0.45), (1.0, 1.0)] {
+    let band = |top: &dyn Fn(f32) -> f32, bottom: &dyn Fn(f32) -> f32| {
         let mut shape = Shape::new();
         let mut n = a;
-        shape.move_to(n * step, mid - half * grow + edge(n * step, 0));
+        shape.move_to(n * step, top(n * step));
         while n <= b {
-            shape.line_to(n * step, mid - half * grow + edge(n * step, 0));
+            shape.line_to(n * step, top(n * step));
             n += 1.0;
         }
         let mut n = b;
         while n >= a {
-            shape.line_to(n * step, mid + half * grow * 0.8 + edge(n * step, 1));
+            shape.line_to(n * step, bottom(n * step));
             n -= 1.0;
         }
         shape.close();
+        shape
+    };
+    // The far edge in long soft bays, never a saw.
+    let phase = (seed % 628) as f32 / 100.0;
+    let far_edge = |x: f32| {
+        far + deep
+            * (0.1 * (x / (61.0 * k) + phase).sin() + 0.05 * (x / (23.0 * k) + phase * 2.0).sin())
+    };
+    let near_edge = |x: f32| near + wander(x, 1, 1.2 * k);
+    // The thinning ice on the far side, soft from the outside in.
+    for (reach, opacity) in [(0.42_f32, 0.1_f32), (0.26, 0.2), (0.12, 0.4)] {
+        let shape = band(&|x| far_edge(x) - deep * reach, &|x| near_edge(x));
         canvas.fill(&shape, water.opacity(opacity));
     }
-    // A few pale glints on the water, never a line along it.
+    // The open water, darkest along the causeway's foot.
+    let open = band(&far_edge, &near_edge);
+    painter::fill_shaded(
+        canvas,
+        &open,
+        (0.0, far),
+        (0.0, near),
+        &[
+            (0.0, art::shade(water, 0.08)),
+            (0.5, water),
+            (1.0, art::shade(water, -0.12)),
+        ],
+    );
+    // The causeway's lip, lit, where its ice meets the water.
     let rim = under_sky(&frame.scenery, art::hex(0xe8f1f7), GROUND_UNDER_SKY);
+    let mut lip = Shape::new();
+    let mut n = a;
+    lip.move_to(n * step, near_edge(n * step) + 0.6 * k);
+    while n <= b {
+        lip.line_to(n * step, near_edge(n * step) + 0.6 * k);
+        n += 1.0;
+    }
+    canvas.stroke(&lip, 1.6 * k, rim.opacity(0.55));
+    // A few pale glints on the water, never a line along it.
     let spacing = 90.0 * k;
     let mut n = ((from - spacing) / spacing).floor() as i32;
     while (n as f32) * spacing < to + spacing {
         let s = painter::hash2(n, 137, seed);
         if !s.is_multiple_of(3) {
             let x = n as f32 * spacing + (s % 1000) as f32 / 1000.0 * spacing * 0.6;
-            let y = mid + ((s >> 10) % 100) as f32 / 100.0 * half * 0.6 - half * 0.3;
+            let y = far + deep * (0.35 + ((s >> 10) % 100) as f32 / 100.0 * 0.4);
             let long = (10.0 + ((s >> 17) % 14) as f32) * k;
             let mut glint = Shape::new();
             glint.move_to(x, y).line_to(x + long, y);
-            canvas.stroke(&glint, 1.0 * k, rim.opacity(0.4));
+            canvas.stroke(&glint, 1.0 * k, rim.opacity(0.35));
         }
         n += 1;
     }
@@ -2047,7 +2089,7 @@ pub(super) fn paint_quay(
     kerb.move_to(from, top).line_to(to + step, top);
     canvas.stroke(&kerb, 1.4 * k, art::shade(stone, -0.4).opacity(0.45));
     if frame.setting == art::Setting::Ice {
-        paint_lead(canvas, frame, (from, to), top, k);
+        paint_lead(canvas, frame, (from, to), k);
     }
     if !detail {
         return;

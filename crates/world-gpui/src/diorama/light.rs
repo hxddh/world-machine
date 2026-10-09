@@ -827,7 +827,10 @@ pub(super) fn paint_spine_lamps(
         if !seen(x, w * z) {
             continue;
         }
-        let base_y = frame.quay_top() + frame.figure_h * 0.04;
+        // On the ice, on the causeway's lip in front of the lead, never in
+        // its water.
+        let base_y =
+            frame.lead().map_or(frame.quay_top(), |(_, near)| near) + frame.figure_h * 0.04;
         let (sx, base) = screen(x, base_y);
         let (w, h) = (w * z, p * 1.8 * z);
         contact_shadow(window, frame.hour, sx, base, w * 0.35);

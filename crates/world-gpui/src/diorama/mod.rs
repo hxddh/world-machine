@@ -406,6 +406,18 @@ impl Frame {
     fn quay_top(&self) -> f32 {
         self.feet - self.figure_h * 0.55
     }
+
+    /// On the ice, the lead of open water along the back of the causeway:
+    /// its far and near edges, in stage pixels (`scene::paint_lead`). About
+    /// forty pixels of dark water in a window 848 high, so it reads as
+    /// water the bridge spans, not the causeway's edge (v0.29 round 3).
+    fn lead(&self) -> Option<(f32, f32)> {
+        (self.setting == crate::art::Setting::Ice && self.water).then(|| {
+            let k = (self.height / 848.0).clamp(0.3, 1.3);
+            let top = self.quay_top();
+            (top - 24.0 * k, top + 14.0 * k)
+        })
+    }
 }
 
 /// What a frame lights up, and in what colour.
@@ -551,8 +563,25 @@ pub fn frame(
                 shape,
                 palette: painted_as(item, lit, setting, &scenery),
                 flip: item.variant.is_some_and(|variant| variant.flip),
+                // A low wall runs on only to a neighbour that stands there
+                // to meet it, never into the open (v0.29 round 3's grey
+                // slab beside the net store).
                 joins: item.variant.map_or((false, false), |variant| {
-                    (variant.join_left, variant.join_right)
+                    // The wall reaches 0.72 of the building's width out
+                    // from its middle (`works::sprite_painted`).
+                    let meets = |side: f32| {
+                        stage.buildings.iter().chain(&stage.things).any(|other| {
+                            let along = side * (other.x - spot.x);
+                            other.index != spot.index
+                                && along > 0.0
+                                && (other.y - spot.y).abs() < stage.figure_h * 0.25
+                                && along - other.w / 2.0 <= w * 0.74
+                        })
+                    };
+                    (
+                        variant.join_left && meets(-1.0),
+                        variant.join_right && meets(1.0),
+                    )
                 }),
                 glow: glow_of(item),
                 drawing,

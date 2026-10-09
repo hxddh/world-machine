@@ -517,43 +517,8 @@ fn ice_props(canvas: &mut Canvas, g: &Ground) {
         );
         canvas.stroke(&under, 1.2 * k, shade.opacity(0.6));
     }
-    // Blocks of ice lying about, and the penguins' pebbles.
-    for index in 0..((8.0 * per) as i32) {
-        let (x, t, seed) = g.scatter(index, 32);
-        if !g.seen(x, 20.0) {
-            continue;
-        }
-        let y = g.strip_top + t * (g.meadow - g.strip_top);
-        let s = (5.0 + (seed >> 16) as f32 % 8.0) * k;
-        canvas.soft(
-            x + s * 0.4,
-            y + 1.0,
-            s * 1.2,
-            s * 0.3,
-            s * 0.3,
-            art::hex(0x7fa8c0).opacity(0.25),
-        );
-        art::polygon(
-            canvas,
-            &[
-                (x - s, y),
-                (x + s * 0.8, y),
-                (x + s * 0.6, y - s * 1.1),
-                (x - s * 0.7, y - s * 0.9),
-            ],
-            art::hex(0xcfe6f0),
-        );
-        art::polygon(
-            canvas,
-            &[
-                (x + s * 0.1, y),
-                (x + s * 0.8, y),
-                (x + s * 0.6, y - s * 1.1),
-                (x + s * 0.05, y - s * 1.0),
-            ],
-            art::hex(0xe8f4f8),
-        );
-    }
+    // No loose blocks of ice: pale chips on the snow read as litter, lighter
+    // than the land may be (v0.29 round 3). Only the penguins' pebbles.
     for index in 0..((22.0 * per) as i32) {
         let (x, t, seed) = g.scatter(index, 33);
         if !g.seen(x, 6.0) {

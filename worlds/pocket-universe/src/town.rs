@@ -159,6 +159,13 @@ const fn quarter(
 /// water just behind the causeway, in front of the plots' row.
 const BRIDGE_Y: f32 = 0.73;
 
+/// Where along the panorama Icebridge's bridge stands: just clear of the
+/// rookery's second plot (0.69), and near enough the nests (0.24 and 0.32)
+/// that one window holds the nests, the plaza and the bridge whole at every
+/// hour (v0.29 round 3: at 1.04 the nests and the bridge could not share a
+/// window, and night cut one or the other at its edge).
+const BRIDGE_PX: f32 = 0.94;
+
 fn layout(place: Place) -> &'static Layout {
     // Ares: a sheltered ring against a hostile plain. The habitats and the
     // green dome garden huddle round the lit airlock apron at the near end;
@@ -366,8 +373,14 @@ fn layout(place: Place) -> &'static Layout {
         ],
         labels: ["The rookery", "The bridge", "The far floe"],
         // The bridge on the lead stands in the open between the plots
-        // (0.53/0.69 and 1.33), so no staked plot lies across it.
-        anchors: [(SLOT_A, 1.0), (SLOT_C, 1.3), (SLOT_D, 1.95)],
+        // (0.53/0.69 and 1.33), so no staked plot lies across it; it is
+        // drawn just clear of the second (`BRIDGE_PX`) once stood, its slot
+        // (and what is sited by it) kept where it was. The fish
+        // vault stands by the nests, so the rookery is a cluster the first
+        // screen holds with the bridge (v0.29 round 3: one lone igloo in
+        // the middle band), and the council nearer, so no screen-width of
+        // the floe lies bare.
+        anchors: [(SLOT_A, 1.0), (SLOT_C, 0.6), (SLOT_D, 1.8)],
         home: "Nest",
         quarters: &[
             quarter(
@@ -808,6 +821,7 @@ pub(crate) fn lay_out(
                 && item.shape == Some(world_projection::MarkShape::Bridge)
         }) {
             bridge.y = BRIDGE_Y;
+            bridge.px = Some(BRIDGE_PX);
         }
     }
 
