@@ -326,15 +326,13 @@ impl Clock {
     /// Now, on this computer's clock; a pinned hour (`WORLD_MACHINE_HOUR`)
     /// is well into itself, so nobody is still on their way.
     pub fn now() -> Self {
-        use chrono::Timelike;
         match crate::scene::pinned_hour() {
             Some(hour) => Self::at(hour as u8),
             None => {
-                let now = chrono::Local::now();
+                let (hour, into_hour) = crate::scene::clock();
                 Self {
-                    hour: now.hour() as u8,
-                    into_hour: (now.minute() * 60 + now.second()) as f32
-                        + now.nanosecond().min(999_999_999) as f32 / 1e9,
+                    hour: hour as u8,
+                    into_hour,
                 }
             }
         }

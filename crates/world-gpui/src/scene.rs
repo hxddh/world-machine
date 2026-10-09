@@ -255,6 +255,37 @@ pub(crate) fn pin_hour(hour: Option<u32>) {
     PINNED.with(|pinned| pinned.set(hour.map(|hour| hour % 24)));
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's clock: the hour this computer's clock reads, on this
+    /// thread alone. Unlike a pinned hour it is the clock itself, so a
+    /// held hour still stands over it and letting go returns to it.
+    static CLOCK: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Sets the hour this computer's clock reads on this thread, half past
+/// it, so a test sees the same sky whenever it runs; `None` gives the
+/// real clock back.
+#[cfg(test)]
+pub(crate) fn set_clock(hour: Option<u32>) {
+    CLOCK.with(|clock| clock.set(hour.map(|hour| hour % 24)));
+}
+
+/// This computer's clock, whatever is pinned or held: the hour (0 to 23)
+/// and the seconds since it began.
+pub(crate) fn clock() -> (u32, f32) {
+    use chrono::Timelike;
+    #[cfg(test)]
+    if let Some(hour) = CLOCK.with(|clock| clock.get()) {
+        return (hour, 1800.0);
+    }
+    let now = chrono::Local::now();
+    (
+        now.hour(),
+        (now.minute() * 60 + now.second()) as f32 + now.nanosecond().min(999_999_999) as f32 / 1e9,
+    )
+}
+
 /// An hour the app holds every scene at for a while, over the clock: the
 /// demo's farewell, at dusk. `u32::MAX` holds none.
 #[cfg(not(test))]
@@ -302,12 +333,11 @@ pub fn pinned_hour() -> Option<u32> {
 /// The time of day now, in hours from midnight with the minutes as a
 /// fraction (13.5 is half past one), or the pinned hour on the hour.
 pub fn hour_of_day() -> f32 {
-    use chrono::Timelike;
     if let Some(hour) = pinned_hour() {
         return hour as f32;
     }
-    let now = chrono::Local::now();
-    now.hour() as f32 + now.minute() as f32 / 60.0
+    let (hour, into_hour) = clock();
+    hour as f32 + (into_hour / 60.0).floor() / 60.0
 }
 
 /// The part of the day it is now, on this computer's clock. The hour can be
@@ -318,8 +348,7 @@ pub fn daylight_now() -> Daylight {
 
 /// The hour now on this computer's clock (0 to 23), or the pinned one.
 pub fn hour_now() -> u32 {
-    use chrono::Timelike;
-    pinned_hour().unwrap_or_else(|| chrono::Local::now().hour())
+    pinned_hour().unwrap_or_else(|| clock().0)
 }
 
 /// The light over the stage at this part of the day: nothing by day, a

@@ -153,6 +153,10 @@ impl ProjectionView {
             .role(Role::Dialog)
             .aria_label(ui::t(farewell.title.clone()))
             .debug_selector(|| "farewell".into())
+            // A click on the paper is the paper's: "Stay a while" never
+            // also opens whatever stands under it on the place (a house's
+            // card, which would then hide the day's card).
+            .occlude()
             .w(px(520.0))
             .max_w_full()
             .p_6()
@@ -273,10 +277,23 @@ mod tests {
 
     /// Through GPUI's test window, the v0.27 bar for the demo's ending: a
     /// farewell over the place at dusk, with its recap and goodbye, and no
-    /// card or chapter's end under it; "Stay a while" lets the sky go.
+    /// card or chapter's end under it; "Stay a while" lets the sky go back
+    /// to the clock and the day's card comes back, whatever the hour the
+    /// clock says (by day, and at night, when the sky changes as the
+    /// farewell goes).
     #[gpui::test]
     fn a_farewell_shows_alone_at_dusk_and_stays_a_while(cx: &mut gpui::TestAppContext) {
+        for clock in [12, 21] {
+            farewell_at_dusk_then_stay(cx, clock);
+        }
+        crate::scene::set_clock(None);
+    }
+
+    /// The farewell shown, at dusk, while this computer's clock says
+    /// `clock` o'clock, and put away with "Stay a while".
+    fn farewell_at_dusk_then_stay(cx: &mut gpui::TestAppContext, clock: u32) {
         use gpui::{Modifiers, VisualTestContext};
+        crate::scene::set_clock(Some(clock));
         let mut snapshot = crate::diorama::tests::harbour_1082();
         snapshot.briefing = None;
         snapshot.commands = vec![world_projection::ProjectionCommand {
@@ -309,9 +326,10 @@ mod tests {
         let cx = &mut VisualTestContext::from_window(window.into(), cx);
         cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
         cx.run_until_parked();
+        assert_eq!(crate::scene::hour_now(), clock, "the clock's own hour");
         assert!(
             cx.debug_bounds("bottom-card").is_some(),
-            "the day's card, before"
+            "the day's card, before ({clock}:30)"
         );
         view.update(cx, |view, cx| {
             view.show_farewell(farewell(Some((speaker, "Come back when you can.".into()))));
@@ -323,7 +341,7 @@ mod tests {
         assert_eq!(
             crate::scene::daylight_at(crate::scene::hour_now()),
             crate::scene::Daylight::Dusk,
-            "at dusk"
+            "at dusk ({clock}:30)"
         );
         view.read_with(cx, |view, _| {
             assert!(
@@ -331,17 +349,38 @@ mod tests {
                 "the camera on whoever says goodbye"
             );
         });
+        // The camera landed on whoever says goodbye, whenever the test
+        // runs, so the same place stands under the paper each time (a
+        // house with a card of its own, here, under "Stay a while").
+        view.update(cx, |view, cx| {
+            let glide = &mut view.looking.glide;
+            glide.hold = None;
+            // (A glide with no start has long since landed.)
+            glide.at = glide
+                .at
+                .and_then(|at| at.checked_sub(std::time::Duration::from_secs(60)));
+            cx.notify();
+        });
+        cx.run_until_parked();
         let stay = cx.debug_bounds("farewell-stay").expect("Stay a while");
         cx.simulate_click(stay.center(), Modifiers::none());
         cx.run_until_parked();
-        view.read_with(cx, |view, _| assert!(!view.farewell_shown()));
+        view.read_with(cx, |view, _| {
+            assert!(!view.farewell_shown());
+            assert_eq!(
+                view.looking.marking.card, None,
+                "the click was Stay's, not the house's under it ({clock}:30)"
+            );
+            assert_eq!(view.looking.asking, None, "nor anyone's under it");
+        });
         assert!(
             crate::scene::pinned_hour().is_none(),
             "the clock has the sky again"
         );
+        assert_eq!(crate::scene::hour_now(), clock, "the clock's own hour");
         assert!(
             cx.debug_bounds("bottom-card").is_some(),
-            "and the day's card is back"
+            "and the day's card is back ({clock}:30)"
         );
     }
 }
