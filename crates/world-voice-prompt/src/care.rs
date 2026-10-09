@@ -1,6 +1,7 @@
-//! Topics no resident talks about: suicide, self-harm, sex, and a
-//! mental-health crisis (California's SB 243 exempts a game's characters
-//! only if they cannot discuss them).
+//! Topics no resident talks about: suicide, self-harm, sex, and mental
+//! health, a crisis or an illness and its treatment (California's SB 243,
+//! and SB 1119 after it, exempt a game's characters only if they cannot
+//! discuss them; see docs/LEGAL_MEMO_AI_VOICE.md).
 //!
 //! Words of the player's on one of them are never sent to a model. The
 //! resident answers with the System's own gentle line, in the player's
@@ -13,7 +14,8 @@ use crate::bounds;
 /// A topic no resident talks about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Care {
-    /// Suicide, self-harm, wanting to die, a mental-health crisis.
+    /// Suicide, self-harm, wanting to die, a mental-health crisis, mental
+    /// illness and its treatment.
     Crisis,
     /// Sex and sexual acts.
     Sexual,
@@ -74,6 +76,13 @@ mod tests {
             "我有时候会自残",
             "もう死にたい",
             "自分を傷つけてしまう",
+            "I think I have depression",
+            "my anxiety is really bad",
+            "should I see a therapist?",
+            "我得了抑郁症",
+            "我需要心理医生",
+            "パニック障害があるの",
+            "カウンセリングに行くべき？",
         ] {
             assert_eq!(topic(words), Some(Care::Crisis), "{words}");
         }

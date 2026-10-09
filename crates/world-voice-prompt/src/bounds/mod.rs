@@ -668,6 +668,45 @@ const CRISIS: &[&str] = &[
     "eating disorder",
     "anorexia",
     "bulimia",
+    // Mental illness and its treatment: SB 1119 keeps a game's exemption
+    // only while its characters cannot discuss mental health at all.
+    "clinical depression",
+    "my depression",
+    "your depression",
+    "with depression",
+    "have depression",
+    "from depression",
+    "depressive",
+    "depressed",
+    "anxiety",
+    "panic attack*",
+    "panic disorder",
+    "therapist",
+    "therapy",
+    "counsellor",
+    "counselor",
+    "counselling",
+    "counseling",
+    "ptsd",
+    "bipolar",
+    "schizophreni*",
+    "抑郁",
+    "焦虑症",
+    "惊恐发作",
+    "恐慌症",
+    "心理医生",
+    "心理咨询",
+    "心理治疗",
+    "躁郁",
+    "双相",
+    "鬱",
+    "不安障害",
+    "パニック障害",
+    "パニック発作",
+    "カウンセリング",
+    "心療内科",
+    "精神疾患",
+    "セラピー",
     "自杀",
     "轻生",
     "想死|你您他她你们大家^",
@@ -1776,7 +1815,15 @@ fn other_script(text: &Text, grounds: &Grounds) -> bool {
         return text.other_script - text.kana >= 2 || text.norm.contains(['¿', '¡']);
     }
     let japanese = grounds.expected == Some(Tongue::Japanese);
-    let third = text.other_script - if japanese { text.kana } else { 0 };
+    // A name the World gave, written in katakana ("ノア and Mia"), is a
+    // name, not Japanese: a resident's own name is in any language.
+    let named = if japanese {
+        0
+    } else {
+        name_kana(text, grounds)
+    };
+    let kana = text.kana - named;
+    let third = text.other_script - named - if japanese { text.kana } else { 0 };
     if third >= 2 || text.norm.contains(['¿', '¡']) {
         return true;
     }
@@ -1786,7 +1833,34 @@ fn other_script(text: &Text, grounds: &Grounds) -> bool {
         return text.kana == 0 && (text.han >= 2 || text.words.len() >= 3);
     }
     // Kana is Japanese, never Chinese or English.
-    text.kana >= 1
+    kana >= 1
+}
+
+/// How many kana in `text` spell names the World or the player gave in
+/// katakana: whole runs (a dotted name part by part) found as they are
+/// among the runs the World wrote, so a resident's own name ("エマ",
+/// "ニア・チェン") passes the language check in any answer, while any
+/// other Japanese word does not.
+fn name_kana(text: &Text, grounds: &Grounds) -> usize {
+    let given =
+        |part: &str| part.chars().count() >= 2 && grounds.kana_runs.iter().any(|run| run == part);
+    japanese::katakana_runs(&text.norm)
+        .into_iter()
+        .map(|(start, end)| &text.norm[start..end])
+        .filter(|run| given(run) || run.split('・').all(given))
+        .map(|run| run.chars().filter(|c| text::is_kana(*c)).count())
+        .sum()
+}
+
+/// How many Chinese characters in `text` spell names the World or the
+/// player gave in Chinese characters ("艾玛"): whole runs found among the
+/// World's own.
+fn name_han(text: &Text, grounds: &Grounds) -> usize {
+    han_runs(text)
+        .into_iter()
+        .filter(|run| run.chars().count() >= 2 && grounds.han_runs.iter().any(|told| told == run))
+        .map(|run| run.chars().count())
+        .sum()
 }
 
 /// Characters only Traditional Chinese writes, where Simplified Chinese,
@@ -1837,7 +1911,8 @@ fn language(text: &Text, grounds: &Grounds) -> bool {
     };
     match grounds.expected {
         None => false,
-        Some(Tongue::English) => text.han >= 2,
+        // A resident's name in Chinese characters is a name, not Chinese.
+        Some(Tongue::English) => text.han - name_han(text, grounds) >= 2,
         Some(Tongue::Chinese) => text.han < 2 && !text.words.is_empty() || unknown_words() >= 3,
         Some(Tongue::Japanese) => unknown_words() >= 3,
     }
@@ -2499,6 +2574,47 @@ mod tests {
             assert_eq!(in_world(out, &heard), Err(OutOfWorld::Stranger), "{out}");
         }
         assert_eq!(in_world("我去了镇上的杂货店。", &heard), Ok(()));
+    }
+
+    /// A resident's own name passes the language check in any script the
+    /// World writes it in; any other word of another language does not.
+    #[test]
+    fn a_residents_own_name_is_in_any_language() {
+        let heard = Hearing {
+            words: "Where's Emma?".into(),
+            lexicon: vec![
+                "エマ".into(),
+                "ノア".into(),
+                "ニア・チェン".into(),
+                "艾玛".into(),
+            ],
+            ..hearing()
+        };
+        for fine in [
+            "エマ? She's at the bakery, as always.",
+            "ノア and Leo, after supper.",
+            "ニア・チェン's in the greenhouse.",
+            "艾玛 went down to the quay.",
+        ] {
+            assert_eq!(in_world(fine, &heard), Ok(()), "{fine}");
+        }
+        for out in [
+            "エマはパン屋にいるよ。",
+            "She said ありがとう and left.",
+            "Ask グスタフ, he knows.",
+            "她在面包店。",
+        ] {
+            assert_eq!(in_world(out, &heard), Err(OutOfWorld::Language), "{out}");
+        }
+        let heard = Hearing {
+            words: "你今天怎么样？".into(),
+            ..heard
+        };
+        assert_eq!(in_world("エマ在面包店，跟平时一样。", &heard), Ok(()));
+        assert_eq!(
+            in_world("エマはパン屋にいるよ。", &heard),
+            Err(OutOfWorld::Language)
+        );
     }
 
     #[test]

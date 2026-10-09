@@ -1,0 +1,112 @@
+greet		おはよう、エマ！
+greet		やあ、こんにちは。
+greet		久しぶりだね！
+greet		こんばんは、エマ。
+how_are_you		最近どう？
+how_are_you		調子はどう？
+how_are_you		このごろ元気にやってる？
+how_are_you		今日は体調いい？
+about_you		あなたのこと、少し教えて。
+about_you		ずっとここに住んでるの？
+about_you		子どものころはどんな子だった？
+about_you		普段は何をするのが好き？
+ack		うん、わかった。
+ack		そっか、なるほど。
+ack		はいはい、了解。
+ack		たしかにね。
+apologize		謝らなきゃいけないことがあるんだ。
+apologize		この前はごめんね。
+apologize		あんなこと言うべきじゃなかった、悪かった。
+apologize		自分の態度がひどかったと思う、申し訳ない。
+comfort		悲しくてもいいんだよ。
+comfort		ひとりじゃないからね。
+comfort		何があっても味方だよ。
+comfort		ゆっくりでいいよ。
+coming		近いうちに何かある？
+coming		週末の予定は？
+coming		町でもうすぐ何かあるの？
+coming		そろそろお祭り？
+compliment		あなたのパンは町一番だね。
+compliment		今日はすてきだね。
+compliment		この場所、いい感じにしてるね。
+compliment		本当に頭がいいね。
+day		今日はどんな一日だった？
+day		今日は何をしてたの？
+day		朝は何してた？
+day		朝からずっと忙しかった？
+family		兄弟はいるの？
+family		ご家族は元気？
+family		家族の話を聞かせて。
+family		ご両親はお元気？
+farewell		そろそろ行かなきゃ。
+farewell		じゃあ、またあとで。
+farewell		おやすみ、エマ。
+farewell		元気でね、またね。
+friends		いつも誰といるの？
+friends		ここでいちばんの友だちは誰？
+friends		町に友だちは多い？
+friends		ここで一番信頼してるのは誰？
+gift		ちょっと持ってきたものがあるんだ。
+gift		これ、ささやかなプレゼント。
+gift		気に入ってくれるかなと思って。
+gift		小さな贈り物だよ。
+how_is	Noah	ノアは最近どうしてる？
+how_is	Sofia	ソフィアは元気にしてる？
+how_is	Jonas	ジョナスの様子、何か聞いてる？
+how_is	Mia	ミアは大丈夫？
+invite		海辺を散歩しない？
+invite		今度いっしょにお茶しようよ。
+invite		お昼いっしょにどう？
+invite		明日、釣りに行かない？
+need		何か必要なものある？
+need		何か手伝えることある？
+need		手を貸そうか？
+need		私にできることはある？
+news		最近何か変わったことあった？
+news		何かうわさ話ある？
+news		町で何か新しいことあった？
+news		何かニュース聞いた？
+place		パン屋のこと、どう思う？
+place		酒場にはよく行くの？
+place		灯台って見に行く価値ある？
+place		市場はどんな感じ？
+quarrel	Leo	レオと何かあったの？
+quarrel	Mara	どうしてマーラに怒ってるの？
+quarrel	Jonas	ジョナスと口きいてないの？
+quarrel	Evan	エヴァンとはどうしたの？
+reconcile	Leo	レオと仲直りしたら？
+reconcile	Mara	マーラのこと、許してあげられない？
+reconcile	Jonas	そろそろジョナスと和解しなよ。
+reconcile	Noah	ノアと話して、わだかまりを解いたら？
+rude		うせろ。
+rude		誰もあなたのことなんか好きじゃない。
+rude		本当につまらない人だね。
+rude		黙ってて。
+standing		私のこと、どう思う？
+standing		私を信じてる？
+standing		私たち、うまくいってるよね？
+standing		私って友だちのうちに入る？
+thank		本当にありがとう！
+thank		すごく感謝してる。
+thank		ありがと、優しいね。
+thank		手伝ってくれてありがとう。
+think_of	Mia	ミアってどんな人だと思う？
+think_of	Sofia	ソフィアとは気が合う？
+think_of	Leo	レオのことどう思ってる？
+think_of	Evan	エヴァンのことはどう感じてる？
+unclear		ぷるぷるぽんぽこ
+unclear		空飛ぶ靴下が数学を食べた
+unclear		あああうううえええ
+unclear		七匹の象がティーカップに
+weather		今日はいい天気だね。
+weather		雨が降りそうだね。
+weather		今日はちょっと寒いね。
+weather		風、やむと思う？
+work		仕事のほうはどう？
+work		今忙しい？
+work		お仕事は何をしてるの？
+work		仕事は順調？
+worry		ちょっと元気ないね。
+worry		何か気になることでもあるの？
+worry		今日はいつものあなたらしくないね。
+worry		浮かない顔してどうしたの？
