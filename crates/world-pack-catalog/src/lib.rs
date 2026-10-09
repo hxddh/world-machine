@@ -824,7 +824,13 @@ impl PackCatalog {
                     },
                 )?;
             }
-            if let Ok(file) = OpenOptions::new().read(true).open(&staged_program) {
+            // Opened for writing as well: Windows refuses to flush a file
+            // opened only to read.
+            if let Ok(file) = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&staged_program)
+            {
                 file.sync_all().map_err(|error| CatalogError::Io {
                     operation: "sync managed Pack executable",
                     path: staged_program.clone(),
