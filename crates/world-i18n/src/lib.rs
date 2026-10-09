@@ -958,8 +958,14 @@ pub fn tr_owned(text: &str) -> String {
     tr(text).into_owned()
 }
 
-/// The language this Mac is set to, if the app has a catalog for it:
-/// `LANG` first, then the system's own list.
+/// The language the computer is set to, if the app has a catalog for it.
+///
+/// `WORLD_MACHINE_LANGUAGE` first (for tests and screenshots), then the
+/// operating system's own list of preferred languages, in its order: on the
+/// Mac the list in System Settings (`CFLocale`), on Windows the display
+/// languages (`GetUserPreferredUILanguages`), elsewhere `LC_ALL`,
+/// `LC_MESSAGES` and `LANG` (all through `sys-locale`). The first language
+/// with a catalog wins; none of them gives English.
 pub fn system_language() -> Language {
     if let Some(language) = std::env::var("WORLD_MACHINE_LANGUAGE")
         .ok()
@@ -967,30 +973,51 @@ pub fn system_language() -> Language {
     {
         return language;
     }
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(output) = std::process::Command::new("/usr/bin/defaults")
-            .args(["read", "-g", "AppleLanguages"])
-            .output()
-        {
-            let listed = String::from_utf8_lossy(&output.stdout);
-            if let Some(first) = listed
-                .split(|c: char| c == '"' || c == ',' || c.is_whitespace() || c == '(' || c == ')')
-                .find(|part| !part.is_empty())
-            {
-                return Language::from_id(first).unwrap_or_default();
-            }
-        }
-    }
-    std::env::var("LANG")
-        .ok()
-        .and_then(|id| Language::from_id(&id))
+    language_from_preferred(sys_locale::get_locales())
+}
+
+/// The first of `preferred` (BCP 47 tags such as `zh-Hans-CN`, `ja-JP` or
+/// `en-GB`, or POSIX ones such as `ja_JP.UTF-8`) that the app has a catalog
+/// for, or English. Separate from reading them so it can be tested anywhere.
+pub fn language_from_preferred<I, S>(preferred: I) -> Language
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    preferred
+        .into_iter()
+        .find_map(|id| Language::from_id(id.as_ref()))
         .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_preferred_language_with_a_catalog_is_the_one_shown() {
+        assert_eq!(
+            language_from_preferred(["zh-Hans-CN", "en-US"]),
+            Language::SimplifiedChinese
+        );
+        // Windows and the Mac name the display language as BCP 47 tags.
+        assert_eq!(language_from_preferred(["ja-JP"]), Language::Japanese);
+        // A language without a catalog is passed over for the next one.
+        assert_eq!(
+            language_from_preferred(["fr-FR", "ja-JP", "en-GB"]),
+            Language::Japanese
+        );
+        // POSIX names, as LANG gives them.
+        assert_eq!(
+            language_from_preferred(["zh_CN.UTF-8"]),
+            Language::SimplifiedChinese
+        );
+        assert_eq!(language_from_preferred(["de-DE"]), Language::English);
+        assert_eq!(
+            language_from_preferred(std::iter::empty::<String>()),
+            Language::English
+        );
+    }
 
     const CATALOG: &str = "\
 Bench\t长椅

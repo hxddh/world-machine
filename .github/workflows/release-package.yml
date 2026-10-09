@@ -10,6 +10,15 @@ on:
           Leave empty for a pre.0 dry run that only uploads an Actions artifact.
         required: false
         type: string
+      windows:
+        description: >-
+          Also build the Windows package (an unsigned installer and zip, see
+          apps/world-machine-desktop/windows/package.sh) and, for a release,
+          publish it beside the Mac one. A tag push builds it when the
+          repository variable WORLD_MACHINE_WINDOWS_RELEASE is `true`.
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*-pre.*'
@@ -316,9 +325,63 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Windows, behind a flag (the `windows` input, or the repository variable
+  # WORLD_MACHINE_WINDOWS_RELEASE for tag pushes): the app, its two included
+  # Packs, an Inno Setup installer and a zip, unsigned. Signing is a hook:
+  # set WORLD_MACHINE_WINDOWS_SIGN (see docs/RELEASE_SIGNING.md, "Windows")
+  # once a certificate exists; nothing here requires one.
+  windows-release:
+    if: inputs.windows || vars.WORLD_MACHINE_WINDOWS_RELEASE == 'true'
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-windows
+      - name: Test release-critical Windows paths
+        run: |
+          cargo test --locked -p world-library
+          cargo test --locked -p world-pack-process
+          cargo test --locked -p tiny-society-pack --test external_pack
+          cargo test --locked -p world-machine-desktop
+      - name: Install Inno Setup and Pillow
+        run: |
+          if [[ ! -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]]; then
+              choco install innosetup --no-progress -y
+          fi
+          python -m pip install --disable-pip-version-check pillow==12.0.0
+      - name: Build and package World Machine for Windows
+        env:
+          WORLD_MACHINE_RELEASE_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+        run: bash apps/world-machine-desktop/windows/package.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: world-machine-windows-package
+          path: |
+            target/windows-package/*.zip
+            target/windows-package/*.exe
+            target/windows-package/*.sha256
+            target/windows-package/release-manifest-windows.json
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
-    needs: macos-release
-    if: needs.macos-release.outputs.publish == 'true'
+    needs: [macos-release, windows-release]
+    # The Windows package is optional: a release goes out with the Mac one
+    # alone when it was not asked for, but never when it failed.
+    if: >-
+      !cancelled()
+      && needs.macos-release.result == 'success'
+      && needs.macos-release.outputs.publish == 'true'
+      && needs.windows-release.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       # Creates the tag (on a dispatch) and the release.
@@ -334,6 +397,11 @@ jobs:
         with:
           name: world-machine-release-notes
           path: target
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: needs.windows-release.result == 'success'
+        with:
+          name: world-machine-windows-package
+          path: target/windows-package
 
       - name: Publish GitHub release
         env:
@@ -368,3 +436,10 @@ jobs:
             target/release-package/*.zip.sha256 \
             target/release-package/release-manifest.json \
             target/release-package/release-manifest-demo.json
+          # The Windows package, when it was built (unsigned for now).
+          shopt -s nullglob
+          windows=(target/windows-package/*.zip target/windows-package/*.exe \
+            target/windows-package/*.sha256 target/windows-package/release-manifest-windows.json)
+          if (( ${#windows[@]} )); then
+              gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${windows[@]}"
+          fi

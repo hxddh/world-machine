@@ -155,7 +155,13 @@ pub(crate) fn model_for(voice: Option<ConfiguredVoice>) -> Option<::world_voice:
     }
 }
 
-/// Hand every Pack in this source the same settings.
+/// Hand the voice settings to the Pack they are for, and to no other.
+///
+/// The voice setting is named for the Pack that reads it
+/// (`WORLD_MACHINE_<PACK>_VOICE`, see [`voice_setting_for`]), so only a Pack
+/// whose id ends in that name is given it, and the settings that go with it
+/// (the local program). Every other Pack, one the player installed from
+/// anywhere included, is told nothing about the voice.
 ///
 /// A setting the Pack layer refuses is a mistake in this app rather than
 /// anything the observer did, so the Worlds are installed without it instead of
@@ -171,12 +177,54 @@ pub(crate) fn with_settings(
         .packs()
         .iter()
         .cloned()
-        .map(|pack| pack.with_settings(settings.clone()))
+        .map(|pack| {
+            if reads_voice(&pack.descriptor.pack.id) {
+                pack.with_settings(settings.clone())
+            } else {
+                Ok(pack)
+            }
+        })
         .collect::<Result<Vec<_>, _>>();
     match packs {
         Ok(packs) => ProcessPackSource::from_packs(packs),
         Err(_) => source,
     }
+}
+
+/// The voice setting the Pack with this id reads:
+/// `WORLD_MACHINE_<NAME>_VOICE`, where `<NAME>` is the id's last part (after
+/// its last `.`) in capitals with `_` for `-`.
+pub(crate) fn voice_setting_for(pack_id: &str) -> String {
+    let name = pack_id
+        .rsplit('.')
+        .next()
+        .unwrap_or(pack_id)
+        .to_ascii_uppercase()
+        .replace('-', "_");
+    format!("{}{name}_VOICE", world_pack_process::PACK_SETTING_PREFIX)
+}
+
+/// Whether the Pack with this id is the one the voice setting is named for.
+pub(crate) fn reads_voice(pack_id: &str) -> bool {
+    !pack_id.is_empty() && voice_setting_for(pack_id) == VOICE_SETTING
+}
+
+/// Every Pack in this source leaves its crash logs in `dir`.
+pub(crate) fn with_crash_logs(
+    source: ProcessPackSource,
+    dir: Option<std::path::PathBuf>,
+) -> ProcessPackSource {
+    let Some(dir) = dir else {
+        return source;
+    };
+    ProcessPackSource::from_packs(
+        source
+            .packs()
+            .iter()
+            .cloned()
+            .map(|pack| pack.with_crash_log_dir(dir.clone()))
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -233,6 +281,37 @@ mod tests {
                 (PROGRAM_SETTING.to_string(), "/usr/local/bin/pi".to_string()),
             ]
         );
+    }
+
+    /// The voice is told only to the Pack it is named for: a Pack whose id
+    /// ends in another name, or in a name that merely starts the same way,
+    /// is told nothing.
+    #[test]
+    fn the_voice_setting_reaches_only_the_pack_it_is_named_for() {
+        assert_eq!(
+            voice_setting_for("example.harvest-moon"),
+            "WORLD_MACHINE_HARVEST_MOON_VOICE"
+        );
+        assert_eq!(
+            voice_setting_for("harvest-moon"),
+            "WORLD_MACHINE_HARVEST_MOON_VOICE"
+        );
+        // A name that only starts the same way is another Pack's.
+        assert_ne!(
+            voice_setting_for("example.harvest"),
+            voice_setting_for("example.harvest-moon")
+        );
+        assert!(!reads_voice(""));
+        assert!(!reads_voice("example.some-other-world"));
+        // Exactly one Pack name reads the app's own voice setting.
+        let named = VOICE_SETTING
+            .strip_prefix(world_pack_process::PACK_SETTING_PREFIX)
+            .and_then(|rest| rest.strip_suffix("_VOICE"))
+            .unwrap();
+        assert!(reads_voice(&format!(
+            "example.{}",
+            named.to_ascii_lowercase().replace('_', "-")
+        )));
     }
 
     #[test]

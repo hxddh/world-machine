@@ -7,6 +7,14 @@
 //! status messages the user also saw, and panics. The report combines the
 //! build identity, the host, the paths in use, and the tail of the log so a
 //! bug report can be pasted in one step.
+//!
+//! A panic also leaves a crash log of its own, with the backtrace and the
+//! app's version, in the `Crashes` folder beside the log; a Pack process
+//! that exits with a failure leaves one in `Crashes/Packs` with what it
+//! wrote to standard error (world-pack-process). Nothing is sent: these are
+//! files for the player to attach to a report if they choose. On the Mac
+//! they are under `~/Library/Logs/World Machine/Crashes`, on Windows under
+//! `%LOCALAPPDATA%\World Machine\Logs\Crashes`.
 
 use std::env;
 use std::fmt::Write as _;
@@ -71,6 +79,64 @@ pub fn log_dir() -> Option<PathBuf> {
     world_machine_desktop::platform::current().log_dir()
 }
 
+/// The folder crash logs are written to: `Crashes` in the log folder.
+pub fn crash_log_dir() -> Option<PathBuf> {
+    log_dir().map(|dir| dir.join(CRASH_DIR_NAME))
+}
+
+pub const CRASH_DIR_NAME: &str = "Crashes";
+
+/// What a crash log of the app says: its version, the host, the thread and
+/// where it panicked with what, and the backtrace.
+pub fn crash_report(
+    at: SystemTime,
+    build: &str,
+    host: &str,
+    thread: &str,
+    location: &str,
+    message: &str,
+    backtrace: &str,
+) -> String {
+    format!(
+        "World Machine crashed\n\
+         When: {}\n\
+         Build: {build}\n\
+         Host: {host}\n\
+         Thread: {thread}\n\
+         Panicked at: {location}\n\
+         Message: {message}\n\
+         \n\
+         Backtrace:\n{backtrace}\n",
+        timestamp(at)
+    )
+}
+
+/// The file a crash at `at` is written to, so crashes never overwrite one
+/// another.
+pub fn crash_file_name(at: SystemTime) -> String {
+    let seconds = at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    format!("world-machine-{seconds}-{}.log", std::process::id())
+}
+
+fn write_crash_log(location: &str, message: &str) -> Option<PathBuf> {
+    let dir = crash_log_dir()?;
+    fs::create_dir_all(&dir).ok()?;
+    let now = SystemTime::now();
+    let thread = std::thread::current();
+    let report = crash_report(
+        now,
+        &build_info::display_label(),
+        &host_description(),
+        thread.name().unwrap_or("unnamed"),
+        location,
+        message,
+        &std::backtrace::Backtrace::force_capture().to_string(),
+    );
+    let path = dir.join(crash_file_name(now));
+    fs::write(&path, report).ok()?;
+    Some(path)
+}
+
 /// The log file path once the sink is open. `None` when logging could not
 /// start; the app keeps running without it.
 pub fn log_path() -> Option<&'static Path> {
@@ -117,6 +183,9 @@ pub fn init() -> Option<PathBuf> {
             .or_else(|| panic.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "non-string panic payload".to_string());
         error(format!("panic at {location}: {message}"));
+        if let Some(path) = write_crash_log(&location, &message) {
+            error(format!("crash log written to {}", path.display()));
+        }
         previous(panic);
     }));
 
@@ -361,6 +430,35 @@ mod tests {
         assert!(url.starts_with(ISSUE_URL));
         assert!(url.contains("&build=World%20Machine%20"));
         assert!(url.contains("&macos="));
+    }
+
+    #[test]
+    fn a_crash_log_carries_the_version_the_place_and_the_backtrace() {
+        let at = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let report = crash_report(
+            at,
+            "0.29.0 (abc1234)",
+            "Windows · x86_64",
+            "main",
+            "src/main.rs:7",
+            "boom",
+            "   0: world_machine::main",
+        );
+        for wanted in [
+            "Build: 0.29.0 (abc1234)",
+            "Host: Windows · x86_64",
+            "Thread: main",
+            "Panicked at: src/main.rs:7",
+            "Message: boom",
+            "0: world_machine::main",
+            &timestamp(at),
+        ] {
+            assert!(report.contains(wanted), "{wanted} is missing: {report}");
+        }
+        assert_eq!(
+            crash_file_name(at),
+            format!("world-machine-1700000000-{}.log", std::process::id())
+        );
     }
 
     #[test]

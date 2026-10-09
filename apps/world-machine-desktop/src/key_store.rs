@@ -3,7 +3,10 @@
 //! The key belongs to the person using the app, not to the app, so it goes
 //! into the login keychain rather than into any file World Machine writes:
 //! the keychain is what macOS already asks for when it protects a secret, and
-//! it means a backup of the Worlds folder never carries one.
+//! it means a backup of the Worlds folder never carries one. On Windows the
+//! same place is the Windows Credential Manager ([`credential_manager`]),
+//! behind the same [`crate::platform::Platform`] calls; Linux has no key
+//! store, and says so.
 //!
 //! Two rules shape everything below.
 //!
@@ -184,6 +187,59 @@ pub mod keychain {
     }
 }
 
+/// The Windows Credential Manager: what [`crate::platform::Platform`] keeps
+/// a key in on Windows. A generic credential, kept on this computer (not
+/// roamed with a domain profile), named so somebody can find, inspect or
+/// remove it in Control Panel › Credential Manager without this app. The
+/// key goes through the operating system's own calls, never a command line.
+#[cfg(windows)]
+pub mod credential_manager {
+    use super::{ACCOUNT, SERVICE};
+    use keyring_core::api::CredentialStoreApi;
+    use keyring_core::{Entry, Error};
+    use std::collections::HashMap;
+
+    /// What the credential is called in Credential Manager.
+    pub const TARGET: &str = "World Machine · World voice";
+
+    fn entry() -> Result<Entry, String> {
+        let store = windows_native_keyring_store::Store::new()
+            .map_err(|error| format!("could not reach Credential Manager: {error}"))?;
+        let modifiers = HashMap::from([("target", TARGET), ("persistence", "Local")]);
+        store
+            .build(SERVICE, ACCOUNT, Some(&modifiers))
+            .map_err(|error| format!("could not reach Credential Manager: {error}"))
+    }
+
+    /// Store the key, proving it by reading it back.
+    pub fn save(key: &str) -> Result<(), String> {
+        entry()?
+            .set_password(key)
+            .map_err(|error| format!("Credential Manager refused to store the key: {error}"))?;
+        if load().as_deref() == Some(key) {
+            Ok(())
+        } else {
+            Err("Credential Manager did not keep the key".to_string())
+        }
+    }
+
+    /// The stored key, if there is one this app can read right now.
+    pub fn load() -> Option<String> {
+        let key = entry().ok()?.get_password().ok()?.trim().to_owned();
+        ::world_voice::is_plausible_api_key(&key).then_some(key)
+    }
+
+    /// Forget the key. Forgetting one that is not there is not a failure.
+    pub fn clear() -> Result<(), String> {
+        match entry()?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!(
+                "Credential Manager refused to forget the key: {error}"
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +311,28 @@ mod tests {
         assert!(save("sk-ant\" \nadd-generic-password -s x -w y").is_err());
         assert!(save("sk ant").is_err());
         assert!(save("sk-ant\u{202E}").is_err());
+    }
+
+    /// The real thing on Windows, through the same calls the app makes.
+    #[cfg(windows)]
+    #[test]
+    fn credential_manager_stores_reads_back_and_forgets_a_key() {
+        let restore = load();
+        let _ = clear();
+
+        assert_eq!(load(), None, "a key was there before anything stored one");
+        save(KEY).expect("Credential Manager would not store a key");
+        assert_eq!(load().as_deref(), Some(KEY));
+        assert!(is_configured());
+        save("sk-ant-second-key").expect("Credential Manager would not replace a key");
+        assert_eq!(load().as_deref(), Some("sk-ant-second-key"));
+        clear().expect("Credential Manager would not forget the key");
+        assert_eq!(load(), None);
+        clear().expect("forgetting an absent key should be quiet");
+
+        if let Some(previous) = restore {
+            let _ = save(&previous);
+        }
     }
 
     #[cfg(target_os = "macos")]

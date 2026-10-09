@@ -9,11 +9,17 @@
 //! [`LibraryError::InUse`], and Home's own changes to a World's file (a
 //! rename, a removal) take the same lock for as long as they write.
 //!
-//! The lock is the operating system's (`flock` on macOS and Linux), so it is
-//! let go of when its holder exits, however it exits. The lock file is
-//! removed by the holder as it lets go; a holder checks after locking that
-//! the file it locked is still the one at the path, so a lock file removed
-//! meanwhile is never mistaken for a lock held. Where a folder cannot hold
+//! The lock is the operating system's (`flock` on macOS and Linux,
+//! `LockFileEx` on Windows), so it is let go of when its holder exits,
+//! however it exits. The lock file is removed by the holder as it lets go.
+//! On unix it is removed while still held, and a holder checks after locking
+//! that the file it locked is still the one at the path, so a lock file
+//! removed meanwhile is never mistaken for a lock held. Windows refuses to
+//! remove a file somebody still has open (or worse, leaves it "delete
+//! pending", which no one can open again until the last handle closes), so
+//! there the holder closes its file first and then removes it only if it can
+//! open it with nobody else sharing it: a lock file another session has
+//! opened in the meantime is left for that session to remove. Where a folder cannot hold
 //! a lock file (read-only, or a file system without locks) the World opens
 //! unlocked, as before: the lock guards against a second writer, and must
 //! never keep a World from being opened at all.
@@ -65,6 +71,12 @@ impl Lock {
         for _ in 0..8 {
             let file = match open(&at) {
                 Ok(file) => file,
+                // On Windows, a holder removing the file as it lets go
+                // has it open unshared for a moment: try again.
+                Err(error) if being_removed(&error) => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                }
                 Err(_) => return Ok(Self::none()),
             };
             match file.try_lock() {
@@ -93,12 +105,47 @@ impl Lock {
 impl Drop for Lock {
     fn drop(&mut self) {
         if let Some((file, at)) = self.held.take() {
-            // Removed while still held, so nobody can lock this file and
-            // then find it gone; then let go of.
-            let _ = fs::remove_file(&at);
-            drop(file);
+            let_go(file, &at);
         }
     }
+}
+
+/// Removed while still held, so nobody can lock this file and then find it
+/// gone; then let go of.
+#[cfg(unix)]
+fn let_go(file: File, at: &Path) {
+    let _ = fs::remove_file(at);
+    drop(file);
+}
+
+/// Closed first, since Windows will not remove an open file; then removed
+/// only if nobody else has it open. Opened unshared and marked to be deleted
+/// as it closes, so no other session can open it between the check and the
+/// removal; one that already has it open keeps it, and removes it itself.
+#[cfg(windows)]
+fn let_go(file: File, at: &Path) {
+    use std::os::windows::fs::OpenOptionsExt;
+    const DELETE: u32 = 0x0001_0000;
+    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+    drop(file);
+    let _ = OpenOptions::new()
+        .access_mode(DELETE)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+        .open(at);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn let_go(file: File, at: &Path) {
+    drop(file);
+    let _ = fs::remove_file(at);
+}
+
+/// Whether opening the lock file failed only because its holder is removing
+/// it right now (Windows' sharing violation), which is worth a retry.
+fn being_removed(error: &io::Error) -> bool {
+    // ERROR_SHARING_VIOLATION
+    cfg!(windows) && error.raw_os_error() == Some(32)
 }
 
 fn open(at: &Path) -> io::Result<File> {
@@ -218,6 +265,52 @@ mod tests {
         // No such folder: nowhere to put the lock file.
         let lock = Lock::take(&root.join("nowhere").join("Harbour.world")).unwrap();
         assert!(!lock.is_held());
+    }
+
+    /// What Windows refuses: removing the lock file while it is still open.
+    /// Letting go closes it first, so the file is gone afterwards and a new
+    /// session can make and lock it again at once, many times over.
+    #[test]
+    fn letting_go_closes_the_lock_file_before_removing_it() {
+        let root = temp_root("close-then-remove");
+        fs::create_dir_all(&root).unwrap();
+        let world = root.join("Town.world");
+        for _ in 0..20 {
+            let lock = Lock::take(&world).unwrap();
+            assert!(lock.is_held());
+            drop(lock);
+            assert!(
+                !lock_path(&world).exists(),
+                "the lock file was left behind (or left pending removal)"
+            );
+        }
+        // The folder can be removed too: nothing is left open in it.
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A session that has the lock file open while its holder lets go is
+    /// not left with a file removed under it: the file stays for it.
+    #[test]
+    fn letting_go_leaves_a_lock_file_another_session_has_open() {
+        let root = temp_root("shared");
+        fs::create_dir_all(&root).unwrap();
+        let world = root.join("Town.world");
+        let first = Lock::take(&world).unwrap();
+        let waiting = open(&lock_path(&world)).unwrap();
+        drop(first);
+        #[cfg(windows)]
+        assert!(
+            lock_path(&world).exists(),
+            "the lock file was removed while another session had it open"
+        );
+        // Whatever the platform, that session can now lock what it holds.
+        assert!(waiting.try_lock().is_ok() || !lock_path(&world).exists());
+        drop(waiting);
+        let next = Lock::take(&world).unwrap();
+        assert!(next.is_held());
+        drop(next);
+        assert!(!lock_path(&world).exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

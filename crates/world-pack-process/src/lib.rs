@@ -8,12 +8,14 @@ mod deadline_stdin;
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::env;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{self, Child, ChildStdout, Command, Stdio};
+use std::process::{self, Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use world_host::{
@@ -86,6 +88,7 @@ pub struct ProcessPack {
     pub args: Vec<String>,
     pin: Option<ProcessPackPin>,
     settings: Vec<(String, String)>,
+    crash_log_dir: Option<PathBuf>,
 }
 
 /// The prefix a host setting has to carry to reach a Pack process.
@@ -145,6 +148,7 @@ impl ProcessPack {
             args,
             pin: None,
             settings: Vec::new(),
+            crash_log_dir: None,
         })
     }
 
@@ -195,6 +199,20 @@ impl ProcessPack {
 
     pub fn settings(&self) -> &[(String, String)] {
         &self.settings
+    }
+
+    /// Where this Pack's process leaves a crash log when it exits with a
+    /// failure on its own: what it wrote to standard error last (up to
+    /// [`CRASH_LOG_TAIL_BYTES`]), its exit status and the time, in a file
+    /// named after the Pack. Without one, a crash is only in the host's own
+    /// standard error, where the Pack's is passed on as before.
+    pub fn with_crash_log_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.crash_log_dir = Some(dir.into());
+        self
+    }
+
+    pub fn crash_log_dir(&self) -> Option<&Path> {
+        self.crash_log_dir.as_deref()
     }
 
     pub fn pin(&self) -> Option<&ProcessPackPin> {
@@ -969,6 +987,163 @@ fn finish_frame(
     Ok(frame)
 }
 
+/// What a Pack process inherits from the host's environment: what a program
+/// needs to start and find its own files and language, by name, and nothing
+/// else. Everything else (the host's own `WORLD_MACHINE_*` variables among
+/// it) reaches a Pack only as a setting the host gives that Pack
+/// ([`ProcessPack::with_settings`]), and a secret never does.
+pub const PACK_ENVIRONMENT_ALLOWLIST: &[&str] = &[
+    // Every platform.
+    "PATH",
+    "HOME",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_MESSAGES",
+    "TZ",
+    "RUST_BACKTRACE",
+    // Unix: who is running it, and where a program keeps its files.
+    "USER",
+    "LOGNAME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    // Windows: what a process cannot start or find its folders without.
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "USERPROFILE",
+    "USERNAME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+];
+
+/// The temporary-folder variables, which a Pack is given pointing at its own
+/// scratch folder, so what it leaves behind is removed with it.
+const PACK_TEMP_VARIABLES: &[&str] = &["TMPDIR", "TMP", "TEMP"];
+
+/// The whole environment a Pack process is started with, from the host's
+/// own (`host`), the Pack's settings and its scratch folder: the allowed
+/// names (compared without case, as Windows does), never a secret, then the
+/// temporary-folder variables, then the settings.
+pub fn pack_environment<I, K, V>(
+    host: I,
+    settings: &[(String, String)],
+    scratch: Option<&Path>,
+) -> Vec<(OsString, OsString)>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
+{
+    let mut environment = host
+        .into_iter()
+        .filter(|(name, _)| {
+            let name = name.as_ref().to_string_lossy().to_ascii_uppercase();
+            PACK_ENVIRONMENT_ALLOWLIST.contains(&name.as_str()) && !is_secret_name(&name)
+        })
+        .map(|(name, value)| (name.as_ref().to_owned(), value.as_ref().to_owned()))
+        .collect::<Vec<_>>();
+    if let Some(scratch) = scratch {
+        for name in PACK_TEMP_VARIABLES {
+            environment.push((OsString::from(name), scratch.as_os_str().to_owned()));
+        }
+    }
+    for (name, value) in settings {
+        if !is_secret_name(name) {
+            environment.push((OsString::from(name), OsString::from(value)));
+        }
+    }
+    environment
+}
+
+/// A Pack process's own working folder, made empty for it under the
+/// temporary folder and removed with everything in it when the process is
+/// done: a Pack does not work in (or write into) the host's folder.
+fn make_scratch_dir() -> io::Result<PathBuf> {
+    let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
+    let path = env::temp_dir().join(format!(
+        "world-machine-pack-scratch-{}-{nonce}",
+        process::id()
+    ));
+    fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
+/// The most of a Pack's standard error a crash log keeps: the end of it.
+pub const CRASH_LOG_TAIL_BYTES: usize = 64 * 1024;
+
+/// A Pack's standard error, passed on to the host's as it arrives, with its
+/// last [`CRASH_LOG_TAIL_BYTES`] kept for a crash log.
+struct StderrTail {
+    tail: Arc<Mutex<Vec<u8>>>,
+    finished: Receiver<()>,
+}
+
+impl StderrTail {
+    fn spawn(mut stderr: ChildStderr) -> Self {
+        let tail = Arc::new(Mutex::new(Vec::new()));
+        let kept = Arc::clone(&tail);
+        let (done, finished) = mpsc::channel();
+        thread::spawn(move || {
+            let mut buffer = [0_u8; 4096];
+            loop {
+                match stderr.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        let _ = io::stderr().write_all(&buffer[..read]);
+                        if let Ok(mut kept) = kept.lock() {
+                            kept.extend_from_slice(&buffer[..read]);
+                            let over = kept.len().saturating_sub(CRASH_LOG_TAIL_BYTES);
+                            if over > 0 {
+                                kept.drain(..over);
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = done.send(());
+        });
+        Self { tail, finished }
+    }
+
+    /// What was kept, once the Pack has finished writing (or a moment has
+    /// passed: a program the Pack started may still hold its standard error).
+    fn take(&self) -> Vec<u8> {
+        let _ = self.finished.recv_timeout(Duration::from_millis(500));
+        self.tail
+            .lock()
+            .map(|tail| tail.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// The file name a crash log of the Pack `id` is written to: its id with
+/// anything a file name cannot hold made `_`, the time and the host's
+/// process, so crashes never overwrite one another.
+pub fn crash_log_file_name(id: &str, unix_seconds: u64, host_process: u32) -> String {
+    let id = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("{id}-{unix_seconds}-{host_process}.log")
+}
+
 struct ProcessClient {
     child: Child,
     stdin: Option<deadline_stdin::BoundedStdin>,
@@ -978,6 +1153,10 @@ struct ProcessClient {
     request_timeout: Duration,
     max_request_bytes: usize,
     launch_cleanup: Option<PathBuf>,
+    scratch: Option<PathBuf>,
+    stderr: Option<StderrTail>,
+    crash_log_dir: Option<PathBuf>,
+    pack: WorldPackRef,
 }
 
 impl ProcessClient {
@@ -987,19 +1166,30 @@ impl ProcessClient {
         if pack.pin.is_none() {
             command.args(&pack.args);
         }
-        // Nothing secret the host was started with reaches a Pack.
-        for (name, _) in env::vars_os() {
-            if is_secret_name(&name.to_string_lossy()) {
-                command.env_remove(name);
-            }
+        // A Pack starts in a folder of its own, with only the variables it
+        // needs and the settings it was given: nothing else the host was
+        // started with reaches it, a secret least of all.
+        let scratch = make_scratch_dir().ok();
+        command.env_clear().envs(pack_environment(
+            env::vars_os(),
+            &pack.settings,
+            scratch.as_deref(),
+        ));
+        if let Some(scratch) = scratch.as_ref() {
+            command.current_dir(scratch);
         }
-        for (name, value) in &pack.settings {
-            command.env(name, value);
+        // The app is a windowed program on Windows; without this, every
+        // Pack it starts would open a console window of its own.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
         }
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::piped());
         let child = retry_executable_busy(|| command.spawn()).map_err(|error| {
             HostError::session(format!(
                 "could not launch external Pack {}: {error}",
@@ -1012,9 +1202,13 @@ impl ProcessClient {
                 if let Some(path) = launch_cleanup.as_ref() {
                     let _ = fs::remove_file(path);
                 }
+                if let Some(scratch) = scratch.as_ref() {
+                    let _ = fs::remove_dir_all(scratch);
+                }
                 return Err(error);
             }
         };
+        let stderr = child.stderr.take().map(StderrTail::spawn);
         let stdin = child
             .stdin
             .take()
@@ -1026,6 +1220,9 @@ impl ProcessClient {
                 let _ = child.wait();
                 if let Some(path) = launch_cleanup.as_ref() {
                     let _ = fs::remove_file(path);
+                }
+                if let Some(scratch) = scratch.as_ref() {
+                    let _ = fs::remove_dir_all(scratch);
                 }
                 return Err(HostError::session(format!(
                     "could not configure external Pack stdin: {error}"
@@ -1045,7 +1242,47 @@ impl ProcessClient {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             launch_cleanup,
+            scratch,
+            stderr,
+            crash_log_dir: pack.crash_log_dir.clone(),
+            pack: pack.descriptor.pack.clone(),
         })
+    }
+
+    /// The child's exit status if it has exited or does within a moment
+    /// (it may close its output just before it exits).
+    fn exit_status_soon(&mut self) -> Option<ExitStatus> {
+        for _ in 0..10 {
+            if let Ok(Some(status)) = self.child.try_wait() {
+                return Some(status);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+
+    /// The child exited on its own with `status`: if that is a failure,
+    /// leave a crash log where the host asked for one.
+    fn note_exit(&mut self, status: ExitStatus) {
+        if status.success() {
+            return;
+        }
+        let (Some(dir), Some(stderr)) = (self.crash_log_dir.take(), self.stderr.as_ref()) else {
+            return;
+        };
+        let tail = stderr.take();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let mut log = format!(
+            "Pack: {} {}\nExited: {status}\nAt: {now} (seconds since 1970, UTC)\n\nStandard error (the last {} bytes at most):\n",
+            self.pack.id, self.pack.version, CRASH_LOG_TAIL_BYTES
+        )
+        .into_bytes();
+        log.extend_from_slice(&tail);
+        let path = dir.join(crash_log_file_name(&self.pack.id, now, process::id()));
+        let _ = fs::create_dir_all(&dir).and_then(|_| fs::write(path, log));
     }
 
     fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {
@@ -1140,7 +1377,10 @@ impl ProcessClient {
             }
         };
         if line.is_empty() {
-            let status = self.child.try_wait().ok().flatten();
+            let status = self.exit_status_soon();
+            if let Some(status) = status {
+                self.note_exit(status);
+            }
             self.terminate();
             return Err(HostError::session(match status {
                 Some(status) => format!("external Pack exited before responding: {status}"),
@@ -1200,8 +1440,9 @@ impl ProcessClient {
     fn terminate(&mut self) {
         self.stdin.take();
         match self.child.try_wait() {
-            Ok(Some(_)) => {}
+            Ok(Some(status)) => self.note_exit(status),
             _ => {
+                // Stopped by the host (a deadline passed): not a crash.
                 let _ = self.child.kill();
                 let _ = self.child.wait();
             }
@@ -1213,6 +1454,9 @@ impl ProcessClient {
         if let Some(path) = self.launch_cleanup.take() {
             let _ = fs::remove_file(path);
         }
+        if let Some(scratch) = self.scratch.take() {
+            let _ = fs::remove_dir_all(scratch);
+        }
     }
 }
 
@@ -1220,7 +1464,8 @@ impl Drop for ProcessClient {
     fn drop(&mut self) {
         self.send_shutdown();
         for _ in 0..5 {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
+            if let Ok(Some(status)) = self.child.try_wait() {
+                self.note_exit(status);
                 self.cleanup_launch_image();
                 return;
             }
@@ -1314,13 +1559,10 @@ mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::time::{SystemTime, UNIX_EPOCH};
-    #[cfg(unix)]
     use world_host::WorldRegistry;
-    #[cfg(unix)]
     use world_pack_protocol::{
         encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionSnapshotWire,
     };
-    #[cfg(unix)]
     use world_persistence::{ArchivedEvent, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
     struct ObservedRead {
@@ -1427,7 +1669,6 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[cfg(unix)]
     fn descriptor() -> PackDescriptor {
         PackDescriptor::new(
             WorldPackRef::new("fixture.external", "1"),
@@ -1436,7 +1677,6 @@ mod tests {
         )
     }
 
-    #[cfg(unix)]
     fn wire_snapshot(world_time: u64, title: &str) -> ProjectionSnapshotWire {
         ProjectionSnapshotWire {
             title: title.into(),
@@ -1450,32 +1690,64 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     fn response_line(request_id: u64, response: PackResponse) -> String {
         encode_response(&PackResponseEnvelope::new(request_id, response)).unwrap()
     }
 
-    #[cfg(unix)]
-    fn write_fixture_process(path: &Path, responses: &[String]) {
-        use std::os::unix::fs::PermissionsExt;
+    /// The setting that names a fixture Pack's script.
+    const FIXTURE_SCRIPT: &str = "WORLD_MACHINE_FIXTURE_SCRIPT";
 
-        let mut script = String::from("#!/bin/sh\n");
-        for response in responses {
-            script.push_str("IFS= read -r _line || exit 1\n");
-            script.push_str("printf '%s\\n' ");
-            script.push_str(&shell_quote(response));
-            script.push('\n');
-        }
-        script.push_str("IFS= read -r _shutdown || true\n");
-        fs::write(path, script).unwrap();
-        let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).unwrap();
+    /// The scripted stand-in Pack (`src/bin/world-pack-fixture.rs`), which
+    /// Cargo builds beside this test binary for `cargo test` of the package
+    /// (a test binary's `deps/` folder sits in the folder binaries go in).
+    fn fixture_program() -> PathBuf {
+        let exe = env::current_exe().unwrap();
+        let program = exe
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .join(format!("world-pack-fixture{}", env::consts::EXE_SUFFIX));
+        assert!(
+            program.is_file(),
+            "{} is not built: run `cargo test -p world-pack-process` (all its targets), not `--lib` alone",
+            program.display()
+        );
+        program
     }
 
-    #[cfg(unix)]
-    fn shell_quote(value: &str) -> String {
-        format!("'{}'", value.replace('\'', "'\\''"))
+    /// A Pack manifest in `root` whose process is the fixture, running
+    /// `steps` (see the fixture's module for the verbs); load it with
+    /// [`load_fixture`] so it is told where its script is.
+    fn write_fixture_pack(root: &Path, steps: &[String]) -> PathBuf {
+        fs::write(root.join("fixture.script"), steps.join("\n")).unwrap();
+        let program = fixture_program();
+        let manifest = PackManifest::process(descriptor(), program.to_str().unwrap(), Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        manifest_path
+    }
+
+    /// Steps that answer each request with one of `responses`, in order.
+    fn respond(responses: &[String]) -> Vec<String> {
+        responses
+            .iter()
+            .map(|response| format!("respond\t{response}"))
+            .collect()
+    }
+
+    fn fixture_setting(root: &Path) -> (String, String) {
+        (
+            FIXTURE_SCRIPT.to_string(),
+            root.join("fixture.script").to_string_lossy().into_owned(),
+        )
+    }
+
+    fn load_fixture(manifest_path: &Path) -> ProcessPack {
+        let root = manifest_path.parent().unwrap().to_path_buf();
+        ProcessPack::load(manifest_path)
+            .unwrap()
+            .with_settings([fixture_setting(&root)])
+            .unwrap()
     }
 
     #[test]
@@ -1573,17 +1845,8 @@ mod tests {
         assert_eq!(ids, vec!["pack.a", "pack.b"]);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_host_setting_reaches_the_pack_process() {
-        // The host configures a Pack by handing it settings when it launches.
-        // Proven by a Pack that writes what it was given to a file.
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = temp_dir("settings");
-        let runtime = root.join("runtime.sh");
-        let observed = root.join("observed");
-        let responses = vec![
+    fn describe_and_create(title: &str) -> Vec<String> {
+        vec![
             response_line(
                 1,
                 PackResponse::Descriptor {
@@ -1593,42 +1856,38 @@ mod tests {
             response_line(
                 2,
                 PackResponse::Snapshot {
-                    snapshot: wire_snapshot(0, "Created externally"),
+                    snapshot: wire_snapshot(0, title),
                 },
             ),
-        ];
-        let mut script = String::from("#!/bin/sh\n");
-        script.push_str(&format!(
-            "printf '%s' \"$WORLD_MACHINE_TEST_VOICE\" > {}\n",
-            shell_quote(observed.to_str().unwrap())
-        ));
+        ]
+    }
+
+    #[test]
+    fn a_host_setting_reaches_the_pack_process() {
+        // The host configures a Pack by handing it settings when it launches.
+        // Proven by a Pack that writes what it was given to a file.
+        let root = temp_dir("settings");
+        let observed = root.join("observed");
         let secret = root.join("secret");
-        script.push_str(&format!(
-            "printf '%s' \"$WORLD_MACHINE_TEST_SECRET_API_KEY\" > {}\n",
-            shell_quote(secret.to_str().unwrap())
-        ));
         // A secret in the host's own environment, as a key exported in a
         // shell would be.
         std::env::set_var("WORLD_MACHINE_TEST_SECRET_API_KEY", "sk-test");
-        for response in &responses {
-            script.push_str("IFS= read -r _line || exit 1\n");
-            script.push_str("printf '%s\\n' ");
-            script.push_str(&shell_quote(response));
-            script.push('\n');
-        }
-        script.push_str("IFS= read -r _shutdown || true\n");
-        fs::write(&runtime, script).unwrap();
-        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&runtime, permissions).unwrap();
+        let mut steps = vec![
+            format!("env\tWORLD_MACHINE_TEST_VOICE\t{}", observed.display()),
+            format!(
+                "env\tWORLD_MACHINE_TEST_SECRET_API_KEY\t{}",
+                secret.display()
+            ),
+        ];
+        steps.extend(respond(&describe_and_create("Created externally")));
+        let manifest_path = write_fixture_pack(&root, &steps);
 
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-
-        let pack = ProcessPack::load(manifest_path)
+        let pack = ProcessPack::load(&manifest_path)
             .unwrap()
-            .with_settings([("WORLD_MACHINE_TEST_VOICE", "pi")])
+            .with_settings([
+                fixture_setting(&root),
+                ("WORLD_MACHINE_TEST_VOICE".into(), "pi".into()),
+            ])
             .unwrap();
         let source = ProcessPackSource::from_packs(vec![pack]);
         let mut registry = WorldRegistry::new();
@@ -1645,30 +1904,184 @@ mod tests {
             "",
             "a secret in the host's environment reached the Pack"
         );
-        assert!(ProcessPack::load(root.join("fixture.world-pack.json"))
+        assert!(ProcessPack::load(&manifest_path)
             .unwrap()
             .with_settings([("WORLD_MACHINE_ANY_API_KEY", "sk-test")])
             .is_err());
         assert!(is_secret_name("world_machine_voice_token"));
         assert!(!is_secret_name("WORLD_MACHINE_POCKET_UNIVERSE_VOICE"));
 
+        drop(session);
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    /// A Pack inherits only the variables on the allowlist: not the host's
+    /// own `WORLD_MACHINE_*` variables (a voice the host was started with
+    /// reaches only the Pack it is given to, as a setting), nor anything
+    /// else the host happens to have.
+    #[test]
+    fn a_pack_inherits_only_the_allowed_variables() {
+        let host = [
+            ("PATH", "/usr/bin"),
+            ("Path", r"C:\Windows"),
+            ("HOME", "/home/someone"),
+            ("SystemRoot", r"C:\Windows"),
+            ("LANG", "ja_JP.UTF-8"),
+            ("WORLD_MACHINE_SOME_PACK_VOICE", "pi"),
+            ("WORLD_MACHINE_LIBRARY_DIR", "/somewhere"),
+            ("SOME_VENDOR_API_KEY", "sk-test"),
+            ("DYLD_INSERT_LIBRARIES", "/tmp/x.dylib"),
+            ("LD_PRELOAD", "/tmp/x.so"),
+            ("SSH_AUTH_SOCK", "/tmp/agent"),
+            ("TMPDIR", "/host/tmp"),
+        ];
+        let scratch = Path::new("/scratch/pack");
+        let settings = vec![("WORLD_MACHINE_TEST_VOICE".to_string(), "fm".to_string())];
+        let environment = pack_environment(host, &settings, Some(scratch));
+        let names = environment
+            .iter()
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        for kept in ["PATH", "Path", "HOME", "SystemRoot", "LANG"] {
+            assert!(names.iter().any(|name| name == kept), "{kept} was not kept");
+        }
+        for dropped in [
+            "WORLD_MACHINE_SOME_PACK_VOICE",
+            "WORLD_MACHINE_LIBRARY_DIR",
+            "SOME_VENDOR_API_KEY",
+            "DYLD_INSERT_LIBRARIES",
+            "LD_PRELOAD",
+            "SSH_AUTH_SOCK",
+        ] {
+            assert!(
+                !names.iter().any(|name| name == dropped),
+                "{dropped} reached a Pack"
+            );
+        }
+        // The temporary folder is the Pack's own scratch folder, not the host's.
+        let temp = environment
+            .iter()
+            .filter(|(name, _)| name == "TMPDIR")
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(temp, vec![scratch.as_os_str().to_owned()]);
+        // And a setting the host gave this Pack arrives.
+        assert!(environment.contains(&("WORLD_MACHINE_TEST_VOICE".into(), "fm".into())));
+    }
+
+    /// A real Pack process: started in an empty folder of its own (removed
+    /// when it is done), without the host's other variables.
+    #[test]
+    fn a_pack_process_runs_in_a_scratch_folder_with_only_the_allowed_variables() {
+        let root = temp_dir("isolation");
+        let cwd = root.join("cwd");
+        let inherited = root.join("inherited");
+        let path = root.join("path");
+        std::env::set_var("WORLD_MACHINE_TEST_HOST_ONLY", "leaked");
+        let mut steps = vec![
+            format!("cwd\t{}", cwd.display()),
+            format!("env\tWORLD_MACHINE_TEST_HOST_ONLY\t{}", inherited.display()),
+            format!("env\tPATH\t{}", path.display()),
+        ];
+        steps.extend(respond(&describe_and_create("Isolated")));
+        let manifest_path = write_fixture_pack(&root, &steps);
+        let source = ProcessPackSource::from_packs(vec![load_fixture(&manifest_path)]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        let session = registry.create("fixture.external").unwrap();
+        assert_eq!(session.snapshot().title, "Isolated");
+
+        let scratch = PathBuf::from(fs::read_to_string(&cwd).unwrap());
+        assert_ne!(
+            scratch.canonicalize().ok(),
+            env::current_dir().unwrap().canonicalize().ok(),
+            "the Pack ran in the host's folder"
+        );
+        assert!(
+            scratch
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("world-machine-pack-scratch-"),
+            "{}",
+            scratch.display()
+        );
+        assert_eq!(fs::read_to_string(&inherited).unwrap(), "");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            env::var("PATH").unwrap_or_default(),
+            "PATH is on the allowlist"
+        );
+        drop(session);
+        drop(registry);
+        assert!(!scratch.exists(), "the scratch folder outlived its Pack");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A Pack process that exits with a failure on its own leaves a crash
+    /// log: what it wrote to standard error, and how it exited.
+    #[test]
+    fn a_pack_that_crashes_leaves_a_crash_log_with_its_standard_error() {
+        let root = temp_dir("crash");
+        let logs = root.join("crash-logs");
+        let steps = vec![
+            "read".to_string(),
+            "stderr\tthread 'main' panicked at src/main.rs:1:1: the fixture fell over".to_string(),
+            "exit\t3".to_string(),
+        ];
+        let manifest_path = write_fixture_pack(&root, &steps);
+        let pack = load_fixture(&manifest_path).with_crash_log_dir(&logs);
+        let source = ProcessPackSource::from_packs(vec![pack]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        let error = registry.create("fixture.external").err().unwrap();
+        assert!(error.to_string().contains("exited"), "{error}");
+
+        let written = fs::read_dir(&logs)
+            .expect("no crash log folder")
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(written.len(), 1, "{written:?}");
+        let name = written[0]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(name.starts_with("fixture.external-"), "{name}");
+        let log = fs::read_to_string(&written[0]).unwrap();
+        assert!(log.contains("Pack: fixture.external 1"), "{log}");
+        assert!(log.contains("the fixture fell over"), "{log}");
+        assert!(log.contains('3'), "the exit status is missing: {log}");
+
+        // One that exits cleanly leaves none.
+        let clean = temp_dir("clean");
+        let manifest_path = write_fixture_pack(&clean, &respond(&describe_and_create("Fine")));
+        let pack = load_fixture(&manifest_path).with_crash_log_dir(clean.join("crash-logs"));
+        let source = ProcessPackSource::from_packs(vec![pack]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        drop(registry.create("fixture.external").unwrap());
+        assert!(!clean.join("crash-logs").exists());
+
+        assert_eq!(
+            crash_log_file_name("a/b:c", 7, 9),
+            "a_b_c-7-9.log",
+            "a Pack id cannot reach outside the crash log folder"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(clean);
+    }
+
     #[test]
     fn a_host_cannot_reshape_a_pack_environment_under_the_guise_of_a_setting() {
         let root = temp_dir("settings-refused");
-        let runtime = root.join("runtime.sh");
-        write_fixture_process(&runtime, &[]);
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let manifest_path = write_fixture_pack(&root, &[]);
         let pack = ProcessPack::load(manifest_path).unwrap();
 
-        // A Pack inherits its environment; the host may add settings to it and
-        // nothing else. Refused loudly, because a setting that silently fails
-        // to arrive is worse than one that never existed.
+        // A Pack is started with the allowed variables; the host may add
+        // settings to them and nothing else. Refused loudly, because a
+        // setting that silently fails to arrive is worse than one that
+        // never existed.
         for name in [
             "PATH",
             "DYLD_INSERT_LIBRARIES",
@@ -1692,24 +2105,25 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    /// On v6 a change is tried on the Pack process that has the World open,
-    /// and gone back from there: no process is started for it.
-    #[cfg(unix)]
-    #[test]
-    fn a_v6_pack_marks_changes_and_goes_back_in_the_same_process() {
-        let root = temp_dir("checkpoint");
-        let runtime = root.join("runtime.sh");
-        let archive = WorldArchive {
+    fn archive_at(world_time: u64) -> WorldArchive {
+        WorldArchive {
             format: WORLD_ARCHIVE_FORMAT.into(),
             format_version: WORLD_ARCHIVE_VERSION,
             pack: descriptor().pack.clone(),
-            world_time: 7,
+            world_time,
             events: Vec::new(),
             pending: Vec::new(),
             checkpoint: None,
-        };
-        let mut later = archive.clone();
-        later.world_time = 8;
+        }
+    }
+
+    /// On v6 a change is tried on the Pack process that has the World open,
+    /// and gone back from there: no process is started for it.
+    #[test]
+    fn a_v6_pack_marks_changes_and_goes_back_in_the_same_process() {
+        let root = temp_dir("checkpoint");
+        let archive = archive_at(7);
+        let later = archive_at(8);
         let responses = vec![
             response_line(
                 1,
@@ -1738,13 +2152,10 @@ mod tests {
             ),
             response_line(6, PackResponse::Ok),
         ];
-        write_fixture_process(&runtime, &responses);
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = write_fixture_pack(&root, &respond(&responses));
+        let manifest = PackManifest::process(descriptor(), "runtime", Vec::new());
         assert!(manifest.protocol_version >= PACK_PROTOCOL_VERSION_V6);
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
-        let source = ProcessPackSource::from_packs(vec![pack]);
+        let source = ProcessPackSource::from_packs(vec![load_fixture(&manifest_path)]);
         let mut registry = WorldRegistry::new();
         registry.install_source(&source).unwrap();
 
@@ -1760,23 +2171,14 @@ mod tests {
         assert_eq!(session.archive_since(0).unwrap(), Some(later));
         session.rollback(mark).unwrap();
         assert_eq!(session.snapshot().title, "Opened");
+        drop(session);
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn external_process_runs_as_a_normal_world_session() {
         let root = temp_dir("session");
-        let runtime = root.join("runtime.sh");
-        let archive = WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: descriptor().pack.clone(),
-            world_time: 7,
-            events: Vec::new(),
-            pending: Vec::new(),
-            checkpoint: None,
-        };
+        let archive = archive_at(7);
         let responses = vec![
             response_line(
                 1,
@@ -1809,12 +2211,9 @@ mod tests {
                 },
             ),
         ];
-        write_fixture_process(&runtime, &responses);
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let manifest_path = write_fixture_pack(&root, &respond(&responses));
 
-        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pack = load_fixture(&manifest_path);
         let pin = pack.current_pin().unwrap();
         let source = ProcessPackSource::from_packs(vec![pack.with_pin(pin)]);
         let mut registry = WorldRegistry::new();
@@ -1839,124 +2238,71 @@ mod tests {
         let reopened = registry.open_archive(&archive).unwrap();
         assert_eq!(reopened.pack(), descriptor().pack);
         assert_eq!(reopened.snapshot().title, "Created externally");
+        drop(reopened);
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    fn probe_responses(world_time: u64, title: &str, archive: Option<WorldArchive>) -> Vec<String> {
+        vec![
+            response_line(
+                1,
+                PackResponse::Descriptor {
+                    descriptor: descriptor(),
+                },
+            ),
+            response_line(
+                2,
+                PackResponse::Snapshot {
+                    snapshot: wire_snapshot(world_time, title),
+                },
+            ),
+            response_line(3, PackResponse::Archive { archive }),
+        ]
+    }
+
+    fn pinned_fixture(root: &Path, steps: &[String]) -> ProcessPack {
+        let manifest_path = write_fixture_pack(root, steps);
+        let pack = load_fixture(&manifest_path);
+        let pin = pack.current_pin().unwrap();
+        pack.with_pin(pin)
+    }
+
     #[test]
     fn durable_probe_creates_archives_and_reopens_in_a_fresh_process() {
         let root = temp_dir("durable-probe");
-        let runtime = root.join("runtime.sh");
-        let archive = WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: descriptor().pack.clone(),
-            world_time: 3,
-            events: Vec::new(),
-            pending: Vec::new(),
-            checkpoint: None,
-        };
-        write_fixture_process(
-            &runtime,
-            &[
-                response_line(
-                    1,
-                    PackResponse::Descriptor {
-                        descriptor: descriptor(),
-                    },
-                ),
-                response_line(
-                    2,
-                    PackResponse::Snapshot {
-                        snapshot: wire_snapshot(3, "Created for probe"),
-                    },
-                ),
-                response_line(
-                    3,
-                    PackResponse::Archive {
-                        archive: Some(archive),
-                    },
-                ),
-            ],
-        );
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
-        let pin = pack.current_pin().unwrap();
-
-        let probe = pack.with_pin(pin).probe_durable().unwrap();
+        let steps = respond(&probe_responses(
+            3,
+            "Created for probe",
+            Some(archive_at(3)),
+        ));
+        let probe = pinned_fixture(&root, &steps).probe_durable().unwrap();
         assert_eq!(probe.pack, descriptor().pack);
         assert_eq!(probe.created_title, "Created for probe");
         assert_eq!(probe.created_world_time, 3);
         assert_eq!(probe.reopened_title, "Created for probe");
         assert_eq!(probe.reopened_world_time, 3);
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn durable_probe_rejects_archive_state_drift() {
         let root = temp_dir("durable-probe-state-drift");
-        let runtime = root.join("runtime.sh");
-        let archive = WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: descriptor().pack.clone(),
-            world_time: 4,
-            events: Vec::new(),
-            pending: Vec::new(),
-            checkpoint: None,
-        };
-        write_fixture_process(
-            &runtime,
-            &[
-                response_line(
-                    1,
-                    PackResponse::Descriptor {
-                        descriptor: descriptor(),
-                    },
-                ),
-                response_line(
-                    2,
-                    PackResponse::Snapshot {
-                        snapshot: wire_snapshot(3, "Created for probe"),
-                    },
-                ),
-                response_line(
-                    3,
-                    PackResponse::Archive {
-                        archive: Some(archive),
-                    },
-                ),
-            ],
-        );
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
-        let pin = pack.current_pin().unwrap();
-
-        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        let steps = respond(&probe_responses(
+            3,
+            "Created for probe",
+            Some(archive_at(4)),
+        ));
+        let error = pinned_fixture(&root, &steps).probe_durable().unwrap_err();
         assert!(error.to_string().contains("archived World time 4"));
         assert!(error.to_string().contains("reported 3"));
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn durable_probe_rejects_reopened_archive_content_drift_at_same_world_time() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = temp_dir("durable-probe-rearchive-drift");
-        let runtime = root.join("runtime.sh");
         let launch_marker = root.join("launched-once");
-        let original = WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: descriptor().pack.clone(),
-            world_time: 3,
-            events: Vec::new(),
-            pending: Vec::new(),
-            checkpoint: None,
-        };
+        let original = archive_at(3);
         let mut changed = original.clone();
         changed.events.push(ArchivedEvent {
             id: 1,
@@ -1968,67 +2314,26 @@ mod tests {
             payload: Default::default(),
             changes: Vec::new(),
         });
-
-        let describe = response_line(
-            1,
-            PackResponse::Descriptor {
-                descriptor: descriptor(),
-            },
-        );
-        let snapshot = response_line(
-            2,
-            PackResponse::Snapshot {
-                snapshot: wire_snapshot(3, "Created for probe"),
-            },
-        );
-        let original_archive = response_line(
-            3,
-            PackResponse::Archive {
-                archive: Some(original),
-            },
-        );
+        let responses = probe_responses(3, "Created for probe", Some(original));
         let changed_archive = response_line(
             3,
             PackResponse::Archive {
                 archive: Some(changed),
             },
         );
-        let mut script = String::from("#!/bin/sh\n");
-        script.push_str(&format!(
-            "if [ -e {} ]; then changed=1; else touch {}; changed=0; fi\n",
-            shell_quote(launch_marker.to_str().unwrap()),
-            shell_quote(launch_marker.to_str().unwrap())
-        ));
-        script.push_str("IFS= read -r _line || exit 1\n");
-        script.push_str(&format!("printf '%s\\n' {}\n", shell_quote(&describe)));
-        script.push_str("IFS= read -r _line || exit 1\n");
-        script.push_str(&format!("printf '%s\\n' {}\n", shell_quote(&snapshot)));
-        script.push_str("IFS= read -r _line || exit 1\n");
-        script.push_str("if [ \"$changed\" = 1 ]; then\n");
-        script.push_str(&format!(
-            "  printf '%s\\n' {}\n",
-            shell_quote(&changed_archive)
-        ));
-        script.push_str("else\n");
-        script.push_str(&format!(
-            "  printf '%s\\n' {}\n",
-            shell_quote(&original_archive)
-        ));
-        script.push_str("fi\n");
-        script.push_str("IFS= read -r _shutdown || true\n");
-        fs::write(&runtime, script).unwrap();
-        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
-        let pin = pack.current_pin().unwrap();
-
-        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        // The second launch (the reopening) archives something else.
+        let steps = vec![
+            format!("marker\t{}", launch_marker.display()),
+            format!("respond\t{}", responses[0]),
+            format!("respond\t{}", responses[1]),
+            format!("first\trespond\t{}", responses[2]),
+            format!("second\trespond\t{changed_archive}"),
+        ];
+        let error = pinned_fixture(&root, &steps).probe_durable().unwrap_err();
         assert!(error
             .to_string()
             .contains("did not round-trip durable state exactly"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2056,85 +2361,38 @@ mod tests {
         assert_eq!(other_attempts, 1);
     }
 
-    #[cfg(unix)]
     #[test]
     fn durable_probe_rejects_packs_without_archives() {
         let root = temp_dir("durable-probe-no-archive");
-        let runtime = root.join("runtime.sh");
-        write_fixture_process(
-            &runtime,
-            &[
-                response_line(
-                    1,
-                    PackResponse::Descriptor {
-                        descriptor: descriptor(),
-                    },
-                ),
-                response_line(
-                    2,
-                    PackResponse::Snapshot {
-                        snapshot: wire_snapshot(0, "Created without archive"),
-                    },
-                ),
-                response_line(3, PackResponse::Archive { archive: None }),
-            ],
-        );
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
-        let pin = pack.current_pin().unwrap();
-
-        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        let steps = respond(&probe_responses(0, "Created without archive", None));
+        let error = pinned_fixture(&root, &steps).probe_durable().unwrap_err();
         assert!(error
             .to_string()
             .contains("does not provide a durable archive"));
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn hung_process_is_timed_out_and_terminated() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = temp_dir("timeout");
-        let runtime = root.join("runtime.sh");
-        fs::write(
-            &runtime,
-            "#!/bin/sh\nIFS= read -r _line || exit 1\nsleep 2\n",
-        )
-        .unwrap();
-        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&runtime, permissions).unwrap();
-
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
+        let manifest_path =
+            write_fixture_pack(&root, &["read".to_string(), "sleep\t2000".to_string()]);
+        let pack = load_fixture(&manifest_path);
         let mut client = ProcessClient::spawn(&pack).unwrap();
         client.request_timeout = Duration::from_millis(50);
 
         let error = client.request(PackRequest::Describe).err().unwrap();
         assert!(error.to_string().contains("timed out"));
         assert!(client.child.try_wait().unwrap().is_some());
+        drop(client);
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn no_read_pack_request_write_is_timed_out_and_direct_child_is_reaped() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = temp_dir("write-timeout");
-        let runtime = root.join("runtime.sh");
-        fs::write(&runtime, "#!/bin/sh\nsleep 2\n").unwrap();
-        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&runtime, permissions).unwrap();
-
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-        let pack = ProcessPack::load(manifest_path).unwrap();
+        let manifest_path = write_fixture_pack(&root, &["sleep\t2000".to_string()]);
+        let pack = load_fixture(&manifest_path);
         let mut client = ProcessClient::spawn(&pack).unwrap();
         client.request_timeout = Duration::from_millis(50);
 
@@ -2159,33 +2417,30 @@ mod tests {
             started.elapsed()
         );
         assert!(client.child.try_wait().unwrap().is_some());
+        drop(client);
+        let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn process_descriptor_must_match_the_manifest() {
         let root = temp_dir("descriptor-mismatch");
-        let runtime = root.join("runtime.sh");
         let wrong = PackDescriptor::new(
             WorldPackRef::new("fixture.other", "1"),
             "Wrong Pack",
             "fixture",
         );
-        write_fixture_process(
-            &runtime,
-            &[response_line(
+        let manifest_path = write_fixture_pack(
+            &root,
+            &respond(&[response_line(
                 1,
                 PackResponse::Descriptor { descriptor: wrong },
-            )],
+            )]),
         );
-        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        let manifest_path = root.join("fixture.world-pack.json");
-        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-
-        let source = ProcessPackSource::from_manifest_paths([manifest_path]).unwrap();
+        let source = ProcessPackSource::from_packs(vec![load_fixture(&manifest_path)]);
         let mut registry = WorldRegistry::new();
         registry.install_source(&source).unwrap();
         let error = registry.create("fixture.external").err().unwrap();
         assert!(error.to_string().contains("descriptor mismatch"));
+        let _ = fs::remove_dir_all(root);
     }
 }

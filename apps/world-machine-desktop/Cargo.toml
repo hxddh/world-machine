@@ -25,6 +25,14 @@ linux-window = [
 # Where this build is distributed. A store build (Steam) is updated by the
 # store, so it never asks GitHub for a newer release; see src/channel.rs.
 channel-store = []
+# The Steam spike (src/steam.rs): starts the Steamworks API when the app is
+# launched by Steam, with the app id from WORLD_MACHINE_STEAM_APP_ID (or
+# steam_appid.txt). Off by default and never part of the kernel or a
+# System. A Steam build is also a store build, so it implies channel-store.
+# Linking it needs the Steamworks SDK's redistributable library
+# (steam_api64.dll / libsteam_api.dylib) beside the app, under Valve's SDK
+# licence; checking it needs nothing.
+steam = ["dep:steamworks", "channel-store"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -41,6 +49,7 @@ world-theme = { path = "../../crates/world-theme" }
 world-voice = { path = "../../crates/world-voice" }
 # The demo reads its farewell from a snapshot on every platform.
 world-projection = { path = "../../crates/world-projection" }
+steamworks = { version = "0.13.1", optional = true }
 
 [dev-dependencies]
 world-persistence = { path = "../../crates/world-persistence" }
@@ -60,6 +69,12 @@ world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-pack-process = { path = "../../crates/world-pack-process" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
+
+# Where the voice's API key is kept on Windows: the Windows Credential
+# Manager (src/key_store.rs). MIT OR Apache-2.0.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring-core = "1"
+windows-native-keyring-store = "1.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cpal = { version = "0.18", optional = true }

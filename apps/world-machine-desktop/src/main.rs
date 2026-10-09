@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+// A release build on Windows is a windowed program: no console window opens
+// beside it. Debug builds keep the console for what the app prints.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 #[cfg(gui)]
 mod about;
@@ -4396,6 +4399,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let application = application();
     system_open::install(&application);
     diagnostics::init();
+    diagnostics::info(world_machine_desktop::steam::start().describe());
     // Every World file this app writes says which app wrote it.
     world_document::set_writing_app(format!("World Machine {}", build_info::APP_VERSION));
     load_window_geometry();

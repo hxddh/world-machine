@@ -1,11 +1,10 @@
-#![cfg(unix)]
+mod support;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
-use world_pack_process::{ProcessPack, ProcessPackSource, DEFAULT_MAX_REQUEST_BYTES};
+use world_pack_process::{ProcessPackSource, DEFAULT_MAX_REQUEST_BYTES};
 use world_pack_protocol::{
     encode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionCapabilitiesWire,
@@ -56,7 +55,7 @@ const CEILING: usize = PACK_FRAME_LIMIT_BEFORE_V5;
 
 fn manifest() -> PackManifest {
     const { assert!(CEILING <= DEFAULT_MAX_REQUEST_BYTES) };
-    let mut manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    let mut manifest = PackManifest::process(descriptor(), "runtime", Vec::new());
     manifest.protocol_version = PACK_PROTOCOL_VERSION_V4;
     manifest
 }
@@ -102,36 +101,13 @@ fn exact_limit_handle_command(request_id: u64) -> String {
     command
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn write_fixture_process(path: &Path, responses: &[String]) {
-    // The host is single-flight: the next request frame is never written
-    // until this response has been read, so `head -n 1` consumes exactly one
-    // frame. A shell `read -r` reads a 16 MiB line one byte per syscall and
-    // alone spends most of the 5 s request budget on slower CI runners.
-    let mut script = String::from("#!/bin/sh\n");
-    for response in responses {
-        script.push_str("head -n 1 >/dev/null || exit 1\n");
-        script.push_str("printf '%s\\n' ");
-        script.push_str(&shell_quote(response));
-        script.push('\n');
-    }
-    script.push_str("IFS= read -r _shutdown || true\n");
-    fs::write(path, script).unwrap();
-    let mut permissions = fs::metadata(path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).unwrap();
-}
-
 #[test]
 fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
     let root = temp_dir("exact-limit");
-    let runtime = root.join("runtime.sh");
-    write_fixture_process(
-        &runtime,
-        &[
+    let pack = support::fixture_pack(
+        &root,
+        manifest(),
+        &support::respond(&[
             response_line(
                 1,
                 PackResponse::Descriptor {
@@ -150,13 +126,8 @@ fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
                     snapshot: snapshot(1, "Handled exact-limit request"),
                 },
             ),
-        ],
+        ]),
     );
-    let manifest = manifest();
-    let manifest_path = root.join("fixture.world-pack.json");
-    fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-
-    let pack = ProcessPack::load(&manifest_path).unwrap();
     let source = ProcessPackSource::from_packs(vec![pack]);
     let mut registry = WorldRegistry::new();
     registry.install_source(&source).unwrap();
@@ -176,10 +147,10 @@ fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
 #[test]
 fn oversized_multibyte_request_is_local_nonfatal_and_does_not_consume_request_id() {
     let root = temp_dir("local-reject-reuse");
-    let runtime = root.join("runtime.sh");
-    write_fixture_process(
-        &runtime,
-        &[
+    let pack = support::fixture_pack(
+        &root,
+        manifest(),
+        &support::respond(&[
             response_line(
                 1,
                 PackResponse::Descriptor {
@@ -198,13 +169,8 @@ fn oversized_multibyte_request_is_local_nonfatal_and_does_not_consume_request_id
                     snapshot: snapshot(1, "Advanced after local rejection"),
                 },
             ),
-        ],
+        ]),
     );
-    let manifest = manifest();
-    let manifest_path = root.join("fixture.world-pack.json");
-    fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
-
-    let pack = ProcessPack::load(&manifest_path).unwrap();
     let source = ProcessPackSource::from_packs(vec![pack]);
     let mut registry = WorldRegistry::new();
     registry.install_source(&source).unwrap();

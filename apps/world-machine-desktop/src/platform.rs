@@ -9,14 +9,15 @@
 //! - where the app keeps its settings and Worlds, and its log;
 //! - one small HTTPS request (the update check), made with the `curl` the
 //!   operating system ships, so the app carries no HTTP client;
-//! - where the API key is kept (the login keychain on the Mac);
+//! - where the API key is kept (the login keychain on the Mac, Credential
+//!   Manager on Windows);
 //! - whether the operating system asks for more contrast;
 //! - how the machine is described in a diagnostics report.
 //!
 //! [`current`] is the running platform. On the Mac it is exactly what the
 //! app did before the split. On Windows it keeps files under `%APPDATA%`,
-//! uses Windows' own `curl.exe`, and has no key store yet (keeping a key
-//! says so, and the voice reads as not configured). Linux builds the window
+//! uses Windows' own `curl.exe`, and keeps the key in the Windows
+//! Credential Manager. Linux builds the window
 //! only for previews and the screenshot harness, so it keeps the Mac's
 //! layout under `$HOME`.
 
@@ -124,10 +125,16 @@ pub fn curl_args(request: &Fetch<'_>) -> Vec<String> {
 }
 
 fn curl(program: &std::path::Path, request: &Fetch<'_>) -> Option<String> {
-    let output = Command::new(program)
-        .args(curl_args(request))
-        .output()
-        .ok()?;
+    let mut command = Command::new(program);
+    command.args(curl_args(request));
+    // The app is a windowed program on Windows: no console window for curl.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command.output().ok()?;
     output
         .status
         .success()
@@ -213,8 +220,8 @@ pub struct Windows;
 
 #[cfg(any(windows, test))]
 impl Windows {
-    const NO_KEY_STORE: &'static str =
-        "keeping an API key is not built for Windows yet; the World keeps its own words";
+    #[cfg(not(windows))]
+    const NO_KEY_STORE: &'static str = "Credential Manager is only on Windows";
 
     fn known_folder(variable: &str) -> Option<PathBuf> {
         env::var_os(variable)
@@ -253,16 +260,38 @@ impl Platform for Windows {
         curl(&Self::curl_exe(), request)
     }
 
-    fn save_secret(&self, _key: &str) -> Result<(), String> {
-        Err(Self::NO_KEY_STORE.to_string())
+    fn save_secret(&self, key: &str) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            crate::key_store::credential_manager::save(key)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = key;
+            Err(Self::NO_KEY_STORE.to_string())
+        }
     }
 
     fn load_secret(&self) -> Option<String> {
-        None
+        #[cfg(windows)]
+        {
+            crate::key_store::credential_manager::load()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
     }
 
     fn clear_secret(&self) -> Result<(), String> {
-        Ok(())
+        #[cfg(windows)]
+        {
+            crate::key_store::credential_manager::clear()
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(())
+        }
     }
 
     fn increase_contrast(&self) -> bool {
@@ -361,8 +390,12 @@ mod tests {
         assert!(Windows::curl_exe().ends_with("System32/curl.exe"));
     }
 
+    /// Off Windows, the Windows platform has no Credential Manager to
+    /// reach, and says so rather than pretending to keep a key. (On Windows
+    /// the real store is tested in key_store.)
+    #[cfg(not(windows))]
     #[test]
-    fn windows_says_it_cannot_keep_a_key_rather_than_pretending() {
+    fn windows_off_windows_says_it_cannot_keep_a_key_rather_than_pretending() {
         assert!(Windows.save_secret("sk-ant-test").is_err());
         assert_eq!(Windows.load_secret(), None);
         assert!(Windows.clear_secret().is_ok());

@@ -50,3 +50,18 @@ xcrun notarytool store-credentials world-machine --apple-id … --team-id … --
 WORLD_MACHINE_NOTARIZE=1 WORLD_MACHINE_NOTARY_PROFILE=world-machine \
   bash apps/world-machine-desktop/macos/package-release.sh
 ```
+
+## Windows
+
+The Windows package (`apps/world-machine-desktop/windows/package.sh`, run by the `windows-release` job of `release-package.yml` when the dispatch's `windows` box is ticked, or on a tag push when the repository variable `WORLD_MACHINE_WINDOWS_RELEASE` is `true`) is an Inno Setup installer and a zip of the same folder, **unsigned**. Windows SmartScreen shows "Windows protected your PC" on first run until the files are signed and have built up reputation; the package's `READ ME FIRST.txt` says what to click. `release-manifest-windows.json` records `"signing": "unsigned"`.
+
+Nothing requires a certificate. When one exists, signing is one hook: `package.sh` runs `$WORLD_MACHINE_WINDOWS_SIGN <file>` on `World Machine.exe` before it is zipped and put in the installer, and on the installer after it is made, and the manifest then says `"signed"`. Two ways to fill it:
+
+- **Azure Artifact Signing** (formerly Trusted Signing), about $9.99 a month. Open to individuals only in the US and Canada (organisations with three years of history elsewhere). Install the Artifact Signing dlib on the runner and set, for example, `WORLD_MACHINE_WINDOWS_SIGN="signtool sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib <path>\Azure.CodeSigning.Dlib.dll /dmdf <path>\metadata.json"`, with the Azure credentials (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`) as repository secrets passed to that step only. Microsoft's `azure/trusted-signing-action` does the same; pin it by commit SHA like every other action (`scripts/check-workflows.py` enforces that).
+- **A standard (OV) code-signing certificate** from a CA, on a hardware token or a cloud HSM as CAs now require: `WORLD_MACHINE_WINDOWS_SIGN="signtool sign /fd SHA256 /tr <CA timestamp URL> /td SHA256 /sha1 <thumbprint>"`. An EV certificate no longer skips SmartScreen's reputation check, so it buys nothing over OV for this.
+
+Either way, timestamp every signature (so it outlives the certificate), and sign the Pack executables inside the `.worldpack` bundles too once Packs are verified by signature on Windows (today they are pinned by SHA-256, which does not need one).
+
+## Steam (the `steam` feature)
+
+`cargo build -p world-machine-desktop --features steam` links the Steamworks API through the `steamworks` crate (MIT or Apache-2.0); see `apps/world-machine-desktop/src/steam.rs`. The redistributable library it links (`steam_api64.dll` on Windows, `libsteam_api.dylib` on the Mac) comes inside `steamworks-sys` under Valve's Steamworks SDK Access Agreement and has to ship beside the executable. A Steam build reads its app id from `WORLD_MACHINE_STEAM_APP_ID` (Steam sets it when it launches the game). On the Mac, Steam requires a notarized build, and its overlay needs the hardened-runtime entitlements `com.apple.security.cs.disable-library-validation` and `com.apple.security.cs.allow-dyld-environment-variables`, with `libsteam_api.dylib` signed inside the app; both wait on the Apple Developer enrolment above.
