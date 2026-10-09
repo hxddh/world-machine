@@ -24,4 +24,4 @@ systems/days 24
 systems/hands 23
 systems/lives 19
 systems/storylets 2
-apps/world-machine-desktop 145
+apps/world-machine-desktop 143

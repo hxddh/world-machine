@@ -3967,13 +3967,13 @@ mod file_type_tests {
         assert!(is_world_file(Path::new("/tmp/a.world")));
         let (url, path) = if cfg!(windows) {
             (
-                "file:///C:/tmp/Leo%27s%20harbour.worldcode",
-                r"C:\tmp\Leo's harbour.worldcode",
+                "file:///C:/tmp/Leo%27s%20town.worldcode",
+                r"C:\tmp\Leo's town.worldcode",
             )
         } else {
             (
-                "file:///tmp/Leo%27s%20harbour.worldcode",
-                "/tmp/Leo's harbour.worldcode",
+                "file:///tmp/Leo%27s%20town.worldcode",
+                "/tmp/Leo's town.worldcode",
             )
         };
         assert_eq!(
