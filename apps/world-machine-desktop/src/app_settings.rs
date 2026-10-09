@@ -541,6 +541,16 @@ mod tests {
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+    /// `path`, written as on unix, made absolute on this system (on Windows
+    /// a path needs a drive to be absolute).
+    fn abs(path: &str) -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(format!("C:{}", path.replace('/', "\\")))
+        } else {
+            PathBuf::from(path)
+        }
+    }
+
     struct Fixture {
         root: PathBuf,
     }
@@ -602,7 +612,7 @@ mod tests {
         let fixture = Fixture::new();
         let settings = AppSettings {
             version: SETTINGS_VERSION,
-            pi_program: Some(PathBuf::from("/usr/local/bin/pi")),
+            pi_program: Some(abs("/usr/local/bin/pi")),
             world_voice: false,
             world_voice_source: None,
             voice_model: None,
@@ -630,7 +640,7 @@ mod tests {
         let path = settings_path(&fixture.root);
         fs::write(&path, "{not-json").unwrap();
         assert!(matches!(
-            save_pi_program(&fixture.root, PathBuf::from("/new/pi")),
+            save_pi_program(&fixture.root, abs("/new/pi")),
             Err(AppSettingsError::Malformed(_))
         ));
         assert_eq!(fs::read_to_string(path).unwrap(), "{not-json");
@@ -668,11 +678,15 @@ mod tests {
         fs::create_dir_all(&fixture.root).unwrap();
         fs::write(
             settings_path(&fixture.root),
-            r#"{"version":1,"node_program":"/saved/node","pi_program":"/saved/pi","provider":"x"}"#,
+            format!(
+                r#"{{"version":1,"node_program":{},"pi_program":{},"provider":"x"}}"#,
+                serde_json::to_string(&abs("/saved/node")).unwrap(),
+                serde_json::to_string(&abs("/saved/pi")).unwrap(),
+            ),
         )
         .unwrap();
         let loaded = load(&fixture.root).unwrap();
-        assert_eq!(loaded.pi_program, Some(PathBuf::from("/saved/pi")));
+        assert_eq!(loaded.pi_program, Some(abs("/saved/pi")));
         assert!(
             !loaded.world_voice,
             "a voice nobody asked for was switched on"
@@ -723,10 +737,12 @@ mod tests {
             "a voice was claimed with nothing to write with"
         );
 
-        settings.pi_program = Some(PathBuf::from("/saved/pi"));
+        settings.pi_program = Some(abs("/saved/pi"));
         assert_eq!(
             settings.configured_voice(None),
-            Some(ConfiguredVoice::Program("/saved/pi".to_string())),
+            Some(ConfiguredVoice::Program(
+                abs("/saved/pi").display().to_string()
+            )),
             "a settings file from before sources existed must keep using its program"
         );
 
@@ -743,7 +759,7 @@ mod tests {
         let mut settings = AppSettings::empty();
         settings.world_voice = true;
         settings.world_voice_source = Some(VoiceSource::Key);
-        settings.pi_program = Some(PathBuf::from("/saved/pi"));
+        settings.pi_program = Some(abs("/saved/pi"));
 
         assert_eq!(
             settings.configured_voice(None),
@@ -765,7 +781,7 @@ mod tests {
     #[test]
     fn the_way_a_voice_reaches_a_model_survives_being_written_down() {
         let fixture = Fixture::new();
-        save_pi_program(&fixture.root, PathBuf::from("/saved/pi")).unwrap();
+        save_pi_program(&fixture.root, abs("/saved/pi")).unwrap();
         assert_eq!(load(&fixture.root).unwrap().world_voice_source, None);
 
         save_world_voice_source(&fixture.root, VoiceSource::Key).unwrap();
@@ -773,7 +789,7 @@ mod tests {
         assert_eq!(stored.world_voice_source, Some(VoiceSource::Key));
         assert_eq!(
             stored.pi_program,
-            Some(PathBuf::from("/saved/pi")),
+            Some(abs("/saved/pi")),
             "choosing a key threw away the program"
         );
 
@@ -815,7 +831,7 @@ mod tests {
     #[test]
     fn a_voice_is_off_until_it_is_turned_on_and_stays_where_it_is_put() {
         let fixture = Fixture::new();
-        save_pi_program(&fixture.root, PathBuf::from("/saved/pi")).unwrap();
+        save_pi_program(&fixture.root, abs("/saved/pi")).unwrap();
         assert!(!load(&fixture.root).unwrap().world_voice);
 
         save_world_voice(&fixture.root, true).unwrap();
@@ -823,7 +839,7 @@ mod tests {
         assert!(on.world_voice);
         assert_eq!(
             on.pi_program,
-            Some(PathBuf::from("/saved/pi")),
+            Some(abs("/saved/pi")),
             "turning the voice on lost the program it needs"
         );
 
@@ -851,7 +867,7 @@ mod tests {
         let pi_barrier = Arc::clone(&barrier);
         let pi = thread::spawn(move || {
             pi_barrier.wait();
-            save_pi_program(pi_root.as_ref(), PathBuf::from("/concurrent/pi")).unwrap();
+            save_pi_program(pi_root.as_ref(), abs("/concurrent/pi")).unwrap();
         });
 
         barrier.wait();
@@ -860,7 +876,7 @@ mod tests {
 
         let settings = load(root.as_ref()).unwrap();
         assert!(settings.world_voice);
-        assert_eq!(settings.pi_program, Some(PathBuf::from("/concurrent/pi")));
+        assert_eq!(settings.pi_program, Some(abs("/concurrent/pi")));
     }
 
     #[test]
@@ -922,9 +938,9 @@ mod tests {
     fn save_replaces_target_without_leaving_temp_file() {
         let fixture = Fixture::new();
         let mut settings = AppSettings::empty();
-        settings.pi_program = Some(PathBuf::from("/first/pi"));
+        settings.pi_program = Some(abs("/first/pi"));
         save(&fixture.root, &settings).unwrap();
-        settings.pi_program = Some(PathBuf::from("/second/pi"));
+        settings.pi_program = Some(abs("/second/pi"));
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
         let mut entries: Vec<_> = fs::read_dir(&fixture.root)
