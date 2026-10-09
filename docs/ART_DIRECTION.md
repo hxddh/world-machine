@@ -169,6 +169,7 @@ From v0.29 the sheet comes from scripted free play, not frames chosen by the tea
 - it includes frames 0.3, 1.0 and 2.5 s after every camera move, not only settled ones;
 - the harness picks at least a third of the frames at random;
 - every store-page shot must match the frame the player sees at that moment.
+- every frame judged comes from binaries built from the commit being signed, and the art director checks that before judging (added in v0.29, when the team's binaries in three of four rounds were not all built from their commit).
 
 (The v0.28 sign-off below was given on settled, harness-picked frames, and was withdrawn in the [v0.28 review](REVIEW_v0.28.md#what-the-art-director-found).)
 
@@ -192,3 +193,19 @@ Signed off by the art director on 2026-10-08 after three rounds, on real-window 
   - A speech bubble can leave one short word alone on a line ("the"); the bubble's width should be balanced.
   - During the welcome the buildings read slightly softer than on day 1, though they are drawn 1:1. Cause not found.
   - The frame bar (8 ms in 10 of 10 runs) is not met locally; this is a measurement, not a look, but a hitch on a pan is seen.
+
+## v0.29 sign-off
+
+Signed off by the art director on 2026-10-09 after four rounds of scripted free play, on frames captured from the director's own release build of each commit. Final at `8b0e994`: **Tiny Society, Ares, Maple Street and Icebridge YES with deviations**, no blockers.
+- **Round 1:** Maple Street YES with deviations; the harbour, Ares and Icebridge NO. The return film's camera never moved in Chinese and Japanese, Find landed on the rough with its card off the window, cards covered speakers, dusk was not gold, people stood in rows, and the three Pocket Universe places were one template.
+- **Round 2** (`ca532e3`): Maple Street YES with deviations; the harbour, Ares and Icebridge NO. The return film dropped beats in 3 of 4 runs, scaffolding stood on other buildings, Find's card opened before Leo was on screen, Ares had a hard-edged glow box at night and a garden cut at the edge, and Icebridge's noon did not read as water and ice.
+- **Round 3** (`f76389d`): the harbour, Ares and Maple Street YES with deviations; Icebridge NO. Its noon had lost the nests, and its night, on the Protect list, cut the nest and the bridge at the edges.
+- **Round 4** (`8b0e994`): Icebridge holds its nests, vault, plaza, bridge and keeper whole at noon, dusk and night on one framing, its lead reads as dark water, and nothing on the Protect list regressed.
+- **The rule added:** every sign-off capture comes from binaries built from the signed commit. In round 4 the team's desktop binary predated their commit, so the director judged nothing from their frames and captured everything again; in rounds 2 and 3, too, some of the team's binaries were not built from the commit.
+- The 19 accepted deviations are listed in [KNOWN_ISSUES](KNOWN_ISSUES.md#the-look-accepted-v029-deviations): the harbour's flat dusk sky and grey-green water, the milky veil at noon, rough painting mid-glide on long pans, cards clipping people beside the speaker, people overlapping in groups, the Pocket Universe template of lamps in a row and two roped plots, Maple Street's noon haze, Ares's rust-lit night land, the first-day "Make something" offer, and Icebridge's bubble over the bridge, tight left margin and pale arch at night, among others.
+- **Protect (updated):**
+  - **Places and pictures:** the day-21 cluster; Maple Street at night; Ares's night windows and its soft glow; Icebridge at dusk; Icebridge at noon and night as round 4 has them, one framing with nests, vault, plaza, bridge and keeper whole and the lead as dark water with lamps on its lip; the lighthouse on its rocks; deep-blue harbour water, the paper grain and the edge-tab portrait bubbles.
+  - **Cards and film:** docked cards beside groups, and distinct keeper lines per place; the return film with the camera first, words on landing, and words at once when the subject is already in view; the Find card waiting for the landing.
+  - **Siting and framing:** scaffolds on clear sites, on the quay edge and never in the water; no unpainted joining slabs; Ares and Icebridge on a single framing at every hour, held by `the_ice_place_opens_on_its_nests_and_its_bridge_at_every_hour`, which must stay.
+  - **Releases:** every sign-off capture from binaries built from the signed commit.
+- Not signed: the demo build on its own (its ending was judged only in round 1), and the store shots, which are still v0.28's and do not yet match frames players see.
