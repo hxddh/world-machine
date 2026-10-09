@@ -133,18 +133,32 @@ struct HostProjectionController {
     /// What the World held when last seen, for the sound to hear a letter
     /// that a turn brought.
     tally: std::cell::Cell<Option<ambience::Tally>>,
-    /// Set when the demo held back the day after its last: the window then
-    /// shows the ending card (see `demo`).
-    demo_ending: Rc<std::cell::Cell<bool>>,
+    /// Set when the demo turned a day's passing: the window then shows
+    /// the ending card, or the return film after the time away (see
+    /// `demo`).
+    demo_cue: DemoCue,
+}
+
+/// What the demo asks the window to show after a turn it took itself.
+#[cfg(gui)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DemoTurn {
+    /// The ending card: the day after the last was asked for.
+    Ending,
+    /// The return film: the World lived days without the player.
+    Returned,
 }
 
 #[cfg(gui)]
+type DemoCue = Rc<std::cell::Cell<Option<DemoTurn>>>;
+
+#[cfg(gui)]
 impl HostProjectionController {
-    fn new(document: SharedDocument, demo_ending: Rc<std::cell::Cell<bool>>) -> Self {
+    fn new(document: SharedDocument, demo_cue: DemoCue) -> Self {
         Self {
             document,
             tally: std::cell::Cell::new(None),
-            demo_ending,
+            demo_cue,
         }
     }
 }
@@ -239,8 +253,24 @@ impl world_gpui::ProjectionController for HostProjectionController {
         match demo_holds(&document.session, &intent) {
             demo::Gate::Open => {}
             demo::Gate::Ending => {
-                self.demo_ending.set(true);
+                self.demo_cue.set(Some(DemoTurn::Ending));
                 return Ok(world_gpui::i18n::localize(document.session.snapshot()));
+            }
+            // The day's passing is lived away: the World's own background
+            // time, as the full app lives it while closed, then the window
+            // opens on the return film.
+            demo::Gate::Away(days) => {
+                let registry = Arc::clone(&document.registry);
+                let library = Arc::clone(&document.library);
+                let snapshot = document
+                    .session
+                    .advance_background(u64::from(days), &registry, &library)
+                    .map_err(|error| error.to_string())?;
+                if document.session.document_id().is_some() {
+                    mark_library_changed();
+                }
+                self.demo_cue.set(Some(DemoTurn::Returned));
+                return Ok(world_gpui::i18n::localize(snapshot));
             }
             demo::Gate::NotOffered => return Err(ui::t(demo::NOT_OFFERED).to_string()),
         }
@@ -317,9 +347,9 @@ struct WorldDocumentView {
     next_move_at: Option<u64>,
     /// Whether the Share list under the title bar is open.
     share_open: bool,
-    /// Whether the demo's ending card is up (set by the controller when the
-    /// day after the demo's last is asked for; always false in the full app).
-    demo_ending: Rc<std::cell::Cell<bool>>,
+    /// What the demo asks this window to show next (set by the controller
+    /// when it turned a day's passing; always empty in the full app).
+    demo_cue: DemoCue,
     /// Set when the player chose to close this window although its World's
     /// latest turns could not be written (see [`Self::ready_to_close`]).
     closing_anyway: bool,
@@ -524,9 +554,8 @@ impl WorldDocumentView {
                 state.session.read_only_reason(),
             )
         };
-        let demo_ending = Rc::new(std::cell::Cell::new(false));
-        let controller =
-            HostProjectionController::new(Rc::clone(&document), Rc::clone(&demo_ending));
+        let demo_cue: DemoCue = Rc::new(std::cell::Cell::new(None));
+        let controller = HostProjectionController::new(Rc::clone(&document), Rc::clone(&demo_cue));
         let projection = cx.new(|_| world_view(controller));
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
@@ -547,7 +576,7 @@ impl WorldDocumentView {
             status: read_only.map(DocumentStatus::error),
             next_move_at,
             share_open: false,
-            demo_ending,
+            demo_cue,
             closing_anyway: false,
         }
     }
@@ -704,8 +733,11 @@ impl WorldDocumentView {
 
     fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
         let controller =
-            HostProjectionController::new(Rc::clone(&self.document), Rc::clone(&self.demo_ending));
+            HostProjectionController::new(Rc::clone(&self.document), Rc::clone(&self.demo_cue));
         self.projection = cx.new(|_| world_view(controller));
+        // The title bar, and the demo's turns, follow the new page too.
+        cx.observe(&self.projection, |_, _, cx| cx.notify())
+            .detach();
     }
 
     /// Share, under the title bar: the World's code, copied or saved, and
@@ -785,7 +817,6 @@ impl WorldDocumentView {
     /// "Stay a while" puts it away, and it comes back only when the next
     /// day is asked for again.
     fn show_demo_farewell(&mut self, cx: &mut Context<Self>) {
-        self.demo_ending.set(false);
         self.projection.update(cx, |view, cx| {
             let snapshot = view.snapshot().clone();
             let goodbye = demo::goodbye_from(&snapshot).map(|who| (who, demo::GOODBYE.to_string()));
@@ -800,7 +831,7 @@ impl WorldDocumentView {
                 body: demo::ENDING_BODY.into(),
                 kept: demo::ENDING_KEPT.into(),
                 postcard: demo::KEEP_POSTCARD.into(),
-                more: Some((demo::ENDING_FULL_APP.into(), about_the_full_app())),
+                more: Some((demo::ENDING_WISHLIST.into(), wishlist())),
                 stay: demo::ENDING_STAY.into(),
                 hour: demo::FAREWELL_HOUR,
             });
@@ -809,10 +840,11 @@ impl WorldDocumentView {
     }
 }
 
-/// What "About the full app" does from the demo's farewell.
+/// What "Add to your wishlist" does from the demo's farewell: opens the
+/// store page given at build time (see `demo::WISHLIST_URL`).
 #[cfg(gui)]
-fn about_the_full_app() -> world_gpui::FarewellAction {
-    std::rc::Rc::new(|_: &mut Window, cx: &mut gpui::App| cx.open_url(demo::FULL_APP_URL))
+fn wishlist() -> world_gpui::FarewellAction {
+    std::rc::Rc::new(|_: &mut Window, cx: &mut gpui::App| cx.open_url(demo::WISHLIST_URL))
 }
 
 #[cfg(gui)]
@@ -973,8 +1005,18 @@ impl Render for WorldDocumentView {
                 })),
         );
         let share = share_open.then(|| self.share_list(cx));
-        if self.demo_ending.get() {
-            self.show_demo_farewell(cx);
+        match self.demo_cue.take() {
+            Some(DemoTurn::Ending) => {
+                self.status = None;
+                self.show_demo_farewell(cx);
+            }
+            // The World lived days away: a page opened anew on it plays the
+            // return film, as a World opened after time away does.
+            Some(DemoTurn::Returned) => {
+                self.rebuild_projection(cx);
+                self.status = Some(DocumentStatus::success(ui::t(demo::AWAY_NOTE).to_string()));
+            }
+            None => {}
         }
 
         div()

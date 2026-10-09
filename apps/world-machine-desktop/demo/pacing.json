@@ -1,0 +1,65 @@
+{
+  "about": "The demo's pacing, read by src/demo.rs and walked by tests/demo_walk.rs. The demo is the opening of a new World, played turn by turn: on the morning of away.after_day, letting the day pass instead lets the World live away.days days without the player (its real background time, the same the full app lives through while the app is closed), and the next morning opens on the return film. Letting last_day pass shows the ending card at dusk. Beats name the pace they are measured at and when they must arrive, in seconds of play.",
+  "away": {
+    "after_day": 4,
+    "days": 3
+  },
+  "last_day": 8,
+  "paces": {
+    "intended": {
+      "about": "A newcomer who reads what is said, answers every card, makes what their hands can, does the favours asked, has a word with someone and looks about a little each day.",
+      "chars_per_second": 15.0,
+      "choose_seconds": 12.0,
+      "look_seconds": 45.0,
+      "talks": 1,
+      "makes": true,
+      "favours": true,
+      "waits_for_what_is_said": true,
+      "reads_the_news": true
+    },
+    "answer_first": {
+      "about": "A player who goes straight to the cards: skims what is said as it is shown rather than waiting for it, skips the morning's news, takes the first answer to each card and lets the day pass.",
+      "chars_per_second": 25.0,
+      "choose_seconds": 6.0,
+      "look_seconds": 5.0,
+      "talks": 0,
+      "makes": false,
+      "favours": false,
+      "waits_for_what_is_said": false,
+      "reads_the_news": false
+    }
+  },
+  "beats": [
+    {
+      "beat": "painted",
+      "pace": "intended",
+      "by_seconds": 10.0
+    },
+    {
+      "beat": "build",
+      "pace": "intended",
+      "by_seconds": 300.0
+    },
+    {
+      "beat": "day_passed",
+      "pace": "intended",
+      "by_seconds": 600.0
+    },
+    {
+      "beat": "favour",
+      "pace": "answer_first",
+      "by_seconds": 180.0
+    },
+    {
+      "beat": "return_film",
+      "pace": "intended",
+      "by_seconds": 1500.0
+    },
+    {
+      "beat": "ending",
+      "pace": "intended",
+      "from_seconds": 1200.0,
+      "by_seconds": 1800.0
+    }
+  ]
+}

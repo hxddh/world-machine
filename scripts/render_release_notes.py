@@ -31,7 +31,7 @@ def demo_section(demo: dict | None) -> str:
     return f"""
 ## The free demo
 
-`{download}` is **World Machine Demo**: the first hour of Tiny Society, signed the same way as the full app. When its last day comes, the harbour is kept in your Library, and the full app opens it and carries on from there. SHA-256 (zip): `{demo["sha256"]}`.
+`{download}` is **World Machine Demo**: 20 to 30 minutes of Tiny Society, signed the same way as the full app. When its last day comes, the harbour is kept in your Library, and the full app opens it and carries on from there. SHA-256 (zip): `{demo["sha256"]}`.
 """
 
 

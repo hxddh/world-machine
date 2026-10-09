@@ -17,7 +17,7 @@ Everything a store page, a journalist or a festival submission needs, in one pla
 | Other platforms | None yet. Windows needs a GPUI Windows target and testing. |
 | Release | Early release on GitHub since v0.2. Store date: *owner's decision* |
 | Price | *Owner's decision.* Comparable titles sell at $6.99–$19.99 (docs/REVIEW_v0.23.md). |
-| Demo | Free: the first hour of Tiny Society. When it ends, the World is kept for the full game. |
+| Demo | Free: 20 to 30 minutes of Tiny Society, from its first morning to an evening at dusk, with a few days the town lives on its own (the demo skips the wait). When it ends, the World is kept for the full game. |
 | Genre | A cozy life sim that keeps going while you are away: part idle game, part diorama, part story generator |
 | Languages | English, Simplified Chinese; Japanese with v0.26 |
 | Worlds included | Tiny Society (a harbour town) and Pocket Universe (a Mars colony, Maple Street in 1987, and Icebridge) |

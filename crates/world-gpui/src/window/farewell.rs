@@ -210,13 +210,17 @@ impl ProjectionView {
                         ),
                     ),
             );
+        // The paper hangs from the top, over the sky, so the people out by
+        // the water at dusk, and whoever says goodbye over their heads,
+        // stay in sight under it (at the foot it covered them).
         Some(
             div()
                 .absolute()
                 .left_0()
                 .right_0()
-                .bottom_0()
-                .p_6()
+                .top_0()
+                .px_6()
+                .pt_3()
                 .flex()
                 .justify_center()
                 .child(paper),

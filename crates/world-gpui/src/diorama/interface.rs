@@ -28,6 +28,12 @@ pub(super) fn look_key(frame: &Frame, key: &mut Key) {
         // The kind of place: two Worlds with the same colours but another
         // setting never share a picture.
         .add(frame.setting as u8);
+    if let Some(look) = &frame.look {
+        key.add((look.key, look.glow, look.spine, look.haze));
+        for lamp in &look.lamps {
+            key.float(*lamp);
+        }
+    }
 }
 
 /// Which World a picture is of: its kind of place and its colours. The
@@ -38,7 +44,13 @@ pub(super) fn world_tag(frame: &Frame) -> u64 {
     let mut key = Key::new("world");
     key.add((s.sky_top, s.sky_bottom, s.far, s.near, s.sun))
         .add(frame.setting as u8)
-        .add(frame.water);
+        .add(frame.water)
+        .add(
+            frame
+                .look
+                .as_ref()
+                .map(|look| (look.key, look.spine, look.haze)),
+        );
     key.finish()
 }
 
@@ -539,7 +551,7 @@ pub(super) fn plan(
     whole: &std::sync::Arc<Frame>,
 ) -> Vec<(Still, LayerPlan)> {
     let dpr = window.scale_factor().max(0.5);
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let id = window.window_handle().window_id().as_u64();
     if slot == 0 && !now {
         forget_closed(id);
@@ -1745,7 +1757,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     let mut frame = frame.clone();
     painter::begin_frame(false);
     fetch_pictures(&mut frame, window, true);
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let view = (width, height);
     // A folding place is painted a row at a time, back to front, each over
     // the haze laid on the one behind; otherwise all at once.
@@ -2017,7 +2029,7 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
                 part,
                 Some(span),
                 Box::new(move |window, frame, ox, oy, w, h| {
-                    let light = light_at(frame.hour, frame.weather);
+                    let light = frame.light();
                     paint_live(window, frame, ox, oy, w, h, light);
                     if haze {
                         paint_haze(window, frame, ox, oy, span, h);
@@ -2203,7 +2215,7 @@ fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
 /// lit for the hour; `share` of it (0 to 1) over the scene at
 /// (`x`, `y`), `w` by `h`.
 pub(super) fn paint_wash(window: &mut dyn Brush, frame: &Frame, (x, y, w, h): Rect, share: f32) {
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let lit = |colour: Hsla| {
         let rgba: gpui::Rgba = colour.into();
         Hsla::from(gpui::Rgba {

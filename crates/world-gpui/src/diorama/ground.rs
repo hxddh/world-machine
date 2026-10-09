@@ -975,7 +975,7 @@ pub(super) fn paint_back_row(
 ) {
     let drawings = back_row_drawings(frame.setting);
     let seed = seed_of_scenery(&frame.scenery);
-    let haze = art::hex(frame.scenery.sky_bottom);
+    let haze = frame.haze();
     let h = frame.building_h * 0.4 * 0.7;
     let spacing = frame.view_w * 0.21;
     let first = ((from - spacing) / spacing).floor() as i32;

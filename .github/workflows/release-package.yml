@@ -255,13 +255,16 @@ jobs:
           python3 scripts/validate_release_package.py "${args[@]}" target/release-package
 
       # The free demo (the `demo` feature, apps/world-machine-desktop/src/demo.rs):
-      # the first hour of Tiny Society. Built after the full package, from
-      # the same commit, with the same signing and notarization, and
-      # published beside it.
+      # 20 to 30 minutes of Tiny Society (demo/pacing.json). Built after the
+      # full package, from the same commit, with the same signing and
+      # notarization, and published beside it. Its ending card's wishlist
+      # link is the repository variable WORLD_MACHINE_WISHLIST_URL (the store
+      # page, once there is one), else the project's page.
       - name: Build and validate universal World Machine Demo.app
         env:
           WORLD_MACHINE_UNIVERSAL: "1"
           WORLD_MACHINE_DEMO: "1"
+          WORLD_MACHINE_WISHLIST_URL: ${{ vars.WORLD_MACHINE_WISHLIST_URL }}
         run: bash apps/world-machine-desktop/macos/build-app.sh
 
       - name: Package the demo

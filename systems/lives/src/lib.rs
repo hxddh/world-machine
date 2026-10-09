@@ -347,17 +347,34 @@ fn pick<T>(items: &[T], seed: u64) -> Option<&T> {
 }
 
 fn fill(template: &str, words: &[(&str, &str)]) -> String {
-    let mut out = template.to_string();
-    for (slot, word) in words {
-        // With no slot left, nothing more is filled in.
-        if !out.contains('{') {
-            break;
-        }
-        let marker = format!("{{{slot}}}");
-        if out.contains(&marker) {
-            out = out.replace(&marker, word);
+    // One pass along the template: each `{slot}` given a word is filled
+    // in, anything else is kept as it is written. (People's lines are
+    // filled for every activity every day, so no copy is made per slot.)
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close) => {
+                let slot = &after[..close];
+                match words.iter().find(|(name, _)| *name == slot) {
+                    Some((_, word)) => out.push_str(word),
+                    None => {
+                        out.push('{');
+                        out.push_str(slot);
+                        out.push('}');
+                    }
+                }
+                rest = &after[close + 1..];
+            }
+            None => {
+                out.push_str(&rest[open..]);
+                rest = "";
+            }
         }
     }
+    out.push_str(rest);
     out
 }
 
@@ -1539,7 +1556,6 @@ impl Action for Bonds {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let cast = (self.0)(state);
         let a = arg_entity(request, "a")?;
         let b = arg_entity(request, "b")?;
         let was = text(state, a, &bond_key(b)).unwrap_or("");
@@ -1547,6 +1563,9 @@ impl Action for Bonds {
         if was == now {
             return Err(ActionError::Invalid("nothing has changed".into()));
         }
+        // The cast only for a bond that does change: most are asked after
+        // and have not, and a Pack's cast is not free to work out.
+        let cast = (self.0)(state);
         // A friendship or a feud holds a while, and the place has one
         // change of heart at a time. Partners are told as they happen.
         let today = period(state, &cast) as i64;
@@ -3733,7 +3752,12 @@ impl Action for Greets {
         } else {
             &GREETINGS
         };
-        let said = pick(lines, mix(&[who.0, 7]))
+        // A Pack may give the place's own hello, in its own words.
+        let own = arg_text(request, "line")
+            .ok()
+            .filter(|line| !line.is_empty());
+        let said = own
+            .or_else(|| pick(lines, mix(&[who.0, 7])).copied())
             .map(|line| fill_owned(line, &words))
             .unwrap_or_default();
         let mut draft = EventDraft::new("greeted");
@@ -4072,6 +4096,18 @@ pub fn greet(
     actions: &ActionRegistry,
     cast: &Cast,
 ) -> Result<Option<EventId>, WorldError> {
+    greet_saying(world, actions, cast, "")
+}
+
+/// [`greet`], in the place's own words: `line` is what the one who comes
+/// over says (`{name}` and `{settlement}` filled in), or empty for one of
+/// the System's own hellos.
+pub fn greet_saying(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    line: &str,
+) -> Result<Option<EventId>, WorldError> {
     if happened(world, "greeted") {
         return Ok(None);
     }
@@ -4083,9 +4119,12 @@ pub fn greet(
     else {
         return Ok(None);
     };
-    let request = ActionRequest::new("lives_greets")
+    let mut request = ActionRequest::new("lives_greets")
         .actor(who)
         .arg("who", Value::Entity(who));
+    if !line.is_empty() {
+        request = request.arg("line", line);
+    }
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 

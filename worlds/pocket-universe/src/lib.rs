@@ -2,6 +2,8 @@
 
 mod almanac;
 mod almanac_page;
+#[cfg(test)]
+mod apart_tests;
 mod arrival;
 #[cfg(test)]
 mod art_tests;
@@ -182,14 +184,64 @@ impl PocketUniverse {
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        self.with_previews(projection::snapshot(&self.world))
+        self.shown(None)
     }
 
     pub fn projection_snapshot_since(
         &self,
         since_event_count: Option<usize>,
     ) -> ProjectionSnapshot {
-        self.with_previews(projection::snapshot_since(&self.world, since_event_count))
+        self.shown(since_event_count)
+    }
+
+    /// The place as the player is shown it (with what changed since the
+    /// `since`th event, if asked), kept with the World for as long as it
+    /// stands as it does: looking again at a place where nothing has
+    /// changed costs a copy, as it does of a Pack in a process of its own.
+    fn shown(&self, since: Option<usize>) -> ProjectionSnapshot {
+        let standing = self.world.standing();
+        let kept = self.world.derived::<Shown>(|kept| match kept {
+            Some(kept) if kept.standing == standing && kept.since == since => kept,
+            kept => {
+                if let Some(stale) = kept {
+                    let_go_later(stale);
+                }
+                Arc::new(Shown {
+                    standing,
+                    since,
+                    snapshot: self.show(since),
+                })
+            }
+        });
+        kept.snapshot.clone()
+    }
+
+    /// The place's snapshot, with what each choice would do worked out on
+    /// a thread of its own meanwhile: trying the choices on a copy reads
+    /// the World and changes nothing, so the snapshot is the same
+    /// whichever finishes first.
+    fn show(&self, since: Option<usize>) -> ProjectionSnapshot {
+        let world = &self.world;
+        if seed_id(world) == UNSEEDED {
+            return self.with_beginnings(projection::snapshot_since(world, since));
+        }
+        std::thread::scope(|scope| {
+            let trying = std::thread::Builder::new()
+                .name("pocket-universe-previews".into())
+                .spawn_scoped(scope, || {
+                    let commands = projection::commands_on_offer(world);
+                    previews(world, &commands, &projection::gauges(world))
+                });
+            let snapshot = projection::snapshot_since(world, since);
+            let previews = match trying {
+                Ok(trying) => trying
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+                // No thread to be had: worked out here instead.
+                Err(_) => previews(world, &snapshot.commands, &snapshot.gauges),
+            };
+            self.with_previews(snapshot, previews)
+        })
     }
 
     /// A copy of this World to try something on, with no narrator.
@@ -201,29 +253,46 @@ impl PocketUniverse {
         })
     }
 
-    /// Mark each choice with how it would move the gauges, by playing it on a
-    /// copy of this World and reading them again: the same rules, so the
-    /// same result.
-    fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
-        if seed_id(&self.world) != UNSEEDED {
-            let cast = life::cast(self.world.state());
-            world_projection::with_guests(&mut snapshot, &guests_staying(&self.world, &cast));
+    /// Mark each choice with how it would move the gauges (`previews`, by
+    /// command, worked out by playing each on a copy of this World and
+    /// reading them again: the same rules, so the same result).
+    fn with_previews(
+        &self,
+        mut snapshot: ProjectionSnapshot,
+        previews: Vec<(String, Option<Vec<world_projection::GaugeMove>>)>,
+    ) -> ProjectionSnapshot {
+        let cast = life::cast(self.world.state());
+        world_projection::with_guests(&mut snapshot, &guests_staying(&self.world, &cast));
+        if snapshot.gauges.is_empty() {
+            return snapshot;
         }
-        let before = snapshot.gauges.clone();
-        if before.is_empty() {
-            return self.with_beginnings(snapshot);
-        }
-        for command in &mut snapshot.commands {
-            // A deed of the player's own hands is not a choice to weigh.
-            if command.hand.is_some() {
-                continue;
-            }
-            let Some(mut copy) = self.sketch() else {
-                continue;
-            };
-            if copy.invoke_projection_command(&command.id).is_ok() {
-                command.moves =
-                    world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+        let choices = || {
+            snapshot
+                .commands
+                .iter()
+                .filter(|command| command.hand.is_none())
+        };
+        // Worked out for these very choices, or else again here.
+        let fresh;
+        let previews = if previews.len() == choices().count()
+            && previews
+                .iter()
+                .zip(choices())
+                .all(|((id, _), command)| *id == command.id)
+        {
+            &previews
+        } else {
+            fresh = crate::previews(&self.world, &snapshot.commands, &snapshot.gauges);
+            &fresh
+        };
+        for ((_, moves), command) in previews.iter().zip(
+            snapshot
+                .commands
+                .iter_mut()
+                .filter(|command| command.hand.is_none()),
+        ) {
+            if let Some(moves) = moves {
+                command.moves = moves.clone();
             }
         }
         snapshot
@@ -370,7 +439,9 @@ impl PocketUniverse {
             // let wait.
             let actions = &self.actions;
             self.world.following(chosen, |world| {
-                storylets::mark_now(world, actions, story::HANDS_SEEN, story::HANDS_SEEN_EVERY)
+                storylets::mark_now(world, actions, story::HANDS_SEEN, story::HANDS_SEEN_EVERY)?;
+                // Trust is earned over weeks: no answer takes it further.
+                story::hold_trust(world, actions)
             })?;
             return Ok(chosen);
         }
@@ -473,7 +544,7 @@ impl PocketUniverse {
             .following(event, |world| -> Result<(), Box<dyn Error>> {
                 story::tick(world, actions, false)?;
                 let cast = life::cast(world.state());
-                lives::greet(world, actions, &cast)?;
+                lives::greet_saying(world, actions, &cast, arrival::hello(world.state()))?;
                 story::first_question(world, actions)?;
                 Ok(())
             })?;
@@ -597,6 +668,117 @@ impl PocketUniverse {
     pub fn archive(&self) -> Result<WorldArchive, PersistenceError> {
         WorldArchive::capture(pocket_universe_pack_ref(), &self.world)
     }
+}
+
+/// A snapshot kept by [`PocketUniverse::shown`], with where the World
+/// stood.
+struct Shown {
+    standing: world_core::Standing,
+    since: Option<usize>,
+    snapshot: ProjectionSnapshot,
+}
+
+/// Lets go of a snapshot the World no longer stands as away from the turn:
+/// a three-year place's takes milliseconds to free, which a turn would
+/// otherwise wait for. It is freed once nothing else holds it.
+fn let_go_later(stale: Arc<Shown>) {
+    use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+    static LET_GO: OnceLock<Option<Mutex<Sender<Arc<Shown>>>>> = OnceLock::new();
+    let sender = LET_GO.get_or_init(|| {
+        let (sender, receiver) = channel::<Arc<Shown>>();
+        std::thread::Builder::new()
+            .name("pocket-universe-let-go".into())
+            .spawn(move || {
+                let mut held = Vec::new();
+                loop {
+                    // Asleep while it holds nothing; while it holds
+                    // something still in use, it looks again now and then.
+                    let next = if held.is_empty() {
+                        receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+                    } else {
+                        receiver.recv_timeout(Duration::from_millis(50))
+                    };
+                    match next {
+                        Ok(stale) => held.push(stale),
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                    held.retain(|stale| Arc::strong_count(stale) > 1);
+                }
+            })
+            .ok()
+            .map(|_| Mutex::new(sender))
+    });
+    if let Some(sender) = sender {
+        if let Ok(sender) = sender.lock() {
+            // With nowhere to send it, it is let go of here, as before.
+            let _ = sender.send(stale);
+        }
+    }
+}
+
+/// How each choice on offer (by its id) would move the place's gauges, if
+/// it can be made. The choices are tried in two halves at once, each on a
+/// copy of its own: trying reads the World and changes nothing.
+fn previews(
+    world: &World,
+    commands: &[world_projection::ProjectionCommand],
+    before: &[world_projection::Gauge],
+) -> Vec<(String, Option<Vec<world_projection::GaugeMove>>)> {
+    // A deed of the player's own hands is not a choice to weigh.
+    let choices = commands
+        .iter()
+        .filter(|command| command.hand.is_none())
+        .collect::<Vec<_>>();
+    if choices.len() < 4 {
+        return tried(world, &choices, before);
+    }
+    let (first, second) = choices.split_at(choices.len() / 2);
+    std::thread::scope(|scope| {
+        let trying = std::thread::Builder::new()
+            .name("pocket-universe-previews-2".into())
+            .spawn_scoped(scope, || tried(world, second, before));
+        let mut previews = tried(world, first, before);
+        match trying {
+            Ok(trying) => previews.extend(
+                trying
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            ),
+            Err(_) => previews.extend(tried(world, second, before)),
+        }
+        previews
+    })
+}
+
+/// Each of `choices` tried on one copy of the World and then taken back,
+/// since going back to a checkpoint leaves the copy exactly as it was.
+fn tried(
+    world: &World,
+    choices: &[&world_projection::ProjectionCommand],
+    before: &[world_projection::Gauge],
+) -> Vec<(String, Option<Vec<world_projection::GaugeMove>>)> {
+    let Ok(actions) = build_action_registry() else {
+        return Vec::new();
+    };
+    let mut copy = PocketUniverse {
+        world: world.sketch(world_projection::RECENT_EVENTS),
+        actions,
+        narrator: Box::new(narrator::NoNarrator),
+    };
+    let mut previews = Vec::new();
+    for command in choices {
+        let checkpoint = copy.world.checkpoint();
+        let moves = copy
+            .invoke_projection_command(&command.id)
+            .is_ok()
+            .then(|| world_projection::gauge_moves(before, &projection::gauges(&copy.world)));
+        previews.push((command.id.clone(), moves));
+        copy.world.rollback(checkpoint);
+    }
+    previews
 }
 
 struct PocketUniverseSession {

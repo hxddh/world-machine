@@ -1633,6 +1633,85 @@ pub(crate) fn turn_question_ids(place: crate::places::Place) -> &'static [&'stat
     }
 }
 
+/// The storylets that belong to one place only (v0.29): each place asks
+/// its own questions, and these, written once for any place, are asked
+/// only where they fit. Each place's own storylets (`data/places.json`)
+/// say so themselves.
+const OWN_PLACE: &[(&str, &str)] = &[
+    // Ares: seals and spares, the edge of the map, the old relay, letters
+    // home across the gap, the dust.
+    ("keeper_spare", "mars-colony"),
+    ("seal_fit", "mars-colony"),
+    ("seal_leaks", "mars-colony"),
+    ("explorer_trip", "mars-colony"),
+    ("edge_find", "mars-colony"),
+    ("restless", "mars-colony"),
+    ("signal", "mars-colony"),
+    ("signal_source", "mars-colony"),
+    ("letter_home", "mars-colony"),
+    ("reply_came", "mars-colony"),
+    ("letter_later", "mars-colony"),
+    ("failing", "mars-colony"),
+    ("keeper_sore", "mars-colony"),
+    ("weather", "mars-colony"),
+    ("after_weather", "mars-colony"),
+    ("supply", "mars-colony"),
+    // Maple Street: photographs, the travelling salesman, front yards,
+    // rows and making up.
+    ("photograph", "1980s-town"),
+    ("photo_frame", "1980s-town"),
+    ("trader", "1980s-town"),
+    ("trader_returns", "1980s-town"),
+    ("clean_up", "1980s-town"),
+    ("keeper_garden", "1980s-town"),
+    ("harvest_home", "1980s-town"),
+    ("window_box", "1980s-town"),
+    ("quarrel", "1980s-town"),
+    ("after_quarrel", "1980s-town"),
+    ("amends", "1980s-town"),
+    ("amends_again", "1980s-town"),
+    ("old_times", "1980s-town"),
+    // Icebridge: finding the way over the ice, a day off to swim, the
+    // lantern tower.
+    ("explorer_teach", "penguin-civilization"),
+    ("first_solo", "penguin-civilization"),
+    ("keeper_lost", "penguin-civilization"),
+    ("lost_tool", "penguin-civilization"),
+    ("keeper_rest", "penguin-civilization"),
+    ("rested_idea", "penguin-civilization"),
+    ("snapped", "penguin-civilization"),
+    ("beacon_work", "penguin-civilization"),
+];
+
+/// The storylets two places share and the third does not: a night under
+/// the stars and a scare out on the plain or the floe are Ares's and
+/// Icebridge's, never a street's; supper together is Ares's mess and Maple
+/// Street's diner, not the ice's.
+const NOT_IN: &[(&str, &str)] = &[
+    ("stargazing", "1980s-town"),
+    ("close_call", "1980s-town"),
+    ("close_call_after", "1980s-town"),
+    ("supper", "penguin-civilization"),
+    ("supper_again", "penguin-civilization"),
+    ("supper_later", "penguin-civilization"),
+];
+
+/// A storylet kept to the places it belongs to, if it does not belong to
+/// every place.
+fn in_its_place(mut spec: Spec) -> Spec {
+    if let Some((_, seed)) = OWN_PLACE.iter().find(|(id, _)| *id == spec.storylet.id) {
+        spec.storylet
+            .requires
+            .push(Condition::Is(UNIVERSE, SEED, seed));
+    }
+    if let Some((_, seed)) = NOT_IN.iter().find(|(id, _)| *id == spec.storylet.id) {
+        spec.storylet
+            .requires
+            .push(Condition::IsNot(UNIVERSE, SEED, seed));
+    }
+    spec
+}
+
 fn specs() -> &'static [Spec] {
     static SPECS: OnceLock<Vec<Spec>> = OnceLock::new();
     SPECS.get_or_init(|| {
@@ -1641,10 +1720,11 @@ fn specs() -> &'static [Spec] {
         specs.extend(calendar());
         specs.extend(more());
         specs.extend(threads());
+        specs.extend(places_own());
         specs.extend(climaxes());
         specs.extend(works());
         specs.extend(turn_questions());
-        specs
+        specs.into_iter().map(in_its_place).collect()
     })
 }
 
@@ -1713,7 +1793,74 @@ pub(crate) fn register_actions(
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
     actions.register(LendsToWork)?;
-    actions.register(BondSettles)
+    actions.register(BondSettles)?;
+    actions.register(TrustEarned)
+}
+
+/// The most trust a new player can have earned by now: 7 of 10 in their
+/// first week, a step more each week after, all of it from the fourth.
+/// Trust is earned over weeks, not in four answers. A place seeded before
+/// v0.24 (with no day of arrival) has no such ceiling.
+fn trust_earned_by(state: &world_core::WorldState) -> i64 {
+    match crate::arrival::arrived(state) {
+        Some(day) => {
+            let weeks = crate::arrival::today(state).saturating_sub(day) / 7;
+            (7 + weeks as i64).min(10)
+        }
+        None => 10,
+    }
+}
+
+/// Trust over what has been earned by now comes back to it.
+struct TrustEarned;
+
+impl world_core::Action for TrustEarned {
+    fn name(&self) -> &'static str {
+        "trust_earned"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let trust = match state
+            .entity(RELATIONSHIP)
+            .and_then(|bond| bond.component(RELATIONSHIP_TRUST))
+        {
+            Some(Value::Integer(trust)) => *trust,
+            _ => return Err(world_core::ActionError::Invalid("no trust yet".into())),
+        };
+        let earned = trust_earned_by(state);
+        if trust <= earned {
+            return Err(world_core::ActionError::Invalid(
+                "no more trust than earned".into(),
+            ));
+        }
+        let mut draft = world_core::EventDraft::new("trust_earned");
+        draft.changes.push(world_core::StateChange::SetComponent {
+            entity: RELATIONSHIP,
+            key: RELATIONSHIP_TRUST.into(),
+            value: earned.into(),
+        });
+        draft.targets = vec![RELATIONSHIP];
+        Ok(draft)
+    }
+}
+
+/// Brings trust back to what has been earned by now, if it went over.
+pub(crate) fn hold_trust(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Option<EventId>, WorldError> {
+    if integer(world, RELATIONSHIP, RELATIONSHIP_TRUST) <= trust_earned_by(world.state()) {
+        return Ok(None);
+    }
+    Ok(Some(
+        world
+            .execute(actions, &world_core::ActionRequest::new("trust_earned"))?
+            .id,
+    ))
 }
 
 /// When the player last lent a hand with the place's work under way, in
@@ -2358,6 +2505,8 @@ pub(crate) fn tick(
     events.extend(lives::remember_a_year(world, actions, &cast, YEAR)?);
     // Last of all, someone may ask the player a favour talk can do.
     events.extend(crate::speech::favour_asked(world, actions, away)?);
+    // Whatever the day brought, trust is no more than has been earned.
+    events.extend(hold_trust(world, actions)?);
     Ok(events)
 }
 
@@ -3435,6 +3584,23 @@ fn wants() -> Vec<Spec> {
     table(&TREE, include_str!("../data/wants.json"))
 }
 
+/// What only one place asks (v0.29): each storylet there names its place.
+fn places_own() -> Vec<Spec> {
+    static TREE: OnceLock<Node> = OnceLock::new();
+    table(&TREE, include_str!("../data/places.json"))
+        .into_iter()
+        // What befalls a place, as every incident does, waits until a new
+        // player's first days have passed.
+        .map(|spec| {
+            if spec.storylet.want || spec.storylet.timely {
+                spec
+            } else {
+                after_first_days(spec)
+            }
+        })
+        .collect()
+}
+
 /// What can befall a place at any time.
 fn incidents_at_any_time() -> Vec<Spec> {
     static TREE: OnceLock<Node> = OnceLock::new();
@@ -3447,7 +3613,10 @@ fn incidents_at_any_time() -> Vec<Spec> {
 fn threads() -> Vec<Spec> {
     use Condition::{Absent, Is, Marked, Unmarked};
     static TREE: OnceLock<Node> = OnceLock::new();
+    static OWN: OnceLock<Node> = OnceLock::new();
     let mut threads = table(&TREE, include_str!("../data/threads.json"));
+    // Each place's own threads, from what its own questions marked.
+    threads.extend(table(&OWN, include_str!("../data/places_threads.json")));
     let follow = |asker: EntityId, requires: Vec<Condition>| Shape {
         requires,
         ..following(asker)
@@ -3629,6 +3798,9 @@ fn story_shape(node: &Node) -> Shape {
         },
         Node::Call("want", args) => want(entity(&args[0]), eases(&args[1])),
         Node::Call("incident", args) => incident(entity(&args[0]), eases(&args[1])),
+        Node::Call("day", args) => {
+            day(entity(&args[0]), args[1].int() as u64, args[2].int() as u64)
+        }
         Node::Call(".requires", args) => story_shape(&args[0]).requires(conditions(&args[1])),
         other => panic!("a shape wanted, not {other:?}"),
     }
@@ -3666,6 +3838,10 @@ fn conditions(node: &Node) -> Vec<Condition> {
             Node::Call("Unmarked", args) => Condition::Unmarked(args[0].text()),
             Node::Call("Finished", args) => Condition::Finished(args[0].text()),
             Node::Call("Condition::Unfinished", args) => Condition::Unfinished(args[0].text()),
+            Node::Call("In", args) => Condition::Is(UNIVERSE, SEED, args[0].text()),
+            Node::Call("After", args) => {
+                Condition::Since(UNIVERSE, crate::arrival::ARRIVED, args[0].int() as u64)
+            }
             Node::Call("Condition::AtLeast", args) => {
                 Condition::AtLeast(entity(&args[0]), key(&args[1]), args[2].int())
             }
@@ -3722,6 +3898,16 @@ mod tables_as_data {
             (
                 "threads",
                 include_str!("../data/threads.json"),
+                super::threads(),
+            ),
+            (
+                "places",
+                include_str!("../data/places.json"),
+                super::places_own(),
+            ),
+            (
+                "places_threads",
+                include_str!("../data/places_threads.json"),
                 super::threads(),
             ),
         ] {

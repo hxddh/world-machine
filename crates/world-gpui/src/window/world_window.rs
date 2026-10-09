@@ -5560,7 +5560,8 @@ pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stam
 /// `test-support` feature at the pinned revision, so until it does, this is
 /// the operating system's own copy of the screen: `screencapture` on the
 /// Mac, .NET's `CopyFromScreen` through Windows PowerShell on Windows
-/// (DPI-unaware, so it takes the same points GPUI gives), nothing elsewhere.
+/// (DPI-unaware, so it takes the same points GPUI gives), ImageMagick's
+/// `import` or `grim` on Linux, nothing elsewhere.
 fn capture_region(region: &str, path: &std::path::Path) -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -5605,7 +5606,58 @@ fn capture_region(region: &str, path: &std::path::Path) -> bool {
         .status()
         .is_ok_and(|status| status.success())
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    // Linux (a preview build, `linux-window`): ImageMagick's `import` on
+    // X11, `grim` on Wayland, whichever is there; nothing otherwise.
+    #[cfg(target_os = "linux")]
+    {
+        let numbers = region
+            .split(',')
+            .filter_map(|part| part.parse::<f64>().ok())
+            .map(|value| value.round() as i64)
+            .collect::<Vec<_>>();
+        let [x, y, width, height] = numbers[..] else {
+            return false;
+        };
+        let ran = |program: &str, args: &[&std::ffi::OsStr]| {
+            std::process::Command::new(program)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        };
+        let crop = format!("{width}x{height}+{x}+{y}");
+        let geometry = format!("{x},{y} {width}x{height}");
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let x11 = || {
+            ran(
+                "import",
+                &[
+                    "-silent".as_ref(),
+                    "-window".as_ref(),
+                    "root".as_ref(),
+                    "-crop".as_ref(),
+                    crop.as_ref(),
+                    "+repage".as_ref(),
+                    path.as_os_str(),
+                ],
+            )
+        };
+        let grim = || {
+            ran(
+                "grim",
+                &["-g".as_ref(), geometry.as_ref(), path.as_os_str()],
+            )
+        };
+        let tries: [&dyn Fn() -> bool; 2] = if wayland {
+            [&grim, &x11]
+        } else {
+            [&x11, &grim]
+        };
+        tries.iter().any(|capture| capture())
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
     {
         let _ = (region, path);
         false

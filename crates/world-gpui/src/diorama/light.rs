@@ -110,6 +110,29 @@ pub fn light_at(hour: f32, weather: Weather) -> [f32; 3] {
     [0, 1, 2].map(|channel| sky[channel] * air[channel])
 }
 
+/// `light` turned toward a place's own key light `key` (`0xRRGGBB`): its
+/// warmth (dusk's gold most of all) traded for the key's colour at the
+/// same brightness, a little by day, most at dusk and dawn, some at night.
+pub fn keyed_light(light: [f32; 3], key: Option<u32>, hour: f32) -> [f32; 3] {
+    let Some(key) = key else {
+        return light;
+    };
+    let tint = [16, 8, 0].map(|shift| ((key >> shift) & 0xff) as f32 / 255.0);
+    let most = tint.iter().copied().fold(0.0_f32, f32::max).max(0.01);
+    let tint = tint.map(|channel| channel / most);
+    let weight = |daylight: Daylight| match daylight {
+        Daylight::Dawn => 0.6,
+        Daylight::Day => 0.3,
+        Daylight::Dusk => 0.8,
+        Daylight::Night => 0.45,
+    };
+    // `between` has already eased `t`: ease(t).
+    let (from, to, t) = between(hour);
+    let share = weight(from) + (weight(to) - weight(from)) * t;
+    let bright = (light[0] * 0.3 + light[1] * 0.5 + light[2] * 0.2).min(1.0);
+    [0, 1, 2].map(|channel| light[channel] * (1.0 - share) + tint[channel] * bright * share)
+}
+
 /// Where the light comes from at `hour`: across (-1 from the left, the
 /// morning's east, to 1 from the right) and how high the sun is (0 on the
 /// horizon to 1 overhead; below 0 it has set).
@@ -165,7 +188,7 @@ pub(super) fn paint_haze(
     span: (f32, f32),
     height: f32,
 ) {
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let (_, bottom) = sky_colours(frame);
     let rgba: gpui::Rgba = bottom.into();
     let haze = Hsla::from(gpui::Rgba {
@@ -778,7 +801,7 @@ pub(super) fn paint_spine_lamps(
         if on <= 0.0 {
             continue;
         }
-        let warm = art::hex(0xffd27a);
+        let warm = frame.glow();
         let flicker = 0.94 + 0.06 * (t * 7.0 + nth as f32 * 1.7).sin().abs();
         let head = base - h * 0.93;
         // Its pool of light on the ground, a halo round the lamp, and the
@@ -836,6 +859,11 @@ pub(super) fn paint_spine_lamps(
 /// quay.
 pub(super) fn spine_lamps(frame: &Frame) -> Vec<f32> {
     let stride = frame.figure_h * LAMP_STRIDE;
+    let declared = frame
+        .look
+        .as_ref()
+        .map(|look| look.lamps.as_slice())
+        .unwrap_or_default();
     let seed = seed_of_scenery(&frame.scenery);
     let start = frame.width * MARGIN * 0.5 + (seed % 100) as f32 / 100.0 * stride * 0.5;
     let quay = |y: f32| Depth::at(y, frame.height) == Depth::Quay;
@@ -856,16 +884,26 @@ pub(super) fn spine_lamps(frame: &Frame) -> Vec<f32> {
                 .iter()
                 .all(|building| (building.x - x).abs() > building.w * 0.55)
     };
-    let mut x = start;
-    while x < frame.width - frame.width * MARGIN * 0.5 {
-        let nudge = frame.figure_h * 0.5;
-        if let Some(at) = (0..=6)
+    let nudge = frame.figure_h * 0.5;
+    let place = |x: f32| {
+        (0..=6)
             .flat_map(|step| [step, -step])
             .map(|step| x + step as f32 * nudge)
             .find(|at| clear(*at))
-        {
-            lamps.push(at);
-        }
+    };
+    // Where the place's Pack says its lamps stand, each nudged clear of
+    // what stands there; otherwise one a stride apart all along.
+    if !declared.is_empty() {
+        return declared
+            .iter()
+            .map(|at| at * frame.view_w)
+            .filter(|x| (0.0..=frame.width).contains(x))
+            .filter_map(place)
+            .collect();
+    }
+    let mut x = start;
+    while x < frame.width - frame.width * MARGIN * 0.5 {
+        lamps.extend(place(x));
         x += stride;
     }
     lamps

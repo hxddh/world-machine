@@ -1577,7 +1577,7 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
     let tall = band.above + band.below;
     let seed = seed_of_scenery(&frame.scenery);
     let far = art::hex(frame.scenery.far);
-    let haze = art::hex(frame.scenery.sky_bottom);
+    let haze = frame.haze();
     let low = matches!(frame.daylight, Daylight::Dawn | Daylight::Dusk) && sun_out(frame.weather);
     let (cover_ink, cover_share) = match frame.cover {
         Some(GroundCover::Snow) => (art::hex(0xf2f5f8), [0.7, 0.6, 0.45]),
@@ -1670,7 +1670,7 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
         let (x, base) = band.mark_at(frame, goal.along);
         paint_goal(canvas, x, base, goal, silhouette, sun, frame.setting);
     }
-    painter::grain_lit(canvas, at, 0.04, 0.035, light_at(frame.hour, frame.weather));
+    painter::grain_lit(canvas, at, 0.04, 0.035, frame.light());
 }
 
 /// A goal on the ridge: finished, it stands as solid as anything else the
@@ -1844,7 +1844,7 @@ pub(super) fn paint_land_tile(
     let mut canvas = Canvas::new(TILE + 2 * LAND_PAD, TILE + 2 * LAND_PAD, scale, origin)?;
     let view = (origin.0, origin.0 + tile + pad * 2.0);
     painter::timed("tile: land", || paint_land(&mut canvas, frame, view));
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     painter::timed("tile: paper", || {
         painter::grain_lit(
             &mut canvas,
@@ -1881,7 +1881,9 @@ pub(super) fn paint_quay(
 ) {
     let k = (frame.height / 848.0).clamp(0.3, 1.3);
     let top = frame.quay_top();
-    let stone = crate::setting::quay_inks(frame.setting, ground).0;
+    let stone = frame
+        .spine()
+        .unwrap_or(crate::setting::quay_inks(frame.setting, ground).0);
     let step = 24.0;
     let mut deck = Shape::new();
     deck.move_to(from, top);
@@ -2029,7 +2031,7 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
         shape
     };
     // The field, lighter toward the hills with the air between.
-    let haze = art::hex(frame.scenery.sky_bottom);
+    let haze = frame.haze();
     let field = edge(&|x| field_top(frame, x));
     let field_y = frame.horizon + (frame.base - frame.horizon) * 0.3;
     canvas.fill(&field, ground);
@@ -2211,6 +2213,7 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
         near,
         cover: frame.cover,
         water: frame.water,
+        spine: frame.spine(),
     };
     crate::setting::paint_ground_props(canvas, &dressing);
     crate::setting::paint_sea_ice(canvas, &dressing);

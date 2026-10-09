@@ -298,9 +298,20 @@ pub(crate) const STAGES: hands::PlotStages = hands::PlotStages {
 /// Which stretch of the place a plot lies on, from where it lies.
 fn stretch_of(state: &WorldState, plot: &hands::Plot) -> usize {
     match (Place::of(state), slot_of(&plot.id)) {
-        (Some(place), Some(slot)) => crate::town::stretch_at(place, plot_px(slot)),
+        (Some(place), Some(slot)) => crate::town::stretch_at(place, plot_px_in(place, slot)),
         _ => 0,
     }
+}
+
+/// Where a plot slot lies in a place: each place's plots a step along from
+/// another's, so no two places stake out the same ground (v0.29).
+fn plot_px_in(place: Place, slot: usize) -> f32 {
+    let along = match place {
+        Place::Ares => 0.0,
+        Place::Maple => 0.05,
+        Place::Ice => -0.05,
+    };
+    plot_px(slot) + along
 }
 
 /// The place's plots, and what could be built on each: everything that
@@ -331,14 +342,18 @@ pub(crate) fn naming(state: &WorldState, id: EntityId) -> Option<String> {
     if id == SLOT_D && matches!(entity.kind.as_str(), "rover" | "bus") {
         return Some(entity.kind.clone());
     }
-    let cast = crate::life::cast(state);
-    if lives::born_here(state, &cast).contains(&id) {
-        let (stage, _, _) = lives::looks_of(state, &cast, id)?;
-        let penguin = entity.kind == "penguin";
-        return (stage == lives::Stage::Baby)
-            .then(|| if penguin { "chick" } else { "baby" }.into());
-    }
-    let thing = hands::plots::made_thing(state, id)?;
+    // Something made is never someone born here, so it is asked first:
+    // the cast is not free to work out.
+    let Some(thing) = hands::plots::made_thing(state, id) else {
+        let cast = crate::life::cast(state);
+        if lives::born_here(state, &cast).contains(&id) {
+            let (stage, _, _) = lives::looks_of(state, &cast, id)?;
+            let penguin = entity.kind == "penguin";
+            return (stage == lives::Stage::Baby)
+                .then(|| if penguin { "chick" } else { "baby" }.into());
+        }
+        return None;
+    };
     match spec(state, thing) {
         Some(work) => Some(work.thing.name.to_lowercase()),
         None => crate::handwork::thing_name(state, thing).map(str::to_lowercase),
@@ -437,6 +452,9 @@ impl PlotPack for Here {
             Some(place) => (0..hands::plots::plot_slots(crate::town::width(place))).collect(),
             None => Vec::new(),
         }
+    }
+    fn plot_px(&self, state: &WorldState, slot: usize) -> f32 {
+        plot_px_in(place(state), slot)
     }
     fn width(&self, state: &WorldState) -> f32 {
         crate::town::width(place(state))

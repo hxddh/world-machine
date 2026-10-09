@@ -48,6 +48,30 @@ The harbour is a diorama of cut paper and gouache, lit by your Mac's own clock: 
 
 ---
 
+## What the clock does, and who drew it (v0.29)
+
+Two lines for the long description, after its opening, in each language. They were checked against the code at v0.29: while the window is open a day passes only when the player lets it; while it is closed a World lives a day for every six hours, catching up at most a week of absence (28 days) when it is next opened; the light follows the computer's clock. **The Chinese and Japanese were written by a model and need a native reader before the page is public.**
+
+**English**
+
+- **The town keeps its own time.** While you play, a day passes when you choose "Let the day pass". Close the window and it keeps living by the real clock: a day for every six hours you are away, up to 28 days, told back as a short film when you return. The light follows your own clock, so an evening visit finds it at dusk.
+- **Every drawing is made by the game's own code.** No image files and no AI-generated art: the town, its people, its sky and its key art are drawn by World Machine itself.
+- **The demo** is 20 to 30 minutes, ends at dusk, and skips one wait so you can see a return: the town lives a few days on its own (its own real days, not a recording), then shows you what happened. Your town carries over to the full game.
+
+**简体中文**（需母语者审读）
+
+- **小镇有自己的时间。** 你在玩的时候，选「让这一天过去」，一天才会过去。关上窗口后，它按真实的时钟继续生活：你每离开六小时就过去一天，最多 28 天；等你回来，会用一段短片讲给你听。光线跟着你自己的时钟走，傍晚来看，它正是黄昏。
+- **每一幅画都由游戏自己的代码画成。** 没有图片素材，也没有 AI 生成的美术：小镇、镇上的人、天空和宣传图，全都由 World Machine 自己画出来。
+- **试玩版** 约 20 到 30 分钟，在黄昏结束，并省去了一次等待，好让你看到「回来」：小镇自己过上几天（是它真实过的日子，不是录像），再告诉你发生了什么。你的小镇可以带进完整版接着玩。
+
+**日本語**（ネイティブの確認が必要）
+
+- **町には町の時間があります。** 遊んでいるあいだは、「一日を過ごす」を選んだときに一日が過ぎます。ウィンドウを閉じると、町は本物の時計に合わせて暮らし続けます。留守にした 6 時間ごとに一日、最大 28 日まで進み、戻ってきたときに短い映像で伝えます。光はあなたの時計に合わせて移ろうので、夕方に訪れると町も夕暮れです。
+- **絵はすべて、ゲーム自身のコードが描いています。** 画像素材も AI 生成のアートもありません。町も住人も空もキーアートも、World Machine 自身が描いたものです。
+- **体験版** は 20〜30 分。夕暮れで終わり、戻ってくる体験ができるよう、待ち時間を一度だけ省きます。町が自分で数日を過ごし（録画ではなく、町が本当に過ごした日々です）、そのあいだの出来事を見せてくれます。町は製品版にそのまま引き継げます。
+
+---
+
 ## Where each claim comes from
 
 | Claim | Where it is held |
@@ -59,5 +83,8 @@ The harbour is a diorama of cut paper and gouache, lit by your Mac's own clock: 
 | Eight neighbours | Tiny Society's core residents (KNOWN_ISSUES: "Tiny Society's eight") |
 | Goes on living while you are away | a day for every six hours, up to a week (KNOWN_ISSUES, "Background time is bounded") |
 | Shows you what happened | the return film |
+| A day passes when you let it; 28 days at most away | the `PassesTime` command role; `DEFAULT_MAX_PERIODS` in `apps/world-machine-desktop/src/observer.rs` |
+| Every drawing is the game's own code | `world-gpui` (scene), its `key_art` example, `scripts/render_app_icon.py` (icon); no image files in the source but test goldens |
+| A 20–30 minute demo that ends at dusk and carries over | `apps/world-machine-desktop/demo/pacing.json`, `tests/demo_walk.rs`; `demo::FAREWELL_HOUR` |
 
 **Character counts** are counted as Steam counts them (characters, not bytes), and each short description is under 300. The Chinese and Japanese were written by a model and have not been read by a native speaker; have each read before the page is public.

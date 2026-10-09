@@ -59,6 +59,9 @@ use world_projection::{
 #[derive(Clone, Debug)]
 pub struct Frame {
     scenery: Scenery,
+    /// How the place looks beyond its scenery, as its Pack declares it:
+    /// its spine's lamps, the tint of its light, its spine and its air.
+    look: Option<world_projection::PlaceLook>,
     daylight: Daylight,
     /// The hour the light is graded for, 0 to 24.
     hour: f32,
@@ -121,6 +124,44 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// The light this frame is graded in: the hour's and the weather's,
+    /// turned toward the place's own key light where its Pack gives one
+    /// (a cold blue over the ice rather than a gold dusk).
+    pub(crate) fn light(&self) -> [f32; 3] {
+        keyed_light(
+            light_at(self.hour, self.weather),
+            self.look.as_ref().and_then(|look| look.key),
+            self.hour,
+        )
+    }
+
+    /// The air over the place's field toward its hills: its Pack's own, or
+    /// the sky's lowest colour.
+    pub(crate) fn haze(&self) -> Hsla {
+        art::hex(
+            self.look
+                .as_ref()
+                .and_then(|look| look.haze)
+                .unwrap_or(self.scenery.sky_bottom),
+        )
+    }
+
+    /// The colour of the spine people walk along, if the Pack gives one.
+    pub(crate) fn spine(&self) -> Option<Hsla> {
+        self.look.as_ref().and_then(|look| look.spine).map(art::hex)
+    }
+
+    /// What the place's lamps and lit windows glow: its Pack's own colour,
+    /// or lamplight.
+    pub(crate) fn glow(&self) -> Hsla {
+        art::hex(
+            self.look
+                .as_ref()
+                .and_then(|look| look.glow)
+                .unwrap_or(0xffd27a),
+        )
+    }
+
     /// The same frame graded for `hour` whatever the clock says, so a
     /// picture (a test's, the key art) never depends on when it is drawn.
     pub fn at_hour(mut self, hour: f32) -> Self {
@@ -663,6 +704,7 @@ pub fn frame(
     };
     Frame {
         scenery,
+        look: snapshot.canvas.look.clone(),
         daylight,
         hour,
         seconds,

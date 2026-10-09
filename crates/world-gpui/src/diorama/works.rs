@@ -193,7 +193,7 @@ pub(super) fn paint_rising(
     let band = Band::of(frame, width, height);
     let (band_x, band_y) = band.screen(frame);
     let squash = Band::squash(frame);
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     for mark in frame.marks.iter().filter(|mark| mark.grow < 1.0) {
         let (x, base) = band.mark_at(frame, mark.along);
         let h = frame.building_h * 0.34 * squash;
@@ -489,6 +489,16 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     } else {
         None
     };
+    // A place whose windows glow a colour of its own (teal and signal
+    // white under a dome) has its lamplight turned to it.
+    let glow: gpui::Rgba = frame.glow().into();
+    let glow = [glow.r, glow.g, glow.b];
+    if let (Some(mask), true) = (
+        &glass,
+        frame.look.as_ref().is_some_and(|look| look.glow.is_some()),
+    ) {
+        recolour(&mut canvas.pixmap, mask, glow);
+    }
     // Snow, frost or dust along every top edge.
     let thick = (h * 0.03 * scale).max(2.0);
     match frame.cover {
@@ -532,7 +542,7 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
             [0.16, 0.19, 0.29],
             (foot, base),
             0.2,
-            light_at(frame.hour, frame.weather),
+            frame.light(),
             glass.as_deref(),
         )
     });
@@ -566,7 +576,11 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
                 &mut canvas.pixmap,
                 glass,
                 (w * 0.07 * scale / 2.0).max(2.0) as usize,
-                [1.0, 0.8, 0.46],
+                if frame.look.as_ref().is_some_and(|look| look.glow.is_some()) {
+                    glow
+                } else {
+                    [1.0, 0.8, 0.46]
+                },
                 0.62,
             )
         });
@@ -575,6 +589,32 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     Sprite {
         pixmap: canvas.pixmap,
         origin,
+    }
+}
+
+/// Turns the pixels `mask` picks (by how much it picks them) to `rgb`,
+/// keeping their coverage.
+fn recolour(pixmap: &mut sk::Pixmap, mask: &[f32], rgb: [f32; 3]) {
+    for (pixel, share) in pixmap.pixels_mut().iter_mut().zip(mask) {
+        if *share <= 0.0 {
+            continue;
+        }
+        let alpha = pixel.alpha();
+        let a = alpha as f32 / 255.0;
+        let share = share.clamp(0.0, 1.0);
+        let turn = |old: u8, to: f32| {
+            (old as f32 * (1.0 - share) + to * 255.0 * a * share)
+                .round()
+                .clamp(0.0, alpha as f32) as u8
+        };
+        if let Some(turned) = sk::PremultipliedColorU8::from_rgba(
+            turn(pixel.red(), rgb[0]),
+            turn(pixel.green(), rgb[1]),
+            turn(pixel.blue(), rgb[2]),
+            alpha,
+        ) {
+            *pixel = turned;
+        }
     }
 }
 
@@ -739,7 +779,11 @@ pub(super) fn fetch_pictures(frame: &mut Frame, window: &mut Window, now: bool) 
     // A quarter hour at a time, so the light on a cloth moves on in steps.
     let hour = (frame.hour * 4.0).round() / 4.0;
     let grade = grade_at(hour);
-    let light = mark::rounded_light(light_at(hour, frame.weather));
+    let light = mark::rounded_light(keyed_light(
+        light_at(hour, frame.weather),
+        frame.look.as_ref().and_then(|look| look.key),
+        hour,
+    ));
     let mirror = wind(frame) < 0.0;
     let view = frame.view_w;
     // By day a design is shown a little toward the place's own colours, so

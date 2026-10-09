@@ -18,3 +18,4 @@ world-projection = { path = "../world-projection" }
 
 [dev-dependencies]
 world-builtins = { path = "../world-builtins" }
+pocket-universe = { path = "../../worlds/pocket-universe" }

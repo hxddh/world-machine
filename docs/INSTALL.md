@@ -18,7 +18,7 @@ On macOS 14 you can instead Control-click the app and choose **Open**. The `Read
 
 ## The free demo
 
-**World Machine Demo** is the first hour of Tiny Society, published beside each release as `World-Machine-Demo-….dmg` and installed the same way. When its last day comes, it says so and keeps your harbour. It lives in the same place as the full app's Worlds, so installing World Machine later opens that harbour and carries on from there. The two apps can be installed side by side.
+**World Machine Demo** is 20 to 30 minutes of Tiny Society, published beside each release as `World-Machine-Demo-….dmg` and installed the same way. When its last day comes, it says so and keeps your harbour. It lives in the same place as the full app's Worlds, so installing World Machine later opens that harbour and carries on from there. The two apps can be installed side by side.
 
 ## Updating
 

@@ -125,6 +125,12 @@ pub trait PlotPack {
     fn works(&self, state: &WorldState) -> &'static [PlotWork];
     /// The plot slots, by index along the row.
     fn slots(&self, state: &WorldState) -> Vec<usize>;
+    /// Where a plot slot lies along the place: [`plot_px`], unless the
+    /// Pack lays its plots out a step along from where another place
+    /// would.
+    fn plot_px(&self, _state: &WorldState, slot: usize) -> f32 {
+        plot_px(slot)
+    }
     /// How wide the place is, in screens.
     fn width(&self, state: &WorldState) -> f32;
     /// Which stretch a point lies on.
@@ -180,7 +186,7 @@ pub fn plots(pack: &impl PlotPack, state: &WorldState) -> Vec<crate::Plot> {
     pack.slots(state)
         .into_iter()
         .map(|slot| {
-            let px = plot_px(slot);
+            let px = pack.plot_px(state, slot);
             let stretch = pack.stretch_at(state, px);
             crate::Plot {
                 id: plot_id(slot),
@@ -198,10 +204,13 @@ pub fn plots(pack: &impl PlotPack, state: &WorldState) -> Vec<crate::Plot> {
 
 /// What something the player made is, as the `hands` System keeps it.
 pub fn made_thing(state: &WorldState, id: EntityId) -> Option<&str> {
-    if !crate::made(state).contains(&id) {
+    let entity = state.entity(id)?;
+    if entity.kind != crate::FIXTURE
+        || !matches!(entity.component(crate::MADE), Some(Value::Bool(true)))
+    {
         return None;
     }
-    match state.entity(id)?.component("hands.thing")? {
+    match entity.component("hands.thing")? {
         Value::Text(thing) => Some(thing.as_str()),
         _ => None,
     }
@@ -219,7 +228,7 @@ pub fn canvas_plots(pack: &impl PlotPack, world: &World) -> Vec<world_projection
         .into_iter()
         .filter_map(|(plot, mut deeds)| {
             let slot = slot_of(&plot.id)?;
-            let px = plot_px(slot);
+            let px = pack.plot_px(state, slot);
             let turn = if deeds.is_empty() {
                 0
             } else {
@@ -303,7 +312,7 @@ pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
         let Some(slot) = crate::plot_of(state, id).and_then(slot_of) else {
             continue;
         };
-        let px = plot_px(slot);
+        let px = pack.plot_px(state, slot);
         item.px = Some(px);
         item.x = px / width;
         let thing = match state.entity(id).and_then(|e| e.component("hands.thing")) {
@@ -412,15 +421,30 @@ pub fn naming_cards(
 
 /// Whether something the player built (or began) waits to draw someone.
 pub fn waiting(pack: &impl PlotPack, state: &WorldState) -> bool {
-    crate::on_plots(state).into_iter().any(|(_, id)| {
-        let draws = match state.entity(id).and_then(|e| e.component("hands.thing")) {
-            Some(Value::Text(what)) => {
-                spec(pack, state, what).is_some_and(|work| work.draws.is_some())
-            }
-            _ => false,
-        };
-        draws && lives::drew(state, id).is_none()
-    })
+    let drawing = crate::on_plots(state)
+        .into_iter()
+        .filter(
+            |(_, id)| match state.entity(*id).and_then(|e| e.component("hands.thing")) {
+                Some(Value::Text(what)) => {
+                    spec(pack, state, what).is_some_and(|work| work.draws.is_some())
+                }
+                _ => false,
+            },
+        )
+        .map(|(_, id)| id)
+        .collect::<Vec<_>>();
+    if drawing.is_empty() {
+        return false;
+    }
+    // Whoever came because of a work, read in one pass over the place.
+    let drawn = state
+        .entities()
+        .filter_map(|entity| match entity.component(lives::DRAWN_BY) {
+            Some(Value::Entity(work)) => Some(*work),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    drawing.iter().any(|id| !drawn.contains(id))
 }
 
 /// One period of what the player built drawing people to the place.

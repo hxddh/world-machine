@@ -1108,6 +1108,7 @@ pub(super) fn paint_live(
         lit,
         seed_of_scenery(&frame.scenery),
         (ox, ox + width),
+        (&street_lamps(frame), street_glow(frame)),
     );
     // People: a soft shadow where they stand, a longer one away from a
     // sun that is out, and themselves.
@@ -1307,5 +1308,22 @@ pub(super) fn paint_garlands(
                 art::hex(inks[n % inks.len()]),
             );
         }
+    }
+}
+
+/// Where a street's lamps stand, in stage pixels, when its Pack says.
+fn street_lamps(frame: &Frame) -> Vec<f32> {
+    frame
+        .look
+        .as_ref()
+        .map(|look| look.lamps.iter().map(|at| at * frame.view_w).collect())
+        .unwrap_or_default()
+}
+
+/// What a street's lamps glow: the Pack's own colour, or sodium orange.
+fn street_glow(frame: &Frame) -> Hsla {
+    match frame.look.as_ref().and_then(|look| look.glow) {
+        Some(glow) => art::hex(glow),
+        None => art::hex(0xffc96b),
     }
 }
