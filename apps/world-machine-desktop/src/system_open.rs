@@ -46,10 +46,19 @@ mod tests {
 
     #[test]
     fn converts_percent_encoded_file_urls() {
-        assert_eq!(
-            path_from_open_url("file:///tmp/Shared%20World.world").unwrap(),
-            PathBuf::from("/tmp/Shared World.world")
-        );
+        // A file URL names a drive on Windows.
+        let (url, path) = if cfg!(windows) {
+            (
+                "file:///C:/tmp/Shared%20World.world",
+                r"C:\tmp\Shared World.world",
+            )
+        } else {
+            (
+                "file:///tmp/Shared%20World.world",
+                "/tmp/Shared World.world",
+            )
+        };
+        assert_eq!(path_from_open_url(url).unwrap(), PathBuf::from(path));
     }
 
     #[test]

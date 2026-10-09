@@ -3965,9 +3965,20 @@ mod file_type_tests {
         // What Finder hands the app goes down the Open menu's own paths.
         assert!(sharing::is_world_code_file(Path::new("/tmp/a.worldcode")));
         assert!(is_world_file(Path::new("/tmp/a.world")));
+        let (url, path) = if cfg!(windows) {
+            (
+                "file:///C:/tmp/Leo%27s%20harbour.worldcode",
+                r"C:\tmp\Leo's harbour.worldcode",
+            )
+        } else {
+            (
+                "file:///tmp/Leo%27s%20harbour.worldcode",
+                "/tmp/Leo's harbour.worldcode",
+            )
+        };
         assert_eq!(
-            system_open::path_from_open_url("file:///tmp/Leo%27s%20harbour.worldcode").unwrap(),
-            PathBuf::from("/tmp/Leo's harbour.worldcode")
+            system_open::path_from_open_url(url).unwrap(),
+            PathBuf::from(path)
         );
     }
 
