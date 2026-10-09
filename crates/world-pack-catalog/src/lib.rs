@@ -56,7 +56,7 @@ pub enum PackRefresh {
     /// The installed copy is the bundle's (or was not installed from one).
     Unchanged,
     /// The installed copy was replaced with the bundle's.
-    Replaced(InstalledPack),
+    Replaced(Box<InstalledPack>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -765,7 +765,7 @@ impl PackCatalog {
             Ok(refreshed) => {
                 let _ = fs::remove_dir_all(&replaced);
                 sync_directory(&store);
-                Ok(PackRefresh::Replaced(refreshed))
+                Ok(PackRefresh::Replaced(Box::new(refreshed)))
             }
             Err(error) => {
                 // Put the copy the catalog still names back where it was.
@@ -1596,12 +1596,12 @@ mod tests {
         );
         let managed = ProcessPack::load(&after.manifest_path).unwrap();
         assert_eq!(managed.protocol_version, PACK_PROTOCOL_VERSION);
-        assert_eq!(catalog.entries(), std::slice::from_ref(&after));
+        assert_eq!(catalog.entries(), std::slice::from_ref(&*after));
 
         // It holds on reopening, launches under the new pins, and leaves no
         // staging or set-aside copies behind.
         let reopened = PackCatalog::open(root.join("catalog.json")).unwrap();
-        assert_eq!(reopened.entries(), std::slice::from_ref(&after));
+        assert_eq!(reopened.entries(), std::slice::from_ref(&*after));
         assert!(reopened.trusted_source().is_ok());
         let leftovers = fs::read_dir(managed_store_root(reopened.path()))
             .unwrap()
@@ -1658,7 +1658,7 @@ mod tests {
         let PackRefresh::Replaced(repaired) = catalog.refresh_bundle(&bundle_path).unwrap() else {
             panic!("the tampered copy is replaced");
         };
-        assert_eq!(repaired, installed, "the same identity and digests");
+        assert_eq!(*repaired, installed, "the same identity and digests");
         assert!(catalog.trusted_source().is_ok());
         let _ = fs::remove_dir_all(root);
     }
