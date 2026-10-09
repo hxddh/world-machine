@@ -6637,22 +6637,24 @@ mod tests {
         });
         cx.run_until_parked();
         let next = cx.debug_bounds("retelling-next").expect("Next");
+        let clicked = Instant::now();
         cx.simulate_click(next.center(), Modifiers::none());
         cx.run_until_parked();
         view.read_with(cx, |view, _| {
             assert_eq!(view.retelling, Some(1), "the next beat");
-            assert!(since(view.looking.beat_at) < 1.0, "told from its start");
+            assert!(view.looking.beat_at >= Some(clicked), "told from its start");
         });
         // The Right arrow, four seconds into that one.
         view.update(cx, |view, cx| {
             view.looking.beat_at = late();
             cx.notify();
         });
+        let pressed = Instant::now();
         cx.simulate_keystrokes("right");
         cx.run_until_parked();
         view.read_with(cx, |view, _| {
             assert_eq!(view.retelling, Some(2), "the last beat");
-            assert!(since(view.looking.beat_at) < 1.0, "told from its start");
+            assert!(view.looking.beat_at >= Some(pressed), "told from its start");
         });
     }
 
