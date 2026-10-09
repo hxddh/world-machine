@@ -49,6 +49,30 @@ const HISTORY_REQUEST_TIMEOUT_FACTOR: u32 = 12;
 const RESPONSE_QUEUE_CAPACITY: usize = 1;
 static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
 
+/// What tells this run's launch images and scratch folders from those of
+/// an earlier run that had the same process id: when this run first made
+/// one, in nanoseconds since 1970, in hex. A crashed run's image is left
+/// in the temporary folder; a later run given its process id once made the
+/// same name, and could not open a World ("File exists").
+fn run_stamp() -> &'static str {
+    static STAMP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    STAMP.get_or_init(|| {
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        format!("{:x}", since.as_nanos())
+    })
+}
+
+/// The start of every launch image's name this run makes.
+fn own_launch_prefix() -> String {
+    format!(
+        "world-machine-pack-launch-{}-{}-",
+        process::id(),
+        run_stamp()
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPackProbe {
     pub pack: WorldPackRef,
@@ -466,29 +490,9 @@ fn write_launch_image(
     bytes: &[u8],
     permissions: fs::Permissions,
 ) -> Result<PathBuf, HostError> {
-    let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
-    if nonce == 0 {
-        sweep_stale_launch_images(&env::temp_dir());
-    }
-    let extension = source
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| format!(".{extension}"))
-        .unwrap_or_default();
-    let path = env::temp_dir().join(format!(
-        "world-machine-pack-launch-{}-{nonce}{extension}",
-        process::id()
-    ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&path)
-        .map_err(|error| {
-            HostError::session(format!(
-                "could not create approved Pack launch image {}: {error}",
-                path.display()
-            ))
-        })?;
+    static SWEPT: std::sync::Once = std::sync::Once::new();
+    SWEPT.call_once(|| sweep_stale_launch_images(&env::temp_dir()));
+    let (path, mut file) = create_launch_image(&env::temp_dir(), source)?;
     // Not synced to disk: the image is run from here at once and never
     // needed again, and syncing costs every launch (on a Mac, a full flush
     // of the disk's cache).
@@ -510,17 +514,50 @@ fn write_launch_image(
     Ok(path)
 }
 
+/// A new launch image in `temp_dir`, named for this run (see
+/// [`run_stamp`]), opened for writing. A name that is somehow taken
+/// already is never written over, nor a reason to fail: the next is tried.
+fn create_launch_image(temp_dir: &Path, source: &Path) -> Result<(PathBuf, File), HostError> {
+    let extension = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{extension}"))
+        .unwrap_or_default();
+    let prefix = own_launch_prefix();
+    let mut tries = 0;
+    loop {
+        let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
+        let path = temp_dir.join(format!("{prefix}{nonce}{extension}"));
+        match OpenOptions::new().create_new(true).write(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                tries += 1;
+            }
+            Err(error) => {
+                return Err(HostError::session(format!(
+                    "could not create approved Pack launch image {}: {error}",
+                    path.display()
+                )))
+            }
+        }
+    }
+}
+
 /// How old an earlier run's launch image must be before it is swept.
 const STALE_LAUNCH_IMAGE: std::time::Duration = std::time::Duration::from_secs(12 * 60 * 60);
 
 /// Removes launch images an earlier run left behind: a process that ends
-/// without dropping its Pack (a crash, a forced quit) leaves its copy of
-/// the Pack's program in the temporary folder. Only images from other
-/// processes, untouched for half a day, are removed. `temp_dir` is the
-/// folder launch images are written to (`env::temp_dir()` in the app; a
-/// scratch folder in tests).
+/// without dropping its Pack (a crash, a forced quit, killed) leaves its
+/// copy of the Pack's program in the temporary folder. An image is removed
+/// when the run that made it is over, however new it is: its process is
+/// gone, or the process with its id is this one, which did not make it.
+/// Any other run's image is removed once untouched for half a day (where
+/// whether a process is still running cannot be told, everywhere but
+/// Linux and macOS, only that). `temp_dir` is the folder launch images are
+/// written to (`env::temp_dir()` in the app; a scratch folder in tests).
 fn sweep_stale_launch_images(temp_dir: &Path) {
-    let own = format!("world-machine-pack-launch-{}-", process::id());
+    const LAUNCH: &str = "world-machine-pack-launch-";
+    let own = own_launch_prefix();
     let Ok(entries) = fs::read_dir(temp_dir) else {
         return;
     };
@@ -529,19 +566,63 @@ fn sweep_stale_launch_images(temp_dir: &Path) {
         let Some(name) = name.to_str() else {
             continue;
         };
-        if !name.starts_with("world-machine-pack-launch-") || name.starts_with(&own) {
+        let Some(rest) = name.strip_prefix(LAUNCH) else {
+            continue;
+        };
+        if name.starts_with(&own) {
             continue;
         }
-        let stale = entry
-            .metadata()
-            .ok()
-            .filter(|metadata| metadata.is_file())
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.elapsed().ok())
-            .is_some_and(|age| age >= STALE_LAUNCH_IMAGE);
+        let Some(metadata) = entry.metadata().ok().filter(|metadata| metadata.is_file()) else {
+            continue;
+        };
+        let owner = rest
+            .split(['-', '.'])
+            .next()
+            .and_then(|pid| pid.parse::<u32>().ok());
+        let over = owner.is_some_and(|pid| pid == process::id() || process_is_gone(pid));
+        let stale = over
+            || metadata
+                .modified()
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age >= STALE_LAUNCH_IMAGE);
         if stale {
             let _ = fs::remove_file(entry.path());
         }
+    }
+}
+
+/// Whether no process with id `pid` is running, where that can be told
+/// without `unsafe`: on Linux from `/proc`, on macOS by asking `kill -0`.
+/// Elsewhere (and when it cannot be told) `false`: the image is left to
+/// age.
+fn process_is_gone(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        Path::new("/proc/self").exists() && !Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // `kill -0` fails for a process that is gone, and also for one that
+        // belongs to someone else; an image another user's run left in this
+        // user's temporary folder cannot be, so only "No such process" counts.
+        Command::new("/bin/kill")
+            .args(["-0", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .is_ok_and(|output| {
+                !output.status.success()
+                    && String::from_utf8_lossy(&output.stderr).contains("No such process")
+            })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
+    {
+        false
     }
 }
 
@@ -1072,8 +1153,9 @@ where
 fn make_scratch_dir() -> io::Result<PathBuf> {
     let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
     let path = env::temp_dir().join(format!(
-        "world-machine-pack-scratch-{}-{nonce}",
-        process::id()
+        "world-machine-pack-scratch-{}-{}-{nonce}",
+        process::id(),
+        run_stamp()
     ));
     fs::create_dir_all(&path)?;
     Ok(path)
@@ -1625,13 +1707,19 @@ mod tests {
     }
 
     /// A crashed run's launch image, half a day old, is swept; this
-    /// process's own images, fresh ones, folders and anything not named
-    /// as a launch image are left alone.
+    /// process's own images, fresh ones of a run still going, folders and
+    /// anything not named as a launch image are left alone.
     #[test]
     fn stale_launch_images_from_other_runs_are_swept() {
         let dir = temp_dir("sweep");
-        let other = "world-machine-pack-launch-4294967295";
-        let own = format!("world-machine-pack-launch-{}", process::id());
+        // A run still going: where the sweep can tell (Linux, macOS), the
+        // process that started this test; elsewhere any other id.
+        #[cfg(unix)]
+        let alive = std::os::unix::process::parent_id();
+        #[cfg(not(unix))]
+        let alive = 4294967295_u32;
+        let other = format!("world-machine-pack-launch-{alive}");
+        let own = own_launch_prefix();
         let aged = |name: &str, age: Duration| {
             let path = dir.join(name);
             let file = File::create(&path).unwrap();
@@ -1649,7 +1737,7 @@ mod tests {
             &format!("{other}-2"),
             STALE_LAUNCH_IMAGE - Duration::from_secs(60),
         );
-        let mine = aged(&format!("{own}-0"), day);
+        let mine = aged(&format!("{own}0"), day);
         let unrelated = aged("someone-elses-file", day);
         let folder = dir.join(format!("{other}-folder"));
         fs::create_dir(&folder).unwrap();
@@ -1666,6 +1754,69 @@ mod tests {
         assert!(unrelated.exists(), "not a launch image");
         assert!(folder.is_dir(), "folders are never swept");
         sweep_stale_launch_images(&dir.join("missing"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An app that was killed leaves its launch image; the next run sweeps
+    /// it however new it is, once the run that made it is over: its
+    /// process gone, or its process id now this process's own (v0.29
+    /// could not open a World then: "File exists").
+    #[test]
+    fn a_killed_runs_launch_image_is_swept_at_once() {
+        let dir = temp_dir("killed");
+        let mut child = Command::new(env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let gone = child.id();
+        child.wait().unwrap();
+        let killed = dir.join(format!("world-machine-pack-launch-{gone}-1f-0.worldpack"));
+        // v0.29's name for this process's first image, from an earlier
+        // run that had the same id.
+        let same_id = dir.join(format!("world-machine-pack-launch-{}-5", process::id()));
+        for path in [&killed, &same_id] {
+            File::create(path).unwrap();
+        }
+        sweep_stale_launch_images(&dir);
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            assert!(!killed.exists(), "the killed run's image, new as it is");
+        }
+        assert!(!same_id.exists(), "an earlier run's image under this id");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A launch image is never written over and a name already taken is no
+    /// reason to fail: an earlier run's images under this process's id, in
+    /// v0.29's names and in this run's own, are left as they are and a new
+    /// image is made beside them.
+    #[test]
+    fn a_launch_image_name_already_taken_is_passed_over() {
+        let dir = temp_dir("taken");
+        let source = Path::new("pack.worldpack");
+        let mut taken = Vec::new();
+        let next = LAUNCH_NONCE.load(Ordering::Relaxed);
+        for nonce in next..next + 8 {
+            for name in [
+                format!(
+                    "world-machine-pack-launch-{}-{nonce}.worldpack",
+                    process::id()
+                ),
+                format!("{}{nonce}.worldpack", own_launch_prefix()),
+            ] {
+                let path = dir.join(name);
+                fs::write(&path, b"an earlier image").unwrap();
+                taken.push(path);
+            }
+        }
+        let (path, mut file) = create_launch_image(&dir, source).expect("a new image");
+        file.write_all(b"this run's").unwrap();
+        drop(file);
+        assert!(!taken.contains(&path), "{}", path.display());
+        assert_eq!(fs::read(&path).unwrap(), b"this run's");
+        for path in &taken {
+            assert_eq!(fs::read(path).unwrap(), b"an earlier image");
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 

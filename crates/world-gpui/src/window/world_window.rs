@@ -772,14 +772,29 @@ fn beat_box(
     beat: &BriefingItem,
 ) -> Option<(f32, f32, f32, f32)> {
     let targets = beat_targets(snapshot, beat);
-    let boxes = snapshot
-        .canvas
-        .items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| targets.contains(&item.id))
-        .filter_map(|(index, _)| stage.frame_of(index))
-        .collect::<Vec<_>>();
+    let frames = |targets: &std::collections::BTreeSet<SelectionId>| {
+        snapshot
+            .canvas
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| targets.contains(&item.id))
+            .filter_map(|(index, _)| stage.frame_of(index))
+            .collect::<Vec<_>>()
+    };
+    let mut boxes = frames(&targets);
+    // Someone not out on the scene just now (indoors at that hour) is
+    // looked for where they are.
+    if boxes.is_empty() {
+        let at = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| targets.contains(&item.id))
+            .filter_map(|item| item.at)
+            .collect();
+        boxes = frames(&at);
+    }
     let (x0, y0, x1, y1) = boxes.iter().fold(
         (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
         |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
@@ -1941,7 +1956,7 @@ impl ProjectionView {
             }
             _ if self.retelling.is_some() => {
                 if matches!(key, "right" | "enter" | "space") {
-                    self.step_film(cx);
+                    self.step_retelling(cx);
                 }
             }
             "left" | "right" if self.pans_with_arrows(event) => {
@@ -2001,11 +2016,6 @@ impl ProjectionView {
         }
     }
 
-    fn step_film(&mut self, cx: &mut Context<Self>) {
-        self.looking.beat_at = Some(Instant::now());
-        self.step_retelling(cx);
-    }
-
     /// The return film's next beat, after the one being told: where the
     /// camera will go next, and what it will be about, painted ahead once
     /// the beat on screen is sharp.
@@ -2060,25 +2070,8 @@ impl ProjectionView {
         // A return looks at whatever its beat is about.
         let target = self
             .current_beat()
-            .map(|beat| beat_targets(&self.snapshot, beat))
-            .and_then(|targets| {
-                let boxes = self
-                    .snapshot
-                    .canvas
-                    .items
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, item)| targets.contains(&item.id))
-                    .filter_map(|(index, _)| stage.frame_of(index))
-                    .collect::<Vec<_>>();
-                let (x0, y0, x1, y1) = boxes.iter().fold(
-                    (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-                    |(x0, y0, x1, y1), (x, y, w, h)| {
-                        (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h))
-                    },
-                );
-                (!boxes.is_empty()).then(|| Camera::on(stage, (x0, y0, x1 - x0, y1 - y0)))
-            })
+            .and_then(|beat| beat_box(&self.snapshot, stage, beat))
+            .map(|subject| Camera::on(stage, subject))
             // Talking to someone, the camera moves in on them.
             .or_else(|| {
                 let who = self.looking.asking?;
@@ -2613,7 +2606,6 @@ impl ProjectionView {
                 self.looking.beat_at = Some(Instant::now());
             }
             if since(self.looking.beat_at) > BEAT_SECONDS {
-                self.looking.beat_at = Some(Instant::now());
                 self.step_retelling(cx);
             }
         }
@@ -3739,7 +3731,7 @@ impl ProjectionView {
                     .items_center()
                     .gap_1()
                     .child(div().size(px(8.0)).rounded_full().bg(color(tokens::ACCENT)))
-                    .child(ui::t(format!("Find {name}")))
+                    .child(crate::i18n::find_whom(&name))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.ask(whom, cx)
@@ -4258,7 +4250,10 @@ impl ProjectionView {
             .flex_col()
             .items_center()
             .gap_3()
-            .child(ui::caption(format!("Chapter {number} ends")))
+            .child(ui::caption(crate::i18n::fill(
+                "Chapter {number} ends",
+                &[("number", &number.to_string())],
+            )))
             .child(
                 div()
                     .text_2xl()
@@ -4550,7 +4545,10 @@ impl ProjectionView {
         let card = div()
             .id("asking")
             .role(Role::Group)
-            .aria_label(ui::t(format!("Asking {name}")))
+            .aria_label(crate::i18n::fill(
+                "Asking {name}",
+                &[("name", &world_i18n::tr_owned(&name))],
+            ))
             .w(px(ASKING_WIDTH))
             .max_h(px((stage.height - ASKING_CLEAR - area.y).max(120.0)))
             .p_4()
@@ -5332,7 +5330,10 @@ fn answer_button(
     if let Some(reason) = unavailable {
         let row = row
             .when(!reason.is_empty(), |row| {
-                row.aria_description(ui::t(format!("Not now: {reason}")))
+                row.aria_description(crate::i18n::fill(
+                    "Not now: {reason}",
+                    &[("reason", &world_i18n::tr_owned(reason))],
+                ))
             })
             .border_color(color(tokens::BORDER))
             .text_color(color(tokens::TEXT_TERTIARY))
@@ -6588,6 +6589,255 @@ mod tests {
                 assert!(row.chars().count() <= 18, "{row:?} is too wide");
             }
             assert_eq!(rows.concat(), line, "nothing is lost");
+        }
+    }
+
+    /// The Next button, the keys and the beat's own time all go on to the
+    /// next beat the same way, its clock started again: a click once left
+    /// the clock running, and the next beat could go after 0.7–2 seconds.
+    #[gpui::test]
+    fn every_way_on_in_the_return_film_starts_the_beat_afresh(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, VisualTestContext};
+        use world_projection::{BriefingItem, BriefingItemKind, BriefingProjection};
+        let mut snapshot = day_1082();
+        snapshot.briefing = Some(BriefingProjection {
+            items: [
+                "The pub found its feet again",
+                "Jonas's catch reached the mainland",
+                "A note",
+            ]
+            .into_iter()
+            .map(|title| BriefingItem {
+                selection: None,
+                title: title.into(),
+                detail: String::new(),
+                kind: BriefingItemKind::Beat,
+                tone: world_projection::Tone::Neutral,
+            })
+            .collect(),
+            eyebrow: String::new(),
+            title: String::new(),
+            returned: true,
+        });
+        let window = cx.add_window(move |_, _| {
+            let mut view = ProjectionView::controlled(Still(snapshot));
+            view.looking.opening = None;
+            view.retelling = Some(0);
+            view
+        });
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+        cx.run_until_parked();
+        let late = || Some(Instant::now() - Duration::from_secs(4));
+        // A click on Next, four seconds into a beat.
+        view.update(cx, |view, cx| {
+            view.looking.beat_at = late();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let next = cx.debug_bounds("retelling-next").expect("Next");
+        cx.simulate_click(next.center(), Modifiers::none());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.retelling, Some(1), "the next beat");
+            assert!(since(view.looking.beat_at) < 1.0, "told from its start");
+        });
+        // The Right arrow, four seconds into that one.
+        view.update(cx, |view, cx| {
+            view.looking.beat_at = late();
+            cx.notify();
+        });
+        cx.simulate_keystrokes("right");
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.retelling, Some(2), "the last beat");
+            assert!(since(view.looking.beat_at) < 1.0, "told from its start");
+        });
+    }
+
+    /// Each beat of a return is about its own subject, by the World's own
+    /// names for things, whatever language the window is in: the camera
+    /// frames it, it glows, and its face is the one shown. In Chinese and
+    /// Japanese the scene's labels are translated and the event's names
+    /// are not, and the camera never moved (v0.29); a catch that left the
+    /// place framed the whole place, not the fisher.
+    #[test]
+    fn each_return_beat_frames_its_own_subject_in_every_language() {
+        use world_projection::{
+            BriefingItem, BriefingItemKind, BriefingProjection, InspectorProjection, InspectorRow,
+            InspectorSection,
+        };
+        let mut english = day_1082();
+        let entity = |id: u64| SelectionId::from_stable_key(&format!("entity-{id}")).unwrap();
+        // The place itself, a person and a thing built on it.
+        let (place, person, thing) = (entity(101), entity(1), entity(702));
+        let label = |id: SelectionId| {
+            english
+                .canvas
+                .items
+                .iter()
+                .find(|item| item.id == id)
+                .map(|item| item.label.clone())
+                .unwrap()
+        };
+        let (person_name, thing_name) = (label(person), label(thing));
+        // Every thing on the scene by the name the World keeps for it, as
+        // a real snapshot has them; the place's is lowercase.
+        let place_name = label(place).to_lowercase();
+        let titles = english
+            .canvas
+            .items
+            .iter()
+            .map(|item| {
+                let title = if item.id == place {
+                    place_name.clone()
+                } else {
+                    item.label.clone()
+                };
+                (item.id, title)
+            })
+            .collect::<Vec<_>>();
+        for (item, title) in titles {
+            english.inspectors.insert(
+                item,
+                InspectorProjection {
+                    selection: item,
+                    title,
+                    subtitle: String::new(),
+                    sections: Vec::new(),
+                },
+            );
+        }
+        let event = |id: u64, rows: Vec<(&str, String)>| {
+            let selection = SelectionId::from_stable_key(&format!("event-{id}")).expect("an event");
+            (
+                selection,
+                rows.into_iter()
+                    .map(|(label, value)| InspectorRow {
+                        label: label.into(),
+                        value,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let beats = [
+            // A catch sold: who caught it, and where it went.
+            (
+                event(
+                    341,
+                    vec![
+                        ("Who", person_name.clone()),
+                        (
+                            "With",
+                            format!("{person_name}, {place_name}, Mainland Fish Market"),
+                        ),
+                    ],
+                ),
+                person,
+            ),
+            // Something the player began, finished: no one did it.
+            (event(329, vec![("With", thing_name.clone())]), thing),
+            // A note left.
+            (
+                event(
+                    352,
+                    vec![("Who", person_name.clone()), ("With", person_name.clone())],
+                ),
+                person,
+            ),
+        ];
+        let mut items = Vec::new();
+        for ((selection, rows), _) in &beats {
+            english.inspectors.insert(
+                *selection,
+                InspectorProjection {
+                    selection: *selection,
+                    title: String::new(),
+                    subtitle: String::new(),
+                    sections: vec![InspectorSection {
+                        title: "Context".into(),
+                        rows: rows.clone(),
+                    }],
+                },
+            );
+            items.push(BriefingItem {
+                selection: Some(*selection),
+                title: "A beat".into(),
+                detail: String::new(),
+                kind: BriefingItemKind::Beat,
+                tone: world_projection::Tone::Neutral,
+            });
+        }
+        english.briefing = Some(BriefingProjection {
+            eyebrow: String::new(),
+            title: String::new(),
+            items,
+            returned: true,
+        });
+        // The scene as the window shows it in another language: its labels
+        // translated, what the events say not.
+        let shown_as = |names: [(SelectionId, &str); 3]| {
+            let mut snapshot = english.clone();
+            for item in &mut snapshot.canvas.items {
+                if let Some((_, shown)) = names.iter().find(|(id, _)| *id == item.id) {
+                    item.label = (*shown).into();
+                }
+            }
+            snapshot
+        };
+        let languages = [
+            ("English", english.clone()),
+            (
+                "Chinese",
+                shown_as([(person, "乔纳斯"), (thing, "港口灯"), (place, "港口")]),
+            ),
+            (
+                "Japanese",
+                shown_as([(person, "ジョナス"), (thing, "港の灯り"), (place, "港")]),
+            ),
+        ];
+        for (language, snapshot) in &languages {
+            let stage =
+                crate::diorama::stage_at(snapshot, 1100.0, 748.0, crate::diorama::Clock::at(12));
+            let beats_shown = snapshot.briefing.as_ref().unwrap().beats();
+            for (beat, (_, subject)) in beats_shown.into_iter().zip(&beats) {
+                let targets = beat_targets(snapshot, beat);
+                assert_eq!(
+                    targets,
+                    [*subject].into(),
+                    "{language}: what the beat is about"
+                );
+                // The face shown is the subject's.
+                let face = super::super::beat_subject(snapshot, beat)
+                    .first()
+                    .map(|item| item.id);
+                assert_eq!(face, Some(*subject), "{language}: the face");
+                // The camera frames the subject itself, or where it is if
+                // it is not out on the scene.
+                let index = |id: SelectionId| {
+                    snapshot
+                        .canvas
+                        .items
+                        .iter()
+                        .position(|item| item.id == id)
+                        .unwrap()
+                };
+                let own = stage.frame_of(index(*subject)).or_else(|| {
+                    let at = snapshot.canvas.items[index(*subject)].at?;
+                    stage.frame_of(index(at))
+                });
+                let framed = beat_box(snapshot, &stage, beat);
+                let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+                assert!(
+                    match (framed, own) {
+                        (Some(a), Some(b)) =>
+                            near(a.0, b.0) && near(a.1, b.1) && near(a.2, b.2) && near(a.3, b.3),
+                        _ => false,
+                    },
+                    "{language}: the camera on {subject:?}: {framed:?}, not {own:?}"
+                );
+            }
         }
     }
 }

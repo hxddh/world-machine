@@ -1191,29 +1191,30 @@ impl ProjectionView {
         page_w: f32,
         cx: &mut Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut body = div().px_8().pt_2().pb_6().flex().flex_col().gap_6().child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(gpui::rgb(INK_SOFT))
-                        .child(ui::t(format!("The almanac · Year {}", almanac.year))),
-                )
-                .child(
-                    div()
-                        .id("almanac-title")
-                        .role(Role::Heading)
-                        .text_2xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .text_color(gpui::rgb(INK))
-                        .child(almanac.title.clone()),
-                ),
-        );
+        let mut body =
+            div().px_8().pt_2().pb_6().flex().flex_col().gap_6().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .child(div().text_xs().text_color(gpui::rgb(INK_SOFT)).child(
+                        crate::i18n::fill(
+                            "The almanac · Year {year}",
+                            &[("year", &almanac.year.to_string())],
+                        ),
+                    ))
+                    .child(
+                        div()
+                            .id("almanac-title")
+                            .role(Role::Heading)
+                            .text_2xl()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_center()
+                            .text_color(gpui::rgb(INK))
+                            .child(almanac.title.clone()),
+                    ),
+            );
         let sections = almanac_sections(almanac);
         if sections.is_empty() {
             body = body.child(

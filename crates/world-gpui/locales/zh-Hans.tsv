@@ -459,7 +459,7 @@ this moment	此刻
 Branched before “{event_title}”	分支于“{event_title}”之前
 Couldn't branch here: {error}	无法在此处分支：{error}
 Couldn't continue: {error}	无法继续：{error}
-While you were away · {} of {count}	你离开的这段时间 · {} / {count}
+While you were away · {beat} of {count}	你离开的这段时间 · {beat} / {count}
 Skip to your turn	跳到你的回合
 Your turn →	轮到你了 →
 Next →	下一步 →
@@ -481,7 +481,7 @@ Nothing anyone would notice has come of it yet.	目前还没有引起任何人�
 thing followed from it	由此引出的一件事
 things followed from it	由此引出的几件事
 What it led to	它带来的结果
-{} steps in between	中间隔了 {} 步
+{steps} steps in between	中间隔了 {steps} 步
 How it unfolded	事情是如何展开的
 Also because of it	也是因为它
 {} more	还有 {} 个
@@ -537,7 +537,7 @@ Building	建造中
 Chapters · {}	章节 · {}
 Chapter {}	第 {} 章
 Keepsakes · {}	纪念品 · {}
-From {}	来自 {}
+From {name}	来自 {name}
 From a friend	来自一位朋友
 Book · {found} of {}	图书 · {found} / {}
 {shelf} · {found} of {}	{shelf} · {found} / {}
@@ -694,7 +694,7 @@ Save as a picture (S)	存为图片 (S)
 Close (Esc)	关闭 (Esc)
 Back	返回
 Lines of the story	故事的每一行
-The almanac · Year {}	年鉴 · 第 {} 年
+The almanac · Year {year}	年鉴 · 第 {year} 年
 The year's moment	这一年的时刻
 A quiet year.	平静的一年。
 Who came and went, and what was built	谁来了，谁走了，建起了什么
@@ -814,7 +814,9 @@ Stays on this Mac · free	留在这台 Mac 上 · 免费
 No Worlds yet. Start one below; it keeps living while you are away.	还没有世界。从下面开始一个吧，即使你不在，它也会照常生活。
 For World makers	面向世界制作者
 The drawer shows each World's inner workings: its records and counters.	抽屉里会显示每个世界的内部运作：记录与计数。
-Find {}	去找{}
+Find {name}	去找{name}
+Asking {name}	正在问{name}
+Not now: {reason}	暂不：{reason}
 What you did here	你在这里做过的事
 Keep a postcard	留一张明信片
 Come back when you can. We'll keep the lamps lit.	有空就回来吧。我们会一直给你留着灯。

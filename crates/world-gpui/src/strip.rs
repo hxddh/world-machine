@@ -942,7 +942,9 @@ fn letter_from(snapshot: &ProjectionSnapshot) -> SharedString {
                 .find(|item| item.id == letter.from)
         })
         .and_then(|item| item.label.split_whitespace().next().map(str::to_string))
-        .map(|name| ui::t(format!("From {name}")))
+        .map(|name| {
+            crate::i18n::fill("From {name}", &[("name", &world_i18n::tr_owned(&name))]).into()
+        })
         .unwrap_or_else(|| ui::t("From a friend"))
 }
 
@@ -957,7 +959,7 @@ pub(crate) fn letter_button(
     let label = if reading {
         ui::t("Put the letter away")
     } else {
-        ui::t(format!("A letter. {from}. Open it to read"))
+        crate::i18n::fill("A letter. {from}. Open it to read", &[("from", &from)]).into()
     };
     ui::named(div().id("strip-letter"), label)
         .role(Role::Button)

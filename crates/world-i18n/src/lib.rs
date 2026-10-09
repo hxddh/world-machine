@@ -507,12 +507,25 @@ impl Catalog {
                 .collect::<Vec<_>>()
                 .join(" ");
             if told != text {
+                // What the speaker did themselves is told of them in the
+                // third person too: "I moved into a home of my own" is
+                // "<name> moved into a home of their own" (the turn the
+                // letters make, the other way).
+                let theirs = told.starts_with(MYSELF).then(|| {
+                    told.replace(" my own", " their own")
+                        .replace(" of my ", " of their ")
+                        .replace(", and we ", ", and they ")
+                });
                 // Only where the speaker is still in it after.
-                if let Some(found) = self
-                    .whole(&told, depth + 1)
-                    .filter(|found| found.contains(MYSELF))
+                for told in
+                    std::iter::once(told.clone()).chain(theirs.filter(|theirs| *theirs != told))
                 {
-                    return Some(found.replace(MYSELF, myself));
+                    if let Some(found) = self
+                        .whole(&told, depth + 1)
+                        .filter(|found| found.contains(MYSELF))
+                    {
+                        return Some(found.replace(MYSELF, myself));
+                    }
                 }
             }
         }
@@ -1090,6 +1103,34 @@ id_like_this\tSKIP
             Some("Leo送了我一份礼物")
         );
         assert_eq!(catalog.translate("I went sailing").as_deref(), None);
+    }
+
+    /// What someone did themselves, told in a letter ("The news here is
+    /// that I moved into a home of my own."), reads as the line told of
+    /// anyone ("{name} moved into a home of their own"); over three years
+    /// a Penguin Civilization letter kept it in English.
+    #[test]
+    fn a_home_of_my_own_is_a_home_of_their_own_told_of_oneself() {
+        for (catalog, shown) in [
+            (
+                "@I\t我\n{name} moved into a home of their own\t{name}搬进了自己的家\n\
+                 The news here is that {told}.\t这边的消息是：{told}。\n",
+                "这边的消息是：我搬进了自己的家。",
+            ),
+            (
+                "@I\t私\n{name} moved into a home of their own\t{name}は自分の家に移った\n\
+                 The news here is that {told}.\tこっちの知らせはね、{told}。\n",
+                "こっちの知らせはね、私は自分の家に移った。",
+            ),
+        ] {
+            let catalog = Catalog::parse(catalog);
+            assert_eq!(
+                catalog
+                    .translate("The news here is that I moved into a home of my own.")
+                    .as_deref(),
+                Some(shown)
+            );
+        }
     }
 
     /// A letter's slot told of oneself, with an ending of its own, is

@@ -432,6 +432,12 @@ pub fn gave_you(from: &str) -> String {
     fill("{from} gave you", &[("from", &tr_owned(from))])
 }
 
+/// "Find Noah", 去找诺亚, ノアを探す: the favour's handle, the name in the
+/// reader's script whichever script it came in.
+pub fn find_whom(name: &str) -> String {
+    fill("Find {name}", &[("name", &tr_owned(name))])
+}
+
 /// "From Mara", 来自 Mara, マーラから.
 pub fn from_whom(names: &str) -> String {
     if chinese() {
@@ -708,6 +714,30 @@ mod tests {
         assert_eq!(now_label(&snapshot, false), "Day 5");
         assert_eq!(now_label(&calendar_at("Sol", 50), false), "Sol 5");
         set_thread_language(None);
+    }
+
+    /// The favour's "Find" handle names whom to find in the reader's
+    /// script, whichever script the name comes in: the snapshot's names
+    /// are already translated, and "Find 诺亚" never matched a catalog line
+    /// (v0.29 showed it so).
+    #[test]
+    fn find_whom_is_shown_in_the_readers_language() {
+        world_i18n::install_for(Language::SimplifiedChinese, APP_ZH_HANS);
+        world_i18n::install_for(Language::Japanese, APP_JA);
+        world_i18n::install_for(Language::SimplifiedChinese, "Quillon\t奎隆\n");
+        world_i18n::install_for(Language::Japanese, "Quillon\tキロン\n");
+        for (language, name, shown) in [
+            (Language::SimplifiedChinese, "奎隆", "去找奎隆"),
+            (Language::SimplifiedChinese, "Quillon", "去找奎隆"),
+            (Language::Japanese, "キロン", "キロンを探す"),
+            (Language::Japanese, "Quillon", "キロンを探す"),
+            (Language::English, "Quillon", "Find Quillon"),
+        ] {
+            set_thread_language(Some(language));
+            let found = find_whom(name);
+            set_thread_language(None);
+            assert_eq!(found, shown, "{language:?}");
+        }
     }
 
     fn calendar_at(unit: &str, world_time: u64) -> ProjectionSnapshot {

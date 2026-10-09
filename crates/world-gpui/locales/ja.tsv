@@ -459,7 +459,7 @@ this moment	この瞬間
 Branched before “{event_title}”	「{event_title}」の前で分岐しました
 Couldn't branch here: {error}	ここでは分岐できませんでした：{error}
 Couldn't continue: {error}	続けられませんでした：{error}
-While you were away · {} of {count}	留守の間のこと · {} / {count}
+While you were away · {beat} of {count}	留守の間のこと · {beat} / {count}
 Skip to your turn	自分の番まで飛ばす
 Your turn →	あなたの番です →
 Next →	次へ →
@@ -481,7 +481,7 @@ Nothing anyone would notice has come of it yet.	まだ目に見える変化は�
 thing followed from it	件がここから起きました
 things followed from it	件がここから起きました
 What it led to	その結果
-{} steps in between	あいだに{}段階
+{steps} steps in between	あいだに{steps}段階
 How it unfolded	どう展開したか
 Also because of it	これがきっかけで起きたこと
 {} more	ほか{}件
@@ -537,7 +537,7 @@ Building	建設中
 Chapters · {}	章 · {}
 Chapter {}	第{}章
 Keepsakes · {}	思い出の品 · {}
-From {}	{}から
+From {name}	{name}から
 From a friend	友だちから
 Book · {found} of {}	本 · {found} / {}
 {shelf} · {found} of {}	{shelf} · {found} / {}
@@ -694,7 +694,7 @@ Save as a picture (S)	画像として保存（S）
 Close (Esc)	閉じる（Esc）
 Back	戻る
 Lines of the story	物語の行
-The almanac · Year {}	年鑑 · {}年目
+The almanac · Year {year}	年鑑 · {year}年目
 The year's moment	その年の瞬間
 A quiet year.	静かな一年でした。
 Who came and went, and what was built	誰が来て誰が去り、何が建ったか
@@ -814,7 +814,9 @@ Stays on this Mac · free	このMacの中だけ · 無料
 No Worlds yet. Start one below; it keeps living while you are away.	まだワールドがありません。下からはじめましょう。あなたがいない間も暮らし続けます。
 For World makers	ワールドをつくる人向け
 The drawer shows each World's inner workings: its records and counters.	引き出しに、ワールドの内部の記録やカウンターを表示します。
-Find {}	{}を探す
+Find {name}	{name}を探す
+Asking {name}	{name}に聞いている
+Not now: {reason}	今はできない：{reason}
 What you did here	ここであなたがしたこと
 Keep a postcard	絵はがきを残す
 Come back when you can. We'll keep the lamps lit.	また来てね。明かりをともして待ってるから。
