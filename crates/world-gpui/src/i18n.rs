@@ -112,6 +112,13 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     for goal in &mut snapshot.goals {
         put(&mut goal.label);
     }
+    // What the player can say to open a talk, as buttons: shown, and
+    // said, in the player's language.
+    for openers in &mut snapshot.openers {
+        for line in &mut openers.lines {
+            put(line);
+        }
+    }
     for keepsake in &mut snapshot.keepsakes {
         put(&mut keepsake.what);
         put(&mut keepsake.note);
@@ -400,12 +407,29 @@ pub fn choose_where(thing: &str, now: bool) -> String {
 pub fn more_about(name: &str) -> String {
     let name = tr_owned(name);
     if chinese() {
-        format!("关于 {name} 的更多信息")
+        format!("关于{name}的更多信息")
     } else if japanese() {
         format!("{name}についてもっと")
     } else {
         format!("More about {name}")
     }
+}
+
+/// `template` in the app's language, its `{slot}`s filled in: the
+/// catalog keeps the whole sentence ("Couldn't say that: {error}"), so
+/// each language puts what fills it where its grammar has it.
+pub fn fill(template: &str, slots: &[(&str, &str)]) -> String {
+    let mut out = world_i18n::tr_written(template).unwrap_or_else(|| tr_owned(template));
+    for (slot, value) in slots {
+        out = out.replace(&format!("{{{slot}}}"), value);
+    }
+    out
+}
+
+/// "Noah gave you", 诺亚给了你, ノアからの贈り物: over what was handed
+/// over, the name as the language writes it.
+pub fn gave_you(from: &str) -> String {
+    fill("{from} gave you", &[("from", &tr_owned(from))])
 }
 
 /// "From Mara", 来自 Mara, マーラから.
@@ -422,7 +446,7 @@ pub fn from_whom(names: &str) -> String {
 /// "Mara and Leo", 2 names joined as the language joins them.
 pub fn two_names(one: &str, two: &str) -> String {
     if chinese() {
-        format!("{one} 和 {two}")
+        format!("{one}和{two}")
     } else if japanese() {
         format!("{one}と{two}")
     } else {
@@ -461,6 +485,28 @@ pub fn moment_label(snapshot: &ProjectionSnapshot, world_time: u64) -> String {
             day_label(&calendar.unit, world_time.div_ceil(calendar.length))
         }
         _ => day_label("Time", world_time),
+    }
+}
+
+/// The moment now, as the window's own clock shows it over the sky: a
+/// World that counts in a part of the day ("Night 5", "Day 5") is
+/// counted in the part the sky shows, so "Night 5" never hangs under a
+/// noon sun. Any other unit ("Sol 3") is as it is.
+pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool) -> String {
+    let unit = snapshot
+        .calendar
+        .as_ref()
+        .map(|calendar| calendar.unit.to_lowercase());
+    let swapped = match unit.as_deref() {
+        Some("night") if !dark => Some("Day"),
+        Some("day") if dark => Some("Night"),
+        _ => None,
+    };
+    match (swapped, &snapshot.calendar) {
+        (Some(unit), Some(calendar)) if calendar.length > 0 && snapshot.world_time > 0 => {
+            day_label(unit, snapshot.world_time.div_ceil(calendar.length))
+        }
+        _ => moment_label(snapshot, snapshot.world_time),
     }
 }
 
@@ -639,6 +685,36 @@ mod tests {
         assert_eq!(year_label(2), "2年目");
         assert_eq!(season_in_year("Spring", 2), "2年目 · 春");
         set_thread_language(None);
+    }
+
+    /// What the player can say to open a talk is offered in their
+    /// language, and the time over the sky names the part of the day the
+    /// sky shows.
+    #[test]
+    fn openers_and_the_time_of_day_are_shown_as_the_reader_reads_them() {
+        world_i18n::install("What's new with you?\t最近有什么新鲜事吗？\n");
+        let mut snapshot = calendar("Night");
+        snapshot.world_time = 50;
+        snapshot.openers.push(world_projection::Openers {
+            who: world_projection::SelectionId::from_stable_key("entity-1").unwrap(),
+            lines: vec!["What's new with you?".into()],
+        });
+        set_thread_language(Some(Language::SimplifiedChinese));
+        let shown = localize(snapshot.clone());
+        set_thread_language(None);
+        assert_eq!(shown.openers[0].lines[0], "最近有什么新鲜事吗？");
+        set_thread_language(Some(Language::English));
+        assert_eq!(now_label(&snapshot, true), "Night 5");
+        assert_eq!(now_label(&snapshot, false), "Day 5");
+        assert_eq!(now_label(&calendar_at("Sol", 50), false), "Sol 5");
+        set_thread_language(None);
+    }
+
+    fn calendar_at(unit: &str, world_time: u64) -> ProjectionSnapshot {
+        ProjectionSnapshot {
+            world_time,
+            ..calendar(unit)
+        }
     }
 
     /// The build card's words and a count on a gauge come through in

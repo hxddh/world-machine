@@ -63,9 +63,43 @@ pub fn color(token: Token) -> Rgba {
 /// Text in the language the app is shown in.
 pub fn t(text: impl Into<SharedString>) -> SharedString {
     let text: SharedString = text.into();
-    match world_i18n::tr(&text) {
+    let shown: SharedString = match world_i18n::tr(&text) {
         std::borrow::Cow::Borrowed(_) => text,
         std::borrow::Cow::Owned(translated) => translated.into(),
+    };
+    if shown.contains('⌘') {
+        keys_here(&shown).into()
+    } else {
+        shown
+    }
+}
+
+/// A shortcut as this computer's keyboard has it: ⌘ on a Mac, Ctrl on
+/// Linux and Windows ("⌘I" is "Ctrl+I", "⌥⌘S" is "Ctrl+Alt+S").
+pub fn keys_here(text: &str) -> String {
+    keys_on(text, cfg!(target_os = "macos"))
+}
+
+fn keys_on(text: &str, mac: bool) -> String {
+    if mac {
+        return text.to_string();
+    }
+    text.replace("⌥⌘", "Ctrl+Alt+")
+        .replace("⇧⌘", "Ctrl+Shift+")
+        .replace('⌘', "Ctrl+")
+}
+
+#[cfg(test)]
+mod keys_tests {
+    #[test]
+    fn the_command_key_is_shown_only_on_a_mac() {
+        let tip = "The drawer: story, letters, keepsakes and the book (⌘I)";
+        assert_eq!(super::keys_on(tip, true), tip);
+        assert_eq!(
+            super::keys_on(tip, false),
+            "The drawer: story, letters, keepsakes and the book (Ctrl+I)"
+        );
+        assert_eq!(super::keys_on("(⌥⌘S)", false), "(Ctrl+Alt+S)");
     }
 }
 
@@ -214,7 +248,7 @@ impl gpui::Render for Tip {
             .bg(color(tokens::TEXT).opacity(0.92))
             .text_xs()
             .text_color(color(tokens::SURFACE))
-            .child(self.text.clone())
+            .child(crate::wrap::text(self.text.clone()))
     }
 }
 

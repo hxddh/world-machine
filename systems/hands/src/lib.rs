@@ -534,7 +534,11 @@ impl Action for Does {
                         } else {
                             "a"
                         };
-                        format!("You began {a} {work} by {at_name}")
+                        if mark::names_its_place(&work, &at_name) {
+                            format!("You began {a} {work}")
+                        } else {
+                            format!("You began {a} {work} by {at_name}")
+                        }
                     },
                     Some(id),
                 )

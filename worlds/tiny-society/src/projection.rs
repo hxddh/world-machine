@@ -802,12 +802,15 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
     // Everyday life is told as it happens, in what people say; History
     // keeps to what changed, and to today's, which today's words point at.
     let now = world.world_time();
+    // A day beginning tells nothing: it is there to be the cause of what
+    // the day brings.
     let mut timeline = world_projection::timeline_of(world, |event| {
-        event.world_time == now
-            || !matches!(
-                event.kind.as_str(),
-                "lived" | "life_began" | "lines_forgotten"
-            )
+        !calendar::is_day_begun(event)
+            && (event.world_time == now
+                || !matches!(
+                    event.kind.as_str(),
+                    "lived" | "life_began" | "lines_forgotten"
+                ))
     });
     world_projection::retell_timeline(&mut timeline, world, |event| telling(world, event));
     timeline

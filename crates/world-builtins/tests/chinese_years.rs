@@ -3,9 +3,9 @@
 //! harbour, and each of Pocket Universe's three places, played once and
 //! read in both languages. A line is left partly untranslated when,
 //! translated, it still has a word of two or more Latin letters that the
-//! language does not write that way: in Chinese, residents keep their
-//! names in Latin letters everywhere; in Japanese, every name is in
-//! katakana. Every place is called by its own name in each language, no
+//! language does not write that way: in Chinese every name is written in
+//! Chinese characters, and in Japanese in katakana (v0.29: names are
+//! written in the reader's script). Every place is called by its own name in each language, no
 //! line starts with a mark that ends or closes something, and Japanese
 //! quotes with 「」.
 //!
@@ -357,20 +357,24 @@ fn a_year_of_both_packs_is_shown_in_chinese_and_japanese() {
     });
     let chinese = catalog();
     let japanese = japanese_catalog();
-    // In Japanese no name stays in Latin letters: only what Japanese
-    // itself writes that way.
+    // No name stays in Latin letters, in either language: only what the
+    // language itself writes that way.
     let latin_in_japanese = LATIN_IN_JAPANESE
+        .iter()
+        .map(|word| word.to_string())
+        .collect::<BTreeSet<_>>();
+    let latin_in_chinese = LATIN_IN_CHINESE
         .iter()
         .map(|word| word.to_string())
         .collect::<BTreeSet<_>>();
     let mut report = String::new();
     let mut short = Vec::new();
     for (language, catalog, is_japanese) in [("zh", &chinese, false), ("ja", &japanese, true)] {
-        for (place, (shown, names, told, letters)) in &places {
+        for (place, (shown, _names, told, letters)) in &places {
             let allowed = if is_japanese {
                 &latin_in_japanese
             } else {
-                names
+                &latin_in_chinese
             };
             // No letter is left partly English: not one.
             let unlettered = left(catalog, letters, allowed);
@@ -464,7 +468,10 @@ fn show_lines() {
         Ok(path) => std::fs::read_to_string(path).unwrap(),
         Err(_) => return,
     };
-    let names = names();
+    let names = LATIN_IN_CHINESE
+        .iter()
+        .map(|word| word.to_string())
+        .collect::<BTreeSet<_>>();
     for line in lines.lines().filter(|line| !line.is_empty()) {
         let shown = catalog.translate(line);
         let bad = shown.as_deref().is_none_or(|shown| english(&names, shown));
@@ -476,22 +483,32 @@ fn show_lines() {
     }
 }
 
-/// People keep their names in Latin letters in Chinese, everywhere: no
-/// catalog gives a person's name, whole or first, a Chinese one, so a name
-/// never shows one way in one line and another way in the next.
+/// In Chinese, people's names are written in Chinese characters, whole
+/// and first, the same in every line: every name has one in the Chinese
+/// catalogs, and none keeps a Latin letter.
 #[test]
-fn people_keep_their_names() {
+fn people_have_their_names_in_chinese_characters() {
     let catalog = catalog();
+    let mut missing = Vec::new();
     for name in tiny_society::people_names()
         .into_iter()
         .chain(pocket_universe::people_names())
     {
         let first = name.split_whitespace().next().unwrap_or(name);
         for name in [name, first] {
-            let shown = catalog.exact(name).unwrap_or(name);
-            assert_eq!(shown, name, "{name} is shown as {shown}");
+            let shown = catalog.exact(name);
+            if !shown.is_some_and(|shown| !shown.chars().any(|c| c.is_ascii_alphabetic())) {
+                missing.push(format!("{name}\t{}", shown.unwrap_or("")));
+            }
         }
     }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "names not in Chinese characters:\n{}",
+        missing.join("\n")
+    );
 }
 
 /// In Japanese, people's names are written in katakana, whole and first,
@@ -525,11 +542,12 @@ fn people_have_their_names_in_katakana_in_japanese() {
 }
 
 /// One name rule in each language, in every line of every catalog: a line
-/// that names someone keeps them in Latin letters in Chinese, and writes
-/// them in their one katakana name in Japanese, never another way.
+/// that names someone writes them in their one Chinese name in Chinese,
+/// and their one katakana name in Japanese, never another way.
 #[test]
 fn one_name_rule_in_each_language() {
     let japanese = japanese_catalog();
+    let chinese = catalog();
     let names = tiny_society::people_names()
         .into_iter()
         .chain(pocket_universe::people_names())
@@ -553,7 +571,7 @@ fn one_name_rule_in_each_language() {
                 .collect::<BTreeSet<_>>();
             for name in names.iter().filter(|name| words.contains(*name)) {
                 let written = match language {
-                    "zh" => Some(name.to_string()),
+                    "zh" => chinese.exact(name).map(str::to_string),
                     _ => japanese.exact(name).map(str::to_string),
                 };
                 if written.is_some_and(|written| !to.contains(&written)) {

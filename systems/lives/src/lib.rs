@@ -4879,6 +4879,27 @@ pub fn answer_request(situation: &str, answer: &str) -> ActionRequest {
         .arg("answer", answer)
 }
 
+/// [`answer_request`], naming as its cause the Event the situation came up
+/// in: an answer, or a lapse, follows what it answers.
+pub fn answer_request_in(world: &World, situation: &str, answer: &str) -> ActionRequest {
+    let request = answer_request(situation, answer);
+    let index = world.history_index();
+    let came_up = index
+        .of_kind("situation_came_up")
+        .iter()
+        .rev()
+        .copied()
+        .find(|id| {
+            world.event(*id).is_some_and(|event| {
+                event.payload.get("situation") == Some(&Value::Text(situation.into()))
+            })
+        });
+    match came_up {
+        Some(came_up) => request.caused_by(came_up),
+        None => request,
+    }
+}
+
 fn others_arg(people: &[EntityId]) -> Value {
     Value::List(people.iter().map(|id| Value::Entity(*id)).collect())
 }
@@ -5001,7 +5022,8 @@ pub fn tick_with(
     let now = period(world.state(), cast) as i64;
     for (key, opened) in open(world.state(), cast) {
         if now - opened >= LASTS {
-            events.push(world.execute(actions, &answer_request(&key, "lapse"))?.id);
+            let lapse = answer_request_in(world, &key, "lapse");
+            events.push(world.execute(actions, &lapse)?.id);
         }
     }
     // Someone warming to the player shares a first small moment with them,

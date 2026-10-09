@@ -165,7 +165,10 @@ impl ProjectionView {
                 self.status_is_error = false;
             }
             Err(error) => {
-                self.status = Some(format!("Couldn't continue: {error}"));
+                self.status = Some(crate::i18n::fill(
+                    "Couldn't continue: {error}",
+                    &[("error", &world_i18n::tr_owned(&error.to_string()))],
+                ));
                 self.status_is_error = true;
             }
         }
@@ -202,7 +205,7 @@ impl ProjectionView {
                 .bg(color(tokens::SURFACE))
                 .text_sm()
                 .text_color(color(tone))
-                .child(status.clone()),
+                .child(crate::wrap::text(status.clone())),
         )
     }
 
@@ -268,7 +271,7 @@ impl ProjectionView {
                 div()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(beat.title.clone()),
+                    .child(crate::wrap::text(beat.title.clone())),
             );
         if !beat.detail.is_empty() {
             body = body.child(ui::body(beat.detail.clone()));
@@ -324,7 +327,7 @@ impl ProjectionView {
                             .text_color(color(tokens::TEXT_SECONDARY))
                             .cursor_pointer()
                             .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
-                            .child("Skip to your turn")
+                            .child(ui::t("Skip to your turn"))
                             .on_click(cx.listener(|this, _, _, cx| this.end_retelling(cx))),
                     ),
             )
@@ -543,7 +546,7 @@ impl ProjectionView {
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(tokens::ACCENT_TEXT))
-                                .child("Begin here →"),
+                                .child(ui::t("Begin here →")),
                         ),
                 )
                 .on_click(
@@ -1302,7 +1305,7 @@ impl Render for ProjectionView {
                             .text_base()
                             .font_weight(FontWeight::SEMIBOLD)
                             .truncate()
-                            .child(self.snapshot.title.clone()),
+                            .child(crate::wrap::text(self.snapshot.title.clone())),
                     ),
             );
         }

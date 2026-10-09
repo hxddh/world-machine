@@ -799,7 +799,7 @@ impl ProjectionView {
                             .italic()
                             .text_color(ink(INK_SOFT))
                             .line_clamp(2)
-                            .child(crate::i18n::quoted(keepsake.note)),
+                            .child(crate::wrap::text(crate::i18n::quoted(keepsake.note))),
                     )
                 }),
             );
@@ -854,7 +854,7 @@ impl ProjectionView {
                             .line_height(relative(1.45))
                             .text_color(ink(INK))
                             .line_clamp(4)
-                            .child(letter.note.clone()),
+                            .child(crate::wrap::text(letter.note.clone())),
                     )
                 }),
             );
@@ -907,7 +907,7 @@ impl ProjectionView {
                                 .line_height(relative(1.35))
                                 .text_color(ink(if favour.done { INK_SOFT } else { INK }))
                                 .line_clamp(2)
-                                .child(favour.note.clone()),
+                                .child(crate::wrap::text(favour.note.clone())),
                         )
                         .when(!under.is_empty(), |note| {
                             note.child(
@@ -916,7 +916,7 @@ impl ProjectionView {
                                     .italic()
                                     .text_color(ink(INK_SOFT))
                                     .line_clamp(1)
-                                    .child(under),
+                                    .child(crate::wrap::text(under)),
                             )
                         }),
                 ),
@@ -1623,41 +1623,6 @@ pub(crate) fn book_look(snapshot: &ProjectionSnapshot, entry: &BookEntry) -> Opt
     }
 }
 
-/// A tile's caption, cut at a word to two short lines: the whole name is
-/// what a screen reader hears, and what the entry opens to.
-pub(crate) fn tile_caption(text: &str) -> String {
-    // In half-widths: a Chinese character is as wide as two letters.
-    const MOST: usize = 26;
-    let width = |text: &str| {
-        text.chars()
-            .map(|c| if c.is_ascii() { 1 } else { 2 })
-            .sum::<usize>()
-    };
-    if width(text) <= MOST {
-        return text.to_string();
-    }
-    let mut out = String::new();
-    if !text.contains(' ') {
-        for c in text.chars() {
-            if width(&out) + 2 > MOST - 2 {
-                break;
-            }
-            out.push(c);
-        }
-        return format!("{out}…");
-    }
-    for word in text.split(' ') {
-        if width(&out) + width(word) + 1 > MOST - 1 {
-            break;
-        }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(word);
-    }
-    format!("{}…", out.trim_end_matches([',', '.', ';', ':']))
-}
-
 /// The size of a book tile, and of the picture in it: the picture is cut
 /// to its frame, so a figure never reaches down over the caption.
 pub(crate) const TILE_W: f32 = 100.0;
@@ -1819,7 +1784,10 @@ pub(crate) fn book_tile(entry: &BookEntry, index: usize, look: Option<BookLook>)
                 .text_center()
                 .line_height(relative(1.3))
                 .text_color(ink(if found { INK } else { INK_SOFT }))
-                .child(tile_caption(&if found {
+                // Read whole, over as many as three lines; only longer
+                // than that is it cut, at a word.
+                .line_clamp(3)
+                .child(crate::wrap::text(if found {
                     capitalized(&entry.name)
                 } else {
                     entry.hint.clone()
@@ -1845,7 +1813,7 @@ pub(crate) mod tests {
 
     /// A real harbour on its 358th day: 34 chapters, 38 keepsakes, 100
     /// letters.
-    fn day_358() -> ProjectionSnapshot {
+    pub(crate) fn day_358() -> ProjectionSnapshot {
         wire(include_str!("../../tests/fixtures/harbour-day-358.json"))
     }
 
@@ -2013,24 +1981,6 @@ pub(crate) mod tests {
         assert_eq!(
             kept.iter().map(|kept| kept.times).sum::<usize>(),
             snapshot.keepsakes.len()
-        );
-    }
-
-    /// A tile's caption fits under its picture: two short lines at most.
-    #[test]
-    fn a_tile_caption_fits_its_tile() {
-        assert_eq!(
-            tile_caption("A note under the door"),
-            "A note under the door"
-        );
-        let long = tile_caption("A jar of something homemade from Rosa's kitchen");
-        assert!(long.chars().count() <= 26, "{long}");
-        assert!(long.ends_with('…'));
-        assert!(
-            tile_caption("一张在你离开时拍的港口照片，边角已经卷起来了")
-                .chars()
-                .count()
-                <= 14
         );
     }
 

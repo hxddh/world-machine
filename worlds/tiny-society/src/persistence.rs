@@ -112,56 +112,68 @@ impl TinySocietyBranch {
         let mut generated_events = Vec::new();
 
         for _ in 0..days {
-            let start_time = self.world.world_time();
-            let morning_time = start_time
-                .checked_add(MORNING_OFFSET_TICKS)
-                .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
-            let end_time = start_time
-                .checked_add(WORLD_DAY_TICKS)
-                .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
-
-            schedule_jonas_living_cost(&mut self.world, morning_time)?;
-            schedule_daily_bakery_purchases(&mut self.world, morning_time)?;
-            generated_events.extend(advance_branch_checkpoint(
-                &mut self.world,
-                actions,
-                &behavior_registry,
-                morning_time,
-            )?);
-
-            schedule_daily_shifts(&mut self.world, end_time)?;
-            generated_events.extend(advance_branch_checkpoint(
-                &mut self.world,
-                actions,
-                &behavior_registry,
-                end_time,
-            )?);
-
-            // Things people do because of how things stand, rather than in
-            // reaction to one Event, are checked once a day.
-            let mut daily = crate::livelihood::seek_work_if_needed(&mut self.world, actions)?;
-            // A question nobody answered is answered by the harbour, at most
-            // one per day, so a long absence reads as a sequence rather than
-            // resolving in one jump when somebody returns.
-            daily.extend(crate::drift::resolve_overdue(&mut self.world, actions)?);
-            for event in daily {
-                generated_events.push(event);
-                let run = BehaviorRuntime::run_from_event(
-                    &mut self.world,
-                    actions,
-                    &behavior_registry,
-                    event,
-                    32,
-                )?;
-                generated_events.extend(run.generated_events);
-            }
-            // The storyteller has the last word of the day: what lapses,
-            // whether the chapter turns, and what comes up next.
-            generated_events.extend(crate::story::tick(&mut self.world, actions, away)?);
+            // The day begins with an Event of its own, and everything the
+            // day's rules record follows from it (invariant 5).
+            let day = calendar::begin_day(&mut self.world, actions)?;
+            generated_events.push(day);
+            let one_day =
+                |world: &mut World| pass_one_day(world, actions, &behavior_registry, away);
+            generated_events.extend(self.world.following(day, one_day)?);
         }
 
         Ok(generated_events)
     }
+}
+
+/// One day of the harbour, after its [`calendar::DAY_BEGAN`] Event.
+fn pass_one_day(
+    world: &mut World,
+    actions: &ActionRegistry,
+    behavior_registry: &BehaviorRegistry,
+    away: bool,
+) -> Result<Vec<EventId>, Box<dyn Error>> {
+    let mut generated_events = Vec::new();
+    let start_time = world.world_time();
+    let morning_time = start_time
+        .checked_add(MORNING_OFFSET_TICKS)
+        .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
+    let end_time = start_time
+        .checked_add(WORLD_DAY_TICKS)
+        .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
+
+    schedule_jonas_living_cost(world, morning_time)?;
+    schedule_daily_bakery_purchases(world, morning_time)?;
+    generated_events.extend(advance_branch_checkpoint(
+        world,
+        actions,
+        behavior_registry,
+        morning_time,
+    )?);
+
+    schedule_daily_shifts(world, end_time)?;
+    generated_events.extend(advance_branch_checkpoint(
+        world,
+        actions,
+        behavior_registry,
+        end_time,
+    )?);
+
+    // Things people do because of how things stand, rather than in
+    // reaction to one Event, are checked once a day.
+    let mut daily = crate::livelihood::seek_work_if_needed(world, actions)?;
+    // A question nobody answered is answered by the harbour, at most
+    // one per day, so a long absence reads as a sequence rather than
+    // resolving in one jump when somebody returns.
+    daily.extend(crate::drift::resolve_overdue(world, actions)?);
+    for event in daily {
+        generated_events.push(event);
+        let run = BehaviorRuntime::run_from_event(world, actions, behavior_registry, event, 32)?;
+        generated_events.extend(run.generated_events);
+    }
+    // The storyteller has the last word of the day: what lapses,
+    // whether the chapter turns, and what comes up next.
+    generated_events.extend(crate::story::tick(world, actions, away)?);
+    Ok(generated_events)
 }
 
 fn advance_branch_checkpoint(

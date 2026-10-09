@@ -101,6 +101,40 @@ def triggers(document: dict) -> dict:
     return section or {}
 
 
+def release_check_problems() -> list[str]:
+    """The release shots run for every release: release-package.yml calls
+    release-shots.yml as a job (a tag the release workflow creates starts no
+    other workflow), and publishes nothing unless it passed."""
+    path = WORKFLOWS / "release-package.yml"
+    shots = WORKFLOWS / "release-shots.yml"
+    if not path.exists() or not shots.exists():
+        return []
+    try:
+        document = yaml.safe_load(path.read_text())
+        called = yaml.safe_load(shots.read_text())
+    except yaml.YAMLError:
+        return []  # reported above
+    relative = path.relative_to(ROOT)
+    problems = []
+    if "workflow_call" not in triggers(called or {}):
+        problems.append(f"{shots.relative_to(ROOT)}: has no workflow_call trigger, so no release can run it")
+    jobs = (document or {}).get("jobs") or {}
+    callers = [
+        name
+        for name, job in jobs.items()
+        if isinstance(job, dict) and job.get("uses") == "./.github/workflows/release-shots.yml"
+    ]
+    if not callers:
+        problems.append(f"{relative}: no job calls ./.github/workflows/release-shots.yml")
+        return problems
+    publish = jobs.get("publish") or {}
+    needs = publish.get("needs") or []
+    needs = [needs] if isinstance(needs, str) else needs
+    if not any(caller in needs for caller in callers):
+        problems.append(f"{relative}: publish does not wait for the release shots ({callers[0]})")
+    return problems
+
+
 def main() -> int:
     files = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
     if not files:
@@ -147,6 +181,8 @@ def main() -> int:
         for job_name, command in run_commands(document):
             if CARGO.search(command) and not re.search(r"--(locked|frozen)\b", command):
                 problems.append(f"{relative}: job {job_name}: not --locked: {command}")
+
+    problems.extend(release_check_problems())
 
     if problems:
         for problem in problems:

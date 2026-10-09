@@ -263,8 +263,13 @@ impl PocketUniverse {
             .world_time()
             .checked_add(BACKGROUND_PERIOD)
             .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-        candidate.advance_to(&self.actions, target)?;
-        Ok(story::tick(candidate, &self.actions, away)?.last().copied())
+        // The period begins with an Event of its own, and everything its
+        // rules record follows from it (invariant 5).
+        let day = calendar::begin_day(candidate, &self.actions)?;
+        candidate.following(day, |candidate| {
+            candidate.advance_to(&self.actions, target)?;
+            Ok(story::tick(candidate, &self.actions, away)?.last().copied())
+        })
     }
 
     /// Says something to someone in the player's own words, and records
@@ -299,8 +304,13 @@ impl PocketUniverse {
     /// Records what the player said, and what it did.
     fn said(&mut self, request: world_core::ActionRequest) -> Result<EventId, Box<dyn Error>> {
         let event = self.world.execute(&self.actions, &request)?.id;
-        speech::favour_done(&mut self.world, &self.actions, event)?;
-        story::after_first_deed(&mut self.world, &self.actions)?;
+        let actions = &self.actions;
+        self.world
+            .following(event, |world| -> Result<(), Box<dyn Error>> {
+                speech::favour_done(world, actions, event)?;
+                story::after_first_deed(world, actions)?;
+                Ok(())
+            })?;
         Ok(event)
     }
 
@@ -353,18 +363,15 @@ impl PocketUniverse {
         }
 
         if let Some((storylet, choice)) = story::parse_command(command_id) {
-            let chosen = self
-                .world
-                .execute(&self.actions, &storylets::choose_request(storylet, choice))?
-                .id;
+            // The answer follows the question it answers.
+            let request = storylets::choose_request_in(&self.world, storylet, choice);
+            let chosen = self.world.execute(&self.actions, &request)?.id;
             // The place sees the player here: it takes up the works they
             // let wait.
-            storylets::mark_now(
-                &mut self.world,
-                &self.actions,
-                story::HANDS_SEEN,
-                story::HANDS_SEEN_EVERY,
-            )?;
+            let actions = &self.actions;
+            self.world.following(chosen, |world| {
+                storylets::mark_now(world, actions, story::HANDS_SEEN, story::HANDS_SEEN_EVERY)
+            })?;
             return Ok(chosen);
         }
 
@@ -379,23 +386,30 @@ impl PocketUniverse {
                 .world
                 .execute(&self.actions, &hands::do_request(deed))?
                 .id;
-            // The place sees the player making something: it takes up
-            // the works they let wait.
-            storylets::mark_now(
-                &mut self.world,
-                &self.actions,
-                story::HANDS_SEEN,
-                story::HANDS_SEEN_EVERY,
-            )?;
-            story::lend_to_work(&mut self.world, &self.actions)?;
-            // Someone nearby says what they make of it, and in a new World
-            // the first question follows. Moving things about is only
-            // remarked on now and then: nobody comments on every shuffle.
-            if !moved_lately(&self.world, event) {
-                let cast = life::cast(self.world.state());
-                lives::react_to(&mut self.world, &self.actions, &cast, event)?;
-            }
-            story::after_first_deed(&mut self.world, &self.actions)?;
+            // Everything the deed brings about follows from it.
+            let actions = &self.actions;
+            self.world
+                .following(event, |world| -> Result<(), Box<dyn Error>> {
+                    // The place sees the player making something: it takes
+                    // up the works they let wait.
+                    storylets::mark_now(
+                        world,
+                        actions,
+                        story::HANDS_SEEN,
+                        story::HANDS_SEEN_EVERY,
+                    )?;
+                    story::lend_to_work(world, actions)?;
+                    // Someone nearby says what they make of it, and in a
+                    // new World the first question follows. Moving things
+                    // about is only remarked on now and then: nobody
+                    // comments on every shuffle.
+                    if !moved_lately(world, event) {
+                        let cast = life::cast(world.state());
+                        lives::react_to(world, actions, &cast, event)?;
+                    }
+                    story::after_first_deed(world, actions)?;
+                    Ok(())
+                })?;
             return Ok(event);
         }
 
@@ -430,7 +444,10 @@ impl PocketUniverse {
         if let Some((situation, answer)) = life::parse_command(command_id) {
             return Ok(self
                 .world
-                .execute(&self.actions, &lives::answer_request(situation, answer))?
+                .execute(
+                    &self.actions,
+                    &lives::answer_request_in(&self.world, situation, answer),
+                )?
                 .id);
         }
 
@@ -450,11 +467,16 @@ impl PocketUniverse {
             .execute(&self.actions, &ActionRequest::new(action).actor(UNIVERSE))?
             .id;
         // A World that has just begun: someone comes over to say hello,
-        // and the first question follows.
-        story::tick(&mut self.world, &self.actions, false)?;
-        let cast = life::cast(self.world.state());
-        lives::greet(&mut self.world, &self.actions, &cast)?;
-        story::first_question(&mut self.world, &self.actions)?;
+        // and the first question follows, all of it from its beginning.
+        let actions = &self.actions;
+        self.world
+            .following(event, |world| -> Result<(), Box<dyn Error>> {
+                story::tick(world, actions, false)?;
+                let cast = life::cast(world.state());
+                lives::greet(world, actions, &cast)?;
+                story::first_question(world, actions)?;
+                Ok(())
+            })?;
         Ok(event)
     }
 
@@ -514,7 +536,7 @@ impl PocketUniverse {
                 _ => None,
             })
             .collect::<std::collections::BTreeSet<_>>();
-        let why = self.world.events()[since..]
+        let told = self.world.events()[since..]
             .iter()
             .rev()
             .filter(|event| !filmed.contains(&event.id))
@@ -523,11 +545,25 @@ impl PocketUniverse {
                     || event.kind == "festival_held"
                     || event.payload.contains_key("storylet")
             })
-            .find_map(|event| story::told(&self.world, event))
-            .map(|told| format!("{told}."))
-            .unwrap_or_default();
+            .find_map(|event| story::told(&self.world, event).map(|told| (event.id, told)));
+        // The keepsake follows what its note tells of, or else the last
+        // period that passed while the player was away.
+        let cause = told.as_ref().map(|(id, _)| *id).or_else(|| {
+            self.world.events()[since..]
+                .iter()
+                .rev()
+                .find(|event| calendar::is_day_begun(event))
+                .map(|event| event.id)
+        });
+        let why = told.map(|(_, told)| format!("{told}.")).unwrap_or_default();
         let cast = life::cast(self.world.state());
-        lives::leave_keepsake(&mut self.world, &self.actions, &cast, &why)?;
+        let actions = &self.actions;
+        match cause {
+            Some(cause) => self.world.following(cause, |world| {
+                lives::leave_keepsake(world, actions, &cast, &why)
+            })?,
+            None => lives::leave_keepsake(&mut self.world, actions, &cast, &why)?,
+        };
         Ok(())
     }
 

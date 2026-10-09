@@ -22,6 +22,11 @@ pub struct World {
     events: Arc<Vec<Event>>,
     scheduler: Scheduler,
     next_event_id: u64,
+    /// What an event recorded with no cause of its own was caused by, while
+    /// [`World::following`] runs. It is not part of where the World
+    /// stands: every event records its causes itself, so nothing about it
+    /// is saved or replayed, and outside `following` it is always `None`.
+    cause_in_force: Option<EventId>,
     index: IndexCache,
     derived: DerivedViews,
 }
@@ -171,6 +176,7 @@ impl World {
             events: Arc::new(Vec::new()),
             scheduler: Scheduler::new(),
             next_event_id: 1,
+            cause_in_force: None,
             index: IndexCache::default(),
             derived: DerivedViews::default(),
         }
@@ -372,6 +378,11 @@ impl World {
                 draft.caused_by.push(*cause);
             }
         }
+        // A nearer cause, named by the action or its request, comes first;
+        // only an event that names none follows the cause in force.
+        if draft.caused_by.is_empty() {
+            draft.caused_by.extend(self.cause_in_force);
+        }
 
         let event = Event {
             id: EventId::new(self.next_event_id),
@@ -390,6 +401,19 @@ impl World {
         Ok(self.events.last().expect("event was just appended"))
     }
 
+    /// Runs `run` with `cause` in force: every event it records that names
+    /// no cause of its own (neither its action nor its request says one) is
+    /// recorded as caused by `cause`. This is how one event (a day passing,
+    /// a player's deed) is recorded as the cause of everything the rules do
+    /// because of it, however deep in them the event is recorded. An inner
+    /// `following` puts a nearer cause in force until it returns.
+    pub fn following<T>(&mut self, cause: EventId, run: impl FnOnce(&mut Self) -> T) -> T {
+        let outer = self.cause_in_force.replace(cause);
+        let result = run(self);
+        self.cause_in_force = outer;
+        result
+    }
+
     /// A copy to try something out on: the same state, schedule and rules,
     /// with only the latest `recent` events of its history, so trying costs
     /// the same however long the World has lived. Rules that read history
@@ -404,6 +428,7 @@ impl World {
             events: Arc::new(self.events[start..].to_vec()),
             scheduler: self.scheduler.clone(),
             next_event_id: self.next_event_id,
+            cause_in_force: self.cause_in_force,
             index: IndexCache::default(),
             derived: DerivedViews::default(),
         }
@@ -709,6 +734,33 @@ mod tests {
             .unwrap();
 
         assert_eq!(second.caused_by, vec![first]);
+    }
+
+    #[test]
+    fn events_follow_the_cause_in_force_unless_they_name_a_nearer_one() {
+        let registry = registry();
+        let mut world = World::new(baseline());
+        let root = world.execute(&registry, &transfer(1)).unwrap().id;
+        let (followed, nearer, inner) = world.following(root, |world| {
+            let followed = world.execute(&registry, &transfer(1)).unwrap().id;
+            let nearer = world
+                .execute(&registry, &transfer(1).caused_by(followed))
+                .unwrap()
+                .id;
+            let inner = world.following(nearer, |world| {
+                world.execute(&registry, &transfer(1)).unwrap().id
+            });
+            (followed, nearer, inner)
+        });
+        let after = world.execute(&registry, &transfer(1)).unwrap().id;
+
+        let causes = |id| world.event(id).unwrap().caused_by.clone();
+        assert_eq!(causes(followed), vec![root]);
+        assert_eq!(causes(nearer), vec![followed]);
+        assert_eq!(causes(inner), vec![nearer]);
+        assert!(causes(after).is_empty(), "the cause ends with `following`");
+        // Replay applies what was recorded, causes and all.
+        assert_eq!(world.replay().unwrap().events(), world.events());
     }
 
     struct BrokenMutation;

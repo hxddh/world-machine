@@ -501,9 +501,15 @@ mod tests {
             );
             assert!(view.looking.pan.is_some(), "the camera turns to the asker");
         });
+        // Whom it is for is marked where they stand, on the ground; while
+        // the camera is on the asker they are far off the stage, and the
+        // mark is not drawn over empty ground (Find goes to them).
         assert!(
-            cx.debug_bounds("favour-mark").is_some(),
-            "whom it is for is marked"
+            cx.debug_bounds("favour-mark").is_none_or(|mark| {
+                let x = f32::from(mark.center().x);
+                (0.0..=1100.0).contains(&x)
+            }),
+            "whom it is for is marked only where they stand"
         );
         let find = cx
             .debug_bounds("favour-handle")

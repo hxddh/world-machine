@@ -958,6 +958,23 @@ pub fn tr_owned(text: &str) -> String {
     tr(text).into_owned()
 }
 
+/// A line with slots, as the catalog of the language shown writes it
+/// ("Couldn't say that: {error}" is 无法这么说：{error}), its slots left to
+/// fill: for what fills them that no catalog knows (an error, a name the
+/// player gave). `None` in English, or if no catalog writes it.
+pub fn tr_written(template: &str) -> Option<String> {
+    let shown_in = language();
+    if shown_in == Language::English {
+        return None;
+    }
+    state().read().ok().and_then(|state| {
+        state
+            .catalogs
+            .get(&shown_in)
+            .and_then(|catalog| catalog.written.get(template).cloned())
+    })
+}
+
 /// The language the computer is set to, if the app has a catalog for it.
 ///
 /// `WORLD_MACHINE_LANGUAGE` first (for tests and screenshots), then the

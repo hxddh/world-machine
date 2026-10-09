@@ -841,7 +841,7 @@ impl StripView {
                 .bg(ui::color(tokens::SURFACE))
                 .text_color(ui::color(tokens::TEXT))
                 .text_xs()
-                .child(line.to_string()),
+                .child(crate::wrap::text(line.to_string())),
         )
     }
 

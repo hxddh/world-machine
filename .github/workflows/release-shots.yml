@@ -9,8 +9,12 @@ name: Release shots
 # within 3 seconds. The pictures are kept as an artifact of the run, for the
 # art director's sign-off and the store page.
 #
-# It runs for every release tag, as the release package does, and by hand:
+# It runs for every release as a job of the release package workflow
+# (release-package.yml calls it, and publishes nothing unless it passes),
+# and by hand:
 #   gh workflow run release-shots.yml --ref main
+# It has no tag trigger of its own: a tag the release workflow creates starts
+# no other workflow, and a pushed tag already runs it through the release.
 #
 # Linux is not a Mac: fonts and window chrome differ, and the renderer is a
 # software one. What it proves is that every picture the player is shown is
@@ -19,16 +23,14 @@ name: Release shots
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    tags:
-      - 'v*-pre.*'
-      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
 
+# Called by the release, `github.workflow` is the release's name, so a run by
+# hand on the same ref never cancels the one a release waits for.
 concurrency:
-  group: release-shots-${{ github.ref }}
+  group: release-shots-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

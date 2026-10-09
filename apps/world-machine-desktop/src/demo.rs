@@ -165,9 +165,23 @@ pub fn recap(snapshot: &world_gpui::ProjectionSnapshot) -> Vec<String> {
         .filter(|line| told_of_the_player(line))
         .copied()
         .collect::<Vec<_>>();
+    // Told in a few ways, not five "You began…" in a row: at most two
+    // deeds that open the same way.
+    let opening = |line: &str| {
+        line.split_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
     let mut done = Vec::new();
     for deed in deeds.iter().rev() {
-        add(deed, &mut done);
+        let alike = done
+            .iter()
+            .filter(|line: &&String| opening(line) == opening(deed))
+            .count();
+        if alike < 2 {
+            add(deed, &mut done);
+        }
     }
     done.truncate(RECAP_MOST - 1);
     done.reverse();
@@ -516,6 +530,25 @@ mod tests {
             .push(item(60, "You lent a hand with the pier"));
         let lines = recap(&snapshot);
         assert!(lines.len() <= RECAP_MOST, "{lines:?}");
+        // Five things begun are not five lines that open alike.
+        let mut busy = snapshot.clone();
+        for (at, what) in [
+            (61, "a bench"),
+            (62, "a lamp"),
+            (63, "a well"),
+            (64, "a swing"),
+            (65, "a flowerbed"),
+        ] {
+            busy.timeline
+                .items
+                .push(item(at, &format!("You began {what}")));
+        }
+        let lines = recap(&busy);
+        let began = lines
+            .iter()
+            .filter(|line| line.starts_with("You began"))
+            .count();
+        assert!(began <= 2, "{lines:?}");
         assert!(
             !lines.iter().any(|line| line.contains("gave you")),
             "{lines:?}"

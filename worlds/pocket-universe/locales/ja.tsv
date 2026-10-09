@@ -520,9 +520,9 @@ Heard back from Earth.	地球から返事が来た。
 Held first time.	一回でうまくいった。
 Hello from me.	私からこんにちは。
 Help look	探すのを手伝う
-Help me fit the new a spare fuse?	予備のヒューズの取りつけ、手伝ってくれる？
-Help me fit the new a spare lantern?	予備のランタンの取りつけ、手伝ってくれる？
-Help me fit the new a spare seal?	予備のシールの取りつけ、手伝ってくれる？
+Help me fit a spare fuse?	予備のヒューズの取りつけ、手伝ってくれる？
+Help me fit a spare lantern?	予備のランタンの取りつけ、手伝ってくれる？
+Help me fit a spare seal?	予備のシールの取りつけ、手伝ってくれる？
 Help me look?	探すの手伝ってくれる？
 Helped {name} run the late show at K-88 Radio.	K-88ラジオで{name}の深夜番組を手伝った。
 Helped {name} with their feathers.	{name}の羽づくろいを手伝った。
@@ -9017,3 +9017,5 @@ What do you think of {name}?	{name}のこと、どう思う？
 Is there anything you need?	何か必要なものはある？
 How's work going?	仕事はどう？
 What's new with you?	最近なにか変わったことある？
+A few of us made something of our own: {b}	何人かで、自分たちで{b}を作った
+a few of us made something of our own: {b}	何人かで、自分たちで{b}を作った

@@ -373,15 +373,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The release check: the first ten minutes and the key moments, played in
+  # the release app's real window (release-shots.yml, scripts/release-shots.sh),
+  # with every picture kept as this run's `release-shots` artifact. It is a
+  # job of this workflow, not a workflow of its own triggered by the tag,
+  # because a tag this workflow creates (a dispatch with release_tag) starts
+  # no other workflow. Nothing is published unless it passed.
+  release-shots:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-shots.yml
+
   publish:
-    needs: [macos-release, windows-release]
+    needs: [macos-release, windows-release, release-shots]
     # The Windows package is optional: a release goes out with the Mac one
-    # alone when it was not asked for, but never when it failed.
+    # alone when it was not asked for, but never when it failed. The release
+    # shots are not optional.
     if: >-
       !cancelled()
       && needs.macos-release.result == 'success'
       && needs.macos-release.outputs.publish == 'true'
       && needs.windows-release.result != 'failure'
+      && needs.release-shots.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       # Creates the tag (on a dispatch) and the release.

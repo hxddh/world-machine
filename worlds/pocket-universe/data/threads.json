@@ -242,7 +242,7 @@
   {"spec": [
     "seal_fit",
     {"follow": ["@SLOT_B", [{"Marked": ["spare", 2]}, {"Unmarked": ["seal_fit"]}]]},
-    {"()": ["{keeper} is fitting the new seal", "Help me fit the new {spare}?"]},
+    {"()": ["{keeper} is fitting the new seal", "Help me fit {spare}?"]},
     [
       {"yes": [
         "together",

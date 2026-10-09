@@ -110,7 +110,8 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-h", HideApp, None),
         KeyBinding::new("alt-cmd-h", HideOthers, None),
-        KeyBinding::new("cmd-w", CloseWindow, None),
+        // Cmd-W on a Mac, Ctrl-W on Linux and Windows.
+        KeyBinding::new("secondary-w", CloseWindow, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
         // Every other Mac app enters full screen on ctrl-cmd-f. AppKit only
         // adds that item to an app's Window menu when the menu comes from a

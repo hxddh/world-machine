@@ -367,26 +367,29 @@ impl TinySocietyBranch {
                 _ => None,
             })
             .collect::<std::collections::BTreeSet<_>>();
-        let why = self.world.events()[start..]
+        let told = self.world.events()[start..]
             .iter()
             .rev()
             .filter(|event| !filmed.contains(&event.id))
             .filter(|event| {
                 lives::is_news(event) || event.kind == "festival_held" || story::is_storylet(event)
             })
-            .find_map(|event| story::told(&self.world, event))
-            .map(|told| format!("{told}."))
-            .unwrap_or_default();
+            .find_map(|event| story::told(&self.world, event).map(|told| (event.id, told)));
+        // The keepsake follows what its note tells of, or else the last day
+        // that passed while the player was away.
+        let cause = told.as_ref().map(|(id, _)| *id).or_else(|| {
+            self.world.events()[start..]
+                .iter()
+                .rev()
+                .find(|event| calendar::is_day_begun(event))
+                .map(|event| event.id)
+        });
+        let why = told.map(|(_, told)| format!("{told}.")).unwrap_or_default();
         let actions = build_action_registry()?;
-        Ok(lives::welcome_back(
-            &mut self.world,
-            actions,
-            &life::cast(),
-            &why,
-            &firsts::quiet_days(),
-        )?
-        .into_iter()
-        .collect())
+        let left = following(&mut self.world, cause, |world| {
+            lives::welcome_back(world, actions, &life::cast(), &why, &firsts::quiet_days())
+        })?;
+        Ok(left.into_iter().collect())
     }
 
     /// A new harbour as a new player finds it: Day 1, fair weather, and
@@ -403,14 +406,22 @@ impl TinySocietyBranch {
     }
 
     /// Starts the storyteller. A new World opens on the place, and its
-    /// first question waits for the player's first deed.
+    /// first question waits for the player's first deed. All of it follows
+    /// from the player's arrival, when there was one.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
-        let mut events = story::tick(&mut self.world, actions, false)?;
-        // Someone comes over to say hello, and the first question follows.
-        events.extend(lives::greet(&mut self.world, actions, &life::cast())?);
-        events.extend(story::first_question(&mut self.world, actions)?);
-        Ok(events)
+        let arrived = self
+            .world
+            .events_of_kind(&["arrived"])
+            .last()
+            .map(|event| event.id);
+        following(&mut self.world, arrived, |world| {
+            let mut events = story::tick(world, actions, false)?;
+            // Someone comes over to say hello, and the first question follows.
+            events.extend(lives::greet(world, actions, &life::cast())?);
+            events.extend(story::first_question(world, actions)?);
+            Ok(events)
+        })
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -460,6 +471,8 @@ impl TinySocietyBranch {
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         let (look, drawing) = (guest.look_code(), guest.drawing_code());
+        // A guest's visit is the player's doing, from another of their
+        // Worlds: a root of its own.
         Ok(vec![lives::host_guest_with(
             &mut self.world,
             actions,
@@ -494,21 +507,28 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         let mut behaviors = BehaviorRegistry::new();
         behaviors::register(&mut behaviors)?;
+        // The answer follows the question it answers; all that comes of it
+        // follows the answer.
         let event = self
             .world
-            .execute(actions, &storylets::choose_request(storylet, choice))?
+            .execute(
+                actions,
+                &storylets::choose_request_in(&self.world, storylet, choice),
+            )?
             .id;
-        let run = BehaviorRuntime::run_from_event(&mut self.world, actions, &behaviors, event, 32)?;
-        let mut events = vec![event];
-        events.extend(run.generated_events);
-        // The harbour sees the player here: it takes up the works they let
-        // wait.
-        events.extend(story::player_seen(&mut self.world, actions)?);
-        // A work just finished leaves something to keep, and a gathering
-        // may bring two people together.
-        events.extend(story::mementos(&mut self.world, actions, &[event])?);
-        events.extend(story::gathered(&mut self.world, actions, event)?);
-        Ok(events)
+        self.world.following(event, |world| {
+            let run = BehaviorRuntime::run_from_event(world, actions, &behaviors, event, 32)?;
+            let mut events = vec![event];
+            events.extend(run.generated_events);
+            // The harbour sees the player here: it takes up the works they
+            // let wait.
+            events.extend(story::player_seen(world, actions)?);
+            // A work just finished leaves something to keep, and a
+            // gathering may bring two people together.
+            events.extend(story::mementos(world, actions, &[event])?);
+            events.extend(story::gathered(world, actions, event)?);
+            Ok(events)
+        })
     }
 
     /// The player puts up a bench for someone the harbour lost, where they
@@ -536,7 +556,10 @@ impl TinySocietyBranch {
         let actions = build_action_registry()?;
         let event = self
             .world
-            .execute(actions, &lives::answer_request(situation, answer))?
+            .execute(
+                actions,
+                &lives::answer_request_in(&self.world, situation, answer),
+            )?
             .id;
         Ok(vec![event])
     }
@@ -583,10 +606,12 @@ impl TinySocietyBranch {
     fn said(&mut self, request: world_core::ActionRequest) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         let event = self.world.execute(actions, &request)?.id;
-        let mut events = vec![event];
-        events.extend(speech::favour_done(&mut self.world, actions, event)?);
-        events.extend(story::after_first_deed(&mut self.world, actions)?);
-        Ok(events)
+        self.world.following(event, |world| {
+            let mut events = vec![event];
+            events.extend(speech::favour_done(world, actions, event)?);
+            events.extend(story::after_first_deed(world, actions)?);
+            Ok(events)
+        })
     }
 
     /// The player paints a design on something, or names it: the harbour
@@ -623,30 +648,28 @@ impl TinySocietyBranch {
             ]);
         }
         let event = self.world.execute(actions, &hands::do_request(deed))?.id;
-        let mut events = vec![event];
-        // Someone nearby says what they make of it, and in a new harbour
-        // the first question follows.
-        let made = self.world.event(event).is_some_and(|made| {
-            matches!(
-                made.kind.as_str(),
-                "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
-            )
-        });
-        events.extend(lives::react_to(
-            &mut self.world,
-            actions,
-            &life::cast(),
-            event,
-        )?);
-        // Making something of their own, the player lends a hand with what
-        // the harbour is making of its own accord.
-        if made {
-            let lent = story::lend_a_hand(&mut self.world, actions)?;
-            events.extend(story::mementos(&mut self.world, actions, &lent)?);
-            events.extend(lent);
-        }
-        events.extend(story::after_first_deed(&mut self.world, actions)?);
-        Ok(events)
+        // Everything the deed brings about follows from it.
+        self.world.following(event, |world| {
+            let mut events = vec![event];
+            // Someone nearby says what they make of it, and in a new
+            // harbour the first question follows.
+            let made = world.event(event).is_some_and(|made| {
+                matches!(
+                    made.kind.as_str(),
+                    "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
+                )
+            });
+            events.extend(lives::react_to(world, actions, &life::cast(), event)?);
+            // Making something of their own, the player lends a hand with
+            // what the harbour is making of its own accord.
+            if made {
+                let lent = story::lend_a_hand(world, actions)?;
+                events.extend(story::mementos(world, actions, &lent)?);
+                events.extend(lent);
+            }
+            events.extend(story::after_first_deed(world, actions)?);
+            Ok(events)
+        })
     }
 
     pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -805,6 +828,19 @@ impl TinySocietyBranch {
             )?
             .id;
         Ok(vec![repaired])
+    }
+}
+
+/// Runs `run` following `cause`, when there is one (see
+/// [`World::following`]): what it records names `cause` as its cause.
+pub(crate) fn following<T>(
+    world: &mut World,
+    cause: Option<EventId>,
+    run: impl FnOnce(&mut World) -> T,
+) -> T {
+    match cause {
+        Some(cause) => world.following(cause, run),
+        None => run(world),
     }
 }
 

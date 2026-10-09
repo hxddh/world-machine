@@ -78,7 +78,9 @@ impl PlatformTextSystem for Recording {
 }
 
 /// Words that read the same in any language: the app's name, the Mac, a key.
-const ALLOWED: &[&str] = &["World", "Machine", "Mac", "API", "Esc", "OK"];
+const ALLOWED: &[&str] = &[
+    "World", "Machine", "Mac", "API", "Esc", "OK", "Ctrl", "Alt", "Shift",
+];
 
 /// The English words in `line`, but for `names` and what reads the same
 /// in any language.
@@ -383,6 +385,21 @@ fn a_world_in(words: &Words) -> (ProjectionSnapshot, Vec<String>) {
         answer: words.talk_answer.into(),
         asks_for: None,
     }];
+    // What the player can say to open a talk, as the person card offers
+    // it, and something someone gave them, as it is shown.
+    snapshot.openers = vec![world_projection::Openers {
+        who: someone,
+        lines: vec![format!("{}opener", words.said), words.talk_question.into()],
+    }];
+    snapshot
+        .exchanges
+        .retain(|exchange| exchange.who != someone);
+    snapshot.keepsakes.push(world_projection::Keepsake {
+        from: someone,
+        what: words.gift.into(),
+        note: words.waiting.into(),
+        moment: someone,
+    });
     // A favour asked, as its note in the drawer.
     snapshot.favour = words
         .favour
@@ -542,7 +559,18 @@ fn walk(words: &'static Words) {
         view.ask(someone, cx);
         view.looking.answered = Some((0, std::time::Instant::now()));
     });
+    look("something given", cx, &|view, _| {
+        view.looking.keepsakes_seen = Some(view.snapshot.keepsakes.len());
+        view.looking.gift_at = Some(std::time::Instant::now());
+    });
+    look("a status", cx, &|view, _| {
+        view.status = Some(crate::i18n::fill(
+            "Couldn't say that: {error}",
+            &[("error", "x")],
+        ));
+    });
     look("a legend", cx, &move |view, cx| {
+        view.status = None;
         view.looking.asking = None;
         view.open_legend(someone, cx);
     });
@@ -652,4 +680,59 @@ fn an_open_world_is_shown_in_a_new_language_at_once() {
     cx.run_until_parked();
     world_i18n::set_thread_language(None);
     assert_eq!(title(cx), "タイニー・ソサエティ");
+}
+
+/// No English is written into the window's code where it is shown: every
+/// word goes through the catalogs (`ui::t`, `i18n::fill` and the rest),
+/// never straight onto the screen as `.child("Skip to your turn")` or
+/// `.child(format!("{from} gave you"))` were.
+#[test]
+fn no_words_go_on_screen_from_the_code_untranslated() {
+    let sources = [
+        ("window.rs", include_str!("../window.rs")),
+        ("world_window.rs", include_str!("world_window.rs")),
+        ("drawer.rs", include_str!("drawer.rs")),
+        ("marking.rs", include_str!("marking.rs")),
+        ("stories.rs", include_str!("stories.rs")),
+        ("arrival.rs", include_str!("arrival.rs")),
+        ("farewell.rs", include_str!("farewell.rs")),
+        ("panels.rs", include_str!("../panels.rs")),
+        ("ui.rs", include_str!("../ui.rs")),
+        ("strip.rs", include_str!("../strip.rs")),
+    ];
+    let mut found = Vec::new();
+    for (file, source) in sources {
+        // The code, not its tests.
+        let code = source
+            .split("\n#[cfg(test)]\nmod ")
+            .next()
+            .unwrap_or(source);
+        for (number, line) in code.lines().enumerate() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            for opening in [".child(\"", ".child(format!(\""] {
+                for (at, _) in line.match_indices(opening) {
+                    let said = &line[at + opening.len()..];
+                    let said = said.split('"').next().unwrap_or("");
+                    // What is outside the slots ("{from}") is what is read.
+                    let mut read = String::new();
+                    let mut depth = 0;
+                    for c in said.chars() {
+                        match c {
+                            '{' => depth += 1,
+                            '}' => depth -= 1,
+                            _ if depth == 0 => read.push(c),
+                            _ => {}
+                        }
+                    }
+                    if !english_in(&read, &[]).is_empty() {
+                        found.push(format!("{file}:{}: {line}", number + 1));
+                    }
+                }
+            }
+        }
+    }
+    assert!(found.is_empty(), "English on screen:\n{}", found.join("\n"));
 }
