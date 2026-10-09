@@ -91,7 +91,7 @@ pub fn light_at(hour: f32, weather: Weather) -> [f32; 3] {
     let of = |daylight: Daylight| match daylight {
         Daylight::Dawn => [1.0, 0.9, 0.86],
         Daylight::Day => [1.0, 0.995, 0.97],
-        Daylight::Dusk => [1.0, 0.8, 0.6],
+        Daylight::Dusk => [1.0, 0.76, 0.48],
         Daylight::Night => [0.34, 0.4, 0.6],
     };
     // `between` has already eased `t`: ease(t).
@@ -311,7 +311,9 @@ pub(super) fn sky_colours(frame: &Frame) -> (Hsla, Hsla) {
             Daylight::Day => ((0xffffff, 0.0), (0xffffff, 0.0)),
             // Dawn is pink; dusk is gold under violet.
             Daylight::Dawn => ((0xf0a0b8, 0.46), (0xffc0b8, 0.4)),
-            Daylight::Dusk => ((0x8a6a9a, 0.4), (0xff9a40, 0.74)),
+            // Gold all the way up: warm rose high, gold low (v0.29; the
+            // violet top read as grey fog over the whole picture).
+            Daylight::Dusk => ((0xd89a6a, 0.55), (0xffa040, 0.8)),
             Daylight::Night => ((0x0e1436, 0.78), (0x1c2450, 0.64)),
         };
         (
@@ -673,6 +675,14 @@ pub(super) fn shadow_ink(hour: f32) -> [f32; 3] {
     [0, 1, 2].map(|channel| a[channel] + (b[channel] - a[channel]) * t)
 }
 
+/// A glow on the ground under someone or something lit up (news, the one
+/// being asked, where a pick can go): a pale light of its colour, never a
+/// dark of it, so it never reads as a shadow (v0.28's purple halo under Nia
+/// on the red planet). `strength` is how strong it is at its middle.
+pub(super) fn ground_glow(glow: Hsla, strength: f32) -> Hsla {
+    mix(glow, art::hex(0xfff6e0), 0.6).opacity(strength * 0.8)
+}
+
 /// The soft shadow where something stands on the ground: an ellipse under
 /// its foot, `w` across, cool and blurred, 20 to 30% dark (the art bible's
 /// §4). Everything standing has one, so nothing floats.
@@ -695,21 +705,20 @@ pub(super) fn contact_shadow(window: &mut dyn Brush, hour: f32, x: f32, base: f3
 pub(super) const LAMP_STRIDE: f32 = 6.0;
 
 /// Which lamps along the spine are lit at `hour`, 0 to 1 each: none by
-/// day; at dusk the first ones, every other lamp, coming up as the light
-/// goes; at night all of them (the art bible's §4).
+/// day; as dusk comes on, every lamp on the spine, one after another along
+/// it within a few minutes; all of them through the night (the art bible's
+/// §4: a gold dusk with every spine lamp lit).
 pub(super) fn lamps_lit(hour: f32, nth: usize) -> f32 {
     let hour = hour.rem_euclid(24.0);
-    let evening = ((hour - 18.0) / 0.6).clamp(0.0, 1.0);
-    let late = ((hour - 20.0) / 0.6).clamp(0.0, 1.0);
+    // The lamplighter's round: a minute and a half between lamps, the
+    // whole spine lit by a quarter past six.
+    let starts = 17.75 + (nth % 6) as f32 * 0.025;
+    let evening = ((hour - starts) / 0.3).clamp(0.0, 1.0);
     let morning = 1.0 - ((hour - 5.6) / 0.6).clamp(0.0, 1.0);
-    let night = if hour < 12.0 { morning } else { 0.0 };
-    let first = nth.is_multiple_of(2);
     if hour < 12.0 {
-        night
-    } else if first {
-        evening
+        morning
     } else {
-        late
+        evening
     }
 }
 
@@ -1056,7 +1065,7 @@ impl Brush for Under<'_> {
 
 /// Whether a building is a lighthouse: the harbour's own drawing or the
 /// library's.
-pub(super) fn is_lighthouse(building: &BuildingPaint) -> bool {
+pub(super) fn is_beacon(building: &BuildingPaint) -> bool {
     building
         .drawing
         .as_ref()
@@ -1082,7 +1091,7 @@ pub(super) fn paint_beacons(
     }
     let z = frame.camera.zoom;
     let t = if frame.still { 0.0 } else { frame.seconds };
-    for building in frame.buildings.iter().filter(|b| is_lighthouse(b)) {
+    for building in frame.buildings.iter().filter(|b| is_beacon(b)) {
         if !seen(building.x, building.w * z * 4.0) {
             continue;
         }
@@ -1150,7 +1159,7 @@ pub(super) fn paint_jetties(
     for building in frame
         .buildings
         .iter()
-        .filter(|b| b.base >= edge && !is_lighthouse(b))
+        .filter(|b| b.base >= edge && !is_beacon(b))
     {
         if !seen(building.x, building.w * z) {
             continue;

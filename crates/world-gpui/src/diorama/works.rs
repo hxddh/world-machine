@@ -241,8 +241,8 @@ pub(super) fn paint_building_tile(
         .map(|building| sprite_of(ground, frame, building, scale))
         .collect::<Vec<_>>();
     painter::timed("tile: shadows", || {
-        for (building, sprite) in near.iter().zip(&sprites) {
-            paint_building_shadow(&mut canvas, frame, building, sprite);
+        for building in &near {
+            paint_building_shadow(&mut canvas, frame, building);
         }
     });
     painter::timed("tile: buildings", || {
@@ -265,8 +265,6 @@ pub(super) struct Sprite {
     pub(super) pixmap: sk::Pixmap,
     /// Its top-left corner, in stage pixels.
     pub(super) origin: (f32, f32),
-    /// Its shape at half resolution, softened, for the shadow it casts.
-    pub(super) silhouette: Option<sk::Pixmap>,
 }
 
 /// The buildings' sprites, painted once for the ground's look and shared
@@ -384,7 +382,6 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     let empty = || Sprite {
         pixmap: sk::Pixmap::new(1, 1).expect("a pixel"),
         origin,
-        silhouette: None,
     };
     let Some(mut canvas) = Canvas::new(
         ((right - left) * scale).ceil() as u32,
@@ -402,7 +399,7 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
             w * 0.78,
             h * 0.2,
             h * 0.14,
-            glow.opacity(0.45),
+            ground_glow(glow, 0.45),
         );
     }
     // A low wall run on toward a neighbour it joins.
@@ -445,7 +442,19 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
             [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         },
     };
-    painter::timed("sprite: paint", || match &building.drawing {
+    // The tower on the point stands on the plinth of rocks painted under it (ground's
+    // footings): its drawing's own flat foot, a dark slab at the waterline,
+    // is left out.
+    let drawing = building.drawing.as_ref().map(|drawing| {
+        if super::light::is_beacon(building) {
+            let mut drawing = drawing.clone();
+            drawing.parts.retain(|part| !flat_foot(&part.shape));
+            std::borrow::Cow::Owned(drawing)
+        } else {
+            std::borrow::Cow::Borrowed(drawing)
+        }
+    });
+    painter::timed("sprite: paint", || match drawing.as_deref() {
         Some(drawing) => art::paint_drawing(
             &mut mirrored,
             building.x,
@@ -548,14 +557,6 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     painter::timed("sprite: paper", || {
         painter::grain(&mut canvas, (0, 0), 0.05, 0.03)
     });
-    // Its shape, for the shadow it casts when the sun is out.
-    let silhouette = day
-        .then(|| {
-            painter::timed("sprite: silhouette", || {
-                painter::silhouette(&canvas.pixmap, (scale * 2.0).max(2.0) as usize)
-            })
-        })
-        .flatten();
     if let Some(glass) = &glass {
         if !building.inside.is_empty() {
             painter::inside(&mut canvas.pixmap, glass, building.inside.len());
@@ -574,65 +575,110 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
     Sprite {
         pixmap: canvas.pixmap,
         origin,
-        silhouette,
     }
 }
 
-/// The soft dark where a building meets the ground, and in sun its shape
-/// laid flat across the ground away from the light.
-pub(super) fn paint_building_shadow(
-    canvas: &mut Canvas,
-    frame: &Frame,
-    building: &BuildingPaint,
-    sprite: &Sprite,
-) {
+/// Whether a part of a drawing is a flat foot on the ground: low, and
+/// nothing of it above a tenth of the drawing's height.
+fn flat_foot(shape: &world_projection::DrawShape) -> bool {
+    match shape {
+        world_projection::DrawShape::Polygon { points } => {
+            !points.is_empty() && points.iter().all(|(_, v)| *v <= 0.12)
+        }
+        world_projection::DrawShape::Rect { y, h, .. } => y + h <= 0.12,
+        _ => false,
+    }
+}
+
+/// The soft dark where a building meets the ground, and in sun a longer
+/// one laid away from the light: only ever soft, blurred ellipses, 20 to
+/// 30% dark, and only on land (the art bible's §4). A shadow cast from the
+/// building's own shape was cut off square where its picture ended (v0.28's
+/// dark box at the point's tower, the bar under the pub); an ellipse
+/// has no edge at all. Something standing in the water (a tower on its
+/// rocks, a pier's piles) casts none on it.
+pub(super) fn paint_building_shadow(canvas: &mut Canvas, frame: &Frame, building: &BuildingPaint) {
+    if no_shadows() {
+        return;
+    }
     let night = frame.daylight == Daylight::Night;
     let [r, g, b] = shadow_ink(frame.hour);
     let ink = Hsla::from(gpui::Rgba { r, g, b, a: 1.0 });
-    canvas.soft(
-        building.x,
-        building.base + building.h * 0.012,
-        building.w * 0.56,
-        building.h * 0.05,
-        building.h * 0.06,
-        ink.opacity(if night { 0.32 } else { 0.26 }),
+    let (w, h) = (building.w, building.h);
+    // Where the land ends: the water's edge, softly, so the shadow fades
+    // out before it rather than stopping on a line.
+    let shore = frame.water.then(|| {
+        let edge = front_top(frame, building.x);
+        (edge - h * 0.14, edge)
+    });
+    if shore.is_some_and(|(_, edge)| building.base > edge - h * 0.02) {
+        return;
+    }
+    let contact = if night { 0.3 } else { 0.26 };
+    painter::soft_on_land(
+        canvas,
+        (building.x, building.base + h * 0.012),
+        (w * 0.56, h * 0.05),
+        h * 0.06,
+        ink.opacity(contact),
+        shore,
     );
     let (across, high) = sun_at(frame.hour);
     if night || !sun_out(frame.weather) || high <= 0.02 {
         return;
     }
-    let Some(silhouette) = &sprite.silhouette else {
-        return;
-    };
     // Away from the sun, flat on the ground toward the viewer: long when
-    // the sun is low, short at noon.
-    // Long when the sun is low (dawn, dusk), short at noon.
+    // the sun is low (dawn, dusk), short at noon; warm at dusk.
     let long = 0.2 + 0.95 * (1.0 - high).powi(2);
-    let shear = -across.signum() * long * across.abs().max(0.25);
-    let flat = 0.08 + 0.14 * (1.0 - high);
-    let s = canvas.scale;
-    let base = building.base;
-    let (sox, soy) = sprite.origin;
-    let x0 = sox + (base - soy) * shear;
-    let y0 = base + (base - soy) * flat;
-    let coarse = painter::COARSE as f32;
-    let transform = sk::Transform::from_row(
-        coarse,
-        0.0,
-        -coarse * shear,
-        -coarse * flat,
-        (x0 - canvas.origin.0) * s,
-        (y0 - canvas.origin.1) * s,
-    );
-    // Inked in a cool colour rather than black, so a little stronger.
+    let away = -across.signum() * across.abs().max(0.25);
+    let reach = h * long * 0.55;
+    // Stronger as the sun sinks: a long warm shadow at dusk, still no more
+    // than 30% dark.
     let strength = if frame.weather == Weather::Cloudy {
-        0.12
+        0.08
     } else {
-        0.3
+        0.18 + 0.1 * (1.0 - high)
     };
-    // Cool: blue at dawn, slate at noon, warmer at dusk.
-    let silhouette = painter::inked(silhouette, shadow_ink(frame.hour));
-    canvas.draw_mapped(&silhouette, transform, strength);
+    painter::soft_on_land(
+        canvas,
+        (
+            building.x + away * (w * 0.15 + reach * 0.5),
+            building.base + h * (0.03 + 0.03 * (1.0 - high)),
+        ),
+        (
+            w * 0.42 + reach * 0.5 * away.abs(),
+            h * (0.05 + 0.04 * (1.0 - high)),
+        ),
+        h * 0.08,
+        ink.opacity(strength),
+        shore,
+    );
+}
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, the buildings' shadows left out on this thread: a picture
+    /// with and one without them tells exactly what the shadows lay.
+    static NO_SHADOWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// In tests, leaves the buildings' shadows out on this thread, or puts
+/// them back.
+#[cfg(test)]
+pub(crate) fn leave_out_shadows(yes: bool) {
+    NO_SHADOWS.with(|cell| cell.set(yes));
+}
+
+/// Whether the buildings' shadows are left out (only ever in a test).
+pub(super) fn no_shadows() -> bool {
+    #[cfg(test)]
+    {
+        NO_SHADOWS.with(|cell| cell.get())
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
 }
 
 /// How big a design's cloth is on screen this frame, and whether it is a

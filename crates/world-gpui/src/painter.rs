@@ -93,23 +93,6 @@ impl Canvas {
             None,
         );
     }
-
-    /// Lays `other` (in device pixels) over this canvas through the map
-    /// `transform`, from its pixels to this canvas's pixels.
-    pub fn draw_mapped(&mut self, other: &sk::Pixmap, transform: sk::Transform, opacity: f32) {
-        self.pixmap.draw_pixmap(
-            0,
-            0,
-            other.as_ref(),
-            &sk::PixmapPaint {
-                opacity,
-                quality: sk::FilterQuality::Bilinear,
-                ..sk::PixmapPaint::default()
-            },
-            transform,
-            None,
-        );
-    }
 }
 
 pub fn colour(colour: Hsla) -> sk::Color {
@@ -419,6 +402,85 @@ pub fn fill_shaded(
     canvas
         .pixmap
         .fill_path(&path, &paint, sk::FillRule::Winding, transform, None);
+}
+
+/// A soft, blurred ellipse of `colour` centred on `centre`, `radii` across
+/// and `blur` soft at its edge, as [`Brush::soft`] lays it; but where the
+/// land ends (`shore`, the stage rows from where it begins to fade to the
+/// water's edge) it fades out, so a shadow never lies on the water and
+/// never stops on a line.
+pub fn soft_on_land(
+    canvas: &mut Canvas,
+    (cx, cy): (f32, f32),
+    (rx, ry): (f32, f32),
+    blur: f32,
+    colour_: Hsla,
+    shore: Option<(f32, f32)>,
+) {
+    if rx <= 0.0 || ry <= 0.0 || colour_.a <= 0.0 {
+        return;
+    }
+    let reach = blur.max(0.5) / 2.0;
+    let (ox, oy) = (rx + reach, ry + reach);
+    let inner = ((rx.min(ry) - reach) / (rx.min(ry) + reach)).clamp(0.0, 0.98);
+    let (x0, y0) = canvas.device(cx - ox, cy - oy);
+    let (x1, y1) = canvas.device(cx + ox, cy + oy);
+    let (width, height) = (canvas.pixmap.width() as i32, canvas.pixmap.height() as i32);
+    let (left, top) = ((x0.floor() as i32).max(0), (y0.floor() as i32).max(0));
+    let (right, bottom) = (
+        (x1.ceil() as i32).min(width),
+        (y1.ceil() as i32).min(height),
+    );
+    if right <= left || bottom <= top {
+        return;
+    }
+    let Rgba { r, g, b, a } = colour_.into();
+    let (r, g, b, a) = (
+        r.clamp(0.0, 1.0),
+        g.clamp(0.0, 1.0),
+        b.clamp(0.0, 1.0),
+        a.clamp(0.0, 1.0),
+    );
+    let scale = canvas.scale;
+    let origin = canvas.origin;
+    let shore = shore.map(|(from, to)| {
+        let from = (from - origin.1) * scale;
+        let to = (to - origin.1) * scale;
+        (from, (to - from).max(1.0))
+    });
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let stride = width as usize;
+    let data = canvas.pixmap.data_mut();
+    for y in top..bottom {
+        let py = y as f32 + 0.5;
+        let land = shore.map_or(1.0, |(from, span)| 1.0 - smooth((py - from) / span));
+        if land <= 0.0 {
+            continue;
+        }
+        let dy = ((py / scale + origin.1) - cy) / oy;
+        for x in left..right {
+            let dx = (((x as f32 + 0.5) / scale + origin.0) - cx) / ox;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d >= 1.0 {
+                continue;
+            }
+            let k = a * land * (1.0 - smooth((d - inner) / (1.0 - inner).max(1e-3)));
+            if k <= 0.002 {
+                continue;
+            }
+            let at = (y as usize * stride + x as usize) * 4;
+            let keep = 1.0 - k;
+            for (channel, value) in [r, g, b].into_iter().enumerate() {
+                let old = data[at + channel] as f32;
+                data[at + channel] = (value * k * 255.0 + old * keep).round().min(255.0) as u8;
+            }
+            let old = data[at + 3] as f32;
+            data[at + 3] = (k * 255.0 + old * keep).round().min(255.0) as u8;
+        }
+    }
 }
 
 /// A soft light added over what is there (screen blending): a lamp's
@@ -824,6 +886,12 @@ struct Cache {
     /// Whether the window being drawn is still opening, under its loading
     /// wash.
     opening: bool,
+    /// When the last frame began, and this frame's whole share of new
+    /// pictures (bytes).
+    began: Option<Instant>,
+    whole: usize,
+    /// How far apart frames have come lately, smoothed.
+    apart: Duration,
 }
 
 thread_local! {
@@ -1014,6 +1082,27 @@ pub fn sweep(window: &mut gpui::Window) {
     for image in dropped {
         let _ = window.drop_image(image);
     }
+}
+
+/// Lets go of what is kept for windows that have closed: when their
+/// frames began, and their pictures (the display that held them is gone
+/// with the window).
+pub fn forget_windows(gone: &std::collections::HashSet<u64>) {
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let cache = &mut *cache;
+        cache.frames.retain(|window, _| !gone.contains(window));
+        let dropped = cache
+            .entries
+            .iter()
+            .filter(|(_, entry)| gone.contains(&entry.window))
+            .map(|(key, _)| *key)
+            .collect::<Vec<_>>();
+        for key in dropped {
+            cache.entries.remove(&key);
+            cache.handed.remove(&key);
+        }
+    });
 }
 
 /// How long the painter has spent painting, and how many images, since
@@ -1364,33 +1453,6 @@ fn coarse(width: usize, height: usize, value: impl Fn(usize) -> f32) -> (Vec<f32
         }
     }
     (mask, cw, ch)
-}
-
-/// A painted shape as a soft dark at a quarter of its resolution: what it
-/// casts on the ground.
-pub fn silhouette(pixmap: &sk::Pixmap, blur: usize) -> Option<sk::Pixmap> {
-    let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
-    let data = pixmap.data();
-    let (mut mask, cw, ch) = coarse(width, height, |at| data[at * 4 + 3] as f32 / 255.0);
-    blur_mask(&mut mask, cw, ch, (blur / COARSE).max(1));
-    let mut out = sk::Pixmap::new(cw as u32, ch as u32)?;
-    for (pixel, value) in out.data_mut().as_chunks_mut::<4>().0.iter_mut().zip(&mask) {
-        pixel[3] = (value.clamp(0.0, 1.0) * 255.0) as u8;
-    }
-    Some(out)
-}
-
-/// A copy of a silhouette (alpha only) inked in `rgb`, 0 to 1: a shadow
-/// in the hour's own cool colour rather than black.
-pub fn inked(silhouette: &sk::Pixmap, rgb: [f32; 3]) -> sk::Pixmap {
-    let mut out = silhouette.clone();
-    for pixel in out.data_mut().as_chunks_mut::<4>().0.iter_mut() {
-        let a = pixel[3] as f32;
-        for (channel, value) in rgb.iter().enumerate() {
-            pixel[channel] = (value.clamp(0.0, 1.0) * a).round() as u8;
-        }
-    }
-    out
 }
 
 /// The windows of a mask as runs of columns: where each lit window is,
@@ -1837,17 +1899,57 @@ pub fn begin_frame(limit: bool) {
         cache.fresh = 0;
         cache.drawing = Duration::ZERO;
         let cost = cache.cost.unwrap_or(FIRST_COST);
+        // Where frames come slowly anyway (a software renderer drawing a
+        // few a second), a frame may hand over as much as the same share
+        // of its time allows: what a frame at sixty a second hands over in
+        // [`HANDOFF`] is about an eighth of its time. Never less than that.
+        let now = Instant::now();
+        let gap = cache
+            .began
+            .map_or(Duration::ZERO, |began| now.duration_since(began))
+            .min(SLOW_FRAME);
+        cache.began = Some(now);
+        // How far apart frames come, smoothed: slow to believe they come
+        // slowly, so one late frame (a busy moment) never earns the next a
+        // larger share and a hitch of its own.
+        let apart = cache.apart.mul_f32(0.85) + gap.mul_f32(0.15);
+        cache.apart = apart;
+        let roomy = if apart > SLOW_RENDERER {
+            HANDOFF.max(apart.min(gap).mul_f32(HANDOFF_SHARE))
+        } else {
+            HANDOFF
+        };
+        let wider = roomy.as_secs_f32() / HANDOFF.as_secs_f32();
         // While the window is still opening (its loading wash over
         // everything, nothing yet to see move), a frame may take a little
         // more: the place arrives sooner, and no hitch can be seen.
         let (least, most, time) = if cache.opening {
-            (OPENING_PER_FRAME, OPENING_PER_FRAME * 4, HANDOFF * 2)
+            (
+                OPENING_PER_FRAME,
+                OPENING_PER_FRAME * 4,
+                (HANDOFF * 2).max(roomy),
+            )
         } else {
-            (LEAST_PER_FRAME, BUDGET_PER_FRAME, HANDOFF)
+            (
+                LEAST_PER_FRAME,
+                (BUDGET_PER_FRAME as f32 * wider) as usize,
+                roomy,
+            )
         };
-        cache.budget = limit.then(|| ((time.as_nanos() as f32 / cost) as usize).clamp(least, most));
+        let whole = ((time.as_nanos() as f32 / cost) as usize).clamp(least, most);
+        cache.whole = whole;
+        cache.budget = limit.then_some(whole);
     });
 }
+
+/// The share of the time between frames a frame may spend handing new
+/// pictures to the display, where frames come slowly anyway.
+const HANDOFF_SHARE: f32 = 0.12;
+/// Frames this far apart, lately, are a slow renderer's.
+const SLOW_RENDERER: Duration = Duration::from_millis(60);
+/// Frames further apart than this count as this far apart (a window
+/// waking after a while is not a slow renderer).
+const SLOW_FRAME: Duration = Duration::from_millis(250);
 
 /// Lifts this frame's share: what a layer with nothing to show at all was
 /// just painted for is handed over at once, however much (a window's first
@@ -1863,12 +1965,7 @@ pub fn to_spare() -> bool {
     CACHE.with(|cache| {
         let cache = cache.borrow();
         match cache.budget {
-            Some(left) => {
-                let cost = cache.cost.unwrap_or(FIRST_COST);
-                let whole = ((HANDOFF.as_nanos() as f32 / cost) as usize)
-                    .clamp(LEAST_PER_FRAME, BUDGET_PER_FRAME);
-                left * 2 >= whole
-            }
+            Some(left) => left * 2 >= cache.whole,
             None => true,
         }
     })

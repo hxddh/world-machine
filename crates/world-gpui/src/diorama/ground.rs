@@ -267,55 +267,85 @@ pub(super) fn paint_footings(canvas: &mut Canvas, frame: &Frame, (from, to): (f3
             continue;
         }
         let (x, base, w) = (building.x, building.base, building.w);
-        if building.shape == MarkShape::Tower {
-            // A spit of rock and turf out into the water, narrowing to
-            // its point under the lighthouse, rocks along its edge.
+        // The tower on the point, by its shape or its drawing: never on a deck
+        // of planks (v0.28's dark slab at its foot).
+        if building.shape == MarkShape::Tower || super::light::is_beacon(building) {
+            // A plinth of rocks out into the water under the tower:
+            // boulders heaped from the spine's edge to its foot, lit from
+            // the upper left, darker where the sea wets them, with turf
+            // between the top stones. Painted, never a slab: no outline,
+            // no straight edge (v0.28's dark box at its foot).
             let stone = under_sky(
                 &frame.scenery,
-                mix(art::hex(0x7f786d), art::hex(frame.scenery.near), 0.25),
+                mix(art::hex(0x8a8276), art::hex(frame.scenery.near), 0.2),
                 GROUND_UNDER_SKY,
             );
             let foot = base + w * 0.12;
-            let mut spit = Shape::new();
-            spit.move_to(x - w * 0.95, edge - 1.0)
-                .curve_to(x - w * 0.15, foot, x - w * 0.75, foot)
-                .curve_to(
-                    x + w * 0.85,
-                    edge - 1.0,
-                    x + w * 0.65,
-                    foot - (foot - edge) * 0.1,
-                )
-                .close();
-            canvas.fill(&spit, stone);
-            canvas.stroke(&spit, 1.0 * k, art::shade(stone, -0.35).opacity(0.6));
+            let wet = art::shade(stone, -0.3);
+            // The heap's shadowed mass first, soft at its edge.
+            canvas.soft(
+                x,
+                (edge + foot) * 0.5,
+                w * 0.62,
+                (foot - edge).max(4.0 * k) * 0.55,
+                6.0 * k,
+                art::shade(stone, -0.22).opacity(0.9),
+            );
+            // The boulders, back to front: bigger toward the foot.
+            let count = 11;
+            for i in 0..count {
+                let s = painter::hash2(i, 41, building.index as u32);
+                let t = i as f32 / (count - 1) as f32;
+                let across = ((s % 1000) as f32 / 1000.0 - 0.5) * 2.0;
+                let ry_ = edge + (foot - edge) * (0.15 + 0.85 * t);
+                let reach = w * (0.62 - 0.22 * t);
+                let rx = x + across * reach;
+                let r = (w * (0.07 + 0.05 * t) + ((s >> 10) % 4) as f32 * k).max(2.5 * k);
+                let lit = art::shade(stone, 0.04 - 0.1 * t + ((s >> 14) % 3) as f32 * 0.03);
+                art::ellipse(canvas, rx, ry_, r, r * 0.62, lit);
+                // The sea darkens the lowest of them.
+                if t > 0.55 {
+                    art::ellipse(
+                        canvas,
+                        rx,
+                        ry_ + r * 0.32,
+                        r * 0.92,
+                        r * 0.3,
+                        wet.opacity(0.55),
+                    );
+                }
+                art::ellipse(
+                    canvas,
+                    rx - r * 0.28,
+                    ry_ - r * 0.24,
+                    r * 0.5,
+                    r * 0.24,
+                    art::shade(stone, 0.2),
+                );
+            }
+            // Turf between the top stones, and a fringe of weed where the
+            // rocks meet the water.
             let turf = under_sky(
                 &frame.scenery,
                 art::shade(art::hex(frame.scenery.far), -0.05),
                 GROUND_UNDER_SKY,
             );
-            let mut grass = Shape::new();
-            grass
-                .move_to(x - w * 0.8, edge)
-                .curve_to(x + w * 0.7, edge, x, edge + (foot - edge) * 0.45)
-                .close();
-            canvas.fill(&grass, turf.opacity(0.75));
-            for i in 0..9 {
-                let s = painter::hash2(i, 43, building.index as u32);
-                let t = (s % 1000) as f32 / 1000.0;
-                let side = if i % 2 == 0 { -1.0 } else { 1.0 };
-                let rx = x + side * w * (0.15 + 0.7 * (1.0 - t));
-                let ry = edge + (foot - edge) * (0.25 + 0.75 * t);
-                let r = (3.0 + (s >> 12) as f32 % 4.0) * k;
-                art::ellipse(canvas, rx, ry, r, r * 0.55, art::shade(stone, -0.15));
-                art::ellipse(
-                    canvas,
-                    rx - r * 0.2,
-                    ry - r * 0.2,
-                    r * 0.55,
-                    r * 0.25,
-                    art::shade(stone, 0.18),
-                );
-            }
+            canvas.soft(
+                x - w * 0.1,
+                edge + (foot - edge) * 0.12,
+                w * 0.45,
+                (foot - edge).max(4.0 * k) * 0.12,
+                3.0 * k,
+                turf.opacity(0.8),
+            );
+            canvas.soft(
+                x,
+                foot + w * 0.01,
+                w * 0.5,
+                2.5 * k,
+                3.0 * k,
+                art::shade(turf, -0.45).opacity(0.45),
+            );
             continue;
         }
         // A deck of planks on piles, from the quay's edge out to its foot,
@@ -423,8 +453,28 @@ fn paint_path(
 fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hsla, k: f32) {
     let (ground, mark) = inks(patch.patch, field, frame);
     let (x0, x1, top, bottom) = (patch.x0, patch.x1, patch.top, patch.bottom);
-    // A little wider at its foot, as ground seen in depth is.
+    // A little wider at its foot, as ground seen in depth is. A patch at
+    // the water (the Point) lays no ground over the sea, only its rocks:
+    // a flat grey apron out into the water read as a slab.
     let bleed = frame.figure_h * 0.12;
+    let body = match patch.patch {
+        Patch::Cobbles | Patch::Plaza | Patch::Yard | Patch::Paving => 0.5,
+        _ => 0.65,
+    };
+    let (under, body) = if patch.water {
+        (0.0, 0.0)
+    } else {
+        (0.35, body)
+    };
+    // Nor does any patch run on past the water's edge.
+    let bottom = if frame.water {
+        bottom.min(frame.front - 4.0 * k)
+    } else {
+        bottom
+    };
+    if bottom <= top {
+        return;
+    }
     canvas.fill(
         &blob(
             x0 - bleed,
@@ -433,12 +483,8 @@ fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hs
             bottom + bleed * 0.3,
             patch.seed,
         ),
-        ground.opacity(0.35),
+        ground.opacity(under),
     );
-    let body = match patch.patch {
-        Patch::Cobbles | Patch::Plaza | Patch::Yard | Patch::Paving => 0.5,
-        _ => 0.65,
-    };
     canvas.fill(&blob(x0, x1, top, bottom, patch.seed), ground.opacity(body));
     let w = x1 - x0;
     let h = bottom - top;

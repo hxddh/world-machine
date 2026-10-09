@@ -577,9 +577,13 @@ impl Pen<'_> {
         self.poly(&[(u0, v0), ((u0 + u1) / 2.0, apex), (u1, v0)], colour);
     }
 
-    /// A soft dark where it meets the ground, `ru` widths across.
+    /// A soft dark where it meets the ground, `ru` widths across: blurred,
+    /// never a hard-edged ellipse (the art bible's §4).
     pub fn shadow(&mut self, ru: f32) {
-        self.ell(0.0, 0.0, ru, 0.035, gpui::black().opacity(0.13));
+        let (cx, cy) = self.at(0.0, 0.0);
+        let (rx, ry) = (ru * self.w, (0.035 * self.h).max(1.0));
+        self.b
+            .soft(cx, cy, rx, ry, ry * 1.4, gpui::black().opacity(0.13));
     }
 
     /// A window: glass in a frame, lit at night.

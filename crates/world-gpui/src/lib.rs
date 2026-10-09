@@ -51,7 +51,28 @@ pub fn set_text_scale(percent: u32) {
 }
 
 pub fn text_scale() -> f32 {
+    #[cfg(test)]
+    if let Some(percent) = TEXT_SCALE_HERE.with(|here| here.get()) {
+        return percent as f32 / 100.0;
+    }
     TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
+}
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, a text size for this thread alone: the process-wide one is
+    /// shared by every test running beside it (the golden pictures, the
+    /// wrapping), so a test never changes it.
+    static TEXT_SCALE_HERE: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// In tests, runs `work` with text drawn at `percent` on this thread only.
+#[cfg(test)]
+pub(crate) fn with_text_scale<T>(percent: u32, work: impl FnOnce() -> T) -> T {
+    let before = TEXT_SCALE_HERE.with(|here| here.replace(Some(percent.clamp(100, 200))));
+    let out = work();
+    TEXT_SCALE_HERE.with(|here| here.set(before));
+    out
 }
 
 /// The size one rem is drawn at: 16 points, scaled as the player asked.
@@ -202,9 +223,9 @@ mod tests {
         let english =
             "Here we are again. Last time: Evan took a week's work on the mainland. Should I go?";
         let longer = format!("{english} {}", &english[..english.len() / 3]);
-        set_text_scale(200);
-        let pages = speech_pages(&longer);
-        set_text_scale(100);
+        // At 200% on this thread alone: the text size is process-wide, and
+        // the golden and wrapping tests run beside this one.
+        let pages = with_text_scale(200, || speech_pages(&longer));
         assert!(pages.len() >= 3, "{pages:?}");
         for page in &pages {
             // Two lines, or one sentence too long for two on a taller

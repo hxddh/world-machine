@@ -34,6 +34,8 @@ pub use interface::*;
 pub use light::*;
 pub use people::*;
 pub use scene::*;
+#[cfg(test)]
+pub(crate) use works::leave_out_shadows;
 #[allow(unused_imports)]
 pub use works::*;
 
@@ -103,6 +105,19 @@ pub struct Frame {
     pictures: BTreeMap<usize, Picture>,
     /// Bunting strung between two buildings, by their items.
     garlands: Vec<(usize, usize)>,
+    /// Where the camera is going while it glides there (a return film's
+    /// beat, Find, a card closing), so what it will see is painted, sharp,
+    /// before it arrives; and what the moment is about, a box in stage
+    /// pixels, painted first of all.
+    heading: Option<Camera>,
+    subject: Option<(f32, f32, f32, f32)>,
+    /// Where the camera will go after that (the return film's next beat),
+    /// and what it will be about: painted ahead, behind everything else.
+    next: Option<(Camera, (f32, f32, f32, f32))>,
+    /// Every building on the stage with the zoom it shows from (0 for
+    /// always): what the composition holds back for a closer look comes
+    /// into the frame the camera is heading for.
+    standing: std::sync::Arc<Vec<(f32, BuildingPaint)>>,
 }
 
 impl Frame {
@@ -111,6 +126,54 @@ impl Frame {
     pub fn at_hour(mut self, hour: f32) -> Self {
         self.hour = hour;
         self
+    }
+
+    /// The same frame with the camera on its way to `camera`, and the
+    /// moment's subject (a box in stage pixels): painted first, before
+    /// the camera settles there.
+    pub fn heading_to(mut self, camera: Camera, subject: Option<(f32, f32, f32, f32)>) -> Self {
+        self.heading = Some(camera);
+        self.subject = subject;
+        self
+    }
+
+    /// The same frame knowing where the camera goes after this (the return
+    /// film's next beat) and what it will be about there.
+    pub fn next_to(mut self, camera: Camera, subject: (f32, f32, f32, f32)) -> Self {
+        self.next = Some((camera, subject));
+        self
+    }
+
+    /// Where the camera is going, if it is on its way somewhere else.
+    pub(crate) fn heading(&self) -> Option<Camera> {
+        self.heading.filter(|to| *to != self.camera)
+    }
+
+    /// The moment's subject, a box in stage pixels.
+    pub(crate) fn subject(&self) -> Option<(f32, f32, f32, f32)> {
+        self.subject
+    }
+
+    /// The same frame seen through `camera`: what the composition keeps
+    /// back for a closer look is in it as the camera's zoom has it, and
+    /// everything else as this frame has it.
+    pub(crate) fn seen_from(&self, camera: Camera) -> Frame {
+        let mut seen = self.clone();
+        seen.camera = camera;
+        seen.heading = None;
+        seen.buildings = self
+            .standing
+            .iter()
+            .filter(|(least, _)| camera.zoom + 1e-4 >= *least)
+            .map(|(_, building)| {
+                self.buildings
+                    .iter()
+                    .find(|now| now.index == building.index)
+                    .unwrap_or(building)
+                    .clone()
+            })
+            .collect();
+        seen
     }
 
     /// The same frame `seconds` into looking, for the boil.
@@ -389,10 +452,9 @@ pub fn frame(
     }
     // What the composition keeps for a closer look is left out.
     let shows = |spot: &&Spot| stage.shows(spot.index, z);
-    let buildings = stage
+    let standing: Vec<(f32, BuildingPaint)> = stage
         .buildings
         .iter()
-        .filter(shows)
         .map(|spot| {
             let item = &items[spot.index];
             let shape = item.shape.unwrap_or_default();
@@ -425,7 +487,8 @@ pub fn frame(
                 (lw * fit, lh * fit)
             })
             .unwrap_or((w, h));
-            BuildingPaint {
+            let least = stage.shown_from.get(&spot.index).copied().unwrap_or(0.0);
+            let paint = BuildingPaint {
                 index: spot.index,
                 x: spot.x,
                 base: spot.y,
@@ -442,8 +505,14 @@ pub fn frame(
                 squash: (1.0, 1.0),
                 grow: 1.0,
                 inside: inside.remove(&spot.index).unwrap_or_default(),
-            }
+            };
+            (least, paint)
         })
+        .collect();
+    let buildings = standing
+        .iter()
+        .filter(|(least, _)| z + 1e-4 >= *least)
+        .map(|(_, building)| building.clone())
         .collect();
 
     let mut things = stage
@@ -639,6 +708,10 @@ pub fn frame(
             .collect(),
         pictures: BTreeMap::new(),
         garlands: Vec::new(),
+        heading: None,
+        subject: None,
+        next: None,
+        standing: std::sync::Arc::new(standing),
     }
 }
 

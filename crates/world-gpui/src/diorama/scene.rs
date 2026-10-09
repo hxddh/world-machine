@@ -349,6 +349,10 @@ impl Clock {
     }
 }
 
+/// How many stand out by the water at dusk at least, when the hour has the
+/// rest indoors: two groups, of three and two.
+pub(super) const DUSK_OUT: usize = 5;
+
 /// How fast someone strolls to where their day takes them, in figure
 /// heights a second.
 pub(super) const STROLL: f32 = 1.1;
@@ -670,6 +674,77 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     if actors <= 3 && !inside.is_empty() && inside.len() == actors {
         inside.remove(0);
     }
+    // Who strolls down to the water at dusk, and in front of which place.
+    let mut strolling = BTreeMap::<usize, usize>::new();
+    // At dusk the spine is never empty: before going in, a few of those whose
+    // day has them home stand out by the water a while, in front of their
+    // own doors, those nearest the middle of the place first (the art
+    // bible's §4 and §8: a gold dusk, people out by the water). Only where
+    // they are drawn changes; the World keeps where they are.
+    if (18..=20).contains(&clock.hour) && inside.len() > 1 {
+        // Counted on the first screen, the middle of the place.
+        let middle = width / 2.0;
+        let near = |x: f32| (x - middle).abs() < view_w * 0.42;
+        let indoors_now = inside
+            .iter()
+            .map(|(person, _)| *person)
+            .collect::<BTreeSet<_>>();
+        let out = (0..items.len())
+            .filter(|index| {
+                items[*index].kind == CanvasItemKind::Actor
+                    && !indoors_now.contains(index)
+                    && !leaving.contains_key(index)
+                    && host(*index)
+                        .and_then(|place| slot_x.get(&place))
+                        .is_some_and(|x| near(*x))
+            })
+            .count();
+        let wanted = DUSK_OUT.min(actors - 1);
+        if out < wanted {
+            let mut by_middle = inside
+                .iter()
+                .enumerate()
+                .map(|(at, (_, home))| {
+                    let x = slot_x.get(home).copied().unwrap_or(f32::MAX);
+                    ((x - middle).abs(), at)
+                })
+                .collect::<Vec<_>>();
+            by_middle.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let stepping_out = by_middle
+                .iter()
+                .take(wanted - out)
+                .map(|(_, at)| *at)
+                .collect::<BTreeSet<_>>();
+            // Whoever lives further off strolls down to the water by the
+            // middle of the place: in front of the two places nearest it,
+            // turn and turn about, so they stand as two groups.
+            let mut by_the_water = slot_x
+                .iter()
+                .filter(|(index, _)| items[**index].kind == CanvasItemKind::Place)
+                .map(|(index, x)| ((x - middle).abs(), *index))
+                .collect::<Vec<_>>();
+            by_the_water.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            let mut turn = 0;
+            for &at in &stepping_out {
+                let (person, home) = inside[at];
+                let x = slot_x.get(&home).copied().unwrap_or(f32::MAX);
+                if !near(x) {
+                    if let Some((_, place)) =
+                        by_the_water.get(turn % by_the_water.len().clamp(1, 2))
+                    {
+                        strolling.insert(person, *place);
+                    }
+                    turn += 1;
+                }
+            }
+            let mut at = 0;
+            inside.retain(|_| {
+                let keep = !stepping_out.contains(&at);
+                at += 1;
+                keep
+            });
+        }
+    }
     let indoors = inside
         .iter()
         .map(|(person, _)| *person)
@@ -686,7 +761,12 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         if item.kind != CanvasItemKind::Actor || indoors.contains(&index) {
             continue;
         }
-        match host(index).filter(|host| slot_x.contains_key(host)) {
+        match strolling
+            .get(&index)
+            .copied()
+            .or_else(|| host(index))
+            .filter(|host| slot_x.contains_key(host))
+        {
             Some(host) => hosted.entry(host).or_default().push(index),
             None => loose.push(index),
         }
@@ -1716,6 +1796,8 @@ pub(super) fn ground_key(frame: &Frame, scale: f32) -> Key {
         key.float(value);
     }
     key.add(frame.blend_top);
+    // A test's picture without the shadows is another picture.
+    key.add(super::works::no_shadows());
     for patch in &frame.patches {
         key.float(patch.x0)
             .float(patch.x1)

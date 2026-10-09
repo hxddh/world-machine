@@ -350,6 +350,58 @@ pub(super) fn gather(
     }
 }
 
+/// How wide a standing person's silhouette is, in heights: for telling
+/// how much two overlap.
+pub(super) const BODY_W: f32 = 0.42;
+
+/// How far apart two people may stand up or down the spine, in heights,
+/// and still read as one line: their feet on one line, within a hand.
+pub(super) const IN_LINE: f32 = 0.06;
+
+/// How far apart along the spine two people in one line may stand, in
+/// heights, and still read as one row.
+pub(super) const ROW_GAP: f32 = 2.2;
+
+/// Of people standing (feet at `x`, `y`, `height` tall, in screen
+/// pixels): the most standing in one row (feet on one line, each within a
+/// couple of strides of the next), and the most any two overlap, as a
+/// share of the smaller silhouette. The art bible's §6 holds the first to
+/// four and v0.29 the second to a fifth.
+pub fn rows_and_overlap(people: &[(f32, f32, f32)]) -> (usize, f32) {
+    let mut order = people.to_vec();
+    order.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut longest = usize::from(!order.is_empty());
+    for (start, first) in order.iter().enumerate() {
+        let mut count = 1;
+        let mut last = *first;
+        for next in &order[start + 1..] {
+            let p = last.2.max(next.2).max(1.0);
+            if next.0 - last.0 > ROW_GAP * p {
+                break;
+            }
+            if (next.1 - first.1).abs() <= IN_LINE * p {
+                count += 1;
+                last = *next;
+            }
+        }
+        longest = longest.max(count);
+    }
+    let body = |(x, y, h): (f32, f32, f32)| (x - h * BODY_W / 2.0, y - h, h * BODY_W, h);
+    let mut most = 0.0_f32;
+    for (at, a) in order.iter().enumerate() {
+        for b in &order[at + 1..] {
+            let (ra, rb) = (body(*a), body(*b));
+            let w = (ra.0 + ra.2).min(rb.0 + rb.2) - ra.0.max(rb.0);
+            let h = (ra.1 + ra.3).min(rb.1 + rb.3) - ra.1.max(rb.1);
+            if w > 0.0 && h > 0.0 {
+                let smaller = (ra.2 * ra.3).min(rb.2 * rb.3).max(1.0);
+                most = most.max(w * h / smaller);
+            }
+        }
+    }
+    (longest, most)
+}
+
 /// How a run of `n` people splits into groups of two and three.
 pub(super) fn group_sizes(n: usize) -> Vec<usize> {
     match n {
@@ -881,7 +933,14 @@ pub(super) fn paint_live(
         let (x, base) = screen(thing.x, thing.base);
         let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
         if let Some(glow) = thing.glow {
-            window.soft(x, base, w * 0.8, w * 0.16, w * 0.12, glow.opacity(0.35));
+            window.soft(
+                x,
+                base,
+                w * 0.8,
+                w * 0.16,
+                w * 0.12,
+                ground_glow(glow, 0.35),
+            );
         }
         if thing.shape == MarkShape::Boat {
             // A darker patch of water under the hull.
@@ -1067,7 +1126,7 @@ pub(super) fn paint_live(
                 person.height * 0.8 * breathe,
                 person.height * 0.2 * breathe,
                 person.height * 0.14,
-                glow.opacity(0.45),
+                ground_glow(glow, 0.45),
             );
         }
         // Lifted off the ground in a hop, the shadow shrinks and fades.

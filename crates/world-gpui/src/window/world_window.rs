@@ -759,6 +759,28 @@ fn part_of_the_place(selection: SelectionId) -> bool {
         .is_some_and(|id| id >= 900_000_000)
 }
 
+/// The box on the stage around whatever a return film's beat is about.
+fn beat_box(
+    snapshot: &ProjectionSnapshot,
+    stage: &Stage,
+    beat: &BriefingItem,
+) -> Option<(f32, f32, f32, f32)> {
+    let targets = beat_targets(snapshot, beat);
+    let boxes = snapshot
+        .canvas
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| targets.contains(&item.id))
+        .filter_map(|(index, _)| stage.frame_of(index))
+        .collect::<Vec<_>>();
+    let (x0, y0, x1, y1) = boxes.iter().fold(
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+        |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
+    );
+    (!boxes.is_empty()).then_some((x0, y0, x1 - x0, y1 - y0))
+}
+
 /// With `WORLD_MACHINE_FRAME_LOG` set, how long the scene takes on the
 /// window's thread (working out its still layers and drawing everything):
 /// every two seconds, the mean and the longest frame, and how long was
@@ -1746,6 +1768,41 @@ impl ProjectionView {
         self.step_retelling(cx);
     }
 
+    /// The return film's next beat, after the one being told: where the
+    /// camera will go next, and what it will be about, painted ahead once
+    /// the beat on screen is sharp.
+    fn next_beat_view(&self, stage: &Stage) -> Option<(Camera, (f32, f32, f32, f32))> {
+        let index = self.retelling? + 1;
+        let beat = *self.snapshot.briefing.as_ref()?.beats().get(index)?;
+        let subject = beat_box(&self.snapshot, stage, beat)?;
+        Some((Camera::on(stage, subject), subject))
+    }
+
+    /// What the moment is about, as a box on the stage: whatever the return
+    /// film's beat is about, or whoever the player is talking to (Find
+    /// lands on them). The scene paints it first, sharp, before the camera
+    /// settles on it.
+    fn subject(&self, stage: &Stage) -> Option<(f32, f32, f32, f32)> {
+        let boxes = match self.current_beat() {
+            Some(beat) => return beat_box(&self.snapshot, stage, beat),
+            None => {
+                let who = self.looking.asking?;
+                let index = self
+                    .snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .position(|item| item.id == who)?;
+                vec![stage.frame_of(index)?]
+            }
+        };
+        let (x0, y0, x1, y1) = boxes.iter().fold(
+            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
+        );
+        (!boxes.is_empty()).then_some((x0, y0, x1 - x0, y1 - y0))
+    }
+
     /// Where the camera is now, moving toward where it was last sent.
     fn camera(&mut self, stage: &Stage) -> Camera {
         let whole = Camera::whole(stage);
@@ -2540,6 +2597,15 @@ impl ProjectionView {
             rising,
         )
         .stilled(still);
+        // Where the camera is going, and what the moment is about: painted
+        // first, so the camera arrives on sharp paint; and where the return
+        // film goes next, painted ahead.
+        if let Some(to) = self.looking.camera_to {
+            frame = frame.heading_to(to, self.subject(&stage));
+        }
+        if let Some((camera, subject)) = self.next_beat_view(&stage) {
+            frame = frame.next_to(camera, subject);
+        }
         frame.bounce(&self.snapshot, &poked);
         // What a turn just built rises into place.
         if let Some(before) = &self.before_turn {
@@ -5058,7 +5124,8 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
 /// only when a picture of that name is already there (a postcard, which is
 /// named after its day).
 pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) -> bool {
-    let Some(home) = std::env::var_os("HOME") else {
+    // Windows names the home folder USERPROFILE.
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
         return false;
     };
     let folder = std::path::Path::new(&home)
@@ -5091,14 +5158,65 @@ pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stam
         f32::from(bounds.size.width).round(),
         f32::from(bounds.size.height).round()
     );
-    std::process::Command::new("/usr/sbin/screencapture")
-        .arg("-x")
-        .arg("-R")
-        .arg(region)
-        .arg(&path)
+    capture_region(&region, &path) && path.is_file()
+}
+
+/// Copies the screen area `region` ("x,y,width,height" in the window's
+/// points) to the PNG at `path`. Not offscreen: GPUI renders a frame to an
+/// image (`Window::render_to_image`, Metal and DirectX) only with its
+/// `test-support` feature at the pinned revision, so until it does, this is
+/// the operating system's own copy of the screen: `screencapture` on the
+/// Mac, .NET's `CopyFromScreen` through Windows PowerShell on Windows
+/// (DPI-unaware, so it takes the same points GPUI gives), nothing elsewhere.
+fn capture_region(region: &str, path: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/sbin/screencapture")
+            .arg("-x")
+            .arg("-R")
+            .arg(region)
+            .arg(path)
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let numbers = region
+            .split(',')
+            .filter_map(|part| part.parse::<f64>().ok())
+            .map(|value| value.round() as i64)
+            .collect::<Vec<_>>();
+        let [x, y, width, height] = numbers[..] else {
+            return false;
+        };
+        let target = path.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "Add-Type -AssemblyName System.Drawing; \
+             $b = New-Object System.Drawing.Bitmap {width}, {height}; \
+             $g = [System.Drawing.Graphics]::FromImage($b); \
+             $g.CopyFromScreen({x}, {y}, 0, 0, $b.Size); \
+             $b.Save('{target}', [System.Drawing.Imaging.ImageFormat]::Png)"
+        );
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::process::Command::new(
+            std::path::Path::new(&system)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe"),
+        )
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .is_ok_and(|status| status.success())
-        && path.is_file()
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = (region, path);
+        false
+    }
 }
 
 /// The paper of a postcard around a scene `width` by `height`: an even

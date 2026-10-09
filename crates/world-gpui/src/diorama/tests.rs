@@ -1607,12 +1607,14 @@ fn time_is_light_and_lamps_light_the_spine() {
             .count()
     };
     assert_eq!(lit(13.0), 0, "no lamp is lit by day");
-    let first = lit(19.0);
-    assert!(
-        first > 0 && first < lamps.len(),
-        "at dusk the first lamps are lit: {first} of {}",
-        lamps.len()
-    );
+    assert_eq!(lit(17.5), 0, "nor in the late afternoon");
+    for dusk in [18.25, 18.5, 19.0, 19.5, 20.5] {
+        assert_eq!(
+            lit(dusk),
+            lamps.len(),
+            "every spine lamp is lit at dusk ({dusk})"
+        );
+    }
     assert_eq!(lit(23.0), lamps.len(), "every lamp at night");
     assert_eq!(lit(3.0), lamps.len(), "and through the small hours");
     // Rain is a few fine streaks, and the light under it stays near a
