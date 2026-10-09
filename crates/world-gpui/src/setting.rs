@@ -505,9 +505,9 @@ fn ice_props(canvas: &mut Canvas, g: &Ground) {
         let mut ridge = Shape::new();
         ridge
             .move_to(x - long, y)
-            .curve_to(x + long, y, x - long * 0.2, y - 5.0 * k)
+            .curve_to(x + long, y, x - long * 0.2, y - 2.5 * k)
             .close();
-        canvas.fill(&ridge, snow.opacity(0.85));
+        canvas.fill(&ridge, snow.opacity(0.45));
         let mut under = Shape::new();
         under.move_to(x - long * 0.7, y + 0.5).curve_to(
             x + long,

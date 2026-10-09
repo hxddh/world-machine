@@ -11,6 +11,8 @@
 //!   `ー`, small kana…) nor after opening punctuation (`(`, `「`…): kinsoku;
 //! - never inside a run of katakana (a name, a loanword) or of Latin
 //!   letters and digits;
+//! - never at a word joiner (U+2060), which a translation puts inside a
+//!   Chinese word that must not be split across lines ("木\u{2060}材");
 //! - only if nothing else fits, anywhere but before closing punctuation.
 //!
 //! [`lines`] works out the lines for any measure of width, and [`text`] is
@@ -22,6 +24,10 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// The word joiner: no line breaks either side of it. Invisible, it holds
+/// a word of a script with no spaces together ("木\u{2060}材", timber).
+const JOINER: char = '\u{2060}';
 
 /// Characters a line may not start with.
 fn closing(c: char) -> bool {
@@ -201,7 +207,7 @@ fn breaks_by(text: &str, phrases: bool) -> Vec<Break> {
             }
             continue;
         }
-        if prev == ' ' || prev == '\u{00A0}' || c == '\u{00A0}' {
+        if prev == ' ' || prev == '\u{00A0}' || c == '\u{00A0}' || prev == JOINER || c == JOINER {
             continue;
         }
         let between = unspaced(prev) || unspaced(c);
@@ -241,11 +247,16 @@ fn anywhere(text: &str) -> Vec<Break> {
         .char_indices()
         .find(|(_, c)| wordlike(*c))
         .map_or(text.len(), |(at, _)| at);
-    text.char_indices()
-        .skip(1)
-        .filter(|(at, _)| *at > lead)
-        .filter(|(_, c)| !closing(*c) && *c != ' ')
-        .map(|(at, _)| Break { at, next: at })
+    let chars = text.char_indices().collect::<Vec<_>>();
+    chars
+        .windows(2)
+        .filter(|pair| pair[1].0 > lead)
+        .filter(|pair| !closing(pair[1].1) && pair[1].1 != ' ')
+        .filter(|pair| pair[0].1 != JOINER && pair[1].1 != JOINER)
+        .map(|pair| Break {
+            at: pair[1].0,
+            next: pair[1].0,
+        })
         .collect()
 }
 
@@ -688,6 +699,26 @@ mod tests {
             for line in broken(text, width) {
                 let last = line.chars().last().unwrap();
                 assert!(!opening(last), "{text}: a line ends with {last}");
+            }
+        }
+    }
+
+    /// A word a translation joins (U+2060) is never split across lines,
+    /// however narrow the card: "木/材" (timber) in Evan's card (v0.29
+    /// round 2), wherever the line would otherwise have broken.
+    #[test]
+    fn a_joined_word_never_breaks() {
+        let text = "我们又来了。上次，埃文建好了新码头的一段。给我木\u{2060}材，我就还你一座码头。";
+        for width in 2..30 {
+            for line in broken(text, width as f32) {
+                assert!(
+                    !line.ends_with('木') && !line.starts_with('材'),
+                    "at {width}: {line:?}"
+                );
+                assert!(
+                    !line.ends_with(JOINER) && !line.starts_with(JOINER),
+                    "at {width}: {line:?}"
+                );
             }
         }
     }

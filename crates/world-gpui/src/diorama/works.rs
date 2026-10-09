@@ -244,6 +244,9 @@ pub(super) fn paint_building_tile(
         for building in &near {
             paint_building_shadow(&mut canvas, frame, building);
         }
+        for building in &near {
+            paint_building_glow(&mut canvas, building);
+        }
     });
     painter::timed("tile: buildings", || {
         for sprite in &sprites {
@@ -392,16 +395,6 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
         return empty();
     };
     let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
-    if let Some(glow) = building.glow {
-        canvas.soft(
-            building.x,
-            building.base,
-            w * 0.78,
-            h * 0.2,
-            h * 0.14,
-            ground_glow(glow, 0.45),
-        );
-    }
     // A low wall run on toward a neighbour it joins.
     for (joined, side) in [(building.joins.0, -1.0_f32), (building.joins.1, 1.0)] {
         if joined {
@@ -462,7 +455,10 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
             w,
             h,
             drawing,
-            &Inks::of_place(&building.palette).lit(lit),
+            &Inks {
+                glow: !no_glow(),
+                ..Inks::of_place(&building.palette).lit(lit)
+            },
             Stance::Standing,
             world_projection::Mood::Content,
             0.0,
@@ -571,6 +567,8 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
         if !building.inside.is_empty() {
             painter::inside(&mut canvas.pixmap, glass, building.inside.len());
         }
+    }
+    if let Some(glass) = glass.as_ref().filter(|_| !no_glow()) {
         painter::timed("sprite: bloom", || {
             painter::bloom(
                 &mut canvas.pixmap,
@@ -616,6 +614,26 @@ fn recolour(pixmap: &mut sk::Pixmap, mask: &[f32], rgb: [f32; 3]) {
             *pixel = turned;
         }
     }
+}
+
+/// The pool of light a lit building throws on the ground before it: a
+/// soft ellipse painted on the land itself, like its shadow, never in the
+/// building's own picture, where it was cut square at the picture's foot
+/// and sides (v0.29 round 2's lit box behind the rust planet's ring).
+pub(super) fn paint_building_glow(canvas: &mut Canvas, building: &BuildingPaint) {
+    let Some(glow) = building.glow.filter(|_| !no_glow()) else {
+        return;
+    };
+    let (w, h) = (building.w, building.h);
+    // Wide and soft all the way out: radial, never a disc with a rim.
+    canvas.soft(
+        building.x,
+        building.base,
+        w * 0.72,
+        h * 0.2,
+        h * 0.34,
+        ground_glow(glow, 0.42),
+    );
 }
 
 /// Whether a part of a drawing is a flat foot on the ground: low, and
@@ -714,6 +732,33 @@ pub(super) fn no_shadows() -> bool {
     #[cfg(test)]
     {
         NO_SHADOWS.with(|cell| cell.get())
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, the light lit windows throw (their glow, and its pool on
+    /// the ground) left out on this thread: a picture with and one without
+    /// it tells exactly what that light lays.
+    static NO_GLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// In tests, leaves the lit windows' glow out on this thread, or puts it
+/// back.
+#[cfg(test)]
+pub(crate) fn leave_out_glow(yes: bool) {
+    NO_GLOW.with(|cell| cell.set(yes));
+}
+
+/// Whether the lit windows' glow is left out (only ever in a test).
+pub(super) fn no_glow() -> bool {
+    #[cfg(test)]
+    {
+        NO_GLOW.with(|cell| cell.get())
     }
     #[cfg(not(test))]
     {

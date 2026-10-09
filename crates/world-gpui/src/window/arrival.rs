@@ -233,6 +233,79 @@ pub(crate) fn best_view(stage: &crate::diorama::Stage, x: f32) -> f32 {
         .unwrap_or(x)
 }
 
+/// Where to centre the opening view at this hour, given `own` (the best
+/// view around whoever opens it, standing at `x` now) and `noon` (the best
+/// view the same place opens on at noon): wherever the hour's own view
+/// cuts a building at the window's edge or leaves one hard against it, the
+/// view nearest the noon framing that keeps them well in view and every
+/// building clear of the edges, or as many as can be (v0.29 round 2: at dusk and night the
+/// keeper of the rust planet stood elsewhere, and the view framed on her left the
+/// dome garden against the edge, cut by the window's frame). A view that
+/// keeps every building clear is kept as it is.
+pub(crate) fn framed_as_at_noon(stage: &crate::diorama::Stage, x: f32, own: f32, noon: f32) -> f32 {
+    if crowded_at_the_edges(stage, own) == 0 {
+        return own;
+    }
+    let half = stage.view_w / 2.0;
+    let reach = half - (stage.view_w * 0.12).min(half);
+    let steps = 96;
+    // Nothing cut (wherever that can be), then the fewest buildings
+    // against the edges, then the least of any building hidden past the
+    // edge (a sliver of a home rather than half the bridge), then the
+    // nearest the noon framing.
+    let rank = |centre: f32| {
+        (
+            cut_at_the_edges(stage, centre),
+            crowded_at_the_edges(stage, centre),
+            (hidden_past_the_edges(stage, centre) / 8.0).round() as i32,
+        )
+    };
+    (0..=steps)
+        .map(|step| x - reach + 2.0 * reach * step as f32 / steps as f32)
+        .chain([own])
+        .min_by(|a, b| {
+            rank(*a)
+                .cmp(&rank(*b))
+                .then((a - noon).abs().total_cmp(&(b - noon).abs()))
+        })
+        .unwrap_or(own)
+}
+
+/// How many buildings the window centred on stage `centre` cuts at its
+/// edges or leaves within [`EDGE_ROOM`] of them.
+pub(crate) fn crowded_at_the_edges(stage: &crate::diorama::Stage, centre: f32) -> usize {
+    let half = stage.view_w / 2.0;
+    let centre = centre.clamp(half, (stage.width - half).max(half));
+    let (left, right) = (centre - half, centre + half);
+    stage
+        .buildings
+        .iter()
+        .filter(|spot| {
+            let (from, to) = (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0);
+            (from < left + EDGE_ROOM && to > left) || (from < right && to > right - EDGE_ROOM)
+        })
+        .count()
+}
+
+/// How much of the buildings the window centred on stage `centre` cuts
+/// lies past its edges, in stage pixels.
+fn hidden_past_the_edges(stage: &crate::diorama::Stage, centre: f32) -> f32 {
+    let half = stage.view_w / 2.0;
+    let centre = centre.clamp(half, (stage.width - half).max(half));
+    let (left, right) = (centre - half, centre + half);
+    stage
+        .buildings
+        .iter()
+        .map(|spot| (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0))
+        .filter(|(from, to)| (*from < left && *to > left) || (*from < right && *to > right))
+        .map(|(from, to)| (left - from).max(0.0) + (to - right).max(0.0))
+        .sum()
+}
+
+/// How close to the window's edge a building may stand on an opening
+/// view, in stage pixels.
+const EDGE_ROOM: f32 = 24.0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -757,5 +830,64 @@ mod tests {
             (x + w / 2.0 - shown).abs() <= half * 0.9,
             "the welcomer is on the first screen"
         );
+    }
+
+    /// Each place of the second Pack opens on the same framing at every
+    /// hour, its focal pieces whole: at dusk and at night as at noon,
+    /// whoever keeps it still well in view (v0.29 round 2: the rust
+    /// planet's dome garden cut at the right edge at dusk and night).
+    #[test]
+    fn a_place_opens_on_its_noon_framing_at_every_hour() {
+        use crate::diorama::{stage_at, Clock};
+        for (name, json) in [
+            ("dust", include_str!("../../tests/fixtures/start-dust.json")),
+            (
+                "street",
+                include_str!("../../tests/fixtures/start-street.json"),
+            ),
+            ("ice", include_str!("../../tests/fixtures/start-ice.json")),
+        ] {
+            let wire: world_pack_protocol::ProjectionSnapshotWire =
+                serde_json::from_str(json).expect("a place's snapshot");
+            let snapshot = ProjectionSnapshot::try_from(wire).expect("a snapshot");
+            // Whoever is out to open the place on (its keeper).
+            let keeper = |stage: &crate::diorama::Stage| {
+                let spot = stage.people.first().expect("someone is out");
+                let (x, _, w, _) = stage.frame_of(spot.index).expect("framed");
+                x + w / 2.0
+            };
+            let noon_stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(12));
+            let noon = best_view(&noon_stage, keeper(&noon_stage));
+            assert_eq!(cut_at_the_edges(&noon_stage, noon), 0, "{name} at noon");
+            for hour in [19, 23] {
+                let stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(hour));
+                let x = keeper(&stage);
+                let own = best_view(&stage, x);
+                let centre = framed_as_at_noon(&stage, x, own, noon);
+                assert!(
+                    cut_at_the_edges(&stage, centre) <= cut_at_the_edges(&stage, own),
+                    "{name} at {hour}: no more cut at the window's edge than its own view"
+                );
+                assert!(
+                    crowded_at_the_edges(&stage, centre) <= crowded_at_the_edges(&stage, own),
+                    "{name} at {hour}: no more crowded against the edges than its own view"
+                );
+                // The rust planet's dome garden is whole and clear of the
+                // edge at every hour.
+                if name == "dust" {
+                    assert_eq!(
+                        crowded_at_the_edges(&stage, centre),
+                        0,
+                        "{name} at {hour}: nothing hard against the window's edge"
+                    );
+                }
+                let half = stage.view_w / 2.0;
+                let shown = centre.clamp(half, stage.width - half);
+                assert!(
+                    (x - shown).abs() <= half - 8.0,
+                    "{name} at {hour}: the keeper is in view"
+                );
+            }
+        }
     }
 }

@@ -66,11 +66,9 @@ const ANSWER_SECONDS: f32 = 9.0;
 pub(crate) const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
-/// How long the camera takes to move.
-pub(crate) const CAMERA_SECONDS: f32 = 0.9;
-/// The longest a glide waits where it set off for what it will see to be
-/// painted.
-const CAMERA_HOLD_SECONDS: f32 = 1.6;
+#[cfg(test)]
+pub(crate) use super::glide::CAMERA_SECONDS;
+use super::glide::{Bound, Glide};
 /// How many of today's exchanges with someone their card shows.
 const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
@@ -375,13 +373,8 @@ pub(crate) struct Looking {
     pub(crate) asking: Option<SelectionId>,
     pub(crate) answered: Option<(usize, Instant)>,
     pub(crate) beat_at: Option<Instant>,
-    pub(crate) camera_from: Option<Camera>,
-    pub(crate) camera_to: Option<Camera>,
-    pub(crate) camera_at: Option<Instant>,
-    /// Since when a glide to somewhere new (Find, a return beat) has been
-    /// held where it set off, waiting for what it will see there to be
-    /// painted.
-    pub(crate) camera_hold: Option<Instant>,
+    /// The camera's glide toward what it is sent to look at.
+    pub(crate) glide: Glide,
     pub(crate) focus: Option<gpui::FocusHandle>,
     /// The clock that keeps a living World moving; dropped (stopping it)
     /// while the window cannot be seen.
@@ -456,6 +449,10 @@ pub(crate) struct Looking {
     /// Whoever the window opened on to welcome the player, and where it
     /// put the camera for them.
     pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// Where the opening view is centred at noon, for a stage of this
+    /// width and height: the framing every hour opens on where its own
+    /// would leave a building against the window's edge.
+    pub(crate) noon_view: Option<((f32, f32), f32)>,
     /// A farewell showing over the World, and whether the camera has gone
     /// to whoever says goodbye.
     pub(crate) farewell: Option<super::farewell::Farewell>,
@@ -1709,7 +1706,7 @@ impl ProjectionView {
             if self.looking.pan != Some(at) {
                 self.looking.welcome_pan = None;
             } else if let Some(x) = self.stage_x(stage, who) {
-                let x = super::arrival::best_view(stage, x);
+                let x = self.opening_view(stage, who, x);
                 self.looking.pan = Some(x);
                 self.looking.welcome_pan = Some((who, x));
             }
@@ -1742,13 +1739,41 @@ impl ProjectionView {
                 .max_by(|a, b| a.0.cmp(&b.0))
                 .map(|(_, who)| who)
         });
-        if let Some((who, x)) = who.and_then(|who| {
-            self.stage_x(stage, who)
-                .map(|x| (who, super::arrival::best_view(stage, x)))
-        }) {
+        if let Some((who, x)) = who
+            .and_then(|who| self.stage_x(stage, who).map(|x| (who, x)))
+            .map(|(who, x)| (who, self.opening_view(stage, who, x)))
+        {
             self.looking.pan = Some(x);
             self.looking.welcome_pan = Some((who, x));
         }
+    }
+
+    /// Where to centre the opening view on `who`, standing at `x`: the
+    /// best view around them, or, where that leaves a building against
+    /// the window's edge, the nearest to how the place opens at noon (see
+    /// [`super::arrival::framed_as_at_noon`]).
+    fn opening_view(&mut self, stage: &Stage, who: SelectionId, x: f32) -> f32 {
+        let own = super::arrival::best_view(stage, x);
+        if super::arrival::crowded_at_the_edges(stage, own) == 0 {
+            return own;
+        }
+        let size = (stage.view_w, stage.height);
+        let noon = match self.looking.noon_view {
+            Some((kept, centre)) if kept == size => centre,
+            _ => {
+                let noon_stage =
+                    diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
+                let at_noon = self.stage_x(&noon_stage, who).or_else(|| {
+                    let spot = noon_stage.people.first()?;
+                    let (x, _, w, _) = noon_stage.frame_of(spot.index)?;
+                    Some(x + w / 2.0)
+                });
+                let centre = at_noon.map_or(own, |x| super::arrival::best_view(&noon_stage, x));
+                self.looking.noon_view = Some((size, centre));
+                centre
+            }
+        };
+        super::arrival::framed_as_at_noon(stage, x, own, noon)
     }
 
     /// On a World's first day, once the welcome has been heard, the
@@ -2113,56 +2138,27 @@ impl ProjectionView {
                     },
                 )
             });
-        let current = match (self.looking.camera_from, self.looking.camera_to) {
-            // Held where it set off (below), it stays there exactly.
-            (Some(from), Some(_)) if self.looking.camera_hold.is_some() => from,
-            (Some(from), Some(to)) => {
-                from.toward(to, since(self.looking.camera_at) / CAMERA_SECONDS)
-            }
-            _ => whole,
+        let bound = match (self.retelling, self.looking.asking) {
+            (Some(index), _) if self.current_beat().is_some() => Bound::Beat(index),
+            (_, Some(who)) => Bound::Asking(who),
+            _ => Bound::Free,
         };
         // A drag moves the view with the hand, at once; and the window's
         // first frame is where the camera is meant to be, never a glide
         // there from somewhere else (the welcome's view, a keeper's).
-        if self.looking.camera_to.is_none() || self.looking.drag.is_some_and(|(.., moved)| moved) {
-            self.looking.camera_from = Some(target);
-            self.looking.camera_to = Some(target);
-            self.looking.camera_at = Some(Instant::now());
-            self.looking.camera_now = Some(target);
-            return target;
-        }
-        if self.looking.camera_to != Some(target) {
-            self.looking.camera_from = Some(current);
-            self.looking.camera_to = Some(target);
-            // The wheel follows the hand at once; everything else glides.
-            let wheel = self.looking.asking.is_none() && self.current_beat().is_none();
-            self.looking.camera_at = Some(if wheel {
-                Instant::now() - Duration::from_secs_f32(CAMERA_SECONDS * 0.7)
-            } else {
-                Instant::now()
-            });
-            // A hold already running keeps its start, so a target that
-            // shifts a little from frame to frame never holds for ever.
-            self.looking.camera_hold = if wheel {
-                None
-            } else {
-                self.looking.camera_hold.or(Some(Instant::now()))
-            };
-        }
-        // A glide somewhere new sets off only once what the camera will
-        // see there is painted (or after a moment at most): it never lands
-        // on the rough painting (the v0.29 art director's Find).
-        if let Some(held) = self.looking.camera_hold {
-            let ready = diorama::heading_ready(window, target).unwrap_or(false);
-            if ready || since(Some(held)) >= CAMERA_HOLD_SECONDS {
-                self.looking.camera_hold = None;
-            } else {
-                // Held, nothing else may ask for a frame once the painting
-                // is done: ask for the next one, which sets off.
-                window.request_animation_frame();
-            }
-            // The glide's clock starts when it sets off.
-            self.looking.camera_at = Some(Instant::now());
+        let snap = self.looking.drag.is_some_and(|(.., moved)| moved);
+        let (current, wants) =
+            self.looking
+                .glide
+                .step(target, bound, Instant::now(), whole, snap, |to| {
+                    diorama::heading_ready(window, to)
+                });
+        // A glide asks for its own frames: a window in front but not
+        // active draws only when asked, and a glide whose destination was
+        // painted ahead asks the painter for nothing (v0.29 round 2's
+        // silent beats).
+        if wants {
+            window.request_animation_frame();
         }
         self.looking.camera_now = Some(current);
         current
@@ -2637,12 +2633,22 @@ impl ProjectionView {
         // what it will see is painted, then gliding): the words never show
         // over the last beat's subject (v0.29's catch over the school).
         let arrived = crate::painter::synchronous()
-            || (self.looking.camera_hold.is_none()
-                && since(self.looking.camera_at) >= CAMERA_SECONDS * 0.85);
+            || self.retelling.is_some_and(|index| {
+                self.looking
+                    .glide
+                    .arrived(Bound::Beat(index), Instant::now())
+            });
         let film_painted = diorama::view_painted(window) && arrived;
         if self.retelling.is_some() {
             if self.looking.beat_at.is_none() || !film_painted {
                 self.looking.beat_at = Some(Instant::now());
+                // Words still waiting ask for the next frame themselves:
+                // whether the view is painted is known only from the frame
+                // drawn before, and a window in front but not active draws
+                // only when asked (v0.29 round 2: a beat landed on painted
+                // ground, nothing asked for another frame, and its words
+                // never came).
+                window.request_animation_frame();
             }
             if since(self.looking.beat_at) > BEAT_SECONDS {
                 self.step_retelling(cx);
@@ -2910,7 +2916,7 @@ impl ProjectionView {
         // Where the camera is going, and what the moment is about: painted
         // first, so the camera arrives on sharp paint; and where the return
         // film goes next, painted ahead.
-        if let Some(to) = self.looking.camera_to {
+        if let Some(to) = self.looking.glide.to {
             frame = frame.heading_to(to, self.subject(&stage));
         }
         if let Some((camera, subject)) = self.next_beat_view(&stage) {
@@ -3438,9 +3444,21 @@ impl ProjectionView {
                 );
             }
         }
+        // The talk card waits for the camera to land on whoever it is
+        // for, as the film's words do (v0.29 round 2: Find's card opened
+        // over the old view, its speaker not yet on screen).
+        let landed = |who: SelectionId| {
+            crate::painter::synchronous()
+                || self.retelling.is_some()
+                || self
+                    .looking
+                    .glide
+                    .arrived(Bound::Asking(who), Instant::now())
+        };
         if let Some((who, x, y)) = self
             .looking
             .asking
+            .filter(|who| landed(*who))
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied())
         {
             root = root.child(lit_one(|| self.render_asking(who, x, y, &stage, cx)));
@@ -6784,14 +6802,10 @@ mod tests {
         });
     }
 
-    /// Each beat of a return is about its own subject, by the World's own
-    /// names for things, whatever language the window is in: the camera
-    /// frames it, it glows, and its face is the one shown. In Chinese and
-    /// Japanese the scene's labels are translated and the event's names
-    /// are not, and the camera never moved (v0.29); a catch that left the
-    /// place framed the whole place, not the fisher.
-    #[test]
-    fn each_return_beat_frames_its_own_subject_in_every_language() {
+    /// A return film of three beats (a catch sold, something the player
+    /// began finished, a note left), as the window shows it in English,
+    /// Chinese and Japanese; and each beat's subject.
+    fn film_in_every_language() -> (Vec<(&'static str, ProjectionSnapshot)>, [SelectionId; 3]) {
         use world_projection::{
             BriefingItem, BriefingItemKind, BriefingProjection, InspectorProjection, InspectorRow,
             InspectorSection,
@@ -6925,6 +6939,42 @@ mod tests {
                 shown_as([(person, "ジョナス"), (thing, "港の灯り"), (place, "港")]),
             ),
         ];
+        let subjects = beats.map(|(_, subject)| subject);
+        (languages.into(), subjects)
+    }
+
+    /// Each beat's words show within 2.5 s of Next, on its own subject, in
+    /// every language, on every run, however painting and the display go
+    /// (v0.29 round 2: beats went silent in three runs of four). Played on
+    /// a clock the test holds, never the wall clock.
+    #[test]
+    fn every_beat_speaks_on_its_subject_within_two_and_a_half_seconds_in_every_language() {
+        let (languages, _) = film_in_every_language();
+        for (language, snapshot) in &languages {
+            let stage =
+                crate::diorama::stage_at(snapshot, 1100.0, 748.0, crate::diorama::Clock::at(12));
+            let beats = snapshot.briefing.as_ref().unwrap().beats();
+            // The film twice over, so a subject comes round again.
+            let views = beats
+                .iter()
+                .chain(beats.iter())
+                .map(|beat| Camera::on(&stage, beat_box(snapshot, &stage, beat).expect("framed")))
+                .collect::<Vec<_>>();
+            let runs = super::super::glide::tests::film_runs(&views, Camera::whole(&stage));
+            assert!(!runs.is_empty(), "{language}");
+        }
+    }
+
+    /// Each beat of a return is about its own subject, by the World's own
+    /// names for things, whatever language the window is in: the camera
+    /// frames it, it glows, and its face is the one shown. In Chinese and
+    /// Japanese the scene's labels are translated and the event's names
+    /// are not, and the camera never moved (v0.29); a catch that left the
+    /// place framed the whole place, not the fisher.
+    #[test]
+    fn each_return_beat_frames_its_own_subject_in_every_language() {
+        let (languages, subjects) = film_in_every_language();
+        let beats = subjects.map(|subject| ((), subject));
         for (language, snapshot) in &languages {
             let stage =
                 crate::diorama::stage_at(snapshot, 1100.0, 748.0, crate::diorama::Clock::at(12));

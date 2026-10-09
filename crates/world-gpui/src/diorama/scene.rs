@@ -481,11 +481,19 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     // how big it is. A place never stands on the quay; a boat is on the
     // water.
     let boat = |index: usize| items[index].shape == Some(MarkShape::Boat);
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
     let row_of = |index: usize| -> f32 {
         let item = &items[index];
         match (item.kind, item.px) {
             // On the water line, whatever it is.
             (_, Some(_)) if item.y >= WATER_ROW => item.y,
+            // On the ice a bridge may stand forward, on the lead of open
+            // water behind the causeway (see `paint_lead`).
+            (CanvasItemKind::Place, Some(_))
+                if setting == art::Setting::Ice && item.shape == Some(MarkShape::Bridge) =>
+            {
+                item.y.min(0.74)
+            }
             (CanvasItemKind::Place, Some(_)) => item.y.min(0.68),
             // Places along one window stand in the street.
             (CanvasItemKind::Place, None) => 0.60,
@@ -495,7 +503,6 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     };
     // Boats ride at their moorings out beyond the water line's piers.
     let water_line = height * (FRONT + (1.0 - FRONT) * 0.4);
-    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
     // The room each takes: on a panorama, its footprint on the scale
     // ladder (crate::ladder) at its depth; along one window, its share.
     let nominal = |index: usize, scale: f32| {
@@ -1052,6 +1059,19 @@ pub(super) fn compose(
     let movable = |building: bool, index: usize| {
         building && items[index].variant.is_none() && items[index].built.is_some()
     };
+    // A work going up stands in scaffolding on a site of its own: never
+    // over anything already standing, in any row (the art bible's §7;
+    // v0.29 round 2's scaffolding over the net store and over a stall).
+    // It is sited last, where there is room, and stands as a building for
+    // whatever comes after.
+    let going_up = |building: bool, index: usize| {
+        !building && rank(index) != 0 && items[index].art.as_deref() == Some("scaffold")
+    };
+    let site_clear = |placed: &[Placed], x: f32, w: f32, top: f32, foot: f32| {
+        !placed.iter().any(|other| {
+            (x - other.x).abs() < (w + other.w) / 2.0 + gap && top < other.foot && other.top < foot
+        })
+    };
     // What the player built and the places first, where they stand; then
     // the town's works and everything else, each where there is room.
     let mut order = buildings
@@ -1064,6 +1084,7 @@ pub(super) fn compose(
             (_, _, 0) => 0,
             (true, false, _) => 1,
             (true, true, _) => 2,
+            _ if going_up(*building, *index) => 9,
             (false, _, rank) => 2 + rank,
         };
         (key, *index)
@@ -1093,11 +1114,15 @@ pub(super) fn compose(
                     && spot.y - h < other.foot
             })
         };
+        let site = going_up(building, index);
         let room_at = |x: f32| {
             if building
                 && !fixed
                 && (veils(&placed, (x, nominal, spot.y - h, spot.y)) || hides_a_thing(x))
             {
+                return -1.0;
+            }
+            if site && !site_clear(&placed, x, nominal, spot.y - h, spot.y) {
                 return -1.0;
             }
             room(&placed, row, x, nominal, spot.y - h, spot.y, !building)
@@ -1131,6 +1156,11 @@ pub(super) fn compose(
                 w = room(&placed, row, x, nominal, spot.y - h, spot.y, false)
                     .min(nominal)
                     .max(nominal * 0.5);
+            } else if site && ((WATER_KEY..1000).contains(&row) || row < QUAY_ROW - 6) {
+                // A site with no room anywhere near in its row waits off
+                // the scene rather than go up over something standing.
+                shown_from.insert(index, f32::INFINITY);
+                continue;
             } else if fixed || (WATER_KEY..1000).contains(&row) || row < QUAY_ROW - 6 {
                 // What the player built, a place, what stands on the
                 // water line and what stands back in the town stay in
@@ -1142,8 +1172,11 @@ pub(super) fn compose(
                 // size, to the nearest room there.
                 let full = nominal / spot.scale.max(0.1);
                 let quay_room = |x: f32| {
-                    room(&placed, QUAY_ROW, x, full, quay - full * 1.1, quay, true)
-                        .min(2.0 * x.min(width - x))
+                    let (top, foot) = (quay - full * 1.1, quay);
+                    if site && !site_clear(&placed, x, full, top, foot) {
+                        return -1.0;
+                    }
+                    room(&placed, QUAY_ROW, x, full, top, foot, true).min(2.0 * x.min(width - x))
                 };
                 let nudge = full * 0.1;
                 let Some(forward) = (0..=120)
@@ -1169,7 +1202,7 @@ pub(super) fn compose(
                     w: moved.w,
                     top: quay - moved.w * 1.1,
                     foot: quay,
-                    building: false,
+                    building: site,
                 });
                 forward_rows.insert(index, QUAY_ROW);
                 continue;
@@ -1184,7 +1217,7 @@ pub(super) fn compose(
             w,
             top: spot.y - tall(&list[position], building),
             foot: spot.y,
-            building,
+            building: building || site,
         });
     }
     // What stands only just clear of a neighbour in its row shows from the
@@ -1776,10 +1809,20 @@ pub(super) fn land_colours(frame: &Frame) -> (Hsla, Hsla) {
         mix(near, ink, near_share)
     };
     // The value bands (A2): the land a step darker than the sky.
-    (
-        under_sky(&frame.scenery, mix(ground, ink, share), GROUND_UNDER_SKY),
-        under_sky(&frame.scenery, near_ink, GROUND_UNDER_SKY),
-    )
+    let land = under_sky(&frame.scenery, mix(ground, ink, share), GROUND_UNDER_SKY);
+    // Ice held under the sky greys; it stays ice-blue at the same value,
+    // so noon has colour against the warm light (v0.29 round 2: a flat
+    // grey band under the sky).
+    let land = if frame.setting == art::Setting::Ice {
+        Hsla {
+            h: 0.59,
+            s: (land.s + 0.18).min(0.5),
+            ..land
+        }
+    } else {
+        land
+    };
+    (land, under_sky(&frame.scenery, near_ink, GROUND_UNDER_SKY))
 }
 
 /// Everything the ground layer depends on: the look, the geometry, the
@@ -1802,6 +1845,7 @@ pub(super) fn ground_key(frame: &Frame, scale: f32) -> Key {
     key.add(frame.blend_top);
     // A test's picture without the shadows is another picture.
     key.add(super::works::no_shadows());
+    key.add(super::works::no_glow());
     for patch in &frame.patches {
         key.float(patch.x0)
             .float(patch.x1)
@@ -1870,81 +1914,80 @@ pub(super) fn paint_land_tile(
         let from = canvas.device(0.0, field_y - 14.0).1;
         let to = canvas.device(0.0, field_y + frame.height * 0.06).1;
         super::ground::fade_in_down(&mut canvas.pixmap, from, to);
+    } else if frame.setting == art::Setting::Ice {
+        // The flat ice runs back into the shelf behind with no straight
+        // seam where it begins (v0.29 round 2's line across the ice).
+        let field_y = frame.horizon + (frame.base - frame.horizon) * 0.3;
+        let k = (frame.height / 848.0).clamp(0.3, 1.3);
+        let from = canvas.device(0.0, field_y - 14.0).1;
+        let to = canvas.device(0.0, field_y + 26.0 * k).1;
+        super::ground::fade_in_down(&mut canvas.pixmap, from, to);
     }
     Some(canvas.pixmap)
 }
 
 /// On the ice, a lead of open water along the back of the causeway, so it
-/// runs between two waters and reads as a causeway, not a shoreline (the
-/// v0.29 art director): dark, with a pale rim of ice either side, crossed
-/// by packed-snow bridges where each cluster's path comes down and now
-/// and then between.
+/// runs between two waters and reads as a causeway, not a shoreline: one
+/// continuous dark channel, its edges soft where the ice thins toward it,
+/// a few pale glints on it, and the bridge standing over it (v0.29 round
+/// 2: cut into dashes by its snow crossings it read as a rail or a road
+/// marking, not water, and the bridge stood out on the snow).
 fn paint_lead(canvas: &mut Canvas, frame: &Frame, (from, to): (f32, f32), top: f32, k: f32) {
-    let (y0, y1) = (top - frame.figure_h * 0.2, top - frame.figure_h * 0.05);
-    if y1 - y0 < 2.0 {
+    let half = frame.figure_h * 0.1;
+    // Under the bridge, where one stands on it, so it spans the water.
+    let mid = frame
+        .buildings
+        .iter()
+        .find(|building| building.shape == MarkShape::Bridge)
+        .map_or(top - frame.figure_h * 0.14, |bridge| {
+            bridge.base + half * 0.2
+        });
+    if half < 1.5 {
         return;
     }
     let water = art::hex(frame.scenery.near);
-    // Never lighter than the land may be under the sky (the value bands).
-    let rim = under_sky(&frame.scenery, art::hex(0xe8f1f7), GROUND_UNDER_SKY);
-    let gap = frame.figure_h * 1.1;
-    let mut crossings: Vec<f32> = frame
-        .patches
-        .iter()
-        .map(|patch| (patch.x0 + patch.x1) / 2.0)
-        .collect();
-    let spacing = frame.view_w.max(1.0) * 0.33;
     let seed = seed_of_scenery(&frame.scenery);
-    let first = ((from - spacing) / spacing).floor() as i32;
-    let last = ((to + spacing) / spacing).ceil() as i32;
-    for n in first..=last {
-        let s = painter::hash2(n, 97, seed);
-        crossings.push(n as f32 * spacing + (s % 1000) as f32 / 1000.0 * spacing * 0.6);
-    }
-    crossings.sort_by(f32::total_cmp);
-    // The runs of open water between crossings.
-    let mut x = from - 40.0;
-    let mut runs = Vec::new();
-    for c in crossings
-        .into_iter()
-        .filter(|c| *c > from - 80.0 && *c < to + 80.0)
-    {
-        if c - gap / 2.0 > x {
-            runs.push((x, c - gap / 2.0));
+    let step = 14.0 * k;
+    let (a, b) = (((from - 60.0) / step).floor(), ((to + 60.0) / step).ceil());
+    // The channel's edges wander a little, by the stage position, so tiles
+    // meet without a seam and a pan never changes them.
+    let edge = |x: f32, side: i32| {
+        let n = (x / step).round() as i32;
+        let wob = (painter::hash2(n, 131 + side, seed) % 100) as f32 / 100.0 - 0.5;
+        wob * half * 0.35
+    };
+    // Soft from the outside in: the thinning ice, then the open water.
+    for (grow, opacity) in [(1.9_f32, 0.12_f32), (1.55, 0.22), (1.25, 0.45), (1.0, 1.0)] {
+        let mut shape = Shape::new();
+        let mut n = a;
+        shape.move_to(n * step, mid - half * grow + edge(n * step, 0));
+        while n <= b {
+            shape.line_to(n * step, mid - half * grow + edge(n * step, 0));
+            n += 1.0;
         }
-        x = x.max(c + gap / 2.0);
-    }
-    if x < to + 40.0 {
-        runs.push((x, to + 40.0));
-    }
-    for (a, b) in runs {
-        if b - a < gap * 0.5 {
-            continue;
+        let mut n = b;
+        while n >= a {
+            shape.line_to(n * step, mid + half * grow * 0.8 + edge(n * step, 1));
+            n -= 1.0;
         }
-        let mut lead = Shape::new();
-        let r = (y1 - y0) * 0.5;
-        lead.move_to(a + r, y0);
-        let steps = ((b - a) / (12.0 * k)).ceil().max(2.0) as i32;
-        let stride = (b - a - 2.0 * r) / steps as f32;
-        for i in 1..steps {
-            let wob = (painter::hash2(i, (a / 7.0) as i32, seed) % 100) as f32 / 100.0 - 0.5;
-            lead.line_to(a + r + stride * i as f32, y0 + wob * r * 0.5);
+        shape.close();
+        canvas.fill(&shape, water.opacity(opacity));
+    }
+    // A few pale glints on the water, never a line along it.
+    let rim = under_sky(&frame.scenery, art::hex(0xe8f1f7), GROUND_UNDER_SKY);
+    let spacing = 90.0 * k;
+    let mut n = ((from - spacing) / spacing).floor() as i32;
+    while (n as f32) * spacing < to + spacing {
+        let s = painter::hash2(n, 137, seed);
+        if !s.is_multiple_of(3) {
+            let x = n as f32 * spacing + (s % 1000) as f32 / 1000.0 * spacing * 0.6;
+            let y = mid + ((s >> 10) % 100) as f32 / 100.0 * half * 0.6 - half * 0.3;
+            let long = (10.0 + ((s >> 17) % 14) as f32) * k;
+            let mut glint = Shape::new();
+            glint.move_to(x, y).line_to(x + long, y);
+            canvas.stroke(&glint, 1.0 * k, rim.opacity(0.4));
         }
-        lead.line_to(b - r, y0);
-        lead.curve_to(b - r, y1, b, (y0 + y1) / 2.0);
-        lead.line_to(a + r, y1);
-        lead.curve_to(a + r, y0, a, (y0 + y1) / 2.0);
-        lead.close();
-        canvas.fill(&lead, water);
-        let mut edge = Shape::new();
-        edge.move_to(a + r, y0).line_to(b - r, y0);
-        canvas.stroke(&edge, 1.6 * k, rim.opacity(0.8));
-        let mut glint = Shape::new();
-        let mid = (y0 + y1) / 2.0;
-        glint
-            .move_to(a + (b - a) * 0.3, mid)
-            .line_to(a + (b - a) * 0.45, mid);
-        canvas.stroke(&glint, 1.0 * k, rim.opacity(0.35));
+        n += 1;
     }
 }
 
@@ -2133,7 +2176,14 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
     if tile_top < haze_to && tile_bottom > field_y - 30.0 {
         let mut hazed = Canvas::new(canvas.width(), canvas.height(), canvas.scale, canvas.origin)
             .expect("a tile");
-        hazed.fill(&field, mix(ground, haze, 0.1));
+        // On the flat ice the far edge of the field melts into the air:
+        // no straight seam where it meets the shelf behind (v0.29 round 2).
+        let veil = if frame.setting == art::Setting::Ice {
+            0.45
+        } else {
+            0.1
+        };
+        hazed.fill(&field, mix(ground, haze, veil));
         painter::fade_down(
             &mut hazed.pixmap,
             canvas.device(0.0, field_y - 20.0).1,
@@ -2146,7 +2196,7 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
             sk::BlendMode::SourceOver,
         );
     }
-    if !frame.blend_top {
+    if !frame.blend_top && frame.setting != art::Setting::Ice {
         let mut rim = Shape::new();
         let mut x = from;
         rim.move_to(x, field_top(frame, x));
@@ -2323,6 +2373,20 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
         let y = field_top(frame, x) + 6.0 + t * (front - field_top(frame, x) - 4.0);
         let ink = art::hex(inks[(seed >> 12) as usize % inks.len()]);
         match frame.cover {
+            Some(GroundCover::Snow) if frame.setting == art::Setting::Ice => {
+                // On the ice the snow is the ground itself: only long, low
+                // wind streaks, never white ovals that read as puddles
+                // (v0.29 round 2's noon on the ice).
+                canvas.soft(x, y, 44.0 * k, 1.4 * k, 2.5 * k, ink.opacity(0.28));
+                canvas.soft(
+                    x + 8.0 * k,
+                    y + 2.0 * k,
+                    36.0 * k,
+                    1.0 * k,
+                    2.0 * k,
+                    art::hex(0x9fbdd6).opacity(0.3),
+                );
+            }
             Some(GroundCover::Snow) => {
                 // Soft drifts, pale blue on their shaded side.
                 canvas.soft(x, y, 26.0 * k, 5.0 * k, 6.0 * k, ink.opacity(0.7));

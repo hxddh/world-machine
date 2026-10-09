@@ -120,19 +120,30 @@ pub fn keyed_light(light: [f32; 3], key: Option<u32>, hour: f32) -> [f32; 3] {
     let tint = [16, 8, 0].map(|shift| ((key >> shift) & 0xff) as f32 / 255.0);
     let most = tint.iter().copied().fold(0.0_f32, f32::max).max(0.01);
     let tint = tint.map(|channel| channel / most);
+    // A cold key (ice under a blue sky) gives way at noon to a warm sun,
+    // so the blue ice has warm light against it (v0.29 round 2: the ice at
+    // noon still read flat).
+    let cool = (key & 0xff) > (key >> 16) & 0xff;
     let weight = |daylight: Daylight| match daylight {
         Daylight::Dawn => 0.6,
         // Little by day: noon stays clear and sunlit, never a flat
         // grey-lilac (the v0.29 art director on the ice at noon).
+        Daylight::Day if cool => 0.0,
         Daylight::Day => 0.15,
         Daylight::Dusk => 0.8,
         Daylight::Night => 0.45,
     };
+    let sun = |daylight: Daylight| f32::from(u8::from(cool && daylight == Daylight::Day));
     // `between` has already eased `t`: ease(t).
     let (from, to, t) = between(hour);
     let share = weight(from) + (weight(to) - weight(from)) * t;
+    let warm = sun(from) + (sun(to) - sun(from)) * t;
     let bright = (light[0] * 0.3 + light[1] * 0.5 + light[2] * 0.2).min(1.0);
-    [0, 1, 2].map(|channel| light[channel] * (1.0 - share) + tint[channel] * bright * share)
+    let sunlit = [1.03, 1.0, 0.95];
+    [0, 1, 2].map(|channel| {
+        (light[channel] * (1.0 - share) + tint[channel] * bright * share)
+            * (1.0 + (sunlit[channel] - 1.0) * warm)
+    })
 }
 
 /// How far into dusk `hour` is, 0 to 1: all of it at its fullest, none

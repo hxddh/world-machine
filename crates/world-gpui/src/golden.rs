@@ -1567,6 +1567,25 @@ fn place(name: &str) -> ProjectionSnapshot {
     ProjectionSnapshot::try_from(wire).expect("a snapshot")
 }
 
+/// The three places of the second Pack, as their fixtures are named.
+const PLACES: [&str; 3] = ["ares", "maple", "icebridge"];
+
+/// The same places as they start, as a player first sees them, by the
+/// ground each is painted as (in the order of [`PLACES`]).
+fn place_start(ground: &str) -> ProjectionSnapshot {
+    let json = match ground {
+        "dust" => include_str!("../tests/fixtures/start-dust.json"),
+        "street" => include_str!("../tests/fixtures/start-street.json"),
+        _ => include_str!("../tests/fixtures/start-ice.json"),
+    };
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(json).expect("a place's snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+/// The grounds of [`PLACES`], in order.
+const STARTS: [&str; 3] = ["dust", "street", "ice"];
+
 /// Each place of Pocket Universe in its own clothes, at noon: Ares's domes
 /// and hab modules on regolith under a butterscotch sky, Maple Street's
 /// storefronts, cars and wires, Icebridge's snow nests, ice shelf and sea
@@ -1575,13 +1594,32 @@ fn place(name: &str) -> ProjectionSnapshot {
 #[test]
 fn each_pocket_universe_place_matches_its_golden_picture() {
     let shots = std::env::var("WORLD_GPUI_PLACE_SHOTS").ok();
-    for name in ["ares", "maple", "icebridge"] {
+    for name in PLACES {
         let snapshot = place(name);
         assert!(snapshot.canvas.setting.is_some(), "{name} says what it is");
         let frame = diorama_frame(&snapshot, 480.0, 300.0, Daylight::Day, 12.5);
         let image = draw(480.0, 300.0, move || painted(frame.clone()));
         matches_golden(&format!("place-{name}"), &image);
         if let Some(dir) = &shots {
+            let ground = STARTS[PLACES.iter().position(|place| *place == name).unwrap_or(0)];
+            let start = place_start(ground);
+            // On whoever is out, as the window opens on them.
+            let keeper = |stage: &diorama::Stage| {
+                let x = stage
+                    .people
+                    .first()
+                    .map_or(stage.width / 2.0, |spot| spot.x);
+                Camera::around(stage, 1.0, x, stage.height / 2.0)
+            };
+            for (label, hour) in [
+                ("start-noon", 12.5),
+                ("start-dusk", 19.5),
+                ("start-night", 23.0),
+            ] {
+                let frame = frame_at(&start, (1100.0, 848.0), hour, Some(&keeper));
+                let image = draw(1100.0, 848.0, move || painted(frame.clone()));
+                image.save(format!("{dir}/{name}-{label}.png")).unwrap();
+            }
             for (label, daylight, hour) in [
                 ("noon", Daylight::Day, 12.5),
                 ("dusk", Daylight::Dusk, 19.5),
@@ -2052,6 +2090,69 @@ fn longest_hard_edge(dark: &[f32], width: usize, height: usize, step: f32) -> us
     longest
 }
 
+/// Each pixel's luma, 0 to 255.
+fn luma_of(image: &RgbaImage) -> Vec<f32> {
+    image
+        .pixels()
+        .map(|p| 0.3 * p.0[0] as f32 + 0.59 * p.0[1] as f32 + 0.11 * p.0[2] as f32)
+        .collect()
+}
+
+/// The longest straight hard edge in `map` (as [`longest_hard_edge`]) that
+/// lies on open ground: nowhere within 3 pixels of where `bare` (the
+/// picture with nothing standing on the ground) and `built` (with all of
+/// it) differ, nor of a crisp edge of `built`'s own (a lamp post), so what
+/// stands there, its own cut-paper edges and whatever it hides, is left
+/// out. Its length, and where it ends.
+fn longest_edge_on_open_ground(
+    map: &[f32],
+    (bare, built): (&[f32], &[f32]),
+    (width, height): (usize, usize),
+    step: f32,
+) -> (usize, (usize, usize)) {
+    let at = |v: &[f32], x: usize, y: usize| v[y * width + x];
+    let mut busy = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let here = at(built, x, y);
+            let crisp = (x + 1 < width && (at(built, x + 1, y) - here).abs() >= 5.0)
+                || (y + 1 < height && (at(built, x, y + 1) - here).abs() >= 5.0);
+            if crisp || (at(bare, x, y) - here).abs() >= 3.0 {
+                for yy in y.saturating_sub(3)..(y + 4).min(height) {
+                    for xx in x.saturating_sub(3)..(x + 4).min(width) {
+                        busy[yy * width + xx] = true;
+                    }
+                }
+            }
+        }
+    }
+    let open = |x: usize, y: usize| !busy[y * width + x];
+    let mut longest = (0, (0, 0));
+    for y in 0..height.saturating_sub(1) {
+        let mut run = 0;
+        for x in 0..width {
+            let hard =
+                (at(map, x, y + 1) - at(map, x, y)).abs() > step && open(x, y) && open(x, y + 1);
+            run = if hard { run + 1 } else { 0 };
+            if run > longest.0 {
+                longest = (run, (x, y));
+            }
+        }
+    }
+    for x in 0..width.saturating_sub(1) {
+        let mut run = 0;
+        for y in 0..height {
+            let hard =
+                (at(map, x + 1, y) - at(map, x, y)).abs() > step && open(x, y) && open(x + 1, y);
+            run = if hard { run + 1 } else { 0 };
+            if run > longest.0 {
+                longest = (run, (x, y));
+            }
+        }
+    }
+    longest
+}
+
 /// The v0.29 bar for shadows: no straight dark edge longer than 8 px under
 /// a structure. Each frame is drawn with the buildings' shadows and
 /// without, so what they lay is known exactly; an edge detector then looks
@@ -2098,17 +2199,140 @@ fn no_shadow_has_a_straight_hard_edge() {
                 draw(width, height, move || painted(frame.clone()))
             };
             diorama::leave_out_shadows(false);
+            let bare = {
+                let frame = frame.bare();
+                draw(width, height, move || painted(frame.clone()))
+            };
             let dark = darkening(&with, &without);
             let most = dark.iter().copied().fold(0.0_f32, f32::max);
-            let edge = longest_hard_edge(&dark, width as usize, height as usize, 20.0);
+            // In the picture's own pixels (it is drawn at the display's
+            // scale; v0.29 round 2: it was read as if one window pixel
+            // were one of its own, so it looked at a scramble of the top
+            // quarter), the bar in the window's; and only on open ground,
+            // where a shadow meets the building that casts it, the
+            // building's own cut edge is meant to be crisp.
+            let (w, h) = with.dimensions();
+            let scale = w as f32 / width;
+            let (run, end) = longest_edge_on_open_ground(
+                &dark,
+                (&luma_of(&bare), &luma_of(&without)),
+                (w as usize, h as usize),
+                20.0,
+            );
+            let edge = run as f32 / scale;
+            eprintln!("day {day} at {hour}: longest hard shadow edge {edge} px, ending at {end:?}");
             assert!(
                 most > 5.0,
                 "day {day} at {hour}: the shadows lay something ({most})"
             );
             assert!(
-                edge <= 8,
+                edge <= 8.0,
                 "day {day} at {hour}: a straight hard shadow edge {edge} px long"
             );
+        }
+    }
+}
+
+/// The same bar for the light lit windows and a glowing subject throw,
+/// over each place of the second Pack as it starts and lived in, at dusk
+/// and at night, whole and zoomed: no straight hard edge in what the glow
+/// lays (v0.29 round 2: a lit box behind the rust planet's ring of habitat
+/// modules, its pool of light cut square where the ring's picture ended). Each frame is drawn
+/// with the glow and without, so what it lays is known exactly.
+#[test]
+fn no_night_glow_has_a_straight_hard_edge() {
+    const GLOW_STEP: f32 = 4.0;
+    let (width, height) = (1100.0_f32, 700.0_f32);
+    let focal =
+        |stage: &diorama::Stage| Camera::around(stage, 1.3, stage.width * 0.3, 700.0 * 0.55);
+    for (name, snapshot) in PLACES
+        .into_iter()
+        .zip(STARTS)
+        .flat_map(|(name, ground)| [(name, place_start(ground)), (name, place(name))])
+    {
+        for camera in [None, Some(&focal as &dyn Fn(&diorama::Stage) -> Camera)] {
+            for hour in [19.5, 23.0] {
+                // Every place lit as the moment's subject is (the ring
+                // glowed as the first card's subject).
+                let glows = snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .filter(|item| item.kind == world_projection::CanvasItemKind::Place)
+                    .map(|item| (item.id, gpui::hsla(0.1, 0.8, 0.6, 1.0)))
+                    .collect::<Glows>();
+                let frame = {
+                    let daylight = crate::scene::daylight_at(hour as u32);
+                    let stage =
+                        diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+                    let living = diorama::living(
+                        &stage,
+                        &snapshot,
+                        0.0,
+                        daylight,
+                        &Default::default(),
+                        None,
+                    );
+                    let camera = camera.map_or_else(|| Camera::whole(&stage), |at| at(&stage));
+                    diorama::frame(
+                        &snapshot, &stage, &living, camera, 0.0, daylight, &glows, 1.0,
+                    )
+                    .at_hour(hour)
+                };
+                let with = {
+                    let frame = frame.clone();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                diorama::leave_out_glow(true);
+                let without = {
+                    let frame = frame.clone();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                diorama::leave_out_glow(false);
+                let bare = {
+                    let frame = frame.bare();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                if let Ok(dir) = std::env::var("WORLD_GPUI_GLOW_SHOTS") {
+                    let at = format!(
+                        "{dir}/{name}-{}-{hour}-{}",
+                        snapshot.canvas.items.len(),
+                        camera.is_some()
+                    );
+                    with.save(format!("{at}.png")).unwrap();
+                    without.save(format!("{at}-without.png")).unwrap();
+                }
+                // What the glow lays, lighter or darker (a pale glass's
+                // glow over rust ground greys it).
+                let light = darkening(&without, &with)
+                    .into_iter()
+                    .zip(darkening(&with, &without))
+                    .map(|(lighter, darker)| lighter + darker)
+                    .collect::<Vec<_>>();
+                let most = light.iter().copied().fold(0.0_f32, f32::max);
+                // In the picture's own pixels (drawn at the display's
+                // scale), the bar in the window's.
+                let (w, h) = with.dimensions();
+                let scale = w as f32 / width;
+                // Only on open ground: a building's own cut-paper edge, lit,
+                // is meant to be crisp.
+                let (bare, built) = (luma_of(&bare), luma_of(&without));
+                let (run, end) = longest_edge_on_open_ground(
+                    &light,
+                    (&bare, &built),
+                    (w as usize, h as usize),
+                    GLOW_STEP,
+                );
+                let edge = run as f32 / scale;
+                eprintln!(
+                    "{name} at {hour}: the glow lays {most:.0}, its longest hard edge {edge} px, \
+                     ending at {end:?}"
+                );
+                assert!(
+                    edge <= 8.0,
+                    "{name} at {hour}: a straight hard edge {edge} px long in the windows' glow"
+                );
+            }
         }
     }
 }

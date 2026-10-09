@@ -35,6 +35,8 @@ pub use light::*;
 pub use people::*;
 pub use scene::*;
 #[cfg(test)]
+pub(crate) use works::leave_out_glow;
+#[cfg(test)]
 pub(crate) use works::leave_out_shadows;
 #[allow(unused_imports)]
 pub use works::*;
@@ -124,6 +126,17 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// The same frame with nothing standing in it (no buildings, things or
+    /// people): in a test, what of a picture is the bare ground.
+    #[cfg(test)]
+    pub(crate) fn bare(&self) -> Self {
+        let mut frame = self.clone();
+        frame.buildings.clear();
+        frame.things.clear();
+        frame.people.clear();
+        frame
+    }
+
     /// The light this frame is graded in: the hour's and the weather's,
     /// turned toward the place's own key light where its Pack gives one
     /// (a cold blue over the ice rather than a gold dusk).

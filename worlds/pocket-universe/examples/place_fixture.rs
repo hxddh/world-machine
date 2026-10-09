@@ -8,8 +8,10 @@
 //!
 //! Each place is played as a builder plays it for its first ninety
 //! periods: the first answer each period, something built on a plot (or
-//! made by hand) every third, and the period let pass. Only what the scene
-//! draws is kept. The same build always writes the same files.
+//! made by hand) every third, and the period let pass. Each place is also
+//! written as it starts (`start-<ground>.json`: `dust`, `street` or `ice`),
+//! as a player first sees it. Only what the scene draws is kept. The same build always
+//! writes the same files.
 
 use pocket_universe::{
     PocketUniverse, NUDGE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
@@ -25,13 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nth(1)
             .unwrap_or_else(|| "crates/world-gpui/tests/fixtures".into()),
     );
-    for (name, seed) in [
-        ("ares", SEED_MARS_COLONY_COMMAND),
-        ("maple", SEED_1980S_TOWN_COMMAND),
-        ("icebridge", SEED_PENGUIN_CIVILIZATION_COMMAND),
+    for (name, ground, seed) in [
+        ("ares", "dust", SEED_MARS_COLONY_COMMAND),
+        ("maple", "street", SEED_1980S_TOWN_COMMAND),
+        ("icebridge", "ice", SEED_PENGUIN_CIVILIZATION_COMMAND),
     ] {
         let mut universe = PocketUniverse::new()?;
         universe.invoke_projection_command(seed)?;
+        write(&out, &format!("start-{ground}.json"), &universe)?;
         for period in 1..=PERIODS {
             let snapshot = universe.projection_snapshot();
             if let Some(answer) = snapshot.commands.iter().find(|command| {
@@ -69,27 +72,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             universe.invoke_projection_command(NUDGE_COMMAND)?;
         }
-        // Only what the scene draws: the place, its people and its
-        // drawings, under a clear sky (the pictures do not change with the
-        // day's weather).
-        let shown = universe.projection_snapshot();
-        let kept = world_projection::ProjectionSnapshot {
-            title: shown.title,
-            world_time: shown.world_time,
-            capabilities: shown.capabilities,
-            canvas: shown.canvas,
-            collection: shown.collection,
-            scenery: shown.scenery,
-            calendar: shown.calendar,
-            gauges: shown.gauges,
-            goals: shown.goals,
-            drawings: shown.drawings,
-            ..Default::default()
-        };
-        let wire = ProjectionSnapshotWire::from(&kept);
-        let path = out.join(format!("place-{name}.json"));
-        std::fs::write(&path, serde_json::to_string(&wire)?)?;
-        println!("{}", path.display());
+        write(&out, &format!("place-{name}.json"), &universe)?;
     }
+    Ok(())
+}
+
+/// Writes what the scene draws of `universe` (the place, its people and
+/// its drawings, under a clear sky: the pictures do not change with the
+/// day's weather) to `name` in `out`.
+fn write(
+    out: &std::path::Path,
+    name: &str,
+    universe: &PocketUniverse,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let shown = universe.projection_snapshot();
+    let kept = world_projection::ProjectionSnapshot {
+        title: shown.title,
+        world_time: shown.world_time,
+        capabilities: shown.capabilities,
+        canvas: shown.canvas,
+        collection: shown.collection,
+        scenery: shown.scenery,
+        calendar: shown.calendar,
+        gauges: shown.gauges,
+        goals: shown.goals,
+        drawings: shown.drawings,
+        ..Default::default()
+    };
+    let wire = ProjectionSnapshotWire::from(&kept);
+    let path = out.join(name);
+    std::fs::write(&path, serde_json::to_string(&wire)?)?;
+    println!("{}", path.display());
     Ok(())
 }

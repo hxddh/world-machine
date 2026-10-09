@@ -1581,9 +1581,17 @@ pub fn inside(pixmap: &mut sk::Pixmap, glass: &[f32], count: usize) {
 }
 
 /// The soft light a lit window throws around itself: the glass mask
-/// blurred, laid over in `rgb`.
+/// blurred, laid over in `rgb`. It fades out toward the picture's edges,
+/// so a glow that reaches them is never cut off square there (v0.29 round
+/// 2: a lit band under the rust planet's ring, ending on a straight line
+/// where the ring's picture ended).
 pub fn bloom(pixmap: &mut sk::Pixmap, glass: &[f32], radius: usize, rgb: [f32; 3], strength: f32) {
     let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
+    let fade = (radius * 4).max(height / 6).max(4) as f32;
+    let edge = |at: usize, extent: usize| {
+        let t = ((at.min(extent - 1 - at) as f32 + 0.5) / fade).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
     let (mut mask, cw, ch) = coarse(width, height, |at| glass[at]);
     blur_mask(&mut mask, cw, ch, (radius * 2 / COARSE).max(1));
     let peak = mask.iter().copied().fold(0.0_f32, f32::max).max(0.05);
@@ -1612,8 +1620,9 @@ pub fn bloom(pixmap: &mut sk::Pixmap, glass: &[f32], radius: usize, rgb: [f32; 3
             let bottom = lower[x0] + (lower[x1] - lower[x0]) * tx;
             *value = top + (bottom - top) * ty;
         }
+        let fade_y = edge(y, height);
         for (x, value) in row.iter().enumerate() {
-            let g = (value / peak).min(1.0) * strength;
+            let g = (value / peak).min(1.0) * strength * fade_y * edge(x, width);
             if g <= 0.004 {
                 continue;
             }

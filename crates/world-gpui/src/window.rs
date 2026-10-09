@@ -16,6 +16,7 @@ use crate::scene;
 mod arrival;
 mod drawer;
 mod farewell;
+mod glide;
 mod marking;
 mod stories;
 #[cfg(test)]

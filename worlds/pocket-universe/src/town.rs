@@ -155,6 +155,10 @@ const fn quarter(
     }
 }
 
+/// How far down the scene Icebridge's bridge stands: on the lead of open
+/// water just behind the causeway, in front of the plots' row.
+const BRIDGE_Y: f32 = 0.73;
+
 fn layout(place: Place) -> &'static Layout {
     // Ares: a sheltered ring against a hostile plain. The habitats and the
     // green dome garden huddle round the lit airlock apron at the near end;
@@ -361,7 +365,9 @@ fn layout(place: Place) -> &'static Layout {
             },
         ],
         labels: ["The rookery", "The bridge", "The far floe"],
-        anchors: [(SLOT_A, 0.55), (SLOT_C, 1.3), (SLOT_D, 1.95)],
+        // The bridge on the lead stands in the open between the plots
+        // (0.53/0.69 and 1.33), so no staked plot lies across it.
+        anchors: [(SLOT_A, 1.0), (SLOT_C, 1.3), (SLOT_D, 1.95)],
         home: "Nest",
         quarters: &[
             quarter(
@@ -792,6 +798,17 @@ pub(crate) fn lay_out(
             }
         };
         town.stand(&mut items, id, row, px, false);
+    }
+    // On the ice the bridge spans the lead of open water behind the
+    // causeway, its foot on the water rather than out on the snow (the
+    // v0.29 art director: "a tray sitting on the ice; no water under it").
+    if place == Place::Ice {
+        if let Some(bridge) = items.iter_mut().find(|item| {
+            item.id == SelectionId::Entity(SLOT_A)
+                && item.shape == Some(world_projection::MarkShape::Bridge)
+        }) {
+            bridge.y = BRIDGE_Y;
+        }
     }
 
     let home_of = town.homes(
