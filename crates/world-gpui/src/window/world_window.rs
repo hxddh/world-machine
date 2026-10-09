@@ -85,6 +85,52 @@ const HINT_WIDTH: f32 = 280.0;
 /// pointer beside it could reach down to the card.
 const ZOOM_HINT_ROOM: f32 = 520.0;
 
+/// Where a zoom leaves the camera: how close, where along the place it
+/// looks, and the point it zoomed on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Zoomed {
+    zoom: f32,
+    pan: f32,
+    on: (f32, f32),
+}
+
+/// `factor` times closer than `before` from `camera`, around the screen
+/// point `at` (the point under it stays under it): none if the zoom is at
+/// the end of its travel that way.
+fn zoomed(
+    stage: &Stage,
+    camera: Camera,
+    before: f32,
+    factor: f32,
+    at: (f32, f32),
+) -> Option<Zoomed> {
+    let (x, y) = camera.stage_point(stage, at.0, at.1);
+    let mut zoom = (before * factor).clamp(Camera::least(stage), diorama::ZOOM_MOST);
+    if (zoom - 1.0).abs() < 0.02 {
+        zoom = 1.0;
+    }
+    if (zoom - before).abs() <= f32::EPSILON {
+        return None;
+    }
+    let keep = camera.zoom / zoom;
+    Some(Zoomed {
+        zoom,
+        pan: x - (x - camera.x) * keep,
+        on: (x - (x - camera.x) * keep, y - (y - camera.y) * keep),
+    })
+}
+
+/// The view wherever the player has zoomed (`zoom`) and panned to
+/// (`pan`, the whole place's middle if never), around the point zoomed on.
+fn free_view(stage: &Stage, zoom: f32, pan: Option<f32>, on: (f32, f32)) -> Camera {
+    Camera::around(
+        stage,
+        zoom,
+        pan.unwrap_or(Camera::whole(stage).x),
+        if zoom > 1.0 { on.1 } else { stage.height / 2.0 },
+    )
+}
+
 /// Where the zoom control sits, down the left of a stage `height` tall:
 /// below the stakes, well above the card.
 fn zoom_top(height: f32) -> f32 {
@@ -2125,19 +2171,7 @@ impl ProjectionView {
                 ))
             })
             // Otherwise wherever the player has zoomed and panned to.
-            .unwrap_or_else(|| {
-                let zoom = self.view_zoom();
-                Camera::around(
-                    stage,
-                    zoom,
-                    self.looking.pan.unwrap_or(whole.x),
-                    if zoom > 1.0 {
-                        self.looking.zoom_on.1
-                    } else {
-                        stage.height / 2.0
-                    },
-                )
-            });
+            .unwrap_or_else(|| self.free_target(stage));
         let bound = match (self.retelling, self.looking.asking) {
             (Some(index), _) if self.current_beat().is_some() => Bound::Beat(index),
             (_, Some(who)) => Bound::Asking(who),
@@ -2299,21 +2333,53 @@ impl ProjectionView {
         let (x, y) = at.map_or((width / 2.0, height / 2.0), |at| {
             (f32::from(at.x), f32::from(at.y) - CHROME)
         });
-        let (x, y) = camera.stage_point(&stage, x, y);
-        let before = self.view_zoom();
-        let mut zoom = (before * factor).clamp(Camera::least(&stage), diorama::ZOOM_MOST);
-        if (zoom - 1.0).abs() < 0.02 {
-            zoom = 1.0;
-        }
-        if (zoom - before).abs() > f32::EPSILON {
-            // The point under the pointer stays under it.
-            let keep = camera.zoom / zoom;
-            self.looking.zoom = zoom;
-            self.looking.pan = Some(x - (x - camera.x) * keep);
-            self.looking.zoom_on = (x - (x - camera.x) * keep, y - (y - camera.y) * keep);
+        if self.zoom_at(&stage, camera, factor, (x, y)) {
             pointers::used(Pointer::Zoom);
             cx.notify();
         }
+    }
+
+    /// Zooms `factor` times closer from `camera` around the screen point
+    /// `at`; whether it moved (not at the end of the zoom's travel).
+    fn zoom_at(&mut self, stage: &Stage, camera: Camera, factor: f32, at: (f32, f32)) -> bool {
+        let Some(zoomed) = zoomed(stage, camera, self.view_zoom(), factor, at) else {
+            return false;
+        };
+        self.looking.zoom = zoomed.zoom;
+        self.looking.pan = Some(zoomed.pan);
+        self.looking.zoom_on = zoomed.on;
+        true
+    }
+
+    /// Wherever the player has zoomed and panned to.
+    fn free_target(&self, stage: &Stage) -> Camera {
+        free_view(
+            stage,
+            self.view_zoom(),
+            self.looking.pan,
+            self.looking.zoom_on,
+        )
+    }
+
+    /// Where one press of the zoom control (or + and −) would take the
+    /// camera now, closer and further: none while it is on its way, held
+    /// on someone or a return beat, or dragged, and none at either end of
+    /// its travel. The scene paints them ahead (see
+    /// [`diorama::Frame::zooming_to`]).
+    fn zoom_steps(&self, stage: &Stage, camera: Camera) -> Vec<Camera> {
+        if self.current_beat().is_some()
+            || self.looking.asking.is_some()
+            || self.looking.drag.is_some()
+            || self.looking.glide.moving(Instant::now())
+        {
+            return Vec::new();
+        }
+        let middle = (stage.view_w / 2.0, stage.height / 2.0);
+        [1.0 / ZOOM_STEP, ZOOM_STEP]
+            .into_iter()
+            .filter_map(|factor| zoomed(stage, camera, self.view_zoom(), factor, middle))
+            .map(|zoomed| free_view(stage, zoomed.zoom, Some(zoomed.pan), zoomed.on))
+            .collect()
     }
 
     /// What the scene lights up now, and in what colour.
@@ -2922,6 +2988,8 @@ impl ProjectionView {
         if let Some((camera, subject)) = self.next_beat_view(&stage) {
             frame = frame.next_to(camera, subject);
         }
+        // And where a press of the zoom control would take it.
+        frame = frame.zooming_to(self.zoom_steps(&stage, camera));
         frame.bounce(&self.snapshot, &poked);
         // What a turn just built rises into place.
         if let Some(before) = &self.before_turn {
@@ -5922,6 +5990,41 @@ mod tests {
 
     fn someone() -> SelectionId {
         SelectionId::from_stable_key("entity-7").expect("an entity key")
+    }
+
+    /// The views the scene paints ahead of time for the zoom control are
+    /// exactly where a press of it takes the camera (the tiles of another
+    /// view would be no use): all the way out into the folded postcard of
+    /// a three-year World and all the way back in, and none past either
+    /// end of the zoom's travel.
+    #[test]
+    fn the_zoom_steps_painted_ahead_are_where_the_zoom_control_goes() {
+        let snapshot = crate::diorama::tests::three_years();
+        let stage = diorama::stage_at(&snapshot, 1100.0, 848.0, diorama::Clock::at(12));
+        let mut view = ProjectionView::new(snapshot);
+        view.retelling = None;
+        let middle = (stage.view_w / 2.0, stage.height / 2.0);
+        let mut camera = Camera::whole(&stage);
+        let mut folded = 0;
+        for factor in [1.0 / ZOOM_STEP; 5].into_iter().chain([ZOOM_STEP; 9]) {
+            let steps = view.zoom_steps(&stage, camera);
+            let ahead = steps
+                .iter()
+                .find(|step| (step.zoom > camera.zoom) == (factor > 1.0))
+                .copied();
+            let moved = view.zoom_at(&stage, camera, factor, middle);
+            assert_eq!(moved, ahead.is_some(), "{camera:?} by {factor}: {steps:?}");
+            if moved {
+                camera = view.free_target(&stage);
+                assert_eq!(Some(camera), ahead, "{factor}");
+                folded += usize::from(camera.fold > 0.0);
+            }
+        }
+        assert!(folded >= 2, "the zoom went into the folded postcard");
+        assert!(
+            (camera.zoom - diorama::ZOOM_MOST).abs() < 1e-4,
+            "{camera:?}"
+        );
     }
 
     /// As a World opens on a question, the card waits while the first

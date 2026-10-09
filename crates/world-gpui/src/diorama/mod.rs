@@ -119,6 +119,10 @@ pub struct Frame {
     /// Where the camera will go after that (the return film's next beat),
     /// and what it will be about: painted ahead, behind everything else.
     next: Option<(Camera, (f32, f32, f32, f32))>,
+    /// Where one press of the zoom control would take the camera, closer
+    /// and further: where such a view folds into a postcard, painted ahead
+    /// while the camera is still, so a zoom lands on sharp paint.
+    zoom_steps: Vec<Camera>,
     /// Every building on the stage with the zoom it shows from (0 for
     /// always): what the composition holds back for a closer look comes
     /// into the frame the camera is heading for.
@@ -198,6 +202,13 @@ impl Frame {
         self
     }
 
+    /// The same frame knowing where a press of the zoom control would take
+    /// the camera, closer and further (none at the end of its travel).
+    pub fn zooming_to(mut self, steps: Vec<Camera>) -> Self {
+        self.zoom_steps = steps;
+        self
+    }
+
     /// Where the camera is going, if it is on its way somewhere else.
     pub(crate) fn heading(&self) -> Option<Camera> {
         self.heading.filter(|to| *to != self.camera)
@@ -215,6 +226,8 @@ impl Frame {
         let mut seen = self.clone();
         seen.camera = camera;
         seen.heading = None;
+        seen.next = None;
+        seen.zoom_steps = Vec::new();
         seen.buildings = self
             .standing
             .iter()
@@ -795,6 +808,7 @@ pub fn frame(
         heading: None,
         subject: None,
         next: None,
+        zoom_steps: Vec::new(),
         standing: std::sync::Arc::new(standing),
     }
 }

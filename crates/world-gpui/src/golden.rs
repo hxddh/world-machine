@@ -1982,6 +1982,121 @@ fn a_zoomed_out_town_settles_while_the_boil_runs() {
     assert!(settled, "every layer of the zoomed-out town settles");
 }
 
+/// v0.29's year-three zoom-out: one press of the zoom control out of a
+/// still view folds the place into its postcard, three rows of pictures
+/// none of which was painted, and the camera settled on the rough painting
+/// for two seconds on a slow renderer while they were painted and handed
+/// to the display. From a still, sharp view the view a press away, where
+/// it folds, is painted ahead of time and handed over: the first frame
+/// there shows no rough painting and nothing unpainted. (Without it, the
+/// same first frame is the rough painting: the test tells.)
+#[test]
+fn a_zoom_out_into_the_postcard_lands_on_sharp_paint() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    // Each run at an hour of its own: nothing either paints is the other's.
+    for (ahead, hour) in [(false, 12.0_f32), (true, 14.0)] {
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+        let living = diorama::living(
+            &stage,
+            &snapshot,
+            0.0,
+            Daylight::Day,
+            &Default::default(),
+            None,
+        );
+        let whole = Camera::around(&stage, 1.0, stage.width / 2.0, height / 2.0);
+        let out = Camera::around(&stage, 0.8, whole.x, height / 2.0);
+        assert!(out.fold > 0.0, "a press out folds a three-year World");
+        let make = |camera: Camera, steps: Vec<Camera>| {
+            diorama::frame(
+                &snapshot,
+                &stage,
+                &living,
+                camera,
+                0.0,
+                Daylight::Day,
+                &Glows::new(),
+                1.0,
+            )
+            .at_hour(hour)
+            .zooming_to(steps)
+        };
+        let steps = if ahead { vec![out] } else { Vec::new() };
+        let shared = std::rc::Rc::new(std::cell::RefCell::new(make(whole, steps)));
+        let strip = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let mut cx = HeadlessAppContext::with_platform(
+            Arc::new(NoopTextSystem::new()),
+            Arc::new(()),
+            || Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>),
+        );
+        let view = shared.clone();
+        let window = cx
+            .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+                cx.new(|_| LiveScene(view.clone(), strip.clone()))
+            })
+            .expect("a window");
+        // The view at one window settles: sharp, and nothing left to paint
+        // or to hand over (ahead of time included).
+        let started = Instant::now();
+        let mut quiet = 0;
+        while quiet < 10 {
+            assert!(
+                started.elapsed() < Duration::from_secs(120),
+                "the view settles"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            let (sharp, pending) = cx
+                .update_window(window.into(), |_, window, _| {
+                    window.refresh();
+                    (
+                        diorama::rough_shown(window).0 <= 0.0 && diorama::unpainted(window) == 0,
+                        diorama::zoom_ahead_pending(window),
+                    )
+                })
+                .expect("a window");
+            cx.run_until_parked();
+            quiet = if sharp && !pending && crate::painter::idle() {
+                quiet + 1
+            } else {
+                0
+            };
+        }
+        // The camera glides out, a frame or two on the way, as the window
+        // draws it; then it lands: the first frame there.
+        for t in [0.3, 0.6] {
+            *shared.borrow_mut() = make(whole.toward(out, t), Vec::new()).heading_to(out, None);
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .expect("a window");
+            cx.run_until_parked();
+        }
+        *shared.borrow_mut() = make(out, Vec::new()).heading_to(out, None);
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("a window");
+        cx.run_until_parked();
+        let (rough, gaps) = cx
+            .update_window(window.into(), |_, window, _| {
+                (diorama::rough_shown(window), diorama::unpainted(window))
+            })
+            .expect("a window");
+        if ahead {
+            assert_eq!(gaps, 0, "nothing unpainted where the zoom lands");
+            assert!(
+                rough.0 <= 0.0 && rough.1 <= 0.0,
+                "the zoom lands on the rough painting: {rough:?} px²"
+            );
+        } else {
+            assert!(
+                rough.0 > 0.0,
+                "not painted ahead, the zoom lands on the rough painting"
+            );
+        }
+    }
+    crate::painter::paint_elsewhere(false);
+}
+
 /// The first Pack's lived town, as it was sent over the wire: on day 1,
 /// 163, 358 or 1082 (the fixtures under `tests/fixtures/`).
 fn town_on(day: u32) -> ProjectionSnapshot {

@@ -575,7 +575,14 @@ pub(super) fn plan(
     let mut rough_seen = (0.0_f32, 0.0_f32);
     let mut heading_ahead = HeadingAhead::default();
     if let Some((there, key, scale)) = &heading {
-        heading_ahead = ask_ahead(window, there, (*key, *scale), dpr, only, true);
+        heading_ahead = ask_ahead(
+            window,
+            there,
+            (*key, *scale),
+            dpr,
+            only,
+            painter::Priority::First,
+        );
         // Whether all of it is painted and with the display: the camera
         // waits for it before it sets off (v0.29's Find landed on the
         // rough painting), so it arrives on sharp paint.
@@ -605,11 +612,35 @@ pub(super) fn plan(
             .next
             .and_then(|(to, subject)| seen_from(frame, to, Some(subject), dpr))
         {
-            let next = ask_ahead(window, &there, (key, scale), dpr, only, false);
+            let next = ask_ahead(
+                window,
+                &there,
+                (key, scale),
+                dpr,
+                only,
+                painter::Priority::Normal,
+            );
             for (layer, drawn) in next.ahead {
                 heading_ahead.ahead.entry(layer).or_default().extend(drawn);
             }
         }
+    }
+    // A zoom into a folded view, and the views one press of the zoom
+    // control away from a still one: see [`zoom_ahead`]. Once a frame, in
+    // the first row's plan.
+    let zoom_pending = !now
+        && slot == 1
+        && only.contains(&Still::Land)
+        && zoom_ahead(window, whole, dpr, only, sharp_before, &mut heading_ahead);
+    if !now && slot <= 1 {
+        AHEAD_PENDING.with(|pending| {
+            let mut pending = pending.borrow_mut();
+            if slot == 0 {
+                pending.remove(&id);
+            } else if zoom_pending {
+                pending.insert(id);
+            }
+        });
     }
     let plans = versions(frame, window, width, height, dpr)
         .into_iter()
@@ -1131,7 +1162,12 @@ pub(super) fn plan(
                     == pieces(frame, layer, version, width, height, dpr, 0).len()
             });
             let settled = if whole_new {
+                // Only the new look is drawn: nothing of the old, and none
+                // of the rough painting that stood in where the old one
+                // lacked a piece (on another grid, the camera zoomed), is
+                // on screen, so none of it is counted as shown.
                 gaps = 0;
+                rough_area.set((0.0, 0.0));
                 coming
                     .iter()
                     .map(|(_, image, rect, clip)| Drawn::Image(image.clone(), *rect, *clip))
@@ -1258,6 +1294,10 @@ type HeadingTile = (Rect, Option<(std::sync::Arc<gpui::RenderImage>, Rect)>);
 struct HeadingAhead {
     ahead: std::collections::HashMap<Still, Vec<Drawn>>,
     waiting: std::collections::HashSet<Still>,
+    /// Whether any of it is not yet painted and with the display.
+    pending: bool,
+    /// Every picture of it.
+    keys: Vec<u64>,
 }
 
 /// Where the camera is going (`there`, with the ground's key and the
@@ -1272,8 +1312,9 @@ fn ask_ahead(
     (key, scale): (u64, f32),
     dpr: f32,
     only: &[Still],
-    soon: bool,
+    priority: painter::Priority,
 ) -> HeadingAhead {
+    let soon = priority == painter::Priority::First;
     let mut out = HeadingAhead::default();
     let (cx, cy) = there
         .subject()
@@ -1306,9 +1347,11 @@ fn ask_ahead(
         tiles.sort_by_key(far);
         let mut ahead = Vec::new();
         for piece in tile_pieces(there, tile_layer, version, dpr, tiles) {
+            out.keys.push(piece.key);
             if !painter::painted(piece.key) {
-                painter::ask(window, piece.key, false, soon, piece.job);
+                painter::ask_as(window, piece.key, false, priority, piece.job);
                 out.waiting.insert(layer);
+                out.pending = true;
             } else if !painter::handed(piece.key) && (soon || painter::to_spare()) {
                 match painter::ready(piece.key) {
                     Some(painter::Ready::Image(image, _)) => {
@@ -1316,13 +1359,117 @@ fn ask_ahead(
                     }
                     _ => {
                         out.waiting.insert(layer);
+                        out.pending = true;
                     }
                 }
+            } else if !painter::handed(piece.key) {
+                out.pending = true;
             }
         }
         out.ahead.insert(layer, ahead);
     }
     out
+}
+
+/// Where a zoom goes to a view folded into a postcard, what the camera
+/// will see there is painted first and handed to the display on the way,
+/// as [`seen_from`] has it for a flat view. And with the camera still, and
+/// the view sharp, one press of the zoom control either way, where that
+/// view folds, is painted ahead of time and handed over, behind everything
+/// else, so the zoom lands on sharp paint: a folded view is rows of the
+/// place, each with pictures of its own, three times the tiles of a flat
+/// one, and on a slow renderer more than the zoom's glide leaves time to
+/// paint and hand over (v0.29's year-three zoom-out stood on the rough
+/// painting for two seconds after it settled). What is handed over ahead
+/// goes into `out`; returns whether any of it is still to paint or to hand
+/// over (the window keeps drawing until it is not).
+fn zoom_ahead(
+    window: &Window,
+    whole: &Frame,
+    dpr: f32,
+    only: &[Still],
+    sharp_before: bool,
+    out: &mut HeadingAhead,
+) -> bool {
+    let id = window_id(window);
+    let mut merge = |mut step: HeadingAhead| {
+        for (layer, drawn) in std::mem::take(&mut step.ahead) {
+            out.ahead.entry(layer).or_default().extend(drawn);
+        }
+        step
+    };
+    if let Some(to) = whole.heading() {
+        if to.fold > 0.0 {
+            for (there, key, scale) in views_from(whole, to, dpr) {
+                merge(ask_ahead(
+                    window,
+                    &there,
+                    (key, scale),
+                    dpr,
+                    only,
+                    painter::Priority::First,
+                ));
+            }
+        }
+        return false;
+    }
+    let steps = whole
+        .zoom_steps
+        .iter()
+        .filter(|to| to.fold > 0.0)
+        .copied()
+        .collect::<Vec<_>>();
+    if steps.is_empty() || whole.next.is_some() || !sharp_before {
+        return false;
+    }
+    // Once all of it is painted and with the display, only kept: what it
+    // is of is told by the ground here, what stands where, and the views.
+    let mut what = ground_key(whole, dpr);
+    what.float(dpr);
+    for (least, building) in whole.standing.iter() {
+        what.float(*least)
+            .add(building.index)
+            .float(building.x)
+            .float(building.h);
+    }
+    for to in &steps {
+        what.float(to.zoom).float(to.x).float(to.y).float(to.fold);
+    }
+    let what = what.finish();
+    let kept = ZOOM_AHEAD.with(|done| {
+        done.borrow()
+            .get(&id)
+            .filter(|(of, _)| *of == what)
+            .is_some_and(|(_, keys)| keys.iter().all(|key| painter::painted(*key)))
+    });
+    if kept {
+        return false;
+    }
+    let mut pending = false;
+    let mut keys = Vec::new();
+    for to in steps {
+        for (there, key, scale) in views_from(whole, to, dpr) {
+            let step = merge(ask_ahead(
+                window,
+                &there,
+                (key, scale),
+                dpr,
+                only,
+                painter::Priority::Later,
+            ));
+            pending |= step.pending;
+            keys.extend(step.keys);
+        }
+    }
+    ZOOM_AHEAD.with(|done| {
+        let mut done = done.borrow_mut();
+        if pending {
+            done.remove(&id);
+        } else {
+            done.insert(id, (what, keys));
+        }
+    });
+    pending
 }
 
 /// The still layer of the land or the buildings, as tiles.
@@ -1353,6 +1500,34 @@ fn seen_from(
     let scale = zoom * dpr;
     let key = ground_key(&there, scale).finish();
     Some((std::sync::Arc::new(there), key, scale))
+}
+
+/// What the camera will see of the land and the buildings from `to`,
+/// as [`seen_from`] has it, but for any view: one folded into a postcard
+/// is its rows, each seen through its own camera with the ground's key
+/// of its own (each row holds its own stretch of the place).
+pub(super) fn views_from(
+    whole: &Frame,
+    to: Camera,
+    dpr: f32,
+) -> Vec<(std::sync::Arc<Frame>, u64, f32)> {
+    let mut there = whole.seen_from(to);
+    there.subject = None;
+    let zoom = ((to.zoom * 100.0).round() / 100.0).max(0.05);
+    let scale = zoom * dpr;
+    match rows_of(&there) {
+        Some(rows) => rows
+            .into_iter()
+            .map(|(part, _)| {
+                let key = ground_key(&part, scale).finish();
+                (std::sync::Arc::new(part), key, scale)
+            })
+            .collect(),
+        None => {
+            let key = ground_key(&there, scale).finish();
+            vec![(std::sync::Arc::new(there), key, scale)]
+        }
+    }
 }
 
 /// The moment's subject on screen: its box, or with none the middle of
@@ -1412,6 +1587,16 @@ thread_local! {
     /// will see there was painted and with the display.
     static HEADING_READY: std::cell::RefCell<std::collections::HashMap<u64, (Camera, bool)>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// The windows with a view one press of the zoom control away still
+    /// to paint ahead or to hand to the display: they keep drawing frames
+    /// until it is.
+    static AHEAD_PENDING: std::cell::RefCell<std::collections::HashSet<u64>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+    /// What each window last painted ahead of time a zoom step away, all
+    /// of it painted and with the display, and its pictures: kept from
+    /// then on without working the views out again every frame.
+    static ZOOM_AHEAD: std::cell::RefCell<std::collections::HashMap<u64, (u64, Vec<u64>)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
     /// When each window last drew its scene.
     static DRAWN_AT: std::cell::RefCell<std::collections::HashMap<u64, std::time::Instant>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
@@ -1452,6 +1637,13 @@ pub fn heading_ready(window: &Window, to: Camera) -> Option<bool> {
     })
 }
 
+/// Whether the view one press of the zoom control away from where the
+/// camera of `window` is (where it folds) is still being painted ahead or
+/// handed to the display: the window keeps drawing frames until it is.
+pub fn zoom_ahead_pending(window: &Window) -> bool {
+    AHEAD_PENDING.with(|pending| pending.borrow().contains(&window_id(window)))
+}
+
 /// A window not drawn for this long is taken to be closed: what was kept
 /// for it is let go.
 const CLOSED: std::time::Duration = std::time::Duration::from_secs(60);
@@ -1490,6 +1682,8 @@ pub(super) fn forget_windows(gone: &[u64]) {
     ROUGHS.with(|roughs| roughs.borrow_mut().retain(|key, _| !gone.contains(&key.0)));
     ROUGH_SEEN.with(|seen| seen.borrow_mut().retain(|window, _| !gone.contains(window)));
     HEADING_READY.with(|kept| kept.borrow_mut().retain(|window, _| !gone.contains(window)));
+    AHEAD_PENDING.with(|pending| pending.borrow_mut().retain(|window| !gone.contains(window)));
+    ZOOM_AHEAD.with(|done| done.borrow_mut().retain(|window, _| !gone.contains(window)));
     SHARP_BEFORE.with(|before| {
         before
             .borrow_mut()
@@ -1943,7 +2137,25 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     if !sync {
         log_frame(window, wash, &frame);
     }
-    if !painter::idle() || waiting {
+    // The first frame with no rough painting anywhere asks for one more:
+    // a view a zoom step away is painted ahead of time from a still, sharp
+    // view, asked for in the frame after one that was sharp, and a still
+    // window draws no frame by itself.
+    if !sync
+        && frame.next.is_none()
+        && frame.zoom_steps.iter().any(|to| to.fold > 0.0)
+        && rough_shown(window).0 <= 0.0
+        && !SHARP_BEFORE.with(|before| {
+            before
+                .borrow()
+                .get(&window_id(window))
+                .copied()
+                .unwrap_or(false)
+        })
+    {
+        window.request_animation_frame();
+    }
+    if !painter::idle() || waiting || zoom_ahead_pending(window) {
         window.request_animation_frame();
     }
     let clip_to = |span: Option<(f32, f32)>, bounds: Bounds<Pixels>| {

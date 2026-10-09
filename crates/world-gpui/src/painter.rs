@@ -1768,8 +1768,9 @@ pub fn fade_down(pixmap: &mut sk::Pixmap, from: f32, to: f32) {
 struct Pool {
     /// Work waiting for a painter: what the camera needs to show anything
     /// at all first (the rough painting of the place, the sky and the
-    /// hills), then the rest, each in the order asked.
-    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>)>,
+    /// hills), then the rest, then what is painted ahead of time (a view
+    /// the camera may go to next), each in the order asked.
+    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>, VecDeque<Job>)>,
     ready: std::sync::Condvar,
     /// What has been asked for and not yet painted, by the thread that
     /// asked, and when it was last asked for: work nobody still wants is
@@ -1813,7 +1814,12 @@ fn pool() -> &'static Pool {
                             return;
                         };
                         loop {
-                            if let Some(job) = queue.0.pop_front().or_else(|| queue.1.pop_front()) {
+                            if let Some(job) = queue
+                                .0
+                                .pop_front()
+                                .or_else(|| queue.1.pop_front())
+                                .or_else(|| queue.2.pop_front())
+                            {
                                 break job;
                             }
                             queue = match pool.ready.wait(queue) {
@@ -2134,6 +2140,36 @@ pub fn ask(
     first: bool,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 ) {
+    let priority = if first {
+        Priority::First
+    } else {
+        Priority::Normal
+    };
+    ask_as(window, key, now, priority, paint)
+}
+
+/// How soon a picture asked for off the window's thread is painted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Priority {
+    /// What the window needs to show anything at all of what the camera
+    /// sees, or where it is going.
+    First,
+    /// Everything else the camera sees, or will see next.
+    Normal,
+    /// Ahead of time, only when nothing else waits: a view the camera
+    /// may go to (one press of the zoom control away). Never ahead of
+    /// anything asked for otherwise, so it never delays what is seen.
+    Later,
+}
+
+/// As [`ask`], at `priority`.
+pub fn ask_as(
+    window: &gpui::Window,
+    key: u64,
+    now: bool,
+    priority: Priority,
+    paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
+) {
     if painted(key) {
         return;
     }
@@ -2184,10 +2220,10 @@ pub fn ask(
                 thread: std::thread::current().id(),
                 paint,
             };
-            if first {
-                queue.0.push_back(job);
-            } else {
-                queue.1.push_back(job);
+            match priority {
+                Priority::First => queue.0.push_back(job),
+                Priority::Normal => queue.1.push_back(job),
+                Priority::Later => queue.2.push_back(job),
             }
             pool.ready.notify_one();
         }
