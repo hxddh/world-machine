@@ -138,6 +138,7 @@ pub(super) fn paint_plan(
     } else {
         frame.feet - frame.figure_h * 0.25
     };
+    paint_far_field(canvas, frame, (from, to), field, k);
     paint_between(canvas, frame, (from, to), field, k, spine);
     for patch in &frame.patches {
         if patch.x1 < from - 80.0 || patch.x0 > to + 80.0 {
@@ -156,6 +157,210 @@ pub(super) fn paint_plan(
             continue;
         }
         paint_patch(canvas, frame, patch, field, k);
+    }
+}
+
+/// The ground running back from the clusters to the hills, meant rather
+/// than left a screen-wide band of plain field (the v0.29 art director's
+/// "catalogue on a lawn"): rows of it receding, each row cut into plots of
+/// the place's own (hedged fields where people farm, yards behind hedges
+/// on a street, dune ridges and rock on a dry plain, pressure ridges on
+/// the ice), the
+/// nearer rows wider, seeded by the stage position so a pan never changes
+/// them and tiles meet without a seam.
+fn paint_far_field(
+    canvas: &mut Canvas,
+    frame: &Frame,
+    (from, to): (f32, f32),
+    field: Hsla,
+    k: f32,
+) {
+    let top = frame.horizon + (frame.base - frame.horizon) * 0.3 + 16.0 * k;
+    let bottom = frame.base - frame.figure_h * 0.3;
+    if bottom - top < 24.0 * k || frame.height < 360.0 {
+        return;
+    }
+    let seed = seed_of_scenery(&frame.scenery);
+    let setting = frame.setting;
+    // What kind of ground it is, by what the setting does: chimneys smoke
+    // where people farm, a street is fenced yards, a dry plain is rock.
+    let street = setting == art::Setting::Street;
+    let icy = setting == art::Setting::Ice;
+    let farmed = setting.smokes() || street;
+    let rocky = !farmed && !icy;
+    // Where the rows meet: closer together toward the hills.
+    let rows = [0.0_f32, 0.2, 0.46, 0.76, 1.0];
+    let hedge = if icy {
+        art::shade(field, -0.12)
+    } else if rocky {
+        art::shade(field, -0.16)
+    } else {
+        art::shade(field, -0.3)
+    };
+    let tints = if street {
+        [
+            art::shade(field, -0.06),
+            art::shade(field, 0.07),
+            mix(art::hex(0xb7a98a), field, 0.6),
+            art::shade(field, -0.02),
+        ]
+    } else if icy {
+        [
+            art::shade(field, -0.05),
+            art::shade(field, 0.04),
+            mix(art::hex(0xb8cde0), field, 0.6),
+            art::shade(field, -0.02),
+        ]
+    } else if rocky {
+        [
+            art::shade(field, -0.07),
+            art::shade(field, 0.05),
+            mix(art::hex(0x8c4a30), field, 0.6),
+            art::shade(field, -0.02),
+        ]
+    } else {
+        [
+            art::shade(field, -0.08),
+            mix(art::hex(0xc9b77a), field, 0.5),
+            mix(art::hex(0x8fae62), field, 0.45),
+            art::shade(field, 0.06),
+        ]
+    };
+    for row in 0..rows.len() - 1 {
+        let (t0, t1) = (rows[row], rows[row + 1]);
+        let (y0, y1) = (top + (bottom - top) * t0, top + (bottom - top) * t1);
+        // Nearer rows are bigger: plots wider, lines heavier.
+        let near = 0.55 + 0.45 * (row as f32 / (rows.len() - 2) as f32);
+        let cell = frame.view_w.max(1.0) * (0.09 + 0.07 * near);
+        let first = ((from - cell) / cell).floor() as i32;
+        let last = ((to + cell) / cell).ceil() as i32;
+        for column in first..=last {
+            let s = painter::hash2(column, 71 + row as i32, seed);
+            let x0 = column as f32 * cell;
+            let x1 = x0 + cell;
+            // Some plots are left as the field, so the rows never tile.
+            // Plots only where people farm or fence; on a dry plain and
+            // the ice the rows are ridges and scattered stone alone.
+            if farmed && !s.is_multiple_of(5) {
+                let tint = tints[(s >> 3) as usize % tints.len()];
+                let mut plot = Shape::new();
+                plot.move_to(x0, y0 + 1.0)
+                    .line_to(x1, y0 + 1.0)
+                    .line_to(x1, y1 - 1.0)
+                    .line_to(x0, y1 - 1.0)
+                    .close();
+                canvas.fill(&plot, tint.opacity(0.7));
+                // Rows in the crop, or tracks, running along the plot.
+                if !street && s % 3 == 1 {
+                    let lines = ((y1 - y0) / (4.0 * k * near)).clamp(2.0, 8.0) as i32;
+                    for line in 1..lines {
+                        let y = y0 + (y1 - y0) * line as f32 / lines as f32;
+                        let mut furrow = Shape::new();
+                        furrow.move_to(x0 + 2.0, y).line_to(x1 - 2.0, y);
+                        canvas.stroke(
+                            &furrow,
+                            0.9 * k * near,
+                            art::shade(tint, -0.12).opacity(0.5),
+                        );
+                    }
+                }
+            }
+            // The hedgerow (or ridge) along the back of the plot, not every
+            // plot's, so the rows never read as stripes across the place.
+            if row > 0 && !s.is_multiple_of(3) {
+                let step = 6.0 * k * near;
+                let mut line = Shape::new();
+                let mut x = x0;
+                line.move_to(x, y0);
+                while x <= x1 {
+                    let wob = (painter::hash2((x / step) as i32, 83 + row as i32, seed) % 100)
+                        as f32
+                        / 100.0;
+                    if farmed {
+                        art::ellipse(
+                            canvas,
+                            x,
+                            y0 - (0.5 + wob) * k * near,
+                            3.6 * k * near,
+                            (2.4 + wob) * k * near,
+                            hedge.opacity(0.75),
+                        );
+                    } else {
+                        line.line_to(x, y0 - wob * 1.5 * k * near);
+                    }
+                    x += step;
+                }
+                if !farmed {
+                    canvas.stroke(&line, 1.4 * k * near, hedge.opacity(0.5));
+                }
+            }
+            // The hedge (or ridge) between plots.
+            if farmed && s % 4 != 3 {
+                let bumps = ((y1 - y0) / (5.0 * k * near)).clamp(2.0, 8.0) as i32;
+                for bump in 0..=bumps {
+                    let y = y0 + (y1 - y0) * bump as f32 / bumps as f32;
+                    art::ellipse(
+                        canvas,
+                        x0,
+                        y,
+                        2.6 * k * near,
+                        2.2 * k * near,
+                        hedge.opacity(0.7),
+                    );
+                }
+            }
+            // Now and then a tree, a boulder or a block of ice.
+            if s % 7 == 2 {
+                let x = x0 + cell * (0.3 + ((s >> 9) % 40) as f32 / 100.0);
+                let r = (5.0 + ((s >> 14) % 4) as f32) * k * near;
+                if farmed {
+                    art::rect(
+                        canvas,
+                        x - 0.8 * k,
+                        y0 - r * 1.2,
+                        1.6 * k,
+                        r * 1.2,
+                        0.5,
+                        art::hex(0x6b5640).opacity(0.8),
+                    );
+                    art::ellipse(
+                        canvas,
+                        x,
+                        y0 - r * 1.3,
+                        r,
+                        r * 0.85,
+                        art::shade(hedge, 0.08),
+                    );
+                } else if rocky {
+                    art::ellipse(canvas, x, y0 + r * 0.4, r, r * 0.5, art::shade(field, -0.2));
+                    art::ellipse(
+                        canvas,
+                        x - r * 0.2,
+                        y0 + r * 0.25,
+                        r * 0.5,
+                        r * 0.22,
+                        art::shade(field, 0.08),
+                    );
+                } else {
+                    art::ellipse(
+                        canvas,
+                        x,
+                        y0 + r * 0.3,
+                        r * 1.1,
+                        r * 0.4,
+                        art::shade(field, -0.1),
+                    );
+                    art::ellipse(
+                        canvas,
+                        x,
+                        y0 + r * 0.1,
+                        r * 0.8,
+                        r * 0.3,
+                        art::shade(field, 0.05),
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -280,16 +485,20 @@ pub(super) fn paint_footings(canvas: &mut Canvas, frame: &Frame, (from, to): (f3
                 mix(art::hex(0x8a8276), art::hex(frame.scenery.near), 0.2),
                 GROUND_UNDER_SKY,
             );
-            let foot = base + w * 0.12;
+            let foot = base.max(edge) + w * 0.18;
+            // The heap rises from the water up over the spine's edge to the
+            // tower's own foot, so the tower stands on it rather than
+            // above a stain in the water (the v0.29 art director).
+            let edge = edge.min(base) - w * 0.16;
             let wet = art::shade(stone, -0.3);
-            // The heap's shadowed mass first, soft at its edge.
+            // The heap's shadowed mass first, solid, soft only at its rim.
             canvas.soft(
                 x,
                 (edge + foot) * 0.5,
-                w * 0.62,
-                (foot - edge).max(4.0 * k) * 0.55,
-                6.0 * k,
-                art::shade(stone, -0.22).opacity(0.9),
+                w * 0.6,
+                (foot - edge).max(4.0 * k) * 0.52,
+                2.5 * k,
+                art::shade(stone, -0.22),
             );
             // The boulders, back to front: bigger toward the foot.
             let count = 11;

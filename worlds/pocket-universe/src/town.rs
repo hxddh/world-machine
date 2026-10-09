@@ -179,7 +179,7 @@ fn layout(place: Place) -> &'static Layout {
             },
         ],
         labels: ["The domes", "The landing pad", "The ridge and the ice mine"],
-        anchors: [(SLOT_A, 0.45), (SLOT_C, 1.05), (SLOT_D, 1.85)],
+        anchors: [(SLOT_A, 0.86), (SLOT_C, 1.05), (SLOT_D, 1.85)],
         home: "Quarters",
         quarters: &[
             quarter(
@@ -963,10 +963,11 @@ pub(crate) fn look(place: Place) -> world_projection::PlaceLook {
         // A sheltered ring against a hostile plain: the lamps huddle round
         // the habitats, the dome garden and the airlock apron, and the
         // plain beyond stays rust dark. Inside, at night, the windows and
-        // lamps glow teal and signal white.
+        // lamps glow teal and signal white. A low gold key: the night over
+        // rust reads dark umber, never purple-grey, and dusk turns gold.
         Place::Ares => world_projection::PlaceLook {
             lamps: vec![0.15, 0.26, 0.44, 0.53, 0.71, 0.88, 1.06, 1.34, 1.42, 2.32],
-            key: None,
+            key: Some(0xffc890),
             glow: Some(0xc4f4ec),
             spine: None,
             haze: Some(0xe2a582),

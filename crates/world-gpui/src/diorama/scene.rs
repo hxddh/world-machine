@@ -1592,7 +1592,9 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
     );
     let step = 10.0;
     for depth in 0..3 {
-        let air = [0.56, 0.3, 0.0][depth];
+        // Less air than v0.28's: the milky veil the v0.29 art director
+        // saw over the whole picture.
+        let air = [0.46, 0.2, 0.0][depth];
         let ink = art::shade(mix(far, haze, air), if depth == 2 { -0.08 } else { 0.0 });
         let ink = mix(ink, cover_ink, cover_share[depth]);
         let mut shape = Shape::new();
@@ -1671,6 +1673,8 @@ pub(super) fn paint_band_on(canvas: &mut Canvas, at: (i32, i32), frame: &Frame, 
         paint_goal(canvas, x, base, goal, silhouette, sun, frame.setting);
     }
     painter::grain_lit(canvas, at, 0.04, 0.035, frame.light());
+    let (gold, strength) = dusk_glaze(frame.hour, frame.look.as_ref().and_then(|look| look.key));
+    painter::glaze(&mut canvas.pixmap, gold, strength * 0.8);
 }
 
 /// A goal on the ridge: finished, it stands as solid as anything else the
@@ -1857,6 +1861,8 @@ pub(super) fn paint_land_tile(
             light,
         )
     });
+    let (gold, strength) = dusk_glaze(frame.hour, frame.look.as_ref().and_then(|look| look.key));
+    painter::glaze(&mut canvas.pixmap, gold, strength);
     if frame.blend_top {
         // A nearer row of a folded postcard: its field fades in from the
         // top, so the ground runs on from the row behind with no seam.
@@ -1866,6 +1872,80 @@ pub(super) fn paint_land_tile(
         super::ground::fade_in_down(&mut canvas.pixmap, from, to);
     }
     Some(canvas.pixmap)
+}
+
+/// On the ice, a lead of open water along the back of the causeway, so it
+/// runs between two waters and reads as a causeway, not a shoreline (the
+/// v0.29 art director): dark, with a pale rim of ice either side, crossed
+/// by packed-snow bridges where each cluster's path comes down and now
+/// and then between.
+fn paint_lead(canvas: &mut Canvas, frame: &Frame, (from, to): (f32, f32), top: f32, k: f32) {
+    let (y0, y1) = (top - frame.figure_h * 0.2, top - frame.figure_h * 0.05);
+    if y1 - y0 < 2.0 {
+        return;
+    }
+    let water = art::hex(frame.scenery.near);
+    // Never lighter than the land may be under the sky (the value bands).
+    let rim = under_sky(&frame.scenery, art::hex(0xe8f1f7), GROUND_UNDER_SKY);
+    let gap = frame.figure_h * 1.1;
+    let mut crossings: Vec<f32> = frame
+        .patches
+        .iter()
+        .map(|patch| (patch.x0 + patch.x1) / 2.0)
+        .collect();
+    let spacing = frame.view_w.max(1.0) * 0.33;
+    let seed = seed_of_scenery(&frame.scenery);
+    let first = ((from - spacing) / spacing).floor() as i32;
+    let last = ((to + spacing) / spacing).ceil() as i32;
+    for n in first..=last {
+        let s = painter::hash2(n, 97, seed);
+        crossings.push(n as f32 * spacing + (s % 1000) as f32 / 1000.0 * spacing * 0.6);
+    }
+    crossings.sort_by(f32::total_cmp);
+    // The runs of open water between crossings.
+    let mut x = from - 40.0;
+    let mut runs = Vec::new();
+    for c in crossings
+        .into_iter()
+        .filter(|c| *c > from - 80.0 && *c < to + 80.0)
+    {
+        if c - gap / 2.0 > x {
+            runs.push((x, c - gap / 2.0));
+        }
+        x = x.max(c + gap / 2.0);
+    }
+    if x < to + 40.0 {
+        runs.push((x, to + 40.0));
+    }
+    for (a, b) in runs {
+        if b - a < gap * 0.5 {
+            continue;
+        }
+        let mut lead = Shape::new();
+        let r = (y1 - y0) * 0.5;
+        lead.move_to(a + r, y0);
+        let steps = ((b - a) / (12.0 * k)).ceil().max(2.0) as i32;
+        let stride = (b - a - 2.0 * r) / steps as f32;
+        for i in 1..steps {
+            let wob = (painter::hash2(i, (a / 7.0) as i32, seed) % 100) as f32 / 100.0 - 0.5;
+            lead.line_to(a + r + stride * i as f32, y0 + wob * r * 0.5);
+        }
+        lead.line_to(b - r, y0);
+        lead.curve_to(b - r, y1, b, (y0 + y1) / 2.0);
+        lead.line_to(a + r, y1);
+        lead.curve_to(a + r, y0, a, (y0 + y1) / 2.0);
+        lead.close();
+        canvas.fill(&lead, water);
+        let mut edge = Shape::new();
+        edge.move_to(a + r, y0).line_to(b - r, y0);
+        canvas.stroke(&edge, 1.6 * k, rim.opacity(0.8));
+        let mut glint = Shape::new();
+        let mid = (y0 + y1) / 2.0;
+        glint
+            .move_to(a + (b - a) * 0.3, mid)
+            .line_to(a + (b - a) * 0.45, mid);
+        canvas.stroke(&glint, 1.0 * k, rim.opacity(0.35));
+    }
 }
 
 /// The quay: a strip of pale stone along the water in the lower third,
@@ -1881,9 +1961,15 @@ pub(super) fn paint_quay(
 ) {
     let k = (frame.height / 848.0).clamp(0.3, 1.3);
     let top = frame.quay_top();
-    let stone = frame
-        .spine()
-        .unwrap_or(crate::setting::quay_inks(frame.setting, ground).0);
+    // Never lighter than the sky allows the land (the art bible's value
+    // bands), however pale the Pack's spine.
+    let stone = under_sky(
+        &frame.scenery,
+        frame
+            .spine()
+            .unwrap_or(crate::setting::quay_inks(frame.setting, ground).0),
+        GROUND_UNDER_SKY,
+    );
     let step = 24.0;
     let mut deck = Shape::new();
     deck.move_to(from, top);
@@ -1917,6 +2003,9 @@ pub(super) fn paint_quay(
     let mut kerb = Shape::new();
     kerb.move_to(from, top).line_to(to + step, top);
     canvas.stroke(&kerb, 1.4 * k, art::shade(stone, -0.4).opacity(0.45));
+    if frame.setting == art::Setting::Ice {
+        paint_lead(canvas, frame, (from, to), top, k);
+    }
     if !detail {
         return;
     }
@@ -2044,7 +2133,7 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
     if tile_top < haze_to && tile_bottom > field_y - 30.0 {
         let mut hazed = Canvas::new(canvas.width(), canvas.height(), canvas.scale, canvas.origin)
             .expect("a tile");
-        hazed.fill(&field, mix(ground, haze, 0.2));
+        hazed.fill(&field, mix(ground, haze, 0.1));
         painter::fade_down(
             &mut hazed.pixmap,
             canvas.device(0.0, field_y - 20.0).1,

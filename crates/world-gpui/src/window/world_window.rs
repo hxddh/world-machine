@@ -68,6 +68,9 @@ pub(crate) const LETTERS_SHOWN: usize = 12;
 const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
 pub(crate) const CAMERA_SECONDS: f32 = 0.9;
+/// The longest a glide waits where it set off for what it will see to be
+/// painted.
+const CAMERA_HOLD_SECONDS: f32 = 1.6;
 /// How many of today's exchanges with someone their card shows.
 const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
@@ -112,6 +115,8 @@ impl Area {
 const HUD_ROOM: f32 = 64.0;
 /// How tall the card at the foot of the stage is, generously.
 const CARD_ROOM: f32 = 250.0;
+/// How tall a chapter's ending card stands, generously, at text size 1.
+const CHAPTER_ROOM: f32 = 400.0;
 /// The zoom control's size: two buttons, one over the other.
 const ZOOM_SIZE: (f32, f32) = (36.0, 68.0);
 /// How far a bubble's tail reaches down to the head it speaks for.
@@ -373,6 +378,10 @@ pub(crate) struct Looking {
     pub(crate) camera_from: Option<Camera>,
     pub(crate) camera_to: Option<Camera>,
     pub(crate) camera_at: Option<Instant>,
+    /// Since when a glide to somewhere new (Find, a return beat) has been
+    /// held where it set off, waiting for what it will see there to be
+    /// painted.
+    pub(crate) camera_hold: Option<Instant>,
     pub(crate) focus: Option<gpui::FocusHandle>,
     /// The clock that keeps a living World moving; dropped (stopping it)
     /// while the window cannot be seen.
@@ -2052,7 +2061,7 @@ impl ProjectionView {
     }
 
     /// Where the camera is now, moving toward where it was last sent.
-    fn camera(&mut self, stage: &Stage) -> Camera {
+    fn camera(&mut self, stage: &Stage, window: &Window) -> Camera {
         let whole = Camera::whole(stage);
         // Whoever was being talked to is put away (Esc, the close button,
         // the drawer, a page): the camera stays where it is, never jumping
@@ -2105,6 +2114,8 @@ impl ProjectionView {
                 )
             });
         let current = match (self.looking.camera_from, self.looking.camera_to) {
+            // Held where it set off (below), it stays there exactly.
+            (Some(from), Some(_)) if self.looking.camera_hold.is_some() => from,
             (Some(from), Some(to)) => {
                 from.toward(to, since(self.looking.camera_at) / CAMERA_SECONDS)
             }
@@ -2130,6 +2141,28 @@ impl ProjectionView {
             } else {
                 Instant::now()
             });
+            // A hold already running keeps its start, so a target that
+            // shifts a little from frame to frame never holds for ever.
+            self.looking.camera_hold = if wheel {
+                None
+            } else {
+                self.looking.camera_hold.or(Some(Instant::now()))
+            };
+        }
+        // A glide somewhere new sets off only once what the camera will
+        // see there is painted (or after a moment at most): it never lands
+        // on the rough painting (the v0.29 art director's Find).
+        if let Some(held) = self.looking.camera_hold {
+            let ready = diorama::heading_ready(window, target).unwrap_or(false);
+            if ready || since(Some(held)) >= CAMERA_HOLD_SECONDS {
+                self.looking.camera_hold = None;
+            } else {
+                // Held, nothing else may ask for a frame once the painting
+                // is done: ask for the next one, which sets off.
+                window.request_animation_frame();
+            }
+            // The glide's clock starts when it sets off.
+            self.looking.camera_at = Some(Instant::now());
         }
         self.looking.camera_now = Some(current);
         current
@@ -2600,7 +2633,13 @@ impl ProjectionView {
         // only on a painted scene: while what the camera sees is not
         // painted (the window opening, the camera arriving somewhere new),
         // its clock is held and its words wait.
-        let film_painted = diorama::view_painted(window);
+        // Nor while the camera is still on its way to the beat (held until
+        // what it will see is painted, then gliding): the words never show
+        // over the last beat's subject (v0.29's catch over the school).
+        let arrived = crate::painter::synchronous()
+            || (self.looking.camera_hold.is_none()
+                && since(self.looking.camera_at) >= CAMERA_SECONDS * 0.85);
+        let film_painted = diorama::view_painted(window) && arrived;
         if self.retelling.is_some() {
             if self.looking.beat_at.is_none() || !film_painted {
                 self.looking.beat_at = Some(Instant::now());
@@ -2693,7 +2732,7 @@ impl ProjectionView {
         let daylight = scene::daylight_now();
 
         let film_painted = self.keep_books(window, &stage, cx);
-        let camera = self.camera(&stage);
+        let camera = self.camera(&stage, window);
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
@@ -3165,7 +3204,8 @@ impl ProjectionView {
             .looking
             .asking
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied());
-        let mut interface = self.interface_areas((width, height), asker_x, asking);
+        let crowd = self.crowd(&bodies, height);
+        let mut interface = self.interface_areas((width, height), asker_x, asking, &crowd);
         // Nor over whoever a card is about, or the person being talked to.
         for who in card_people.iter().chain(self.looking.asking.iter()) {
             if line.as_ref().is_some_and(|(speaker, ..)| speaker == who) {
@@ -3393,7 +3433,7 @@ impl ProjectionView {
                     .map(|(_, x, _)| *x)
                     .filter(|_| self.retelling.is_none());
                 root = root.child(
-                    bottom_card(card, card_dock(room, asker_x))
+                    bottom_card(card, card_dock(room, asker_x, &crowd))
                         .when(self.looking.drawer, |card| card.right(px(DRAWER_WIDTH))),
                 );
             }
@@ -4541,7 +4581,7 @@ impl ProjectionView {
                 }))
                 .into_any_element(),
         );
-        let area = self.asking_area(who, x, head, (stage.width, stage.height));
+        let area = self.asking_area(who, x, head, (stage.view_w, stage.height));
         let card = div()
             .id("asking")
             .role(Role::Group)
@@ -4611,6 +4651,7 @@ impl ProjectionView {
         (width, height): (f32, f32),
         asker_x: Option<f32>,
         asking: Option<(SelectionId, f32, f32)>,
+        crowd: &[(f32, f32)],
     ) -> Vec<Area> {
         let mut areas = vec![Area {
             x: 0.0,
@@ -4635,13 +4676,14 @@ impl ProjectionView {
         let (from, to) = if is_beginning(&self.snapshot) {
             (0.0, width)
         } else {
-            card_dock(room, asker_x).span(room)
+            card_dock(room, asker_x, crowd).span(room)
         };
+        let tall = self.card_room();
         areas.push(Area {
             x: from,
-            y: height - CARD_MARGIN - CARD_ROOM,
+            y: height - CARD_MARGIN - tall,
             w: to - from,
-            h: CARD_ROOM + CARD_MARGIN,
+            h: tall + CARD_MARGIN,
         });
         if self.looking.drawer {
             areas.push(Area {
@@ -4655,6 +4697,31 @@ impl ProjectionView {
             areas.push(self.asking_area(who, x, head, (width, height)));
         }
         areas
+    }
+
+    /// How tall the card at the foot of the stage is, generously: a
+    /// chapter's ending, with its summary, stands taller than a question
+    /// (v0.29's chapter card cut a bubble placed over the question's room).
+    fn card_room(&self) -> f32 {
+        let chapter = self.retelling.is_none()
+            && chapter_just_ended(&self.snapshot, self.looking.chapter_read).is_some();
+        if chapter {
+            CHAPTER_ROOM * crate::text_scale()
+        } else {
+            CARD_ROOM
+        }
+    }
+
+    /// The people whose figures reach down into the band the card at the
+    /// foot of the stage covers: each where they stand, and half their
+    /// width.
+    fn crowd(&self, bodies: &[(SelectionId, f32, f32, f32)], height: f32) -> Vec<(f32, f32)> {
+        let top = height - CARD_MARGIN - self.card_room();
+        bodies
+            .iter()
+            .filter(|(_, _, head, feet)| *feet > top && feet - head >= 8.0)
+            .map(|(_, x, head, feet)| (*x, ((feet - head) * 0.4).max(6.0)))
+            .collect()
     }
 
     /// What the player and someone said to each other today, latest last:
@@ -5414,28 +5481,87 @@ const CARD_MARGIN: f32 = 16.0;
 const CARD_CLEAR: f32 = 64.0;
 
 /// Where the card goes on a stage `width` wide, with whoever asks standing
-/// at `asker_x` on screen: on the far side from them, no wider than half
-/// the stage less its margins, so the half they stand in stays clear; with
-/// nobody asking, centred.
-pub(crate) fn card_dock(width: f32, asker_x: Option<f32>) -> Dock {
+/// at `asker_x` on screen and the rest of the people whose figures reach
+/// down into the card's band at `crowd` (each where they stand and half
+/// their width): wherever it covers the fewest of them, never the asker.
+/// With an asker it prefers the far side from them, no wider than half the
+/// stage less its margins, so the half they stand in stays clear; with
+/// nobody asking, centred, unless that covers someone a side would not
+/// (v0.29's talk card over the group by the water).
+pub(crate) fn card_dock(width: f32, asker_x: Option<f32>, crowd: &[(f32, f32)]) -> Dock {
     let full = (CARD_WIDTH * crate::text_scale().sqrt()).min(width - CARD_MARGIN * 2.0);
-    match asker_x {
-        Some(x) if width >= 720.0 => Dock {
-            side: if x > width / 2.0 {
-                DockSide::Left
-            } else {
-                DockSide::Right
-            },
-            // Clear of the middle by more than anyone's shoulders, so
-            // someone standing right at it is still in the open half.
-            w: full.min(width / 2.0 - CARD_CLEAR),
-        },
-        _ => Dock {
-            side: DockSide::Centre,
-            w: full,
-        },
+    let centre = Dock {
+        side: DockSide::Centre,
+        w: full,
+    };
+    if width < 720.0 {
+        return centre;
     }
+    // Clear of the middle by more than anyone's shoulders, so someone
+    // standing right at it is still in the open half.
+    let side = |side| Dock {
+        side,
+        w: full.min(width / 2.0 - CARD_CLEAR),
+    };
+    let order = match asker_x {
+        Some(x) if x > width / 2.0 => [side(DockSide::Left), centre, side(DockSide::Right)],
+        Some(_) => [side(DockSide::Right), centre, side(DockSide::Left)],
+        None => [centre, side(DockSide::Left), side(DockSide::Right)],
+    };
+    let covers = |dock: &Dock, x: f32, half: f32| {
+        let (left, right) = dock.span(width);
+        x + half > left && x - half < right
+    };
+    let cost = |dock: &Dock| {
+        let asker = asker_x.is_some_and(|x| covers(dock, x, ASKER_HALF));
+        let crowd = crowd
+            .iter()
+            .filter(|(x, half)| covers(dock, *x, *half))
+            .count();
+        usize::from(asker) * 1000 + crowd
+    };
+    // And each side narrowed to the open ground beside everyone, where that
+    // still leaves a card wide enough to read.
+    let least = CARD_LEAST * crate::text_scale().sqrt();
+    let everyone = crowd
+        .iter()
+        .copied()
+        .chain(asker_x.map(|x| (x, ASKER_HALF)))
+        .collect::<Vec<_>>();
+    let gap = 12.0;
+    let left_free = everyone
+        .iter()
+        .map(|(x, half)| x - half - gap)
+        .fold(width - CARD_MARGIN, f32::min)
+        - CARD_MARGIN;
+    let right_free = width
+        - CARD_MARGIN
+        - everyone
+            .iter()
+            .map(|(x, half)| x + half + gap)
+            .fold(CARD_MARGIN, f32::max);
+    let fitted = [(DockSide::Left, left_free), (DockSide::Right, right_free)]
+        .into_iter()
+        .filter(|(_, free)| *free >= least)
+        .map(|(side, free)| Dock {
+            side,
+            w: free.min(full),
+        });
+    let mut best = order[0];
+    for dock in order[1..].iter().copied().chain(fitted) {
+        if cost(&dock) < cost(&best) {
+            best = dock;
+        }
+    }
+    best
 }
+
+/// The narrowest a card at the foot of the stage is made to keep clear of
+/// people, at text size 1.
+const CARD_LEAST: f32 = 400.0;
+
+/// Half of anyone's width, generously, for keeping a card off an asker.
+const ASKER_HALF: f32 = 24.0;
 
 impl Dock {
     /// The span of the stage the card covers, left to right.
@@ -6114,7 +6240,7 @@ mod tests {
                         continue;
                     }
                     askers += 1;
-                    let dock = card_dock(width, Some(person.x));
+                    let dock = card_dock(width, Some(person.x), &[]);
                     let (left, right) = dock.span(width);
                     let half = person.height * 0.4;
                     assert!(

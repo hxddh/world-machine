@@ -576,6 +576,15 @@ pub(super) fn plan(
     let mut heading_ahead = HeadingAhead::default();
     if let Some((there, key, scale)) = &heading {
         heading_ahead = ask_ahead(window, there, (*key, *scale), dpr, only, true);
+        // Whether all of it is painted and with the display: the camera
+        // waits for it before it sets off (v0.29's Find landed on the
+        // rough painting), so it arrives on sharp paint.
+        // (The land and the buildings are planned row by row, the first
+        // row in slot 1.)
+        if slot == 1 && only.contains(&Still::Land) && only.contains(&Still::Buildings) {
+            let ready = heading_ahead.waiting.is_empty();
+            HEADING_READY.with(|kept| kept.borrow_mut().insert(id, (there.camera, ready)));
+        }
     }
     // Once where the camera is now (or going) is sharp, where it goes after
     // that (the return film's next beat) is painted and handed over ahead,
@@ -1399,6 +1408,10 @@ thread_local! {
     /// painting anywhere.
     static SHARP_BEFORE: std::cell::RefCell<std::collections::HashMap<u64, bool>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// Where each window's camera was last heading, and whether all it
+    /// will see there was painted and with the display.
+    static HEADING_READY: std::cell::RefCell<std::collections::HashMap<u64, (Camera, bool)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
     /// When each window last drew its scene.
     static DRAWN_AT: std::cell::RefCell<std::collections::HashMap<u64, std::time::Instant>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
@@ -1415,6 +1428,27 @@ pub fn rough_shown(window: &Window) -> (f32, f32) {
             .get(&window_id(window))
             .copied()
             .unwrap_or((0.0, 0.0))
+    })
+}
+
+/// Whether all the camera of `window` will see from `to` is painted and
+/// with the display, so a glide there arrives on sharp paint; `None` until
+/// a frame heading there has been drawn. Painting in place (a test), it
+/// always is.
+pub fn heading_ready(window: &Window, to: Camera) -> Option<bool> {
+    if painter::synchronous() {
+        return Some(true);
+    }
+    HEADING_READY.with(|kept| {
+        kept.borrow()
+            .get(&window_id(window))
+            .filter(|(camera, _)| {
+                (camera.x - to.x).abs() < 1.0
+                    && (camera.y - to.y).abs() < 1.0
+                    && (camera.zoom - to.zoom).abs() < 0.005
+                    && (camera.fold - to.fold).abs() < 0.005
+            })
+            .map(|(_, ready)| *ready)
     })
 }
 
@@ -1455,6 +1489,7 @@ pub(super) fn forget_windows(gone: &[u64]) {
     SLOTS.with(|slots| slots.borrow_mut().retain(|key, _| !gone.contains(&key.0)));
     ROUGHS.with(|roughs| roughs.borrow_mut().retain(|key, _| !gone.contains(&key.0)));
     ROUGH_SEEN.with(|seen| seen.borrow_mut().retain(|window, _| !gone.contains(window)));
+    HEADING_READY.with(|kept| kept.borrow_mut().retain(|window, _| !gone.contains(window)));
     SHARP_BEFORE.with(|before| {
         before
             .borrow_mut()

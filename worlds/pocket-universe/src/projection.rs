@@ -907,8 +907,10 @@ pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
         "mars-colony" => Some(scenery(0xe7b089, 0xf5d9bd, 0xb25633, 0x5a2617, 0xfff3dc)),
         // Green front yards and trees up the hill, asphalt in front.
         "1980s-town" => Some(scenery(0x7ca6d6, 0xeedfcc, 0x7d9566, 0x3c3d44, 0xffd98a)),
-        // Packed snow, and dark water off the causeway.
-        "penguin-civilization" => Some(scenery(0x8fbcd8, 0xeaf3f7, 0xc6dcee, 0x173a4f, 0xfff6dc)),
+        // Packed snow, and dark water off the causeway. The snow a clear
+        // ice-blue, so held a step under the sky it stays snow in the sun
+        // rather than a flat grey (the v0.29 art director's noon).
+        "penguin-civilization" => Some(scenery(0x8fbcd8, 0xeaf3f7, 0xa9cdec, 0x173a4f, 0xfff6dc)),
         _ => None,
     }
 }

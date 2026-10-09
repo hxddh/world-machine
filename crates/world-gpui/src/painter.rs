@@ -631,6 +631,44 @@ pub fn grain_lit(
     }
 }
 
+/// A glaze of `colour` (0 to 1 each channel) laid over what is painted on
+/// `pixmap`, as a painter glazes gold over a dusk: each colour taken
+/// `strength` of the way to its overlay with the glaze, so a green field
+/// turns ochre-gold rather than the olive a plain multiply makes of it
+/// (the v0.29 art director's dusk). Leaves what is transparent alone.
+pub fn glaze(pixmap: &mut sk::Pixmap, colour: [f32; 3], strength: f32) {
+    if strength <= 0.0 {
+        return;
+    }
+    let s = (strength.clamp(0.0, 1.0) * 1024.0) as i32;
+    // The overlay of every straight channel value with the glaze, ahead.
+    let table: [[u8; 256]; 3] = std::array::from_fn(|channel| {
+        let g = colour[channel].clamp(0.0, 1.0);
+        std::array::from_fn(|value| {
+            let c = value as f32 / 255.0;
+            let o = if c < 0.5 {
+                2.0 * c * g
+            } else {
+                1.0 - 2.0 * (1.0 - c) * (1.0 - g)
+            };
+            (o * 255.0).round().clamp(0.0, 255.0) as u8
+        })
+    });
+    for pixel in pixmap.data_mut().as_chunks_mut::<4>().0.iter_mut() {
+        let alpha = pixel[3] as i32;
+        if alpha == 0 {
+            continue;
+        }
+        for (channel, value) in pixel[..3].iter_mut().enumerate() {
+            // Premultiplied: to straight, glazed, and back.
+            let straight = ((*value as i32 * 255 + alpha / 2) / alpha).min(255);
+            let over = table[channel][straight as usize] as i32;
+            let mixed = straight + (((over - straight) * s) >> 10);
+            *value = ((mixed * alpha + 127) / 255).clamp(0, alpha) as u8;
+        }
+    }
+}
+
 /// A box blur of an alpha mask, `radius` pixels, run three times: close
 /// to a Gaussian, and cheap.
 pub fn blur_mask(mask: &mut [f32], width: usize, height: usize, radius: usize) {

@@ -204,20 +204,32 @@ pub(super) fn gather(
         let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
         let line = run.iter().map(|at| people[*at].y).sum::<f32>() / run.len() as f32;
         // Where each member would stand, from the run's left edge.
+        // Never evenly: each stands a little nearer or further from the
+        // last, by who they are (seeded, so the same every frame), a three
+        // is a ring with its middle well back, a pair one half a step
+        // behind the other (the v0.29 art director: rows and blobs).
         let mut places = Vec::with_capacity(run.len());
         let mut left = 0.0;
+        let mut member = 0;
         for (group, size) in sizes.iter().enumerate() {
             let step = [0.0, -0.24, 0.12][group % 3] * figure_h;
+            let mut x = 0.0;
             for nth in 0..*size {
+                let seed = people[run[member]].index as u32;
+                member += 1;
+                let jitter = (painter::hash2(seed as i32, 53, 0x9e37) % 1000) as f32 / 1000.0;
+                if nth > 0 {
+                    x += near;
+                }
                 let back = step
-                    + if *size == 3 && nth == 1 {
-                        figure_h * 0.22
-                    } else {
-                        0.0
+                    + match (*size, nth) {
+                        (3, 1) => figure_h * 0.26,
+                        (2, 1) => figure_h * (0.06 + 0.08 * jitter),
+                        _ => figure_h * 0.04 * jitter,
                     };
-                places.push((left + near * nth as f32, back));
+                places.push((left + x, back));
             }
-            left += width_of(*size) + between;
+            left += x.max(width_of(*size)) + between;
         }
         // Centred where the run stood, or nudged a little either way to
         // stand clear of what stands there; with no room, group by group.
@@ -729,7 +741,40 @@ pub(super) fn paint_live(
         let front = screen(0.0, frame.front).1;
         let bottom = oy + height;
         if front < bottom {
-            let shimmer = gpui::white().opacity(if night { 0.12 } else { 0.26 });
+            // At dusk the water holds the sky's gold: a warm sheen near the
+            // shore fading out to sea, and the swell's lights gold.
+            let dusk = dusk_share(frame.hour) * if sun_out(frame.weather) { 1.0 } else { 0.5 };
+            if dusk > 0.0 {
+                let (_, sky_low) = sky_colours(frame);
+                let gold = mix(sky_low, art::hex(0xffb24a), 0.5);
+                // Deeper out to sea, so the gold reads against it.
+                window.gradient(
+                    ox,
+                    front,
+                    width,
+                    bottom - front,
+                    180.0,
+                    (art::hex(0x1c2a44).opacity(0.0), 0.0),
+                    (
+                        art::hex(0x1c2a44).opacity(0.55 * dusk_share(frame.hour)),
+                        1.0,
+                    ),
+                );
+                window.gradient(
+                    ox,
+                    front,
+                    width,
+                    (bottom - front) * 0.45,
+                    180.0,
+                    (gold.opacity(0.26 * dusk), 0.0),
+                    (gold.opacity(0.0), 1.0),
+                );
+            }
+            let shimmer = mix(gpui::white(), art::hex(0xffc860), dusk).opacity(if night {
+                0.12
+            } else {
+                0.26 + 0.2 * dusk
+            });
             for row in 0..5 {
                 let y = front + 16.0 * z + row as f32 * (bottom - front) / 5.5;
                 for column in 0..9 {

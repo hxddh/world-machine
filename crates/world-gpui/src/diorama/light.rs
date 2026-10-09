@@ -122,7 +122,9 @@ pub fn keyed_light(light: [f32; 3], key: Option<u32>, hour: f32) -> [f32; 3] {
     let tint = tint.map(|channel| channel / most);
     let weight = |daylight: Daylight| match daylight {
         Daylight::Dawn => 0.6,
-        Daylight::Day => 0.3,
+        // Little by day: noon stays clear and sunlit, never a flat
+        // grey-lilac (the v0.29 art director on the ice at noon).
+        Daylight::Day => 0.15,
         Daylight::Dusk => 0.8,
         Daylight::Night => 0.45,
     };
@@ -131,6 +133,24 @@ pub fn keyed_light(light: [f32; 3], key: Option<u32>, hour: f32) -> [f32; 3] {
     let share = weight(from) + (weight(to) - weight(from)) * t;
     let bright = (light[0] * 0.3 + light[1] * 0.5 + light[2] * 0.2).min(1.0);
     [0, 1, 2].map(|channel| light[channel] * (1.0 - share) + tint[channel] * bright * share)
+}
+
+/// How far into dusk `hour` is, 0 to 1: all of it at its fullest, none
+/// by day or at night.
+pub(crate) fn dusk_share(hour: f32) -> f32 {
+    let (from, to, t) = between(hour);
+    let of = |daylight: Daylight| if daylight == Daylight::Dusk { 1.0 } else { 0.0 };
+    of(from) + (of(to) - of(from)) * t
+}
+
+/// The gold glaze dusk lays over the land and the hills (see
+/// [`painter::glaze`]): its colour, and how strong it is at `hour`, less
+/// where the place has a key light of its own (a cold blue over the ice
+/// keeps most of its blue). Gold in every place, never olive fog.
+pub(crate) fn dusk_glaze(hour: f32, key: Option<u32>) -> ([f32; 3], f32) {
+    let cool = key.is_some_and(|key| (key & 0xff) > (key >> 16) & 0xff);
+    let strength = 0.36 * dusk_share(hour) * if cool { 0.45 } else { 1.0 };
+    ([1.0, 0.7, 0.28], strength)
 }
 
 /// Where the light comes from at `hour`: across (-1 from the left, the
@@ -311,8 +331,14 @@ pub(super) fn paint_sky_on(
             canvas.soft(sx, sy, 34.0 * k, 34.0 * k, 3.0, sun.opacity(dim));
         }
     }
-    // Under weather the sky greys, or reddens in dust.
+    // Under weather the sky greys, or reddens in dust; at dusk a light
+    // cloud lets the gold through (v0.29: a cloudy dusk read beige).
     if let Some((tint, alpha)) = overcast(frame.weather) {
+        let alpha = if frame.weather == Weather::Cloudy {
+            alpha * (1.0 - 0.7 * dusk_share(frame.hour))
+        } else {
+            alpha
+        };
         canvas.rect(
             -16.0,
             -16.0,
@@ -329,6 +355,17 @@ pub(super) fn paint_sky_on(
 pub(super) fn sky_colours(frame: &Frame) -> (Hsla, Hsla) {
     let top = art::hex(frame.scenery.sky_top);
     let bottom = art::hex(frame.scenery.sky_bottom);
+    // How warm each of the place's own sky colours is: a warm sky (a rust
+    // planet's) takes more of the night's navy, so its night never reads
+    // purple-grey (the v0.29 art director on the rust planet).
+    let warmth = |colour: u32| {
+        let (r, b) = (((colour >> 16) & 0xff) as f32, (colour & 0xff) as f32);
+        ((r - b) / 255.0).clamp(0.0, 1.0)
+    };
+    let (warm_top, warm_bottom) = (
+        warmth(frame.scenery.sky_top) * 0.4,
+        warmth(frame.scenery.sky_bottom) * 0.4,
+    );
     let tinted = |daylight: Daylight| {
         let (tint_top, tint_bottom) = match daylight {
             Daylight::Day => ((0xffffff, 0.0), (0xffffff, 0.0)),
@@ -336,8 +373,8 @@ pub(super) fn sky_colours(frame: &Frame) -> (Hsla, Hsla) {
             Daylight::Dawn => ((0xf0a0b8, 0.46), (0xffc0b8, 0.4)),
             // Gold all the way up: warm rose high, gold low (v0.29; the
             // violet top read as grey fog over the whole picture).
-            Daylight::Dusk => ((0xd89a6a, 0.55), (0xffa040, 0.8)),
-            Daylight::Night => ((0x0e1436, 0.78), (0x1c2450, 0.64)),
+            Daylight::Dusk => ((0xe69c5e, 0.76), (0xffa844, 0.88)),
+            Daylight::Night => ((0x0e1436, 0.78 + warm_top), (0x1c2450, 0.64 + warm_bottom)),
         };
         (
             mix(top, art::hex(tint_top.0), tint_top.1),
@@ -969,12 +1006,29 @@ pub(super) fn under_sky(scenery: &Scenery, colour: Hsla, share: f32) -> Hsla {
     }
     let k = most / light;
     let rgba: gpui::Rgba = colour.into();
-    Hsla::from(gpui::Rgba {
+    let held = Hsla::from(gpui::Rgba {
         r: rgba.r * k,
         g: rgba.g * k,
         b: rgba.b * k,
         a: rgba.a,
-    })
+    });
+    // Held under the sky, a pale ground takes some of the sky's own colour
+    // at the same value, as snow in the sun does, rather than turning a
+    // flat grey (the v0.29 art director on the ice at noon).
+    let sky = art::hex(scenery.sky_top);
+    let sky_light = luma(sky);
+    if sky_light <= 0.0 {
+        return held;
+    }
+    let s: gpui::Rgba = sky.into();
+    let j = most / sky_light;
+    let tinted = Hsla::from(gpui::Rgba {
+        r: (s.r * j).min(1.0),
+        g: (s.g * j).min(1.0),
+        b: (s.b * j).min(1.0),
+        a: rgba.a,
+    });
+    mix(held, tinted, (1.2 * (1.0 - k)).clamp(0.0, 0.35))
 }
 
 /// How light the ground may be against the sky: a step below it.
