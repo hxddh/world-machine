@@ -4055,7 +4055,7 @@ pub(crate) fn hear_words(state: &WorldState, kit: &Kit, who: EntityId, words: &s
             return heard(intent, None);
         }
     }
-    // News of a place is news: "what's the word around the harbour".
+    // News of a place is news: "what's the word around the town".
     if is(NEWS_FIRST) {
         return heard(Intent::News, None);
     }

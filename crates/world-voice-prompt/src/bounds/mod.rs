@@ -2594,7 +2594,7 @@ mod tests {
             "エマ? She's at the bakery, as always.",
             "ノア and Leo, after supper.",
             "ニア・チェン's in the greenhouse.",
-            "艾玛 went down to the quay.",
+            "艾玛 went down to the shore.",
         ] {
             assert_eq!(in_world(fine, &heard), Ok(()), "{fine}");
         }

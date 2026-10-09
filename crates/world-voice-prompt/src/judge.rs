@@ -181,7 +181,7 @@ the Olympics on television, a space shuttle launch"
         }
         Era::Spacefaring => {
             "the planets and moons and real places on them (Phobos, Jupiter, the asteroid belt, \
-a crater or canyon of Mars), the Sun, the stars"
+Olympus Mons, a crater or canyon), the Sun, the stars"
         }
     }
 }
