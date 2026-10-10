@@ -455,7 +455,7 @@ jobs:
           # The Windows package, when it was built (unsigned for now).
           shopt -s nullglob
           windows=(target/windows-package/*.zip target/windows-package/*.exe \
-            target/windows-package/*.sha256 target/windows-package/release-manifest-windows.json)
+            target/windows-package/*.sha256 target/windows-package/release-manifest-windows*.json)
           if (( ${#windows[@]} )); then
               gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${windows[@]}"
           fi
