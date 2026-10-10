@@ -101,14 +101,19 @@ jobs:
           command: check
           arguments: --locked
 
-  # The app on Windows, as far as compiling it: the whole workspace, the
-  # desktop app's window included (`cfg(gui)`, apps/world-machine-desktop/
-  # build.rs), its demo and store builds, with every warning an error. It
-  # also runs the one Windows-only path that has tests of its own: the
-  # writer-thread bound on a Pack's standard input (world-pack-process
-  # `deadline_stdin`), which is how Pack processes keep their deadlines
-  # where pipes cannot be made non-blocking.
-  windows-check:
+  # The app on Windows: compiled, linted and tested there, not only
+  # checked. The whole workspace compiles (the desktop app's window
+  # included, `cfg(gui)`, apps/world-machine-desktop/build.rs); the crates
+  # whose code differs on Windows are linted with every warning an error
+  # and tested: the Pack processes (world-pack-process, whose tests run a
+  # scripted stand-in Pack, src/bin/world-pack-fixture.rs, instead of the
+  # `/bin/sh` scripts they once needed), the World lock (world-library),
+  # the language from the OS (world-i18n), Pack bundles (the catalog is
+  # linted; its process tests are still unix scripts), a real Pack process end to end (tiny-society-pack's external Pack
+  # test), and the desktop app itself (Credential Manager, the platform
+  # folders, crash logs). The Steam spike is checked with its feature on;
+  # it needs no Steam client to compile.
+  windows:
     needs: changes
     if: needs.changes.outputs.gpui == 'true'
     runs-on: windows-2025
@@ -116,19 +121,37 @@ jobs:
       contents: read
     env:
       RUSTFLAGS: -D warnings
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: windows
       - run: cargo check --locked --workspace
-      - run: cargo check --locked -p world-machine-desktop --features demo
-      - run: cargo check --locked -p world-machine-desktop --features channel-store
-      - run: cargo check --locked -p world-pack-process -p world-machine-desktop --all-targets
-      - run: cargo test --locked -p world-pack-process --lib deadline_stdin
+      - name: Lint what differs on Windows
+        run: >-
+          cargo clippy --locked --all-targets
+          -p world-pack-process -p world-library -p world-i18n
+          -p world-pack-bundle -p world-pack-catalog -p world-machine-desktop
+          -- -D warnings
+      - run: cargo clippy --locked -p world-machine-desktop --features demo --all-targets -- -D warnings
+      - run: cargo clippy --locked -p world-machine-desktop --features channel-store -- -D warnings
+      - name: Check the Steam spike
+        run: cargo clippy --locked -p world-machine-desktop --features steam -- -D warnings
+      - name: Test what differs on Windows
+        run: >-
+          cargo test --locked
+          -p world-pack-process -p world-library -p world-i18n
+          -p world-pack-bundle
+      - name: Test a real Pack process end to end
+        run: cargo test --locked -p tiny-society-pack --test external_pack
+      - name: Test the desktop app
+        run: cargo test --locked -p world-machine-desktop
 
   gpui-macos:
     needs: changes

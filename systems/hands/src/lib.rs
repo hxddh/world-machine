@@ -534,7 +534,11 @@ impl Action for Does {
                         } else {
                             "a"
                         };
-                        format!("You began {a} {work} by {at_name}")
+                        if mark::names_its_place(&work, &at_name) {
+                            format!("You began {a} {work}")
+                        } else {
+                            format!("You began {a} {work} by {at_name}")
+                        }
                     },
                     Some(id),
                 )
@@ -1368,9 +1372,20 @@ pub fn told(event: &Event) -> Option<String> {
     match event.payload.get("told") {
         // A World made before this was fixed recorded "You built a ice
         // bench"; it is told as it should read.
-        Some(Value::Text(told)) => Some(match told.strip_prefix("You built a ") {
-            Some(rest) => format!("You built {}", a_or_an(rest)),
-            None => told.clone(),
+        Some(Value::Text(told)) => Some(if let Some(rest) = told.strip_prefix("You built a ") {
+            format!("You built {}", a_or_an(rest))
+        } else if let Some(rest) = told.strip_prefix("You planted ") {
+            // "You planted apple tree by …" was recorded without its
+            // article; one thing planted reads with one ("an apple tree"),
+            // many without ("sunflowers").
+            let thing = rest.split(" by ").next().unwrap_or(rest);
+            if thing.ends_with('s') || thing.starts_with("a ") || thing.starts_with("an ") {
+                told.clone()
+            } else {
+                format!("You planted {}", a_or_an(rest))
+            }
+        } else {
+            told.clone()
         }),
         _ => None,
     }

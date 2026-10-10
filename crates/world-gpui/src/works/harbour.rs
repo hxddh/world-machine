@@ -4,11 +4,43 @@
 use super::Pen;
 use crate::art::{hex, shade};
 
-/// A white tower banded in red, its lamp room glazed, on a stone foot.
+/// A white tower banded in red, its lamp room glazed, set into a plinth
+/// of rocks on the point.
 pub fn lighthouse(p: &mut Pen) {
     let (white, red) = (p.k.pale, p.k.accent);
-    p.shadow(0.3);
-    p.rect(-0.3, 0.0, 0.3, 0.08, shade(p.k.stone, -0.1));
+    // The rocks: a dark heap, the boulders on it lit from the upper left,
+    // weed dark at the waterline.
+    let rock = shade(p.k.stone, -0.12);
+    p.poly(
+        &[
+            (-0.46, 0.0),
+            (-0.4, 0.05),
+            (-0.28, 0.1),
+            (-0.1, 0.125),
+            (0.12, 0.12),
+            (0.3, 0.09),
+            (0.42, 0.045),
+            (0.47, 0.0),
+        ],
+        shade(rock, -0.22),
+    );
+    for (u, v, ru, rv, light) in [
+        (-0.3, 0.045, 0.13, 0.05, -0.04),
+        (0.28, 0.04, 0.14, 0.045, -0.1),
+        (-0.06, 0.075, 0.17, 0.055, 0.04),
+        (0.15, 0.085, 0.11, 0.04, 0.0),
+        (-0.19, 0.1, 0.09, 0.03, 0.12),
+    ] {
+        p.ell(u, v, ru, rv, shade(rock, light));
+        p.ell(
+            u - ru * 0.3,
+            v + rv * 0.35,
+            ru * 0.45,
+            rv * 0.35,
+            shade(rock, light + 0.14),
+        );
+    }
+    p.ell(0.0, 0.006, 0.45, 0.014, shade(p.k.leaf, -0.35).opacity(0.7));
     p.poly(
         &[(-0.2, 0.08), (0.2, 0.08), (0.13, 0.78), (-0.13, 0.78)],
         white,

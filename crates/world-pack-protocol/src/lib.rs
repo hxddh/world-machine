@@ -2836,7 +2836,30 @@ pub struct CanvasProjectionWire {
     /// none, and an older host ignores them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clusters: Vec<ClusterWire>,
+    /// How the place looks beyond its scenery (v0.29); an older Pack sends
+    /// none, and an older host ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<PlaceLookWire>,
 }
+
+/// A place's own look: its spine's lamps, the tint of its light and the
+/// colours of its spine and air.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlaceLookWire {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lamps: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spine: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub haze: Option<u32>,
+}
+
+/// The most lamps one place's spine holds.
+pub const MOST_LAMPS: usize = 96;
 
 /// One cluster of a place: what it is called, where it lies along the
 /// panorama, its ground, and the rows it reaches from and to.
@@ -3107,6 +3130,13 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
                     rows: cluster.rows,
                 })
                 .collect(),
+            look: canvas.look.as_ref().map(|look| PlaceLookWire {
+                lamps: look.lamps.clone(),
+                key: look.key,
+                glow: look.glow,
+                spine: look.spine,
+                haze: look.haze,
+            }),
         }
     }
 }
@@ -3178,6 +3208,23 @@ impl From<CanvasProjectionWire> for CanvasProjection {
                     rows: cluster.rows,
                 })
                 .collect(),
+            // A colour is its low 24 bits; a lamp off the panorama, or one
+            // past the most a spine holds, is left out.
+            look: canvas.look.map(|look| {
+                let colour = |colour: Option<u32>| colour.map(|colour| colour & 0xff_ffff);
+                world_projection::PlaceLook {
+                    lamps: look
+                        .lamps
+                        .into_iter()
+                        .filter(|at| at.is_finite() && (0.0..=MOST_CANVAS_WIDTH).contains(at))
+                        .take(MOST_LAMPS)
+                        .collect(),
+                    key: colour(look.key),
+                    glow: colour(look.glow),
+                    spine: colour(look.spine),
+                    haze: colour(look.haze),
+                }
+            }),
         }
     }
 }

@@ -24,7 +24,34 @@ pub(super) fn look_key(frame: &Frame, key: &mut Key) {
         .add(frame.weather as u8)
         .add(frame.season.map(|season| season as u8))
         .add(frame.cover.map(|cover| cover as u8))
-        .add((frame.ice, frame.water));
+        .add((frame.ice, frame.water))
+        // The kind of place: two Worlds with the same colours but another
+        // setting never share a picture.
+        .add(frame.setting as u8);
+    if let Some(look) = &frame.look {
+        key.add((look.key, look.glow, look.spine, look.haze));
+        for lamp in &look.lamps {
+            key.float(*lamp);
+        }
+    }
+}
+
+/// Which World a picture is of: its kind of place and its colours. The
+/// rough painting of one World never stands in for another's (v0.28 opened
+/// each of the other Pack's places on the first place's meadow).
+pub(super) fn world_tag(frame: &Frame) -> u64 {
+    let s = frame.scenery;
+    let mut key = Key::new("world");
+    key.add((s.sky_top, s.sky_bottom, s.far, s.near, s.sun))
+        .add(frame.setting as u8)
+        .add(frame.water)
+        .add(
+            frame
+                .look
+                .as_ref()
+                .map(|look| (look.key, look.spine, look.haze)),
+        );
+    key.finish()
 }
 
 /// The still layers of a scene, back to front.
@@ -501,9 +528,11 @@ pub fn settled(window: &Window) -> bool {
 }
 
 /// Whether the frame last drawn in `window` showed everything the camera
-/// saw painted.
+/// saw painted, and the moment's subject sharp (not its rough painting):
+/// the return film's words wait for it.
 pub fn view_painted(window: &Window) -> bool {
-    painter::synchronous() || (painted(window) && unpainted(window) == 0)
+    painter::synchronous()
+        || (painted(window) && unpainted(window) == 0 && rough_shown(window).1 <= 0.0)
 }
 
 /// Works out what every still layer draws this frame, asking for whatever
@@ -521,20 +550,98 @@ pub(super) fn plan(
     (slot, only): (u32, &[Still]),
     whole: &std::sync::Arc<Frame>,
 ) -> Vec<(Still, LayerPlan)> {
-    use std::cell::RefCell;
-    thread_local! {
-        static SLOTS: RefCell<Slots> = RefCell::new(Slots::new());
-        /// The last rough painting of each layer that was whole and with
-        /// the display, per window, layer and size: the stand-in while a
-        /// new look's rough painting is painted.
-        static ROUGHS: RefCell<std::collections::HashMap<SlotKey, Version>> =
-            RefCell::new(std::collections::HashMap::new());
-    }
     let dpr = window.scale_factor().max(0.5);
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let id = window.window_handle().window_id().as_u64();
+    if slot == 0 && !now {
+        forget_closed(id);
+    }
     painter::sweep(window);
     let mut missing = 0;
+    let tag = world_tag(whole);
+    // Where the camera is going, seen from there: what it will see is
+    // painted first, the moment's subject first of all, and handed to the
+    // display ahead, so the camera arrives on sharp paint.
+    let heading = if now {
+        None
+    } else {
+        frame
+            .heading()
+            .and_then(|to| seen_from(frame, to, frame.subject(), dpr))
+    };
+    // Where the rough painting shows this frame, in square pixels: anywhere
+    // in view, and on the moment's subject.
+    let subject_on_screen = subject_rect(frame);
+    let mut rough_seen = (0.0_f32, 0.0_f32);
+    let mut heading_ahead = HeadingAhead::default();
+    if let Some((there, key, scale)) = &heading {
+        heading_ahead = ask_ahead(
+            window,
+            there,
+            (*key, *scale),
+            dpr,
+            only,
+            painter::Priority::First,
+        );
+        // Whether all of it is painted and with the display: the camera
+        // waits for it before it sets off (v0.29's Find landed on the
+        // rough painting), so it arrives on sharp paint.
+        // (The land and the buildings are planned row by row, the first
+        // row in slot 1.)
+        if slot == 1 && only.contains(&Still::Land) && only.contains(&Still::Buildings) {
+            let ready = heading_ahead.waiting.is_empty();
+            HEADING_READY.with(|kept| kept.borrow_mut().insert(id, (there.camera, ready)));
+        }
+    }
+    // Once where the camera is now (or going) is sharp, where it goes after
+    // that (the return film's next beat) is painted and handed over ahead,
+    // behind everything else.
+    // Whether the last whole frame showed no rough painting anywhere.
+    if slot == 0 && !now {
+        let sharp = ROUGH_SEEN.with(|seen| {
+            seen.borrow()
+                .get(&id)
+                .is_some_and(|(anywhere, _)| *anywhere <= 0.0)
+        });
+        SHARP_BEFORE.with(|before| before.borrow_mut().insert(id, sharp));
+    }
+    let sharp_before =
+        SHARP_BEFORE.with(|before| before.borrow().get(&id).copied().unwrap_or(false));
+    if !now && heading.is_none() && sharp_before {
+        if let Some((there, key, scale)) = frame
+            .next
+            .and_then(|(to, subject)| seen_from(frame, to, Some(subject), dpr))
+        {
+            let next = ask_ahead(
+                window,
+                &there,
+                (key, scale),
+                dpr,
+                only,
+                painter::Priority::Normal,
+            );
+            for (layer, drawn) in next.ahead {
+                heading_ahead.ahead.entry(layer).or_default().extend(drawn);
+            }
+        }
+    }
+    // A zoom into a folded view, and the views one press of the zoom
+    // control away from a still one: see [`zoom_ahead`]. Once a frame, in
+    // the first row's plan.
+    let zoom_pending = !now
+        && slot == 1
+        && only.contains(&Still::Land)
+        && zoom_ahead(window, whole, dpr, only, sharp_before, &mut heading_ahead);
+    if !now && slot <= 1 {
+        AHEAD_PENDING.with(|pending| {
+            let mut pending = pending.borrow_mut();
+            if slot == 0 {
+                pending.remove(&id);
+            } else if zoom_pending {
+                pending.insert(id);
+            }
+        });
+    }
     let plans = versions(frame, window, width, height, dpr)
         .into_iter()
         .filter(|(layer, _)| only.contains(layer))
@@ -555,7 +662,13 @@ pub(super) fn plan(
                         .get(&slot_key)
                         .is_none_or(|(shown, arriving)| shown.is_none() && arriving.is_none())
                 });
-            let rough_bare = !now && ROUGHS.with(|roughs| !roughs.borrow().contains_key(&slot_key));
+            let rough_bare = !now
+                && ROUGHS.with(|roughs| {
+                    roughs
+                        .borrow()
+                        .get(&slot_key)
+                        .is_none_or(|(_, of)| *of != tag)
+                });
             let instant = now || frame.still || bare;
             // The still things boil (another drawing of the same look, a
             // few times a second) only once a look has settled: until then
@@ -590,6 +703,34 @@ pub(super) fn plan(
                         painter::unlimit();
                     }
                     painter::ask(window, piece.key, now || (bare && soon), soon, piece.job);
+                }
+            }
+            // A place opening: what the camera sees is painted sharp right
+            // here, across the painter's threads, before the first frame is
+            // shown (v0.28 opened on the rough painting for a second or two,
+            // the moment's subject a blur). The margin a pan reaches next
+            // comes off the window's thread.
+            // Only as the window opens: at a new size (a resize, dragged)
+            // the rough painting stands in as before, never a long frame.
+            if bare && !now && !painted(window) && matches!(layer, Still::Land | Still::Buildings) {
+                let mut first: Vec<(f32, u64, painter::Painting<'static>)> =
+                    pieces(frame, layer, wanted, width, height, dpr, 0)
+                        .into_iter()
+                        .filter(|piece| !painter::painted(piece.key))
+                        .map(|piece| {
+                            // The subject's first, should the work be split.
+                            let off = -area(overlap(piece.clip, subject_on_screen));
+                            (off, piece.key, piece.job)
+                        })
+                        .collect();
+                first.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let first = first
+                    .into_iter()
+                    .map(|(_, key, job)| (key, job))
+                    .collect::<Vec<_>>();
+                if !first.is_empty() {
+                    painter::unlimit();
+                    painter::cached_all(window, first);
                 }
             }
             // The rough painting, asked for ahead of everything sharp, and
@@ -665,12 +806,18 @@ pub(super) fn plan(
                         }
                     }
                     rough_whole = whole;
+                    // Only this World's: another World's rough painting
+                    // never stands in (a wash of this place's own colours
+                    // does, below).
                     let usable = ROUGHS.with(|roughs| {
                         let mut roughs = roughs.borrow_mut();
                         if in_view {
-                            roughs.insert(slot_key, version);
+                            roughs.insert(slot_key, (version, tag));
                         }
-                        roughs.get(&slot_key).copied()
+                        roughs
+                            .get(&slot_key)
+                            .filter(|(_, of)| *of == tag)
+                            .map(|(version, _)| *version)
                     });
                     usable
                         .map(|version| {
@@ -716,6 +863,43 @@ pub(super) fn plan(
                 _ => Vec::new(),
             };
             let has_rough = !rough.is_empty() || !blank.is_empty();
+            // On its way somewhere, what of where the camera is going is
+            // with the display already stands in where the version on show
+            // has nothing (asked for and handed over first, above).
+            let mut heading_shown: Vec<HeadingTile> = Vec::new();
+            let heading_waiting = heading_ahead.waiting.contains(&layer);
+            ahead.extend(heading_ahead.ahead.remove(&layer).unwrap_or_default());
+            if let (Some((_, key, scale)), Some(tile_layer)) = (&heading, ground_layer(layer)) {
+                let version = Version {
+                    key: *key,
+                    scale: if layer == Still::Land {
+                        scale * 0.5
+                    } else {
+                        *scale
+                    },
+                    boil: 0,
+                };
+                if version.key != wanted.key || version.scale != wanted.scale {
+                    for piece in tile_pieces(
+                        frame,
+                        tile_layer,
+                        version,
+                        dpr,
+                        tiles_in_view(frame, tile_layer, version.scale, 0),
+                    ) {
+                        if !painter::handed(piece.key) {
+                            continue;
+                        }
+                        match painter::ready(piece.key) {
+                            Some(painter::Ready::Image(image, _)) => {
+                                heading_shown.push((piece.clip, Some((image, piece.rect))))
+                            }
+                            Some(painter::Ready::Empty) => heading_shown.push((piece.clip, None)),
+                            None => {}
+                        }
+                    }
+                }
+            }
             // Painted, and so ready to be shown: every piece in view.
             let complete = seen.iter().all(|key| painter::painted(*key));
             // Handed to the display: shown without a new picture copied.
@@ -726,9 +910,13 @@ pub(super) fn plan(
             };
             let clock = std::time::Instant::now();
             let mut early = None;
+            let instead_of = another_drawing(frame, layer, wanted, slot_key, (width, height, dpr));
             let (shown, arriving) = SLOTS.with(|slots| {
                 let mut slots = slots.borrow_mut();
                 let slot = slots.entry(slot_key).or_insert((None, None));
+                if let Some(drawing) = instead_of {
+                    slot.0 = Some(drawing);
+                }
                 let boiled = slot.0.is_some_and(|shown| shown.boils_into(&wanted));
                 if slot.0 == Some(wanted) {
                     slot.1 = None;
@@ -765,6 +953,7 @@ pub(super) fn plan(
             // the rough painting under it; only without one, a flat stand-in
             // (or nothing), and the frame is unfinished.
             let mut gaps = 0;
+            let rough_area = std::cell::Cell::new((0.0_f32, 0.0_f32));
             let fill = |clip: Rect, gaps: &mut usize| {
                 let under = rough_over(&rough, clip);
                 // Every corner of it in rough tiles painted empty.
@@ -786,6 +975,18 @@ pub(super) fn plan(
                     *gaps += 1;
                     stand_in(frame, layer, clip, light)
                 } else {
+                    let view = (0.0, 0.0, width, height);
+                    let seen = |rect: Rect| area(overlap(rect, view));
+                    let on_subject =
+                        |rect: Rect| area(overlap(overlap(rect, view), subject_on_screen));
+                    // Only where the rough painting has something to show:
+                    // one painted empty is open ground, the same either way.
+                    if !nothing_there {
+                        rough_area.set((
+                            rough_area.get().0 + seen(clip),
+                            rough_area.get().1 + on_subject(clip),
+                        ));
+                    }
                     under
                 }
             };
@@ -860,17 +1061,35 @@ pub(super) fn plan(
                 if let Some((_, image, rect, clip)) = coming.iter().find(|c| same(c.3, clip)) {
                     vec![Drawn::Image(image.clone(), *rect, *clip)]
                 } else {
-                    // On another grid (the camera zoomed): the rough
-                    // painting only where nothing arriving reaches.
-                    missing.extend(uncovered(
-                        clip,
-                        &coming
-                            .iter()
-                            .map(|c| c.3)
-                            .chain(coming_empty.iter().copied())
-                            .collect::<Vec<_>>(),
-                    ));
-                    Vec::new()
+                    // On another grid (the camera zoomed, or on its way
+                    // somewhere): what of the look arriving, or of where the
+                    // camera is going, reaches into it, and the rough
+                    // painting only where nothing sharp does.
+                    let mut drawn = Vec::new();
+                    let mut cover = Vec::new();
+                    for (image, rect, at) in coming
+                        .iter()
+                        .map(|c| (Some(&c.1), c.2, c.3))
+                        .chain(coming_empty.iter().map(|at| (None, *at, *at)))
+                        .chain(heading_shown.iter().map(|(at, made)| {
+                            (
+                                made.as_ref().map(|m| &m.0),
+                                made.as_ref().map_or(*at, |m| m.1),
+                                *at,
+                            )
+                        }))
+                    {
+                        let part = overlap(clip, at);
+                        if area(part) <= 0.0 || cover.iter().any(|c| contains(*c, part)) {
+                            continue;
+                        }
+                        if let Some(image) = image {
+                            drawn.push(Drawn::Image(image.clone(), rect, part));
+                        }
+                        cover.push(at);
+                    }
+                    missing.extend(uncovered(clip, &cover));
+                    drawn
                 }
             };
             let draw = |version: Version, stand_ins: bool, gaps: &mut usize| {
@@ -916,10 +1135,19 @@ pub(super) fn plan(
                     Vec::new()
                 }
                 (None, _) => {
+                    // Nothing settled yet (the place opening): what of the
+                    // look wanted is painted shows at once, the rest of it
+                    // waits under the rough painting.
                     let mut missing = Vec::new();
                     let mut drawn = pieces(frame, layer, wanted, width, height, dpr, 0)
                         .into_iter()
-                        .flat_map(|piece| instead(piece.clip, &mut missing))
+                        .flat_map(|piece| match painter::ready(piece.key) {
+                            Some(painter::Ready::Image(image, _)) => {
+                                vec![Drawn::Image(image, piece.rect, piece.clip)]
+                            }
+                            Some(painter::Ready::Empty) => Vec::new(),
+                            None => instead(piece.clip, &mut missing),
+                        })
                         .collect::<Vec<_>>();
                     drawn.extend(fill_all(missing, &mut gaps));
                     drawn
@@ -938,7 +1166,12 @@ pub(super) fn plan(
                     == pieces(frame, layer, version, width, height, dpr, 0).len()
             });
             let settled = if whole_new {
+                // Only the new look is drawn: nothing of the old, and none
+                // of the rough painting that stood in where the old one
+                // lacked a piece (on another grid, the camera zoomed), is
+                // on screen, so none of it is counted as shown.
                 gaps = 0;
+                rough_area.set((0.0, 0.0));
                 coming
                     .iter()
                     .map(|(_, image, rect, clip)| Drawn::Image(image.clone(), *rect, *clip))
@@ -975,7 +1208,10 @@ pub(super) fn plan(
                 }
             }
             let arrived = shown.is_some() || !arriving.is_empty() || has_rough;
-            let waiting = !now && (shown != Some(wanted) || early.is_some() || !rough_whole);
+            let waiting = !now
+                && (shown != Some(wanted) || early.is_some() || !rough_whole || heading_waiting);
+            rough_seen.0 += rough_area.get().0;
+            rough_seen.1 += rough_area.get().1;
             // A building the version on show lacks is drawn live meanwhile.
             let live = match (layer, shown) {
                 (Still::Buildings, Some(version)) if version.key != wanted.key => {
@@ -1038,8 +1274,528 @@ pub(super) fn plan(
             }
             *count += missing;
         });
+        ROUGH_SEEN.with(|seen| {
+            let mut seen = seen.borrow_mut();
+            let entry = seen.entry(id).or_insert((0.0, 0.0));
+            if slot == 0 {
+                *entry = (0.0, 0.0);
+            }
+            entry.0 += rough_seen.0;
+            entry.1 += rough_seen.1;
+        });
     }
     plans
+}
+
+/// Where the drawing of the boil on show has no pictures of what the
+/// camera sees (it has just moved there: what was painted ahead of it is
+/// one drawing, the boil may have moved on to another), another drawing
+/// of the same look that is all painted and with the display there, to
+/// show in its place at once, as the boil itself would: the drawing
+/// `wanted` first, then the first. Never the rough painting over a place
+/// painted sharp (v0.29: each return beat's camera landed on the rough
+/// painting for a frame, the drawing painted ahead not the one on show).
+/// `None` while the drawing on show is all painted, or none other is.
+fn another_drawing(
+    frame: &std::sync::Arc<Frame>,
+    layer: Still,
+    wanted: Version,
+    slot_key: SlotKey,
+    (width, height, dpr): (f32, f32, f32),
+) -> Option<Version> {
+    if layer != Still::Buildings {
+        return None;
+    }
+    let on_show = SLOTS.with(|slots| slots.borrow().get(&slot_key).and_then(|slot| slot.0))?;
+    if on_show.key != wanted.key || on_show.scale != wanted.scale {
+        return None;
+    }
+    let all = |version: Version, ready: fn(u64) -> bool| {
+        pieces(frame, layer, version, width, height, dpr, 0)
+            .iter()
+            .all(|piece| ready(piece.key))
+    };
+    if all(on_show, painter::painted) {
+        return None;
+    }
+    [wanted.boil]
+        .into_iter()
+        .chain(0..crate::hand::BOILS)
+        .filter(|boil| *boil != on_show.boil)
+        .map(|boil| Version { boil, ..wanted })
+        .find(|version| all(*version, painter::painted) && all(*version, painter::handed))
+}
+
+/// A piece of where the camera is going, as the camera sees it now: where
+/// it shows, and its picture with where that is drawn (none if it came out
+/// empty).
+type HeadingTile = (Rect, Option<(std::sync::Arc<gpui::RenderImage>, Rect)>);
+
+/// What of where the camera is going is handed to the display this frame,
+/// per layer, and which layers still wait for some of it.
+#[derive(Default)]
+struct HeadingAhead {
+    ahead: std::collections::HashMap<Still, Vec<Drawn>>,
+    waiting: std::collections::HashSet<Still>,
+    /// Whether any of it is not yet painted and with the display.
+    pending: bool,
+    /// Every picture of it.
+    keys: Vec<u64>,
+}
+
+/// Where the camera is going (`there`, with the ground's key and the
+/// buildings' scale there): what it will see of the land and the buildings
+/// is asked for ahead of everything but the rough painting, the moment's
+/// subject first, and handed to the display ahead of being seen, before
+/// whatever the camera passes on its way (seen for a moment, as it moves):
+/// this frame's share of new pictures goes first to where it will settle.
+fn ask_ahead(
+    window: &Window,
+    there: &std::sync::Arc<Frame>,
+    (key, scale): (u64, f32),
+    dpr: f32,
+    only: &[Still],
+    priority: painter::Priority,
+) -> HeadingAhead {
+    let soon = priority == painter::Priority::First;
+    let mut out = HeadingAhead::default();
+    let (cx, cy) = there
+        .subject()
+        .map_or((there.camera.x, there.camera.y), |s| {
+            (s.0 + s.2 / 2.0, s.1 + s.3 / 2.0)
+        });
+    // The buildings first: the subject is what stands there.
+    for layer in [Still::Buildings, Still::Land] {
+        let Some(tile_layer) = ground_layer(layer).filter(|_| only.contains(&layer)) else {
+            continue;
+        };
+        let version = Version {
+            key,
+            scale: if layer == Still::Land {
+                scale * 0.5
+            } else {
+                scale
+            },
+            boil: 0,
+        };
+        let mut tiles = tiles_in_view(there, tile_layer, version.scale, 0);
+        let side = TILE as f32 / version.scale;
+        let far = |(column, row): &(i32, i32)| {
+            let (tx, ty) = (
+                (*column as f32 + 0.5) * side - cx,
+                (*row as f32 + 0.5) * side - cy,
+            );
+            (tx * tx + ty * ty) as i64
+        };
+        tiles.sort_by_key(far);
+        let mut ahead = Vec::new();
+        for piece in tile_pieces(there, tile_layer, version, dpr, tiles) {
+            out.keys.push(piece.key);
+            if !painter::painted(piece.key) {
+                painter::ask_as(window, piece.key, false, priority, piece.job);
+                out.waiting.insert(layer);
+                out.pending = true;
+            } else if !painter::handed(piece.key) && (soon || painter::to_spare()) {
+                match painter::ready(piece.key) {
+                    Some(painter::Ready::Image(image, _)) => {
+                        ahead.push(Drawn::Image(image, piece.rect, piece.clip))
+                    }
+                    _ => {
+                        out.waiting.insert(layer);
+                        out.pending = true;
+                    }
+                }
+            } else if !painter::handed(piece.key) {
+                out.pending = true;
+            }
+        }
+        out.ahead.insert(layer, ahead);
+    }
+    out
+}
+
+/// Where a zoom goes to a view folded into a postcard, what the camera
+/// will see there is painted first and handed to the display on the way,
+/// as [`seen_from`] has it for a flat view. And with the camera still, and
+/// the view sharp, one press of the zoom control either way, where that
+/// view folds, is painted ahead of time and handed over, behind everything
+/// else, so the zoom lands on sharp paint: a folded view is rows of the
+/// place, each with pictures of its own, three times the tiles of a flat
+/// one, and on a slow renderer more than the zoom's glide leaves time to
+/// paint and hand over (v0.29's year-three zoom-out stood on the rough
+/// painting for two seconds after it settled). What is handed over ahead
+/// goes into `out`; returns whether any of it is still to paint or to hand
+/// over (the window keeps drawing until it is not).
+fn zoom_ahead(
+    window: &Window,
+    whole: &Frame,
+    dpr: f32,
+    only: &[Still],
+    sharp_before: bool,
+    out: &mut HeadingAhead,
+) -> bool {
+    let id = window_id(window);
+    let mut merge = |mut step: HeadingAhead| {
+        for (layer, drawn) in std::mem::take(&mut step.ahead) {
+            out.ahead.entry(layer).or_default().extend(drawn);
+        }
+        step
+    };
+    if let Some(to) = whole.heading() {
+        if to.fold > 0.0 {
+            for (there, key, scale) in views_from(whole, to, dpr) {
+                merge(ask_ahead(
+                    window,
+                    &there,
+                    (key, scale),
+                    dpr,
+                    only,
+                    painter::Priority::First,
+                ));
+            }
+        }
+        return false;
+    }
+    let steps = whole
+        .zoom_steps
+        .iter()
+        .filter(|to| to.fold > 0.0)
+        .copied()
+        .collect::<Vec<_>>();
+    if steps.is_empty() || whole.next.is_some() || !sharp_before {
+        return false;
+    }
+    // Once all of it is painted and with the display, only kept: what it
+    // is of is told by the ground here, what stands where, and the views.
+    let mut what = ground_key(whole, dpr);
+    what.float(dpr);
+    for (least, building) in whole.standing.iter() {
+        what.float(*least)
+            .add(building.index)
+            .float(building.x)
+            .float(building.h);
+    }
+    for to in &steps {
+        what.float(to.zoom).float(to.x).float(to.y).float(to.fold);
+    }
+    let what = what.finish();
+    let kept = ZOOM_AHEAD.with(|done| {
+        done.borrow()
+            .get(&id)
+            .filter(|(of, _)| *of == what)
+            .is_some_and(|(_, keys)| keys.iter().all(|key| painter::painted(*key)))
+    });
+    if kept {
+        return false;
+    }
+    let mut pending = false;
+    let mut keys = Vec::new();
+    for to in steps {
+        for (there, key, scale) in views_from(whole, to, dpr) {
+            let step = merge(ask_ahead(
+                window,
+                &there,
+                (key, scale),
+                dpr,
+                only,
+                painter::Priority::Later,
+            ));
+            pending |= step.pending;
+            keys.extend(step.keys);
+        }
+    }
+    ZOOM_AHEAD.with(|done| {
+        let mut done = done.borrow_mut();
+        if pending {
+            done.remove(&id);
+        } else {
+            done.insert(id, (what, keys));
+        }
+    });
+    pending
+}
+
+/// The still layer of the land or the buildings, as tiles.
+fn ground_layer(layer: Still) -> Option<Layer> {
+    match layer {
+        Still::Land => Some(Layer::Land),
+        Still::Buildings => Some(Layer::Buildings),
+        _ => None,
+    }
+}
+
+/// What the camera will see from `to`, with the moment's `subject` there:
+/// the frame seen from there, the key of the ground there and the scale the
+/// buildings are painted at there (the land at half of it). Not while the
+/// place folds into a postcard.
+fn seen_from(
+    frame: &Frame,
+    to: Camera,
+    subject: Option<(f32, f32, f32, f32)>,
+    dpr: f32,
+) -> Option<(std::sync::Arc<Frame>, u64, f32)> {
+    if to.fold > 0.0 || frame.camera.fold > 0.0 {
+        return None;
+    }
+    let mut there = frame.seen_from(to);
+    there.subject = subject;
+    let zoom = ((to.zoom * 100.0).round() / 100.0).max(0.05);
+    let scale = zoom * dpr;
+    let key = ground_key(&there, scale).finish();
+    Some((std::sync::Arc::new(there), key, scale))
+}
+
+/// What the camera will see of the land and the buildings from `to`,
+/// as [`seen_from`] has it, but for any view: one folded into a postcard
+/// is its rows, each seen through its own camera with the ground's key
+/// of its own (each row holds its own stretch of the place).
+pub(super) fn views_from(
+    whole: &Frame,
+    to: Camera,
+    dpr: f32,
+) -> Vec<(std::sync::Arc<Frame>, u64, f32)> {
+    let mut there = whole.seen_from(to);
+    there.subject = None;
+    let zoom = ((to.zoom * 100.0).round() / 100.0).max(0.05);
+    let scale = zoom * dpr;
+    match rows_of(&there) {
+        Some(rows) => rows
+            .into_iter()
+            .map(|(part, _)| {
+                let key = ground_key(&part, scale).finish();
+                (std::sync::Arc::new(part), key, scale)
+            })
+            .collect(),
+        None => {
+            let key = ground_key(&there, scale).finish();
+            vec![(std::sync::Arc::new(there), key, scale)]
+        }
+    }
+}
+
+/// The moment's subject on screen: its box, or with none the middle of
+/// the view, where the eye goes after the camera moves.
+fn subject_rect(frame: &Frame) -> Rect {
+    match frame.subject() {
+        Some((x, y, w, h)) => {
+            let (x0, y0) = frame.at(x, y);
+            let (x1, y1) = frame.at(x + w, y + h);
+            (x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs())
+        }
+        None => (
+            frame.view_w * 0.25,
+            frame.height * 0.25,
+            frame.view_w * 0.5,
+            frame.height * 0.5,
+        ),
+    }
+}
+
+/// Where two rectangles overlap (empty when they do not).
+fn overlap(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.max(b.0), a.1.max(b.1));
+    let (x1, y1) = ((a.0 + a.2).min(b.0 + b.2), (a.1 + a.3).min(b.1 + b.3));
+    (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+}
+
+fn area(rect: Rect) -> f32 {
+    rect.2.max(0.0) * rect.3.max(0.0)
+}
+
+/// Whether `outer` holds all of `inner`.
+fn contains(outer: Rect, inner: Rect) -> bool {
+    inner.0 >= outer.0 - 0.01
+        && inner.1 >= outer.1 - 0.01
+        && inner.0 + inner.2 <= outer.0 + outer.2 + 0.01
+        && inner.1 + inner.3 <= outer.1 + outer.3 + 0.01
+}
+
+thread_local! {
+    /// Where each still layer of the scene stands, per window and size.
+    static SLOTS: std::cell::RefCell<Slots> = std::cell::RefCell::new(Slots::new());
+    /// The last rough painting of each layer that was whole and with the
+    /// display, per window, layer and size, and which World it is of: the
+    /// stand-in while a new look's rough painting is painted.
+    static ROUGHS: std::cell::RefCell<std::collections::HashMap<SlotKey, (Version, u64)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// How much of the rough painting the frame last drawn in each window
+    /// showed, in square pixels: anywhere, and on the moment's subject.
+    static ROUGH_SEEN: std::cell::RefCell<std::collections::HashMap<u64, (f32, f32)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// Whether the frame each window drew before this one showed no rough
+    /// painting anywhere.
+    static SHARP_BEFORE: std::cell::RefCell<std::collections::HashMap<u64, bool>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// Where each window's camera was last heading, and whether all it
+    /// will see there was painted and with the display.
+    static HEADING_READY: std::cell::RefCell<std::collections::HashMap<u64, (Camera, bool)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// The windows with a view one press of the zoom control away still
+    /// to paint ahead or to hand to the display: they keep drawing frames
+    /// until it is.
+    static AHEAD_PENDING: std::cell::RefCell<std::collections::HashSet<u64>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+    /// What each window last painted ahead of time a zoom step away, all
+    /// of it painted and with the display, and its pictures: kept from
+    /// then on without working the views out again every frame.
+    static ZOOM_AHEAD: std::cell::RefCell<std::collections::HashMap<u64, (u64, Vec<u64>)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// When each window last drew its scene.
+    static DRAWN_AT: std::cell::RefCell<std::collections::HashMap<u64, std::time::Instant>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// How much of the rough painting the frame last drawn in `window` showed,
+/// in square pixels: anywhere in view, and on the moment's subject. The
+/// real-window harness holds both to a bar after every camera move: the
+/// player sees what is on the subject, not whether something somewhere is
+/// a flat stand-in.
+pub fn rough_shown(window: &Window) -> (f32, f32) {
+    ROUGH_SEEN.with(|seen| {
+        seen.borrow()
+            .get(&window_id(window))
+            .copied()
+            .unwrap_or((0.0, 0.0))
+    })
+}
+
+/// Whether all the camera of `window` will see from `to` is painted and
+/// with the display, so a glide there arrives on sharp paint; `None` until
+/// a frame heading there has been drawn. Painting in place (a test), it
+/// always is.
+pub fn heading_ready(window: &Window, to: Camera) -> Option<bool> {
+    if painter::synchronous() {
+        return Some(true);
+    }
+    HEADING_READY.with(|kept| {
+        kept.borrow()
+            .get(&window_id(window))
+            .filter(|(camera, _)| {
+                (camera.x - to.x).abs() < 1.0
+                    && (camera.y - to.y).abs() < 1.0
+                    && (camera.zoom - to.zoom).abs() < 0.005
+                    && (camera.fold - to.fold).abs() < 0.005
+            })
+            .map(|(_, ready)| *ready)
+    })
+}
+
+/// Whether the view one press of the zoom control away from where the
+/// camera of `window` is (where it folds) is still being painted ahead or
+/// handed to the display: the window keeps drawing frames until it is.
+pub fn zoom_ahead_pending(window: &Window) -> bool {
+    AHEAD_PENDING.with(|pending| pending.borrow().contains(&window_id(window)))
+}
+
+/// A window not drawn for this long is taken to be closed: what was kept
+/// for it is let go.
+const CLOSED: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Notes that `id` is drawing, and lets go of everything kept per window
+/// for windows that have not drawn for a while (closed): the layers'
+/// slots, the rough paintings, the counts the frame log reads.
+fn forget_closed(id: u64) {
+    let now = std::time::Instant::now();
+    let gone = DRAWN_AT.with(|drawn| {
+        let mut drawn = drawn.borrow_mut();
+        drawn.insert(id, now);
+        let gone = drawn
+            .iter()
+            .filter(|(_, at)| now.duration_since(**at) > CLOSED)
+            .map(|(window, _)| *window)
+            .collect::<Vec<_>>();
+        for window in &gone {
+            drawn.remove(window);
+        }
+        gone
+    });
+    if gone.is_empty() {
+        return;
+    }
+    forget_windows(&gone);
+}
+
+/// Lets go of everything kept for the windows `gone`.
+pub(super) fn forget_windows(gone: &[u64]) {
+    let gone = gone
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    SLOTS.with(|slots| slots.borrow_mut().retain(|key, _| !gone.contains(&key.0)));
+    ROUGHS.with(|roughs| roughs.borrow_mut().retain(|key, _| !gone.contains(&key.0)));
+    ROUGH_SEEN.with(|seen| seen.borrow_mut().retain(|window, _| !gone.contains(window)));
+    HEADING_READY.with(|kept| kept.borrow_mut().retain(|window, _| !gone.contains(window)));
+    AHEAD_PENDING.with(|pending| pending.borrow_mut().retain(|window| !gone.contains(window)));
+    ZOOM_AHEAD.with(|done| done.borrow_mut().retain(|window, _| !gone.contains(window)));
+    SHARP_BEFORE.with(|before| {
+        before
+            .borrow_mut()
+            .retain(|window, _| !gone.contains(window))
+    });
+    UNPAINTED.with(|counts| {
+        counts
+            .borrow_mut()
+            .retain(|window, _| !gone.contains(window))
+    });
+    SETTLED.with(|settled| {
+        settled
+            .borrow_mut()
+            .retain(|window, _| !gone.contains(window))
+    });
+    PAINTED.with(|painted| {
+        painted
+            .borrow_mut()
+            .retain(|window, _| !gone.contains(window))
+    });
+    WASHED.with(|washed| washed.borrow_mut().retain(|window| !gone.contains(window)));
+    ZOOMS.with(|zooms| zooms.borrow_mut().retain(|view, _| !gone.contains(&view.0)));
+    painter::forget_windows(&gone);
+}
+
+/// A window's bookkeeping is let go a while after it last drew (it has
+/// closed), and an open one's is kept: the per-window maps never grow with
+/// every window ever opened.
+#[test]
+fn a_closed_windows_bookkeeping_is_let_go() {
+    let kept = || {
+        let mut windows = std::collections::BTreeSet::new();
+        SLOTS.with(|slots| windows.extend(slots.borrow().keys().map(|key| key.0)));
+        ROUGHS.with(|roughs| windows.extend(roughs.borrow().keys().map(|key| key.0)));
+        UNPAINTED.with(|counts| windows.extend(counts.borrow().keys().copied()));
+        ROUGH_SEEN.with(|seen| windows.extend(seen.borrow().keys().copied()));
+        SETTLED.with(|settled| windows.extend(settled.borrow().keys().copied()));
+        ZOOMS.with(|zooms| windows.extend(zooms.borrow().keys().map(|view| view.0)));
+        windows
+    };
+    let version = Version {
+        key: 1,
+        scale: 1.0,
+        boil: 0,
+    };
+    for window in [901_u64, 902] {
+        SLOTS.with(|slots| {
+            slots
+                .borrow_mut()
+                .insert((window, Still::Land, 1, 100, 100), (Some(version), None))
+        });
+        ROUGHS.with(|roughs| {
+            roughs
+                .borrow_mut()
+                .insert((window, Still::Land, 1, 100, 100), (version, 7))
+        });
+        UNPAINTED.with(|counts| counts.borrow_mut().insert(window, 0));
+        ROUGH_SEEN.with(|seen| seen.borrow_mut().insert(window, (0.0, 0.0)));
+        SETTLED.with(|settled| settled.borrow_mut().insert(window, true));
+        ZOOMS.with(|zooms| zooms.borrow_mut().insert((window, 100, 100), (1.0, 1.0)));
+    }
+    let long_ago = std::time::Instant::now() - CLOSED - std::time::Duration::from_secs(1);
+    DRAWN_AT.with(|drawn| drawn.borrow_mut().insert(901, long_ago));
+    forget_closed(902);
+    let windows = kept();
+    assert!(!windows.contains(&901), "the closed window's is let go");
+    assert!(windows.contains(&902), "the open window's is kept");
+    forget_windows(&[902]);
+    assert!(!kept().contains(&902));
 }
 
 thread_local! {
@@ -1185,6 +1941,25 @@ pub(super) fn draw_still(window: &mut Window, bounds: Bounds<Pixels>, drawn: &[D
     }
 }
 
+/// Hands pictures to the display ahead of being seen: each drawn at the
+/// scene's corner, a pixel of it, under a mask that shows nothing. Where a
+/// picture will be shown does not matter (the display keeps it by the
+/// picture, not by where it was drawn), but a picture drawn wholly outside
+/// the scene is never handed over at all: the tiles a pan reaches next lie
+/// just outside it, and were copied in only on the frame they first showed
+/// (v0.28's slow frames on a pan).
+pub(super) fn draw_ahead(window: &mut Window, bounds: Bounds<Pixels>, drawn: &[Drawn]) {
+    let corner = Bounds::new(bounds.origin, size(px(1.0), px(1.0)));
+    for item in drawn {
+        if let Drawn::Image(image, rect, _) = item {
+            let at = Bounds::new(bounds.origin, size_of(rect.2.max(1.0), rect.3.max(1.0)));
+            let _ = painter::timed("main: image", || {
+                window.paint_image(corner, at, Corners::default(), image.clone(), 0, false)
+            });
+        }
+    }
+}
+
 /// Every still layer, back to front.
 pub(super) const ALL: [Still; 4] = [Still::Sky, Still::Hills, Still::Land, Still::Buildings];
 
@@ -1254,7 +2029,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     let mut frame = frame.clone();
     painter::begin_frame(false);
     fetch_pictures(&mut frame, window, true);
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let view = (width, height);
     // A folding place is painted a row at a time, back to front, each over
     // the haze laid on the one behind; otherwise all at once.
@@ -1405,7 +2180,25 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
     if !sync {
         log_frame(window, wash, &frame);
     }
-    if !painter::idle() || waiting {
+    // The first frame with no rough painting anywhere asks for one more:
+    // a view a zoom step away is painted ahead of time from a still, sharp
+    // view, asked for in the frame after one that was sharp, and a still
+    // window draws no frame by itself.
+    if !sync
+        && frame.next.is_none()
+        && frame.zoom_steps.iter().any(|to| to.fold > 0.0)
+        && rough_shown(window).0 <= 0.0
+        && !SHARP_BEFORE.with(|before| {
+            before
+                .borrow()
+                .get(&window_id(window))
+                .copied()
+                .unwrap_or(false)
+        })
+    {
+        window.request_animation_frame();
+    }
+    if !painter::idle() || waiting || zoom_ahead_pending(window) {
         window.request_animation_frame();
     }
     let clip_to = |span: Option<(f32, f32)>, bounds: Bounds<Pixels>| {
@@ -1444,7 +2237,7 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
                     bounds: Bounds::new(bounds.origin, size_of(0.0, 0.0)),
                 };
                 window.with_content_mask(Some(nowhere), |window| {
-                    painter::timed("main: draw still", || draw_still(window, bounds, &drawn))
+                    painter::timed("main: draw still", || draw_ahead(window, bounds, &drawn))
                 });
                 painter::note_drawing(started.elapsed());
                 painter::note_frame(started.elapsed());
@@ -1526,7 +2319,7 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
                 part,
                 Some(span),
                 Box::new(move |window, frame, ox, oy, w, h| {
-                    let light = light_at(frame.hour, frame.weather);
+                    let light = frame.light();
                     paint_live(window, frame, ox, oy, w, h, light);
                     if haze {
                         paint_haze(window, frame, ox, oy, span, h);
@@ -1572,9 +2365,15 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
 /// With `WORLD_GPUI_FRAME_LOG` set to a file, a line for every frame the
 /// scene draws: milliseconds since the window's first frame, the window,
 /// how many pictures of what the camera saw were not painted, how much of
-/// the loading wash lay over it, and whether every layer had settled on
-/// its sharp pictures (1) or was still arriving (0). The release screenshot harness reads it to
-/// find any unfinished frame shown at a high moment.
+/// the loading wash lay over it, whether every layer had settled on its
+/// sharp pictures (1) or was still arriving (0), the residents and whole
+/// buildings in view, how much of the rough painting showed (square
+/// pixels, anywhere and on the moment's subject), whether the camera was
+/// on its way somewhere (1), where it was bound (a new value is a camera
+/// move), the kind of place painted and which World's colours, and the
+/// view's area. The release screenshot harness reads it to find any
+/// unfinished frame shown at a high moment, the rough painting on a
+/// subject after a camera move, and a frame of another World.
 fn log_frame(window: &Window, wash: f32, frame: &Frame) {
     use std::io::Write;
     thread_local! {
@@ -1611,11 +2410,21 @@ fn log_frame(window: &Window, wash: f32, frame: &Frame) {
                 .count() as i64,
         )
     };
+    // Where the camera is bound (its target, the same while it glides and
+    // after it settles): a new one is a camera move.
+    let bound = frame.heading.unwrap_or(frame.camera);
+    let mut target = Key::new("camera");
+    target
+        .float((bound.x * 10.0).round())
+        .float((bound.y * 10.0).round())
+        .float((bound.zoom * 1000.0).round())
+        .float((bound.fold * 1000.0).round());
+    let (rough_any, rough_subject) = rough_shown(window);
     LOG.with(|log| {
         if let Some((file, began)) = log.borrow_mut().as_mut() {
             let _ = writeln!(
                 file,
-                "{} {} {} {:.2} {} {} {}",
+                "{} {} {} {:.2} {} {} {} {:.0} {:.0} {} {:x} {} {:x} {:.0}",
                 began.elapsed().as_millis(),
                 window_id(window),
                 unpainted(window),
@@ -1623,6 +2432,13 @@ fn log_frame(window: &Window, wash: f32, frame: &Frame) {
                 u8::from(settled(window)),
                 people_seen,
                 buildings_seen,
+                rough_any,
+                rough_subject,
+                u8::from(frame.heading().is_some()),
+                target.finish() & 0xffff_ffff,
+                frame.setting.key(),
+                world_tag(frame) & 0xffff_ffff,
+                frame.view_w * frame.height,
             );
         }
     });
@@ -1689,7 +2505,7 @@ fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
 /// lit for the hour; `share` of it (0 to 1) over the scene at
 /// (`x`, `y`), `w` by `h`.
 pub(super) fn paint_wash(window: &mut dyn Brush, frame: &Frame, (x, y, w, h): Rect, share: f32) {
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let lit = |colour: Hsla| {
         let rgba: gpui::Rgba = colour.into();
         Hsla::from(gpui::Rgba {
@@ -1770,15 +2586,16 @@ pub(super) fn paint_wash(window: &mut dyn Brush, frame: &Frame, (x, y, w, h): Re
 /// A window and a view's size in it.
 pub(super) type ViewId = (u64, u32, u32);
 
+thread_local! {
+    /// The zoom each view's ground was last painted at.
+    static ZOOMS: std::cell::RefCell<std::collections::HashMap<ViewId, (f32, f32)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// The zoom the ground is painted at: the camera's own when it is still,
 /// and while it moves the last one painted (scaled), so a glide does not
 /// paint every frame.
 pub(super) fn painted_zoom(window: &Window, frame: &Frame) -> f32 {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    thread_local! {
-        static ZOOMS: RefCell<HashMap<ViewId, (f32, f32)>> = RefCell::new(HashMap::new());
-    }
     let zoom = frame.camera.zoom;
     let exact = (zoom * 100.0).round() / 100.0;
     let id = (

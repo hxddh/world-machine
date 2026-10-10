@@ -13,11 +13,11 @@
 //!   with `WORLD_PACK_ADD_REPLAYED_STATE=1`, which writes only lines that
 //!   are missing and refuses to touch one that is there.
 //! - **Events keep their causes** (invariant 5). [`provenance`] counts the
-//!   events that have no `caused_by`, by kind, and
-//!   [`assert_uncaused_kinds`] holds a Pack to the kinds it lists as
-//!   starting a chain of their own (a player's deed, the day's turn, a
-//!   resident's spontaneous ask): a ratchet, since in v0.28 most events of
-//!   both Packs still carry no cause.
+//!   events that have no `caused_by`, by kind, and [`assert_caused`] holds
+//!   a Pack to the few kinds it declares as roots (the player's deeds, a
+//!   day passing, a World being made): every other event the current code
+//!   records names its cause. A saved World's recorded events keep the
+//!   form they were recorded in, so only what is played on is checked.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -219,8 +219,8 @@ pub fn provenance(events: &[ArchivedEvent]) -> Provenance {
     provenance
 }
 
-/// The kinds a Pack lets start a chain with no `caused_by`, read from
-/// `file`: one kind a line, anything after `#` a comment (its reason).
+/// The kinds a Pack declares as roots, read from `file`: one kind a line,
+/// anything after `#` a comment (its reason).
 pub fn roots_in(file: &Path) -> Vec<String> {
     std::fs::read_to_string(file)
         .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
@@ -231,17 +231,20 @@ pub fn roots_in(file: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Fails if any event of a kind not listed in `roots_file` has no
-/// `caused_by`: a ratchet on provenance. The list is what v0.28 found, and
-/// may only shrink. A new kind of event says what caused it, or is added to
-/// the list by hand with its reason; there is no switch that writes it.
-/// Returns the count, which the test prints, and says which listed kinds
-/// now always have a cause, so their lines can go.
-pub fn assert_uncaused_kinds(
-    label: &str,
-    events: &[ArchivedEvent],
-    roots_file: &Path,
-) -> Provenance {
+/// The most events of a run, in percent, that may start a chain of their
+/// own. Roots are the player's deeds, the day's turn and the World's
+/// beginning; everything else the rules record follows from one of them.
+pub const MAX_UNCAUSED_PERCENT: usize = 10;
+
+/// Fails if any event has no `caused_by` and is not of a kind declared a
+/// root in `roots_file` (the player's deeds, a day passing, a World being
+/// made), or if more than [`MAX_UNCAUSED_PERCENT`] of `events` have no
+/// cause. Pass only events the current code recorded: a saved World's
+/// history keeps the form it was recorded in, causes or none.
+///
+/// A new kind of event says what caused it; a new kind of root is declared
+/// by hand with its reason. Returns the count, which the test prints.
+pub fn assert_caused(label: &str, events: &[ArchivedEvent], roots_file: &Path) -> Provenance {
     let roots = roots_in(roots_file);
     let provenance = provenance(events);
     let unexplained: Vec<String> = provenance
@@ -251,36 +254,40 @@ pub fn assert_uncaused_kinds(
         .map(|(kind, count)| format!("{kind}: {count}"))
         .collect();
     eprintln!(
-        "{label}: {} of {} events have no cause, of {} kinds",
+        "{label}: {} of {} events have no cause ({:.1}%), of {} kinds: {:?}",
         provenance.uncaused_total(),
         provenance.events,
-        provenance.uncaused.len()
+        percent(provenance.uncaused_total(), provenance.events),
+        provenance.uncaused.len(),
+        provenance.uncaused
     );
-    let caused_now: Vec<&String> = roots
-        .iter()
-        .filter(|root| {
-            !provenance.uncaused.contains_key(*root)
-                && events.iter().any(|event| &event.kind == *root)
-        })
-        .collect();
-    if !caused_now.is_empty() {
-        eprintln!(
-            "{label}: these kinds always have a cause now; take them out of {}: {caused_now:?}",
-            roots_file.display()
-        );
-    }
     assert!(
         unexplained.is_empty(),
-        "{label}: events with no `caused_by`, of kinds not in {} (give them their cause):\n{}",
+        "{label}: events with no `caused_by`, of kinds not declared roots in {} \
+         (give them their cause):\n{}",
         roots_file.display(),
         unexplained.join("\n")
+    );
+    assert!(
+        provenance.uncaused_total() * 100 <= provenance.events * MAX_UNCAUSED_PERCENT,
+        "{label}: {} of {} events have no cause, more than {MAX_UNCAUSED_PERCENT}%",
+        provenance.uncaused_total(),
+        provenance.events
     );
     provenance
 }
 
-/// The events of `fixture` played on for `days` days by the fixture
-/// builder ([`crate::replay::builder`]): what it recorded, and what the
-/// current code adds.
+fn percent(part: usize, whole: usize) -> f64 {
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / whole as f64
+    }
+}
+
+/// The events the current code records when `fixture` is played on for
+/// `days` days by the fixture builder ([`crate::replay::builder`]): only
+/// what it adds, not what the fixture recorded.
 pub fn played_events(
     registry: &WorldRegistry,
     fixture: &Path,
@@ -288,7 +295,36 @@ pub fn played_events(
     days: usize,
 ) -> Vec<ArchivedEvent> {
     let archive = archive_of(fixture);
+    let recorded = archive.events.len();
     let mut session = registry.open_archive(&archive).expect("the fixture opens");
+    crate::replay::builder(&mut session, pass, days);
+    let mut events = session
+        .archive()
+        .expect("the World archives")
+        .expect("the World keeps an archive")
+        .events;
+    events.drain(..recorded);
+    events
+}
+
+/// Every event of a new World of `pack_id`, made now, begun with the
+/// commands in `begin` (where it begins, say), and played for `days` days
+/// by the fixture builder.
+pub fn created_events(
+    registry: &WorldRegistry,
+    pack_id: &str,
+    begin: &[&str],
+    pass: &str,
+    days: usize,
+) -> Vec<ArchivedEvent> {
+    let mut session = registry.create(pack_id).expect("a new World");
+    for command in begin {
+        session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(
+                (*command).into(),
+            ))
+            .expect("the World begins");
+    }
     crate::replay::builder(&mut session, pass, days);
     session
         .archive()
@@ -350,13 +386,22 @@ mod tests {
         let both = dir.join("both.txt");
         std::fs::write(&both, "# kinds\nday # a turn\nask   # spontaneous\n").unwrap();
         assert_eq!(roots_in(&both), ["day", "ask"]);
-        assert_uncaused_kinds("test", &events, &both);
+        let mut many = events.clone();
+        many.extend((5..40).map(|id| event(id, "chat", vec![1])));
+        assert_caused("test", &many, &both);
         let one = dir.join("one.txt");
         std::fs::write(&one, "day # a turn\n").unwrap();
         let refused = std::panic::catch_unwind(|| {
-            assert_uncaused_kinds("test", &events, &one);
+            assert_caused("test", &many, &one);
+        });
+        let too_many = std::panic::catch_unwind(|| {
+            assert_caused("test", &events, &both);
         });
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(refused.is_err(), "an unexplained root kind was let through");
+        assert!(refused.is_err(), "an undeclared root kind was let through");
+        assert!(
+            too_many.is_err(),
+            "three roots in four events were let through"
+        );
     }
 }

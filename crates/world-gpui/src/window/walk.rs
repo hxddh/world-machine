@@ -78,7 +78,9 @@ impl PlatformTextSystem for Recording {
 }
 
 /// Words that read the same in any language: the app's name, the Mac, a key.
-const ALLOWED: &[&str] = &["World", "Machine", "Mac", "API", "Esc", "OK"];
+const ALLOWED: &[&str] = &[
+    "World", "Machine", "Mac", "API", "Esc", "OK", "Ctrl", "Alt", "Shift",
+];
 
 /// The English words in `line`, but for `names` and what reads the same
 /// in any language.
@@ -383,6 +385,21 @@ fn a_world_in(words: &Words) -> (ProjectionSnapshot, Vec<String>) {
         answer: words.talk_answer.into(),
         asks_for: None,
     }];
+    // What the player can say to open a talk, as the person card offers
+    // it, and something someone gave them, as it is shown.
+    snapshot.openers = vec![world_projection::Openers {
+        who: someone,
+        lines: vec![words.said.to_string(), words.talk_question.into()],
+    }];
+    snapshot
+        .exchanges
+        .retain(|exchange| exchange.who != someone);
+    snapshot.keepsakes.push(world_projection::Keepsake {
+        from: someone,
+        what: words.gift.into(),
+        note: words.waiting.into(),
+        moment: someone,
+    });
     // A favour asked, as its note in the drawer.
     snapshot.favour = words
         .favour
@@ -542,7 +559,18 @@ fn walk(words: &'static Words) {
         view.ask(someone, cx);
         view.looking.answered = Some((0, std::time::Instant::now()));
     });
+    look("something given", cx, &|view, _| {
+        view.looking.keepsakes_seen = Some(view.snapshot.keepsakes.len());
+        view.looking.gift_at = Some(std::time::Instant::now());
+    });
+    look("a status", cx, &|view, _| {
+        view.status = Some(crate::i18n::fill(
+            "Couldn't say that: {error}",
+            &[("error", "x")],
+        ));
+    });
     look("a legend", cx, &move |view, cx| {
+        view.status = None;
         view.looking.asking = None;
         view.open_legend(someone, cx);
     });
@@ -652,4 +680,129 @@ fn an_open_world_is_shown_in_a_new_language_at_once() {
     cx.run_until_parked();
     world_i18n::set_thread_language(None);
     assert_eq!(title(cx), "タイニー・ソサエティ");
+}
+
+/// Whether a line of the window's code puts English on the screen: handed
+/// straight to it, or a sentence made with `format!` before it is looked
+/// up (`ui::t(format!("Find {name}"))`), which no catalog has as made, and
+/// which a template fits only while what fills it is a number or a name
+/// in Latin letters, so it stays English once names are in the reader's
+/// script. Such a sentence is filled after it is looked up (`i18n::fill`).
+fn shows_english(line: &str) -> bool {
+    // What shows words, and the calls that look them up in the catalogs
+    // first (`ui::t` and the `ui` helpers that call it).
+    const TRANSLATING: &[&str] = &[
+        "child",
+        "t",
+        "page_title",
+        "heading",
+        "row_title",
+        "body",
+        "detail",
+        "section_label",
+        "caption",
+        "button",
+        "named",
+    ];
+    let mut openings = vec![];
+    for (at, opening) in line.match_indices(".child(\"") {
+        openings.push(at + opening.len());
+    }
+    for (at, opening) in line.match_indices("(format!(\"") {
+        let called = line[..at]
+            .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .next()
+            .unwrap_or("");
+        if TRANSLATING.contains(&called) {
+            openings.push(at + opening.len());
+        }
+    }
+    openings.into_iter().any(|at| {
+        let said = line[at..].split('"').next().unwrap_or("");
+        // What is outside the slots ("{from}") is what is read.
+        let mut read = String::new();
+        let mut depth = 0;
+        for c in said.chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ if depth == 0 => read.push(c),
+                _ => {}
+            }
+        }
+        !english_in(&read, &[]).is_empty()
+    })
+}
+
+/// No English is written into the window's code where it is shown: every
+/// word goes through the catalogs (`ui::t`, `i18n::fill` and the rest),
+/// never straight onto the screen as `.child("Skip to your turn")` or
+/// `.child(format!("{from} gave you"))` were, nor made with `format!`
+/// before it is looked up, as `ui::t(format!("Find {name}"))` was.
+#[test]
+fn no_words_go_on_screen_from_the_code_untranslated() {
+    // What the check finds, as it was found.
+    for line in [
+        r#".child("Skip to your turn")"#,
+        r#".child(format!("{from} gave you"))"#,
+        r#".child(ui::t(format!("Find {name}")))"#,
+        r#"ui::caption(format!("Chapter {number} ends"))"#,
+    ] {
+        assert!(shows_english(line), "{line}");
+    }
+    for line in [
+        r#".child(ui::t("Find a World…"))"#,
+        r#".child(format!("{a} · {b}"))"#,
+        r#".text(format!("Find {name}"))"#,
+    ] {
+        assert!(!shows_english(line), "{line}");
+    }
+    let sources = [
+        ("window.rs", include_str!("../window.rs")),
+        ("world_window.rs", include_str!("world_window.rs")),
+        ("drawer.rs", include_str!("drawer.rs")),
+        ("marking.rs", include_str!("marking.rs")),
+        ("stories.rs", include_str!("stories.rs")),
+        ("arrival.rs", include_str!("arrival.rs")),
+        ("farewell.rs", include_str!("farewell.rs")),
+        ("panels.rs", include_str!("../panels.rs")),
+        ("ui.rs", include_str!("../ui.rs")),
+        ("strip.rs", include_str!("../strip.rs")),
+    ];
+    let mut found = Vec::new();
+    for (file, source) in sources {
+        // The code, not its tests: up to the first test module written
+        // out in the file (`mod tests {`), not one only declared in it
+        // (`mod walk;`, which cut window.rs off at its top).
+        let code = source
+            .match_indices("\n#[cfg(test)]\nmod ")
+            .find(|(at, opening)| {
+                source[at + opening.len()..]
+                    .lines()
+                    .next()
+                    .is_some_and(|rest| rest.trim_end().ends_with('{'))
+            })
+            .map_or(source, |(at, _)| &source[..at]);
+        // A call's words on the line after it (`section_label(format!(` and
+        // then the sentence) are read as if on its line.
+        let mut joined = String::new();
+        for line in code.lines() {
+            let line = line.trim();
+            if joined.ends_with('(') && line.starts_with('"') {
+                joined.push_str(line);
+            } else {
+                joined.push('\n');
+                joined.push_str(line);
+            }
+        }
+        for line in joined.lines() {
+            if line.starts_with("//") {
+                continue;
+            }
+            if shows_english(line) {
+                found.push(format!("{file}: {line}"));
+            }
+        }
+    }
+    assert!(found.is_empty(), "English on screen:\n{}", found.join("\n"));
 }

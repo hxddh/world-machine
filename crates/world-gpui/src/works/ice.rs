@@ -36,14 +36,30 @@ fn pebble(p: &mut Pen, u: f32, v: f32, r: f32, tone: f32) {
     p.ell(u, v, r, r * 0.7 * p.w / p.h, shade(stone, tone));
 }
 
+/// A nest: the family's snow dome, a pup's small dome beside it, and a
+/// rack of fish drying in front, fish-orange (the v0.29 art director: a
+/// row of nests, not two lone domes, and the place's own accent).
 pub fn snow_nest(p: &mut Pen) {
-    p.shadow(0.46);
-    blocks_dome(p, -0.06, 0.4, 0.8);
+    p.shadow(0.48);
+    blocks_dome(p, -0.12, 0.34, 0.8);
+    blocks_dome(p, 0.34, 0.14, 0.36);
     for step in 0..6 {
-        let u = -0.42 + step as f32 * 0.14;
-        pebble(p, u, 0.03, 0.05, (step % 3) as f32 * 0.08 - 0.08);
+        let u = -0.44 + step as f32 * 0.12;
+        pebble(p, u, 0.03, 0.045, (step % 3) as f32 * 0.08 - 0.08);
     }
-    p.rect(-0.14, 0.62, 0.02, 0.66, p.roof);
+    p.rect(-0.2, 0.62, -0.04, 0.66, p.roof);
+    // The drying rack: two poles, a line, three fish.
+    let pole = hex(0x5a4a3c);
+    p.line((-0.46, 0.0), (-0.46, 0.34), 0.012, pole);
+    p.line((-0.24, 0.0), (-0.24, 0.34), 0.012, pole);
+    p.line((-0.47, 0.33), (-0.23, 0.33), 0.01, pole);
+    for u in [-0.41_f32, -0.35, -0.29] {
+        p.ell(u, 0.24, 0.022, 0.08, hex(0xe8873a));
+        p.poly(
+            &[(u - 0.02, 0.15), (u + 0.02, 0.15), (u, 0.18)],
+            hex(0xc96a28),
+        );
+    }
 }
 
 pub fn ice_store(p: &mut Pen) {

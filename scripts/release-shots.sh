@@ -16,7 +16,7 @@
 # working tree into the workspace's own target directory: no copy of the
 # source, so a release build from the tree never links what a copy built.
 #
-# Needs: Xvfb, xdotool, x11-utils (xwininfo, xwd), imagemagick, python3,
+# Needs: Xvfb, xdotool, x11-utils (xwininfo), x11-apps (xwd), imagemagick, python3,
 # and the GPUI Linux build dependencies (libxkbcommon-x11-dev,
 # libvulkan-dev, mesa-vulkan-drivers for a software renderer).
 #
@@ -29,10 +29,11 @@
 #             wildflowers placed, the first card answered and a few days
 #             passed;
 #   find      a harbour on the day of a favour: Find, and the camera's
-#             landing frame by frame;
+#             landing 0.3, 1.0 and 2.5 s after it began to move;
 #   return    a harbour played eleven days, then 72 hours away: the return
-#             film, beat by beat;
-#   zoom      a year-three harbour at every zoom level, in and out;
+#             film, each beat 0.3, 1.0 and 2.5 s after the camera moved;
+#   zoom      a year-three harbour at every zoom level, in and out, each
+#             step 0.3, 1.0 and 2.5 s after it began;
 #   year2     a second-year harbour as it opens;
 #   places    each place at noon, dusk and night (the harbour on day 20,
 #             and Ares, Maple Street and Icebridge as Pocket Universe's
@@ -45,7 +46,11 @@
 # Each scenario's frames are read from the app's frame log: the script
 # reports when the scene was first painted and every frame after that which
 # showed something unpainted, and fails if there is any (or, for a new
-# World, if the town is not painted within 3 seconds).
+# World, if the town is not painted within 3 seconds). It also fails if the
+# rough painting stays on the moment's subject more than 250 ms (anywhere
+# more than 600 ms) after the place opens or the camera settles from a
+# move, or if any of the first 2 s of a window shows another World. If the
+# display dies the run stops at once (exit 2) rather than hanging.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -75,6 +80,12 @@ fi
 
 DISPLAY_NUMBER=":${SHOTS_DISPLAY:-91}"
 export DISPLAY="$DISPLAY_NUMBER"
+# A display already in use (another run, another program's windows) would
+# put strangers' windows among the app's: stop rather than shoot them.
+if [ -e "/tmp/.X11-unix/X${DISPLAY_NUMBER#:}" ] || [ -e "/tmp/.X${DISPLAY_NUMBER#:}-lock" ]; then
+    echo "release-shots: the display $DISPLAY_NUMBER is in use; set SHOTS_DISPLAY to a free one" >&2
+    exit 2
+fi
 Xvfb "$DISPLAY_NUMBER" -screen 0 1400x1000x24 >/dev/null 2>&1 &
 XVFB=$!
 APP=""
@@ -84,15 +95,18 @@ cleanup() {
 }
 trap cleanup EXIT
 sleep 2
+kill -0 "$XVFB" 2>/dev/null || { echo "release-shots: Xvfb did not start on $DISPLAY_NUMBER" >&2; exit 2; }
 
 # A scenario that fails is reported, and the others still run.
 set +e
 # shellcheck source=scripts/release-shots-lib.sh
 source "$ROOT_DIR/scripts/release-shots-lib.sh"
 
+rm -f "$WORK/display-died"
 for scenario in $SCENARIOS; do
     echo "== $scenario"
     "scenario_$scenario"
+    need_display
 done
 # Non-zero when any scenario failed (the CI job fails with it).
 report

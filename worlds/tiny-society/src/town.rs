@@ -1001,6 +1001,61 @@ mod tests {
         });
     }
 
+    /// Timber holds together in Chinese: every "木材" in the Pack's Chinese
+    /// is joined (U+2060), so a card never breaks it "木 / 材" across
+    /// lines (v0.29 round 2, Evan's card; the app's wrapping never breaks
+    /// at a joiner).
+    #[test]
+    fn timber_holds_together_in_chinese() {
+        assert!(crate::ZH_HANS.contains("木\u{2060}材"), "joined somewhere");
+        for line in crate::ZH_HANS.lines() {
+            assert!(!line.contains("木材"), "unjoined: {line}");
+        }
+    }
+
+    /// A work going up stands in scaffolding on its own site, never on top
+    /// of a building, a stall or anything else standing there (the art
+    /// bible's §7; v0.29 round 2: the school roof's scaffolding over the
+    /// net store, the lamp on the point's over Sofia's stall): through a
+    /// warm player's first month, as the scene lays the harbour out.
+    #[test]
+    fn a_work_going_up_never_stands_on_another() {
+        let mut sites = 0;
+        play(30, |day, _, snapshot| {
+            let stage = stage_of(snapshot);
+            let items = &snapshot.canvas.items;
+            let frames = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| {
+                    item.kind != CanvasItemKind::Actor
+                        && item.shape != Some(world_projection::MarkShape::Boat)
+                })
+                .filter_map(|(index, _)| Some((index, stage.frame_of(index)?)))
+                .collect::<Vec<_>>();
+            for (index, (x, y, w, h)) in &frames {
+                if items[*index].art.as_deref() != Some("scaffold") || !stage.shows(*index, 1.0) {
+                    continue;
+                }
+                sites += 1;
+                for (other, (ox, oy, ow, oh)) in &frames {
+                    if other == index || !stage.shows(*other, 1.0) {
+                        continue;
+                    }
+                    let across = (x + w).min(ox + ow) - x.max(*ox);
+                    let down = (y + h).min(oy + oh) - y.max(*oy);
+                    assert!(
+                        across <= 2.0 || down <= 2.0,
+                        "day {day}: {:?} going up stands on {:?}",
+                        items[*index].label,
+                        items[*other].label
+                    );
+                }
+            }
+        });
+        assert!(sites > 0, "something went up");
+    }
+
     /// No screen-width of the harbour is bare in its first month: there is
     /// always something built within a screen of anywhere.
     #[test]

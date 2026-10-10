@@ -21,11 +21,11 @@ pub(crate) fn drawings() -> &'static [Drawing] {
         // Each place stands its own height beside a resident (the art
         // bible's ladder); the ice bridge lies across its width.
         vec![
-            habitat().standing(Rung::Tall(2.6)),
+            habitat().standing(Rung::Wide(7.2)),
             greenhouse().standing(Rung::Tall(2.4)),
             arcade().standing(Rung::Tall(3.0)),
             radio().standing(Rung::Tall(5.0)),
-            icebridge().standing(Rung::Wide(5.0)),
+            icebridge().standing(Rung::Wide(6.0)),
             fish_vault().standing(Rung::Tall(2.6)),
             council().standing(Rung::Tall(2.6)),
             base.with("colonist", colonist.clone()),
@@ -383,33 +383,72 @@ fn dome(x: f32, y: f32, rx: f32, ry: f32, ink: Ink) -> DrawPart {
     DrawPart::polygon(&points, ink)
 }
 
+/// The Habitat Ring, Ares's focal piece (the v0.29 art director: "no
+/// ring, no lit apron"): a tall glass dome at the hub, a ring of modules
+/// linked to it by pressurised tubes, and in front the airlock apron, a
+/// pad of poured regolith rimmed with signal-white lights.
 fn habitat() -> Drawing {
     let frame = colour(0x9aa3ad);
+    let hull = colour(0xd9d2c4);
+    let tube = colour(0xb9b2a6);
+    let pad = colour(0x7e6f66);
+    let signal = colour(0xf4f6f2);
+    let teal = colour(0x2f9a9a);
     let mut parts = vec![
-        DrawPart::line((0.3, 0.55), (0.3, 0.95), 0.012, frame),
-        DrawPart::ellipse(0.3, 0.96, 0.025, 0.012, colour(0xc8553d)),
-        dome(0.0, 0.12, 0.42, 0.62, Ink::Glass).tone(0.15),
-        dome(0.0, 0.12, 0.36, 0.54, Ink::Wall).tone(0.25),
+        // The apron, seen low across the plain.
+        DrawPart::ellipse(0.0, 0.05, 0.5, 0.06, pad).tone(-0.1),
+        DrawPart::ellipse(0.0, 0.055, 0.42, 0.04, pad),
+        // The back of the ring: two small modules behind the hub.
+        DrawPart::rect(-0.3, 0.2, 0.16, 0.13, hull)
+            .round(0.3)
+            .tone(-0.12),
+        DrawPart::rect(0.14, 0.2, 0.16, 0.13, hull)
+            .round(0.3)
+            .tone(-0.12),
+        DrawPart::line((-0.14, 0.27), (-0.08, 0.3), 0.03, tube).tone(-0.1),
+        DrawPart::line((0.14, 0.27), (0.08, 0.3), 0.03, tube).tone(-0.1),
+        // The mast over the hub, its red light.
+        DrawPart::line((0.0, 0.8), (0.0, 0.98), 0.006, frame),
+        DrawPart::ellipse(0.0, 0.985, 0.012, 0.012, colour(0xd8463a)),
+        // The hub: a glass dome over a pale shell.
+        dome(0.0, 0.12, 0.17, 0.68, Ink::Glass).tone(0.15),
+        dome(0.0, 0.12, 0.145, 0.6, Ink::Wall).tone(0.25),
     ];
-    for x in [-0.24_f32, -0.08, 0.08, 0.24] {
-        parts.push(DrawPart::line((x, 0.12), (x * 0.6, 0.66), 0.01, frame));
+    for x in [-0.1_f32, -0.035, 0.035, 0.1] {
+        parts.push(DrawPart::line((x, 0.12), (x * 0.5, 0.74), 0.005, frame));
     }
-    parts.push(DrawPart::line((-0.36, 0.4), (0.36, 0.4), 0.01, frame));
     parts.extend([
-        DrawPart::rect(-0.5, 0.0, 1.0, 0.14, colour(0x7a7f88)).round(0.02),
-        DrawPart::rect(-0.48, 0.02, 0.18, 0.2, frame).round(0.03),
-        DrawPart::rect(-0.44, 0.03, 0.1, 0.15, Ink::Trim),
-        DrawPart::ellipse(-0.39, 0.15, 0.03, 0.02, Ink::Glass),
-        DrawPart::rect(-0.1, 0.18, 0.08, 0.06, Ink::Glass),
-        DrawPart::rect(0.06, 0.2, 0.08, 0.06, Ink::Glass),
-        DrawPart::rect(0.3, 0.14, 0.2, 0.03, frame),
-        DrawPart::polygon(
-            &[(0.34, 0.17), (0.52, 0.17), (0.5, 0.3), (0.36, 0.3)],
-            colour(0x2e4a7a),
-        ),
-        DrawPart::line((0.43, 0.17), (0.43, 0.3), 0.006, frame),
+        DrawPart::line((-0.15, 0.42), (0.15, 0.42), 0.005, frame),
+        DrawPart::line((-0.12, 0.6), (0.12, 0.6), 0.005, frame),
+        // Tubes out to the front modules.
+        DrawPart::line((-0.16, 0.18), (-0.27, 0.16), 0.04, tube),
+        DrawPart::line((0.16, 0.18), (0.27, 0.16), 0.04, tube),
     ]);
-    Drawing::new("habitat", 1.4, parts)
+    // The front modules of the ring, each a capsule on legs with a teal
+    // band and round windows that glow at night.
+    for x in [-0.37_f32, 0.37] {
+        parts.extend([
+            DrawPart::line((x - 0.08, 0.06), (x - 0.06, 0.1), 0.008, frame),
+            DrawPart::line((x + 0.08, 0.06), (x + 0.06, 0.1), 0.008, frame),
+            DrawPart::rect(x - 0.12, 0.09, 0.24, 0.17, hull).round(0.35),
+            DrawPart::rect(x - 0.11, 0.21, 0.22, 0.025, teal),
+            DrawPart::ellipse(x - 0.05, 0.155, 0.022, 0.032, Ink::Glass),
+            DrawPart::ellipse(x + 0.02, 0.155, 0.022, 0.032, Ink::Glass),
+            DrawPart::rect(x + 0.06, 0.1, 0.035, 0.1, Ink::Trim).round(0.2),
+        ]);
+    }
+    // The hub's airlock door, facing the apron.
+    parts.extend([
+        DrawPart::rect(-0.04, 0.12, 0.08, 0.16, frame).round(0.2),
+        DrawPart::rect(-0.03, 0.12, 0.06, 0.13, Ink::Trim).round(0.2),
+    ]);
+    // Signal-white lights round the apron's rim.
+    for step in 0..9 {
+        let angle = std::f32::consts::PI * (0.08 + 0.84 * step as f32 / 8.0);
+        let (x, y) = (-0.46 * angle.cos(), 0.05 - 0.05 * angle.sin());
+        parts.push(DrawPart::ellipse(x, y, 0.009, 0.012, signal));
+    }
+    Drawing::new("habitat", 2.2, parts)
 }
 
 fn greenhouse() -> Drawing {
@@ -525,47 +564,73 @@ fn radio() -> Drawing {
     Drawing::new("radio", 0.9, parts)
 }
 
+/// The ice bridge: an arch of blue ice over a lead of open water, ramped
+/// down to the ice at both ends so it reads as a crossing, never a bridge
+/// to nowhere (the v0.29 art director), with a lantern at each end.
 fn icebridge() -> Drawing {
     let ice = colour(0xbfe3f0);
     let deep = colour(0x8cc6de);
     let snow = colour(0xf7fbfd);
+    let water = colour(0x1f3a52);
     let mut parts = vec![
+        // The lead of open water it spans, dark between ice edges.
+        DrawPart::polygon(
+            &[(-0.34, 0.0), (0.34, 0.0), (0.3, 0.07), (-0.3, 0.07)],
+            water,
+        ),
+        DrawPart::line((-0.26, 0.035), (-0.1, 0.035), 0.008, colour(0x6f95b0)),
+        DrawPart::line((0.04, 0.05), (0.22, 0.05), 0.008, colour(0x6f95b0)),
+        // The ramps down onto the ice at both ends.
+        DrawPart::polygon(
+            &[(-0.5, 0.0), (-0.3, 0.0), (-0.3, 0.42), (-0.38, 0.4)],
+            snow,
+        ),
+        DrawPart::polygon(&[(0.5, 0.0), (0.3, 0.0), (0.3, 0.42), (0.38, 0.4)], snow),
+        // The span.
         DrawPart::polygon(
             &[
-                (-0.5, 0.0),
-                (-0.36, 0.0),
-                (-0.28, 0.3),
-                (-0.14, 0.42),
-                (0.14, 0.42),
-                (0.28, 0.3),
-                (0.36, 0.0),
-                (0.5, 0.0),
-                (0.46, 0.55),
-                (-0.46, 0.55),
+                (-0.32, 0.0),
+                (-0.24, 0.0),
+                (-0.18, 0.24),
+                (-0.08, 0.32),
+                (0.08, 0.32),
+                (0.18, 0.24),
+                (0.24, 0.0),
+                (0.32, 0.0),
+                (0.32, 0.46),
+                (-0.32, 0.46),
             ],
             ice,
         ),
         DrawPart::polygon(
-            &[(-0.36, 0.0), (-0.28, 0.3), (-0.32, 0.32), (-0.42, 0.0)],
+            &[(-0.24, 0.0), (-0.18, 0.24), (-0.22, 0.26), (-0.3, 0.0)],
             deep,
         ),
-        DrawPart::polygon(&[(0.36, 0.0), (0.28, 0.3), (0.32, 0.32), (0.42, 0.0)], deep),
-        DrawPart::rect(-0.48, 0.53, 0.96, 0.08, snow).round(0.04),
+        DrawPart::polygon(&[(0.24, 0.0), (0.18, 0.24), (0.22, 0.26), (0.3, 0.0)], deep),
+        DrawPart::rect(-0.36, 0.44, 0.72, 0.06, snow).round(0.04),
+        // Its walk running on down the ramps.
+        DrawPart::line((-0.36, 0.47), (-0.5, 0.02), 0.02, snow),
+        DrawPart::line((0.36, 0.47), (0.5, 0.02), 0.02, snow),
     ];
-    for x in [-0.2_f32, -0.08, 0.05, 0.17] {
+    for x in [-0.14_f32, -0.05, 0.05, 0.14] {
         parts.push(DrawPart::polygon(
-            &[(x - 0.02, 0.42), (x + 0.02, 0.42), (x, 0.34)],
+            &[(x - 0.015, 0.32), (x + 0.015, 0.32), (x, 0.26)],
             snow,
         ));
     }
-    for x in [-0.42_f32, 0.42] {
-        parts.push(DrawPart::line((x, 0.61), (x, 0.8), 0.01, colour(0x5a5a5a)));
-        parts.push(DrawPart::polygon(
-            &[(x, 0.8), (x + 0.07, 0.77), (x, 0.74)],
-            colour(0xd64545),
+    // A lantern at each end of the span, lantern-gold.
+    for x in [-0.33_f32, 0.33] {
+        parts.push(DrawPart::line((x, 0.5), (x, 0.72), 0.008, colour(0x4a4f57)));
+        parts.push(DrawPart::rect(x - 0.02, 0.72, 0.04, 0.05, colour(0xffbf47)).round(0.2));
+        parts.push(DrawPart::rect(
+            x - 0.025,
+            0.77,
+            0.05,
+            0.012,
+            colour(0x4a4f57),
         ));
     }
-    Drawing::new("icebridge", 1.8, parts)
+    Drawing::new("icebridge", 2.2, parts)
 }
 
 fn fish_vault() -> Drawing {

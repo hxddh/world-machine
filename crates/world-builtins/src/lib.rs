@@ -132,6 +132,38 @@ mod tests {
         }
     }
 
+    /// Every slot a translation fills is one its line has, written the
+    /// same: a colony line's `{keeper}` where the line has `{Keeper}` was
+    /// never filled, and showed as `{keeper}` in Chinese and Japanese.
+    #[test]
+    fn every_slot_a_translation_fills_is_in_its_line() {
+        fn slots(text: &str) -> Vec<&str> {
+            text.split('{')
+                .skip(1)
+                .filter_map(|rest| rest.split_once('}').map(|(slot, _)| slot))
+                .collect()
+        }
+        let mut wrong = Vec::new();
+        for (language, catalogs) in [("zh-Hans", ZH_HANS), ("ja", JA)] {
+            for catalog in catalogs {
+                for line in catalog.lines().filter(|line| !line.starts_with('#')) {
+                    let Some((from, to)) = line.split_once('\t') else {
+                        continue;
+                    };
+                    let has = slots(from);
+                    if slots(to).iter().any(|slot| !has.contains(slot)) {
+                        wrong.push(format!("{language}: {line}"));
+                    }
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "slots never filled:\n{}",
+            wrong.join("\n")
+        );
+    }
+
     /// Sixteen months of Tiny Society in Chinese, into its second year:
     /// nearly every sentence it shows is in the catalogs, and what is left
     /// is only names.

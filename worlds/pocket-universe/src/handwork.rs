@@ -1102,6 +1102,36 @@ pub(crate) fn filler() -> Vec<&'static str> {
         .collect()
 }
 
+/// How many uses of the same kind (the same effect, alone or with
+/// someone) came before each use, by its event: worked out once for each
+/// way the World stands, rather than counted again for every line told.
+struct EnjoyedBefore(std::collections::HashMap<world_core::EventId, usize>);
+
+fn enjoyed_before(world: &World, event: world_core::EventId) -> Option<usize> {
+    let kept = world.as_it_stands(|| {
+        // A handful of kinds, so a list rather than a map.
+        let mut counts: Vec<((Option<&Value>, bool), usize)> = Vec::new();
+        EnjoyedBefore(
+            world
+                .events_of_kind(&["enjoyed"])
+                .into_iter()
+                .map(|used| {
+                    let key = (used.payload.get("effect"), used.targets.len() > 1);
+                    let at = counts.iter().position(|(kind, _)| *kind == key);
+                    let at = at.unwrap_or_else(|| {
+                        counts.push((key, 0));
+                        counts.len() - 1
+                    });
+                    let before = counts[at].1;
+                    counts[at].1 += 1;
+                    (used.id, before)
+                })
+                .collect(),
+        )
+    });
+    kept.0.get(&event).copied()
+}
+
 /// What someone says using something the player made, in the place's own
 /// words: the next of its lines for that thing, so the same is not said
 /// of it again until every other has been. `None` for anything else, or
@@ -1143,22 +1173,24 @@ pub(crate) fn enjoyed_line(world: &World, event: &world_core::Event) -> Option<(
     // harvest one in two (fewer of a
     // place's people speak each day than the harbour's), so the bench never becomes
     // what the place talks about most (an empty line the other times).
-    let before = world
-        .events_of_kind(&["enjoyed"])
-        .into_iter()
-        .take_while(|used| used.id != event.id)
-        .filter(|used| {
-            used.payload.get("effect") == event.payload.get("effect")
-                && (used.targets.len() > 1) == with_other
-        })
-        .count();
+    let before = enjoyed_before(world, event.id).unwrap_or_else(|| {
+        // Not one of the World's own uses: every use of its kind is before it.
+        world
+            .events_of_kind(&["enjoyed"])
+            .into_iter()
+            .filter(|used| {
+                used.payload.get("effect") == event.payload.get("effect")
+                    && (used.targets.len() > 1) == with_other
+            })
+            .count()
+    });
     let every = match (effect, with_other) {
         ("rest", _) | ("gather", true) => 4,
         ("gather", false) => 3,
         ("harvest", _) => 2,
         _ => 1,
     };
-    if before % every != 0 {
+    if !before.is_multiple_of(every) {
         return Some((who, String::new()));
     }
     let line = lines.get(before / every % lines.len().max(1))?;

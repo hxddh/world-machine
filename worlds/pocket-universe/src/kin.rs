@@ -374,8 +374,8 @@ pub(crate) fn look(world: &world_core::World, id: EntityId) -> Option<Look> {
         }
         look.carries = None;
     }
-    let cast = crate::life::cast(state);
-    if let Some((stage, grey, stoop)) = lives::looks_of(state, &cast, id) {
+    let cast = &crate::life::cast_kept(world).0;
+    if let Some((stage, grey, stoop)) = lives::looks_of(state, cast, id) {
         look.age = Some(match stage {
             lives::Stage::Baby => world_projection::AgeStage::Baby,
             lives::Stage::Child => world_projection::AgeStage::Child,

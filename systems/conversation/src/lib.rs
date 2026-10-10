@@ -17,6 +17,7 @@
 
 #![forbid(unsafe_code)]
 
+mod ears;
 pub mod faces;
 
 // What a model is told and how its answer is checked live in a crate of
@@ -351,6 +352,10 @@ fn any(text: &str, phrases: &[&str]) -> bool {
 }
 
 const RUDE: &[&str] = &[
+    "can't stand you",
+    "受不了你",
+    "我慢できない",
+    "fool",
     "drop dead",
     "disgust",
     "a joke",
@@ -500,6 +505,9 @@ const RUDE: &[&str] = &[
     "黙ってろ",
 ];
 const SORRY: &[&str] = &[
+    "おわび",
+    "お詫び",
+    "道个歉",
     "i was wrong",
     "shouldn't have",
     "my mistake",
@@ -555,6 +563,12 @@ const SORRY: &[&str] = &[
     "謝りたい",
 ];
 const COMFORT: &[&str] = &[
+    "挺过去",
+    "なんとかなる",
+    "总会解决",
+    "sort themselves out",
+    "打倒你",
+    "别灰心",
     "there there",
     "doing your best",
     "trying your best",
@@ -1154,6 +1168,8 @@ const RECONCILE: &[&str] = &[
     "chance she's",
 ];
 const QUARREL: &[&str] = &[
+    "とはどうなって",
+    "とどうなって",
     "avoiding",
     "avoid",
     "went wrong",
@@ -1370,6 +1386,10 @@ const THANK: &[&str] = &[
     "ありがとう",
 ];
 const COMPLIMENT: &[&str] = &[
+    "いいにおい",
+    "いい匂い",
+    "香香",
+    "好香",
     "brilliantly",
     "done well",
     "you've done",
@@ -1597,6 +1617,7 @@ const COMPLIMENT: &[&str] = &[
     "best cook",
 ];
 const OPINION: &[&str] = &[
+    "处得",
     "make of",
     "reckon",
     "think of",
@@ -1886,6 +1907,12 @@ const GIFT: &[&str] = &[
     "you'd like this",
 ];
 const WORRY: &[&str] = &[
+    "quiet lately",
+    "口数が少ない",
+    "话很少",
+    "顔色が悪",
+    "look pale",
+    "脸色",
     "sleep",
     "don't look",
     "unwell",
@@ -2072,6 +2099,8 @@ const WORRY: &[&str] = &[
     "睡不着",
 ];
 const FRIENDS: &[&str] = &[
+    "誰と過ごし",
+    "spend time with",
     "on your nerves",
     "annoys you",
     "who annoys",
@@ -2316,6 +2345,8 @@ const FAMILY: &[&str] = &[
     "親御さん",
 ];
 const ABOUT_YOU: &[&str] = &[
+    "知りたい",
+    "出生的",
     "makes you tick",
     "grow up",
     "grew up",
@@ -2445,6 +2476,8 @@ const ABOUT_YOU: &[&str] = &[
     "你的生活",
 ];
 const INVITE: &[&str] = &[
+    "外に出よう",
+    "出かけよう",
     "请你",
     "咖啡",
     "drink",
@@ -2624,7 +2657,6 @@ const DAY: &[&str] = &[
     "今天过",
     "开心的事",
     "今天有什么",
-    "好玩的",
     "いいことあった",
     "楽しいことあった",
     "干嘛了",
@@ -2747,6 +2779,22 @@ const PRAISE: &[&str] = &[
 /// Words that say one thing whatever else is in them, heard before
 /// anything else but a rude word and someone named, in this order.
 const SURE: &[(&str, Intent)] = &[
+    ("行かないと", Intent::Farewell),
+    ("もう平気", Intent::HowAreYou),
+    ("现在怎么样", Intent::HowAreYou),
+    ("你病了", Intent::HowAreYou),
+    ("looking in", Intent::HowAreYou),
+    ("好点了", Intent::HowAreYou),
+    ("check you were", Intent::HowAreYou),
+    ("check you're", Intent::HowAreYou),
+    ("何があった", Intent::News),
+    ("元気そう", Intent::Greet),
+    ("頑張ってるね", Intent::Compliment),
+    ("がんばってるね", Intent::Compliment),
+    ("屋さんの調子", Intent::Work),
+    ("屋の調子", Intent::Work),
+    ("给你带点", Intent::Need),
+    ("帮你带", Intent::Need),
     ("sorry to hear", Intent::Comfort),
     ("goodnight", Intent::Farewell),
     ("good night", Intent::Farewell),
@@ -2821,6 +2869,22 @@ const SURE: &[(&str, Intent)] = &[
     ("私たち 大丈夫", Intent::Standing),
     ("私たち大丈夫", Intent::Standing),
 ];
+/// Asking for news, heard before a place the words name.
+const NEWS_FIRST: &[&str] = &[
+    "the word",
+    "any word",
+    "news",
+    "消息",
+    "新闻",
+    "うわさ",
+    "噂",
+    "ニュース",
+];
+
+/// Comfort that a question mark does not make a question about how
+/// someone is.
+const COMFORT_ONLY: &[&str] = &["心配しないで", "きっと大丈夫", "大丈夫だから"];
+
 /// Taking leave politely, heard before any rude word in it ("邪魔", in
 /// the way).
 const LEAVING: &[&str] = &[
@@ -2857,6 +2921,12 @@ const YOUTH: &[&str] = &[
 /// Asking what work someone does, heard before asking about them ("你平时
 /// 都做什么工作？" holds 平时, as "what are you like" asks it).
 const JOB: &[&str] = &[
+    "商い",
+    "买卖",
+    "生意",
+    "商売",
+    "business",
+    "trade",
     "for a living",
     "your job",
     "do for work",
@@ -2911,6 +2981,7 @@ const PARTING: &[&str] = &[
     "いい一日を",
 ];
 const WEATHER: &[&str] = &[
+    "day out there",
     "clear up",
     "brighten",
     "chilly",
@@ -3071,6 +3142,10 @@ const WEATHER: &[&str] = &[
     "降って",
 ];
 const COMING: &[&str] = &[
+    "热闹",
+    "next fair",
+    "happening soon",
+    "special happening",
     "anything coming",
     "special coming",
     "big event",
@@ -3144,6 +3219,9 @@ const COMING: &[&str] = &[
     "next week",
 ];
 const HOW_ARE_YOU: &[&str] = &[
+    "様子を聞",
+    "どうしてる",
+    "looking in",
     "keeping alright",
     "keeping ok",
     "you keeping",
@@ -3431,6 +3509,9 @@ const NEED: &[&str] = &[
     "何かしてあげ",
 ];
 const NEWS: &[&str] = &[
+    "何があった",
+    "なにがあった",
+    "好玩的事",
     "any word",
     "word from",
     "around town",
@@ -3552,6 +3633,7 @@ const WORK: &[&str] = &[
     "fishing trips",
 ];
 const GREET: &[&str] = &[
+    "hullo",
     "hi",
     "hello",
     "hey",
@@ -3615,6 +3697,8 @@ const GREET: &[&str] = &[
     "はじめまして",
 ];
 const FAREWELL: &[&str] = &[
+    "じゃあ また",
+    "行かないと",
     "off i go",
     "i'm off",
     "leave you to",
@@ -3718,6 +3802,7 @@ const FAREWELL: &[&str] = &[
     "拜咯",
 ];
 const ACK: &[&str] = &[
+    "好嘞",
     "alright then",
     "mm",
     "true",
@@ -3868,9 +3953,21 @@ fn named(
     })
 }
 
-/// What the player's words to `who` mean.
+/// What the player's words to `who` mean: heard by their words
+/// ([`hear_words`]), then in the light of the favour open for `who`, if
+/// one is ([`favour::in_context`]): "she's sorry" passes on the apology of
+/// whoever asked, and "Mara asked me to see how you are" asks after `who`.
 pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard {
+    let heard = hear_words(state, kit, who, words);
+    favour::in_context(state, kit, who, words, heard)
+}
+
+/// What the player's words to `who` mean by their words alone: the phrase
+/// table, read on the words as typed and folded to one form (`ears`), and
+/// failing that the meaning their cue words score highest.
+pub(crate) fn hear_words(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard {
     let text = normal(words);
+    let folded = ears::fold(&text);
     let others = (kit.people)(state)
         .into_iter()
         .filter(|person| *person != who)
@@ -3883,7 +3980,9 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
         has(&text, name.strip_prefix("the ").unwrap_or(name))
     });
     let heard = |intent, about| Heard { intent, about };
-    let is = |phrases: &[&str]| any(&text, phrases);
+    let is = |phrases: &'static [&'static str]| {
+        any(&text, phrases) || ears::any_folded(&folded, phrases)
+    };
     // Taking leave politely ("邪魔しちゃ悪いから", I won't be in your way)
     // before anything rude in its words.
     if is(LEAVING) {
@@ -3903,19 +4002,31 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
                 return heard(intent, Some(person));
             }
         }
-        return heard(Intent::ThinkOf, Some(person));
+        // What the table does not place, by its cue words; an opinion
+        // otherwise.
+        let intent = ears::scored_about(&text, &folded).unwrap_or(Intent::ThinkOf);
+        return heard(intent, Some(person));
     }
     if occasion && !is(GIFT) {
         return heard(Intent::Coming, None);
     }
     // Words that say one thing whatever else is in them ("lovely to see
     // you" greets before it praises), the first found.
-    if let Some((_, intent)) = SURE.iter().find(|(phrase, _)| has(&text, phrase)) {
+    if let Some((_, intent)) = SURE
+        .iter()
+        .find(|(phrase, _)| has(&text, phrase) || ears::has_folded(&folded, phrase))
+    {
         return heard(*intent, None);
     }
     // "Night, Emma." says goodnight.
     if text.starts_with(" night ") || text.starts_with(" nighty ") {
         return heard(Intent::Farewell, None);
+    }
+    // "大丈夫？" asks how someone is; "大丈夫だよ" says they will be.
+    let asked = words.trim_end().ends_with(['?', '？']);
+    if asked && folded.contains("大丈夫") && !folded.contains("大丈夫だ") && !is(COMFORT_ONLY)
+    {
+        return heard(Intent::HowAreYou, None);
     }
     // In the order that settles words holding more than one of them:
     // "don't worry" is comfort before it is a worry, "forgive me" an
@@ -3944,6 +4055,10 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
             return heard(intent, None);
         }
     }
+    // News of a place is news: "what's the word around the town".
+    if is(NEWS_FIRST) {
+        return heard(Intent::News, None);
+    }
     if let Some(place) = place {
         return heard(Intent::Place, Some(place));
     }
@@ -3967,7 +4082,12 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
     if text.starts_with(" how ") || text.starts_with(" how's ") {
         return heard(Intent::HowAreYou, None);
     }
-    heard(Intent::Unclear, None)
+    // Words the table does not place: the meaning their cue words score
+    // highest, if they hold any.
+    match ears::scored(&text, &folded) {
+        Some(intent) => heard(intent, None),
+        None => heard(Intent::Unclear, None),
+    }
 }
 
 /// What someone answers.

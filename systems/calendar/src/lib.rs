@@ -264,7 +264,43 @@ pub fn register_actions(
     almanac: fn(&WorldState) -> Almanac,
 ) -> Result<(), ActionError> {
     actions.register(Nears(almanac))?;
-    actions.register(Holds(almanac))
+    actions.register(Holds(almanac))?;
+    actions.register(DayBegins)
+}
+
+/// The kind of Event a day passing begins with. It changes nothing: it is
+/// the root every rule's doing that day names as its cause, so the record
+/// says why each thing happened when it did (AGENTS.md invariant 5).
+pub const DAY_BEGAN: &str = "day_began";
+
+/// A day begins: see [`DAY_BEGAN`].
+struct DayBegins;
+
+impl Action for DayBegins {
+    fn name(&self) -> &'static str {
+        "calendar_day_begins"
+    }
+
+    fn evaluate(
+        &self,
+        _state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        Ok(EventDraft::new(DAY_BEGAN))
+    }
+}
+
+/// Records that a day begins, and returns the Event: run the day's rules
+/// [`World::following`] it, so each of them names it as their cause.
+pub fn begin_day(world: &mut World, actions: &ActionRegistry) -> Result<EventId, WorldError> {
+    Ok(world
+        .execute(actions, &ActionRequest::new("calendar_day_begins"))?
+        .id)
+}
+
+/// Whether `event` only marks a day beginning, and so tells nothing.
+pub fn is_day_begun(event: &Event) -> bool {
+    event.kind == DAY_BEGAN
 }
 
 fn festival_of<'a>(

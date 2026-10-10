@@ -2061,6 +2061,9 @@ It was {at} that did it.	都是{at}的功劳。
 You began a {} by {at_name}	你在{at_name}旁开始建一座{}
 You began an {} by {at_name}	你在{at_name}旁开始建一座{}
 The {} you began by {at} was finished	你在{at}旁开始建的{}完工了
+You began a {}	你开始建一座{}
+You began an {}	你开始建一座{}
+The {} you began was finished	你开始建的{}完工了
 You painted a design on the flag	你在旗子上画了一个图案
 You painted a design on the sail	你在帆上画了一个图案
 You painted a design on the sign	你在招牌上画了一个图案
@@ -2153,3 +2156,5 @@ Another day, maybe. It'll keep.	改天吧，也不急。
 It's fine. I'll tell you sometime.	没事，哪天再跟你说。
 Oh, it doesn't matter now.	哦，现在已经无所谓了。
 I'll save it for a quieter day.	等哪天清静了再说吧。
+{title} in year {year}	第{year}年的{title}
+I left home for a place of my own	我离开家，有了自己的住处

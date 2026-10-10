@@ -1674,6 +1674,31 @@ pub fn choose_request(storylet: &str, choice: &str) -> ActionRequest {
         .arg("choice", choice)
 }
 
+/// [`choose_request`], naming as its cause the Event that raised the
+/// question it answers: an answer follows what it answers.
+pub fn choose_request_in(world: &World, storylet: &str, choice: &str) -> ActionRequest {
+    let request = choose_request(storylet, choice);
+    match raised_by(world, storylet) {
+        Some(raised) => request.caused_by(raised),
+        None => request,
+    }
+}
+
+/// The Event that raised `storylet` last, if it has come up.
+pub fn raised_by(world: &World, storylet: &str) -> Option<EventId> {
+    let index = world.history_index();
+    index
+        .of_kind("situation_arose")
+        .iter()
+        .rev()
+        .copied()
+        .find(|id| {
+            world.event(*id).is_some_and(|event| {
+                event.payload.get("storylet") == Some(&Value::Text(storylet.into()))
+            })
+        })
+}
+
 /// A small stable number for mixing: the same inputs always give the same
 /// answer, so the storyteller is the same every replay.
 pub fn mix(parts: &[u64]) -> u64 {
@@ -1788,9 +1813,13 @@ pub fn tick(
             continue;
         }
         if now >= at.saturating_add(storylet.lasts.max(1) * deck.period) {
-            let request = ActionRequest::new("storylet_lapsed")
+            // What lapses follows what raised it.
+            let mut request = ActionRequest::new("storylet_lapsed")
                 .actor(storylet.asker)
                 .arg("storylet", storylet.id);
+            if let Some(raised) = raised_by(world, storylet.id) {
+                request = request.caused_by(raised);
+            }
             events.push(world.execute(actions, &request)?.id);
         }
     }

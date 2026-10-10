@@ -204,20 +204,32 @@ pub(super) fn gather(
         let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
         let line = run.iter().map(|at| people[*at].y).sum::<f32>() / run.len() as f32;
         // Where each member would stand, from the run's left edge.
+        // Never evenly: each stands a little nearer or further from the
+        // last, by who they are (seeded, so the same every frame), a three
+        // is a ring with its middle well back, a pair one half a step
+        // behind the other (the v0.29 art director: rows and blobs).
         let mut places = Vec::with_capacity(run.len());
         let mut left = 0.0;
+        let mut member = 0;
         for (group, size) in sizes.iter().enumerate() {
             let step = [0.0, -0.24, 0.12][group % 3] * figure_h;
+            let mut x = 0.0;
             for nth in 0..*size {
+                let seed = people[run[member]].index as u32;
+                member += 1;
+                let jitter = (painter::hash2(seed as i32, 53, 0x9e37) % 1000) as f32 / 1000.0;
+                if nth > 0 {
+                    x += near;
+                }
                 let back = step
-                    + if *size == 3 && nth == 1 {
-                        figure_h * 0.22
-                    } else {
-                        0.0
+                    + match (*size, nth) {
+                        (3, 1) => figure_h * 0.26,
+                        (2, 1) => figure_h * (0.06 + 0.08 * jitter),
+                        _ => figure_h * 0.04 * jitter,
                     };
-                places.push((left + near * nth as f32, back));
+                places.push((left + x, back));
             }
-            left += width_of(*size) + between;
+            left += x.max(width_of(*size)) + between;
         }
         // Centred where the run stood, or nudged a little either way to
         // stand clear of what stands there; with no room, group by group.
@@ -348,6 +360,58 @@ pub(super) fn gather(
             people[at].x = to;
         }
     }
+}
+
+/// How wide a standing person's silhouette is, in heights: for telling
+/// how much two overlap.
+pub(super) const BODY_W: f32 = 0.42;
+
+/// How far apart two people may stand up or down the spine, in heights,
+/// and still read as one line: their feet on one line, within a hand.
+pub(super) const IN_LINE: f32 = 0.06;
+
+/// How far apart along the spine two people in one line may stand, in
+/// heights, and still read as one row.
+pub(super) const ROW_GAP: f32 = 2.2;
+
+/// Of people standing (feet at `x`, `y`, `height` tall, in screen
+/// pixels): the most standing in one row (feet on one line, each within a
+/// couple of strides of the next), and the most any two overlap, as a
+/// share of the smaller silhouette. The art bible's §6 holds the first to
+/// four and v0.29 the second to a fifth.
+pub fn rows_and_overlap(people: &[(f32, f32, f32)]) -> (usize, f32) {
+    let mut order = people.to_vec();
+    order.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut longest = usize::from(!order.is_empty());
+    for (start, first) in order.iter().enumerate() {
+        let mut count = 1;
+        let mut last = *first;
+        for next in &order[start + 1..] {
+            let p = last.2.max(next.2).max(1.0);
+            if next.0 - last.0 > ROW_GAP * p {
+                break;
+            }
+            if (next.1 - first.1).abs() <= IN_LINE * p {
+                count += 1;
+                last = *next;
+            }
+        }
+        longest = longest.max(count);
+    }
+    let body = |(x, y, h): (f32, f32, f32)| (x - h * BODY_W / 2.0, y - h, h * BODY_W, h);
+    let mut most = 0.0_f32;
+    for (at, a) in order.iter().enumerate() {
+        for b in &order[at + 1..] {
+            let (ra, rb) = (body(*a), body(*b));
+            let w = (ra.0 + ra.2).min(rb.0 + rb.2) - ra.0.max(rb.0);
+            let h = (ra.1 + ra.3).min(rb.1 + rb.3) - ra.1.max(rb.1);
+            if w > 0.0 && h > 0.0 {
+                let smaller = (ra.2 * ra.3).min(rb.2 * rb.3).max(1.0);
+                most = most.max(w * h / smaller);
+            }
+        }
+    }
+    (longest, most)
 }
 
 /// How a run of `n` people splits into groups of two and three.
@@ -677,7 +741,40 @@ pub(super) fn paint_live(
         let front = screen(0.0, frame.front).1;
         let bottom = oy + height;
         if front < bottom {
-            let shimmer = gpui::white().opacity(if night { 0.12 } else { 0.26 });
+            // At dusk the water holds the sky's gold: a warm sheen near the
+            // shore fading out to sea, and the swell's lights gold.
+            let dusk = dusk_share(frame.hour) * if sun_out(frame.weather) { 1.0 } else { 0.5 };
+            if dusk > 0.0 {
+                let (_, sky_low) = sky_colours(frame);
+                let gold = mix(sky_low, art::hex(0xffb24a), 0.5);
+                // Deeper out to sea, so the gold reads against it.
+                window.gradient(
+                    ox,
+                    front,
+                    width,
+                    bottom - front,
+                    180.0,
+                    (art::hex(0x1c2a44).opacity(0.0), 0.0),
+                    (
+                        art::hex(0x1c2a44).opacity(0.55 * dusk_share(frame.hour)),
+                        1.0,
+                    ),
+                );
+                window.gradient(
+                    ox,
+                    front,
+                    width,
+                    (bottom - front) * 0.45,
+                    180.0,
+                    (gold.opacity(0.26 * dusk), 0.0),
+                    (gold.opacity(0.0), 1.0),
+                );
+            }
+            let shimmer = mix(gpui::white(), art::hex(0xffc860), dusk).opacity(if night {
+                0.12
+            } else {
+                0.26 + 0.2 * dusk
+            });
             for row in 0..5 {
                 let y = front + 16.0 * z + row as f32 * (bottom - front) / 5.5;
                 for column in 0..9 {
@@ -881,7 +978,14 @@ pub(super) fn paint_live(
         let (x, base) = screen(thing.x, thing.base);
         let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
         if let Some(glow) = thing.glow {
-            window.soft(x, base, w * 0.8, w * 0.16, w * 0.12, glow.opacity(0.35));
+            window.soft(
+                x,
+                base,
+                w * 0.8,
+                w * 0.16,
+                w * 0.12,
+                ground_glow(glow, 0.35),
+            );
         }
         if thing.shape == MarkShape::Boat {
             // A darker patch of water under the hull.
@@ -1049,6 +1153,7 @@ pub(super) fn paint_live(
         lit,
         seed_of_scenery(&frame.scenery),
         (ox, ox + width),
+        (&street_lamps(frame), street_glow(frame)),
     );
     // People: a soft shadow where they stand, a longer one away from a
     // sun that is out, and themselves.
@@ -1067,7 +1172,7 @@ pub(super) fn paint_live(
                 person.height * 0.8 * breathe,
                 person.height * 0.2 * breathe,
                 person.height * 0.14,
-                glow.opacity(0.45),
+                ground_glow(glow, 0.45),
             );
         }
         // Lifted off the ground in a hop, the shadow shrinks and fades.
@@ -1248,5 +1353,22 @@ pub(super) fn paint_garlands(
                 art::hex(inks[n % inks.len()]),
             );
         }
+    }
+}
+
+/// Where a street's lamps stand, in stage pixels, when its Pack says.
+fn street_lamps(frame: &Frame) -> Vec<f32> {
+    frame
+        .look
+        .as_ref()
+        .map(|look| look.lamps.iter().map(|at| at * frame.view_w).collect())
+        .unwrap_or_default()
+}
+
+/// What a street's lamps glow: the Pack's own colour, or sodium orange.
+fn street_glow(frame: &Frame) -> Hsla {
+    match frame.look.as_ref().and_then(|look| look.glow) {
+        Some(glow) => art::hex(glow),
+        None => art::hex(0xffc96b),
     }
 }

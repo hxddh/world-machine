@@ -261,9 +261,14 @@ impl ProjectionView {
                             }
                             cx.notify();
                         }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
                             if this.just_dragged() {
+                                return;
+                            }
+                            // With something chosen to put down, a plot is
+                            // where it goes.
+                            if this.placing() && this.place_on_plot(&id, window, cx) {
                                 return;
                             }
                             this.open_offers(&id, cx);
@@ -327,6 +332,31 @@ impl ProjectionView {
             }
         }
         out
+    }
+
+    /// Puts what the player's hands hold on the plot `plot`. Whether it
+    /// was put.
+    pub(crate) fn place_on_plot(
+        &mut self,
+        plot: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let (width, height) = self.stage_size(window);
+        let stage = crate::diorama::stage(&self.snapshot, width, height);
+        let plots = mark::plots_of(&self.snapshot);
+        let Some(index) = plots.iter().position(|each| each.id == plot) else {
+            return false;
+        };
+        let Some(x) = stage
+            .plots
+            .iter()
+            .find(|spot| spot.plot == index)
+            .map(|spot| spot.x)
+        else {
+            return false;
+        };
+        self.place_hands_at(&stage, x, cx)
     }
 
     fn open_offers(&mut self, plot: &str, cx: &mut Context<Self>) {
@@ -453,8 +483,9 @@ impl ProjectionView {
                         thing.shape,
                         None,
                     );
+                    let plot_id = id.clone();
                     grid = grid.child(if thing.possible {
-                        tile.on_click(cx.listener(move |this, _, _, cx| {
+                        tile.on_click(cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
                             this.looking.marking.offers = None;
                             this.looking.marking.offers_verb = None;
@@ -462,7 +493,10 @@ impl ProjectionView {
                                 verb: Some(verb.clone()),
                                 thing: Some(key.clone()),
                             });
-                            cx.notify();
+                            // Chosen on a plot's card, it goes on that plot.
+                            if !this.place_on_plot(&plot_id, window, cx) {
+                                cx.notify();
+                            }
                         }))
                     } else {
                         tile

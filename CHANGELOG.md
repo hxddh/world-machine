@@ -2,6 +2,56 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.29.0 (2026-10-10)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.27 replays event for event in both Packs, and the golden of the state each one rebuilds to from its recorded events is unchanged; only the pictures and presentation goldens drawn from them were re-blessed for the new looks. No v0.28 fixture was added: v0.28 saved with the same Pack versions, so its Worlds open, but no test holds one of its files.
+
+This release is the plan from the [v0.28 review](docs/REVIEW_v0.28.md), "Right as it's played". What it met and missed, with numbers, is in that review's last section. In short: the subject of each moment is sharp, each Pocket Universe place is its own, cards and words fit, Windows runs its tests in CI and causes are recorded, and the art director signed off free play after four rounds, with deviations. The longest frame, Japanese hearing, talk for rewards, memory and the first look after a day missed their bars, and nobody has played it on a real Windows PC or tried the demo aloud.
+
+- **Sharp where the player looks.**
+  - A frame knows where the camera is going and what the moment is about: the destination's tiles are painted first, subject first, and the rough painting shows only where nothing sharp exists. A window's opening view is painted before its first frame.
+  - Find and a return beat wait, at most 1.6 s, until the destination is painted; Find's card and the film's words wait for the landing.
+  - "Painted" is counted per region, on the subject and anywhere, and `scripts/release-shots.sh` checks it 0.3, 1.0 and 2.5 s after every camera move.
+  - The rough painting is keyed by World, so no place opens on another's meadow.
+  - Shadows are soft ellipses on land; the lighthouse stands on a painted rock plinth. Dusk has a gold glaze, every spine lamp lit from about 18:15 and people out by the water in two groups. People stand in facing groups, never rows or blobs.
+  - The return film finds each beat's subject by its id, so the camera, glow and portrait match in every language; its Next button, keys and timeout restart the beat through one path.
+  - A work going up stands on a site clear of every building, on the quay edge and never in the water.
+- **Cards and words that fit.**
+  - One card at a time, beside its subject and inside the window, its middle scrolling so the text field is always reachable. Esc and closing a card never move the camera. A speaker off screen gets an edge tab with a portrait; favour markers stand at the person's feet; gauges never wrap into a column.
+  - Clicking a plot plants what you hold there, and a click on a control never places anything.
+  - Lines break properly: Japanese between phrases, kinsoku in Chinese and Japanese, balanced English bubbles with no lone word, and clamped text ending at a word.
+  - No English in Chinese or Japanese: hard-coded and formatted strings ("Find {name}" among them) go through the catalogs as whole sentences with named slots, and 579 Chinese lines name people in Chinese characters. Over three years no letter or line is partly English in any place, in either language.
+  - Small words: the Pocket Universe template ("Help me fit the new a spare seal?"), a time label that follows the sky, Ctrl and Ctrl+W off a Mac, a varied demo recap, no filler openers, the place said once.
+- **Each Pocket Universe place its own.**
+  - 30 place-only storylets and 25 place threads, in three languages: at most 16% of a place's first-month cards are shared with another (was 100%). Trust reaches at most 7 in the first week.
+  - Each place has its own greeting, lamps, plots, keeper's spot and look, declared by the Pack (`PlaceLook`) and drawn with no new place names in shared code. Ares has a Habitat Ring on a lit apron; Icebridge is nests, a fish vault, a roped plaza and a bridge over a lead of dark water, framed whole at every hour.
+  - Faster: a three-year turn's median is 23–26 ms in every place, and looking again at an unchanged World 2.5–3.5 ms (Maple Street was 38–40 ms and 26 ms). Each place now has speed tests of its own.
+- **Talk you can trust, measured again.**
+  - The judge is taught the policy with examples per place (nicknames and the era's real places are in, brands and celebrities out), and a name the World gave passes the language check in any script.
+  - Hearing folds Japanese and Chinese spellings before matching and adds a small scored matcher for words the table misses. Looking in on someone is done only by words that ask after them.
+  - A test pins the California video-game exemption in three languages, and [a one-page memo](docs/LEGAL_MEMO_AI_VOICE.md) is ready for counsel.
+- **Windows you can play (most of it).**
+  - CI runs clippy and the tests on Windows, including the Pack-process tests that ran only on Unix.
+  - The language comes from the system; keys are kept in Windows Credential Manager; the lock file is closed before it is removed; postcards capture the screen through PowerShell on Windows, and through ImageMagick or grim on Linux.
+  - An unsigned installer and zip from an optional release job; an optional `steam` feature (a spike, off by default).
+  - A panic writes a backtrace and the version; a Pack that fails leaves its last 64 KiB of errors. Pack processes get an allowed list of environment variables and a scratch working directory.
+  - In the background the app draws nothing: covered by a window that takes the focus, 0 frames at 0.9–1.0% of a core; minimised, 0.2% (`scripts/measure-background.sh`, on Linux).
+- **The record tells the truth.**
+  - Each day passing has a root event, and an event that names no cause is recorded as caused by the cause in force. Under 10% of events now have no cause in every place (was 90–99%), and each Pack declares its root kinds. Nothing new is saved, and old Worlds replay as before.
+  - The text-scale test no longer changes process-wide state, and a closed window's bookkeeping is let go.
+  - The release workflow runs the release screenshots and publishes nothing unless they pass; the harness fails fast when its display dies.
+  - Pack launch images get a stamp per run, and the sweep of dead processes' images now runs (it never had, so each killed app left about 10 MB behind).
+- **The demo.** 24.8 minutes at its intended pace, complete without the voice: a painted town in 2 s, a build, a day passing, three days lived on their own, a return film, and an ending card at dusk that asks for the wishlist and carries the World into the full app. Pacing is data (`demo/pacing.json`), walked by a test. **Keep a postcard** works on Linux. Store lines in three languages say what the clock does and that every drawing is the game's own code (Chinese and Japanese need a native reader).
+
+**Measured once, at the end** (on a 4-core Linux machine, at `6029090`, before the fixes and art rounds that followed):
+- The rough painting on the subject of a moment: at the end-of-cycle measurement 0 ms after Find and openings, at most 241 ms on return beats, and 1.5–2.4 s zooming out (bar 250 ms; 600 ms anywhere). Found on the way to the release and fixed: the folded postcard view is painted ahead of a zoom out, and a pan lands on a drawing of the boil that is painted there; the release check now shows 0 ms on the subject after every Find, return beat and zoom. 0 frames of another World. Met.
+- Also found on the way: day 1 had opened on 2 whole buildings instead of 3 (the edge-keeping framing pushed the left home out); it opens on the focal cluster again, tested in the real window. "Stay a while" on the farewell let its click through to a house under it, whose card then hid the day's card; the farewell now keeps its clicks. The release check's screenshots needed `xwd`, now in `x11-apps` on the CI image.
+- The window's longest frame under 8 ms in 6 of 10 runs, bar 10 of 10. Missed.
+- Hearing on fresh29: 94.6% (en), 87.5% (zh), 83.9% (ja), bar 85%. Missed for Japanese. Favours done in everyday words: 88.9%, bar 80%. Met. Both blind sets were written by the agent that tuned, before it read the code, so the numbers may be optimistic.
+- Talk for rewards: 1 of 3,348 tricks in Tiny Society did something ("free drink" heard as an invitation), 0 of 1,116 in Pocket Universe, bar none. Missed. Blind set 7 for the voice needs a live key and was not measured.
+- A three-year harbour: the first look after a day 19–37 ms (bar 20) and 108.6 MB after 20 days (bar 100). Missed. A turn with its save is no slower than v0.28's on the same file (and does 11% less work), but the repo's turn bench is 35–37 ms on this machine against the 24.5–24.8 ms v0.28's review measured on another file on a faster day.
+- Not done: 30 minutes on a real Windows PC, five think-aloud testers on the demo, and three green nightlies on v0.29 code (the nightly runs on `main` only). The Mac build stays ad-hoc signed, by the owner's choice.
+
 ## v0.28.0 (2026-10-08)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.27 replays event for event in both Packs, now including real v0.27 Worlds played through that release's own saving path, and a new golden of the state each one rebuilds to, from its recorded events alone, is never re-blessed.

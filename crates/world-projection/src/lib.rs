@@ -1711,6 +1711,34 @@ pub struct CanvasProjection {
     /// cobbles, the Green's grass), joined to the place's spine by a path.
     /// Empty for a World that does not group what it builds.
     pub clusters: Vec<Cluster>,
+    /// How the place looks beyond its scenery, as its Pack declares it:
+    /// where its spine's lamps stand, the tint of its light, the colour of
+    /// its spine. `None` leaves all of it to the app, as it always was.
+    pub look: Option<PlaceLook>,
+}
+
+/// How a place looks beyond its scenery's colours (v0.29), so each place
+/// a Pack makes can be its own without the app knowing its name: one
+/// place's lamps ring a lit apron, another's line a causeway.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlaceLook {
+    /// Where the lamps along the place's spine stand, in panorama units
+    /// (`0.0..width`), left to right. Empty: a lamp every few steps along
+    /// the whole spine, as the app places them.
+    pub lamps: Vec<f32>,
+    /// The tint of the key light (`0xRRGGBB`), strongest at dusk and dawn:
+    /// a cold blue over the ice rather than a gold sun. `None`: the sun's
+    /// own light.
+    pub key: Option<u32>,
+    /// The colour lamps and lit windows glow at night: teal and signal
+    /// white under a dome rather than lamplight gold. `None`: lamplight.
+    pub glow: Option<u32>,
+    /// The colour of the spine people walk along: a street's asphalt, a
+    /// causeway's packed snow, an apron's deck. `None`: the setting's own.
+    pub spine: Option<u32>,
+    /// The air over the field toward the hills. `None`: the sky's lowest
+    /// colour.
+    pub haze: Option<u32>,
 }
 
 /// A few works or homes sharing a patch of ground, with a name the story

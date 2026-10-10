@@ -6,3 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+# The operating system's preferred languages (CFLocale on the Mac,
+# GetUserPreferredUILanguages on Windows, LANG elsewhere). MIT OR Apache-2.0,
+# already in the build through the text shaper.
+sys-locale = "0.3"

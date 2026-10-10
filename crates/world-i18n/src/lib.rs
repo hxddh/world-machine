@@ -507,12 +507,25 @@ impl Catalog {
                 .collect::<Vec<_>>()
                 .join(" ");
             if told != text {
+                // What the speaker did themselves is told of them in the
+                // third person too: "I moved into a home of my own" is
+                // "<name> moved into a home of their own" (the turn the
+                // letters make, the other way).
+                let theirs = told.starts_with(MYSELF).then(|| {
+                    told.replace(" my own", " their own")
+                        .replace(" of my ", " of their ")
+                        .replace(", and we ", ", and they ")
+                });
                 // Only where the speaker is still in it after.
-                if let Some(found) = self
-                    .whole(&told, depth + 1)
-                    .filter(|found| found.contains(MYSELF))
+                for told in
+                    std::iter::once(told.clone()).chain(theirs.filter(|theirs| *theirs != told))
                 {
-                    return Some(found.replace(MYSELF, myself));
+                    if let Some(found) = self
+                        .whole(&told, depth + 1)
+                        .filter(|found| found.contains(MYSELF))
+                    {
+                        return Some(found.replace(MYSELF, myself));
+                    }
                 }
             }
         }
@@ -958,8 +971,31 @@ pub fn tr_owned(text: &str) -> String {
     tr(text).into_owned()
 }
 
-/// The language this Mac is set to, if the app has a catalog for it:
-/// `LANG` first, then the system's own list.
+/// A line with slots, as the catalog of the language shown writes it
+/// ("Couldn't say that: {error}" is 无法这么说：{error}), its slots left to
+/// fill: for what fills them that no catalog knows (an error, a name the
+/// player gave). `None` in English, or if no catalog writes it.
+pub fn tr_written(template: &str) -> Option<String> {
+    let shown_in = language();
+    if shown_in == Language::English {
+        return None;
+    }
+    state().read().ok().and_then(|state| {
+        state
+            .catalogs
+            .get(&shown_in)
+            .and_then(|catalog| catalog.written.get(template).cloned())
+    })
+}
+
+/// The language the computer is set to, if the app has a catalog for it.
+///
+/// `WORLD_MACHINE_LANGUAGE` first (for tests and screenshots), then the
+/// operating system's own list of preferred languages, in its order: on the
+/// Mac the list in System Settings (`CFLocale`), on Windows the display
+/// languages (`GetUserPreferredUILanguages`), elsewhere `LC_ALL`,
+/// `LC_MESSAGES` and `LANG` (all through `sys-locale`). The first language
+/// with a catalog wins; none of them gives English.
 pub fn system_language() -> Language {
     if let Some(language) = std::env::var("WORLD_MACHINE_LANGUAGE")
         .ok()
@@ -967,30 +1003,51 @@ pub fn system_language() -> Language {
     {
         return language;
     }
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(output) = std::process::Command::new("/usr/bin/defaults")
-            .args(["read", "-g", "AppleLanguages"])
-            .output()
-        {
-            let listed = String::from_utf8_lossy(&output.stdout);
-            if let Some(first) = listed
-                .split(|c: char| c == '"' || c == ',' || c.is_whitespace() || c == '(' || c == ')')
-                .find(|part| !part.is_empty())
-            {
-                return Language::from_id(first).unwrap_or_default();
-            }
-        }
-    }
-    std::env::var("LANG")
-        .ok()
-        .and_then(|id| Language::from_id(&id))
+    language_from_preferred(sys_locale::get_locales())
+}
+
+/// The first of `preferred` (BCP 47 tags such as `zh-Hans-CN`, `ja-JP` or
+/// `en-GB`, or POSIX ones such as `ja_JP.UTF-8`) that the app has a catalog
+/// for, or English. Separate from reading them so it can be tested anywhere.
+pub fn language_from_preferred<I, S>(preferred: I) -> Language
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    preferred
+        .into_iter()
+        .find_map(|id| Language::from_id(id.as_ref()))
         .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_preferred_language_with_a_catalog_is_the_one_shown() {
+        assert_eq!(
+            language_from_preferred(["zh-Hans-CN", "en-US"]),
+            Language::SimplifiedChinese
+        );
+        // Windows and the Mac name the display language as BCP 47 tags.
+        assert_eq!(language_from_preferred(["ja-JP"]), Language::Japanese);
+        // A language without a catalog is passed over for the next one.
+        assert_eq!(
+            language_from_preferred(["fr-FR", "ja-JP", "en-GB"]),
+            Language::Japanese
+        );
+        // POSIX names, as LANG gives them.
+        assert_eq!(
+            language_from_preferred(["zh_CN.UTF-8"]),
+            Language::SimplifiedChinese
+        );
+        assert_eq!(language_from_preferred(["de-DE"]), Language::English);
+        assert_eq!(
+            language_from_preferred(std::iter::empty::<String>()),
+            Language::English
+        );
+    }
 
     const CATALOG: &str = "\
 Bench\t长椅
@@ -1046,6 +1103,34 @@ id_like_this\tSKIP
             Some("Leo送了我一份礼物")
         );
         assert_eq!(catalog.translate("I went sailing").as_deref(), None);
+    }
+
+    /// What someone did themselves, told in a letter ("The news here is
+    /// that I moved into a home of my own."), reads as the line told of
+    /// anyone ("{name} moved into a home of their own"); over three years
+    /// a Penguin Civilization letter kept it in English.
+    #[test]
+    fn a_home_of_my_own_is_a_home_of_their_own_told_of_oneself() {
+        for (catalog, shown) in [
+            (
+                "@I\t我\n{name} moved into a home of their own\t{name}搬进了自己的家\n\
+                 The news here is that {told}.\t这边的消息是：{told}。\n",
+                "这边的消息是：我搬进了自己的家。",
+            ),
+            (
+                "@I\t私\n{name} moved into a home of their own\t{name}は自分の家に移った\n\
+                 The news here is that {told}.\tこっちの知らせはね、{told}。\n",
+                "こっちの知らせはね、私は自分の家に移った。",
+            ),
+        ] {
+            let catalog = Catalog::parse(catalog);
+            assert_eq!(
+                catalog
+                    .translate("The news here is that I moved into a home of my own.")
+                    .as_deref(),
+                Some(shown)
+            );
+        }
     }
 
     /// A letter's slot told of oneself, with an ending of its own, is

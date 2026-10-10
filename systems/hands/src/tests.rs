@@ -698,3 +698,39 @@ fn plots_open_a_stretch_at_a_time_from_the_middle() {
         .collect::<Vec<_>>();
     assert_eq!(order, ["q2", "s1", "q3", "s0", "q1", "q0"]);
 }
+
+/// Something planted was recorded without its article ("You planted apple
+/// tree by …"); one thing reads with one, many without.
+#[test]
+fn one_thing_planted_is_told_with_its_article() {
+    let event = |said: &str| Event {
+        id: world_core::EventId::new(1),
+        kind: "planted_by_hand".into(),
+        world_time: 0,
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: [("told".to_string(), Value::Text(said.into()))].into(),
+        changes: Vec::new(),
+    };
+    for (recorded, told_as) in [
+        (
+            "You planted apple tree by the pub",
+            "You planted an apple tree by the pub",
+        ),
+        (
+            "You planted vegetable garden by the pub",
+            "You planted a vegetable garden by the pub",
+        ),
+        (
+            "You planted sunflowers by the pub",
+            "You planted sunflowers by the pub",
+        ),
+        (
+            "You planted a herb garden by the pub",
+            "You planted a herb garden by the pub",
+        ),
+    ] {
+        assert_eq!(told(&event(recorded)).as_deref(), Some(told_as));
+    }
+}

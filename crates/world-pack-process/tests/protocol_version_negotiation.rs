@@ -1,7 +1,6 @@
-#![cfg(unix)]
+mod support;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
@@ -38,37 +37,17 @@ fn response_line(version: u32, request_id: u64, response: PackResponse) -> Strin
     encode_response(&envelope).unwrap()
 }
 
-fn write_fixture_process(path: &Path, responses: &[String]) {
-    let mut script = String::from("#!/bin/sh\n");
-    for response in responses {
-        script.push_str("IFS= read -r _line || exit 1\n");
-        script.push_str("printf '%s\\n' ");
-        script.push_str(&shell_quote(response));
-        script.push('\n');
-    }
-    script.push_str("IFS= read -r _shutdown || true\n");
-    fs::write(path, script).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn write_v1_manifest(root: &Path) -> PathBuf {
-    let mut manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+fn v1_fixture(root: &Path, responses: &[String]) -> ProcessPack {
+    let mut manifest = PackManifest::process(descriptor(), "runtime", Vec::new());
     manifest.protocol_version = PACK_PROTOCOL_VERSION_V1;
-    let path = root.join("fixture.world-pack.json");
-    fs::write(&path, manifest.to_json_pretty().unwrap()).unwrap();
-    path
+    support::fixture_pack(root, manifest, &support::respond(responses))
 }
 
 #[test]
 fn host_runs_a_manifest_declared_v1_pack_using_v1_envelopes() {
     let root = temp_dir("v1-coexists");
-    let runtime = root.join("runtime.sh");
-    write_fixture_process(
-        &runtime,
+    let pack = v1_fixture(
+        &root,
         &[
             response_line(
                 PACK_PROTOCOL_VERSION_V1,
@@ -90,7 +69,6 @@ fn host_runs_a_manifest_declared_v1_pack_using_v1_envelopes() {
         ],
     );
 
-    let pack = ProcessPack::load(write_v1_manifest(&root)).unwrap();
     assert_eq!(pack.protocol_version, PACK_PROTOCOL_VERSION_V1);
     let source = ProcessPackSource::from_packs(vec![pack]);
     let mut registry = WorldRegistry::new();
@@ -103,9 +81,8 @@ fn host_runs_a_manifest_declared_v1_pack_using_v1_envelopes() {
 #[test]
 fn host_rejects_response_protocol_drift_from_manifest_version() {
     let root = temp_dir("version-drift");
-    let runtime = root.join("runtime.sh");
-    write_fixture_process(
-        &runtime,
+    let pack = v1_fixture(
+        &root,
         &[response_line(
             PACK_PROTOCOL_VERSION_V2,
             1,
@@ -115,7 +92,6 @@ fn host_rejects_response_protocol_drift_from_manifest_version() {
         )],
     );
 
-    let pack = ProcessPack::load(write_v1_manifest(&root)).unwrap();
     let source = ProcessPackSource::from_packs(vec![pack]);
     let mut registry = WorldRegistry::new();
     registry.install_source(&source).unwrap();

@@ -907,6 +907,14 @@ const MARS_NAMES: &[&str] = &[
     "Omar Farouk",
 ];
 
+/// The cast as the World stands, worked out once for each way it stands:
+/// a screen asks for it once for every person on it.
+pub(crate) struct KeptCast(pub(crate) Cast);
+
+pub(crate) fn cast_kept(world: &world_core::World) -> std::sync::Arc<KeptCast> {
+    world.as_it_stands(|| KeptCast(cast(world.state())))
+}
+
 pub(crate) fn cast(state: &WorldState) -> Cast {
     let seed = match state
         .entity(UNIVERSE)

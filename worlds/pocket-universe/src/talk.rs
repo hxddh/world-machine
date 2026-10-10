@@ -82,6 +82,19 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
     })
 }
 
+/// What the keeper says once the player has answered their first card,
+/// in each place's own words: no two places settle in on the same line.
+fn first_words(world: &World) -> &'static str {
+    match crate::places::Place::of(world.state()) {
+        Some(crate::places::Place::Ares) => {
+            "Right. Seal the ring, light the apron, and this rock's a home."
+        }
+        Some(crate::places::Place::Maple) => "Cool. Let's make this street feel like ours.",
+        Some(crate::places::Place::Ice) => "Good! Pack the snow tight. We'll build a home here.",
+        None => "Right. Let's make this place a home.",
+    }
+}
+
 /// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
     if let Some(said) = conversation::favour::said(world.state(), event) {
@@ -95,7 +108,7 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
     match event.kind.as_str() {
         "universe_seeded" => {
             world.state().entity(SLOT_B)?;
-            Some((SLOT_B, "Right. Let's make this place a home.".to_string()))
+            Some((SLOT_B, first_words(world).to_string()))
         }
         _ => None,
     }

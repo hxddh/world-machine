@@ -33,6 +33,15 @@ fn files_under(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 stack.push(path);
+            } else if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with('.') && name.ends_with(".lock"))
+            {
+                // A session's lock file is held, and Windows refuses to
+                // read a locked file; it is empty, so only that it is there
+                // is compared.
+                files.insert(path.clone(), Vec::new());
             } else {
                 files.insert(path.clone(), fs::read(&path).unwrap());
             }

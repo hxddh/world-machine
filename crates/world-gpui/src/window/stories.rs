@@ -162,6 +162,10 @@ pub(crate) fn legend_days(lines: &[LegendLine]) -> Vec<(u32, Vec<&LegendLine>)> 
 /// legend tells to `today`: in years once it has been a year (when the
 /// World says how long a year is); under a year in seasons, when the
 /// World has them, or months; in days only when the World counts no years.
+/// What a legend says of someone who was part of the place before its
+/// story began.
+pub(crate) const FROM_BEFORE: &str = "Here before you came";
+
 pub(crate) fn time_here(first: u32, today: u32, year: Option<u64>, seasons: bool) -> String {
     let days = u64::from(today.saturating_sub(first) + 1);
     let Some(year) = year.filter(|year| *year > 0) else {
@@ -383,7 +387,7 @@ pub(crate) fn moment_strip(
                         .line_height(relative(1.4))
                         .text_color(gpui::rgb(INK))
                         .line_clamp(3)
-                        .child(panel.caption.clone()),
+                        .child(crate::wrap::text(panel.caption.clone())),
                 ),
         );
     }
@@ -412,7 +416,7 @@ pub(crate) fn moment_strip(
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(gpui::rgb(INK))
                         .line_clamp(1)
-                        .child(moment.title.clone()),
+                        .child(crate::wrap::text(moment.title.clone())),
                 )
                 .child(
                     div()
@@ -517,7 +521,7 @@ pub(crate) fn legend_row(
                         .text_base()
                         .line_height(relative(1.45))
                         .text_color(gpui::rgb(INK))
-                        .child(line.text.clone()),
+                        .child(crate::wrap::text(line.text.clone())),
                 )
                 .children(line.because.as_ref().map(|because| {
                     div()
@@ -1054,7 +1058,11 @@ impl ProjectionView {
         let first = legend.lines.first().map_or(1, |line| line.day);
         let last = legend.lines.last().map_or(first, |line| line.day);
         let here = item.is_some();
-        let span = if here {
+        // Someone whose story starts with the World's own lived here before
+        // it: never "New to the town" (the mayor on day one).
+        let span = if here && first <= 1 {
+            ui::t(FROM_BEFORE).to_string()
+        } else if here {
             format!(
                 "{} · {}",
                 crate::i18n::here_since(unit, first),
@@ -1183,29 +1191,30 @@ impl ProjectionView {
         page_w: f32,
         cx: &mut Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut body = div().px_8().pt_2().pb_6().flex().flex_col().gap_6().child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(gpui::rgb(INK_SOFT))
-                        .child(ui::t(format!("The almanac · Year {}", almanac.year))),
-                )
-                .child(
-                    div()
-                        .id("almanac-title")
-                        .role(Role::Heading)
-                        .text_2xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_center()
-                        .text_color(gpui::rgb(INK))
-                        .child(almanac.title.clone()),
-                ),
-        );
+        let mut body =
+            div().px_8().pt_2().pb_6().flex().flex_col().gap_6().child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .child(div().text_xs().text_color(gpui::rgb(INK_SOFT)).child(
+                        crate::i18n::fill(
+                            "The almanac · Year {year}",
+                            &[("year", &almanac.year.to_string())],
+                        ),
+                    ))
+                    .child(
+                        div()
+                            .id("almanac-title")
+                            .role(Role::Heading)
+                            .text_2xl()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_center()
+                            .text_color(gpui::rgb(INK))
+                            .child(almanac.title.clone()),
+                    ),
+            );
         let sections = almanac_sections(almanac);
         if sections.is_empty() {
             body = body.child(
@@ -1287,7 +1296,7 @@ impl ProjectionView {
                                 .italic()
                                 .line_clamp(3)
                                 .text_color(gpui::rgb(INK))
-                                .child(panel.caption.clone()),
+                                .child(crate::wrap::text(panel.caption.clone())),
                         ),
                 );
             }
@@ -1559,6 +1568,7 @@ mod tests {
                 "A year in the town",
                 "A day in the town",
                 "New to the town",
+                FROM_BEFORE,
                 "A season in the town",
                 "Two seasons in the town",
                 "Three seasons in the town",

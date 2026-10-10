@@ -40,3 +40,20 @@ pub(crate) fn marked(state: &WorldState) -> StateChange {
         value: Value::Integer(today(state) as i64),
     }
 }
+
+/// What the one who comes over to a new player says first, in each
+/// place's own words: no two places open on the same line.
+pub(crate) fn hello(state: &WorldState) -> &'static str {
+    match crate::places::Place::of(state) {
+        Some(crate::places::Place::Ares) => {
+            "Airlock's sealed behind you. I'm {name}. Breathe easy, you're inside."
+        }
+        Some(crate::places::Place::Maple) => {
+            "Hey, new kid on the street! I'm {name}. Arcade's open till ten."
+        }
+        Some(crate::places::Place::Ice) => {
+            "Careful, the causeway's slippy! I'm {name}. Come and get warm."
+        }
+        None => "",
+    }
+}

@@ -459,7 +459,7 @@ this moment	此刻
 Branched before “{event_title}”	分支于“{event_title}”之前
 Couldn't branch here: {error}	无法在此处分支：{error}
 Couldn't continue: {error}	无法继续：{error}
-While you were away · {} of {count}	你离开的这段时间 · {} / {count}
+While you were away · {beat} of {count}	你离开的这段时间 · {beat} / {count}
 Skip to your turn	跳到你的回合
 Your turn →	轮到你了 →
 Next →	下一步 →
@@ -481,7 +481,7 @@ Nothing anyone would notice has come of it yet.	目前还没有引起任何人�
 thing followed from it	由此引出的一件事
 things followed from it	由此引出的几件事
 What it led to	它带来的结果
-{} steps in between	中间隔了 {} 步
+{steps} steps in between	中间隔了 {steps} 步
 How it unfolded	事情是如何展开的
 Also because of it	也是因为它
 {} more	还有 {} 个
@@ -537,7 +537,7 @@ Building	建造中
 Chapters · {}	章节 · {}
 Chapter {}	第 {} 章
 Keepsakes · {}	纪念品 · {}
-From {}	来自 {}
+From {name}	来自 {name}
 From a friend	来自一位朋友
 Book · {found} of {}	图书 · {found} / {}
 {shelf} · {found} of {}	{shelf} · {found} / {}
@@ -548,9 +548,9 @@ Pictures	图片
 {} moments · {}	{} 个时刻 · {}
 → repaired	→ 已修复
 {} {difference}	{} {difference}
-Nia Chen	Nia Chen
+Nia Chen	妮娅·陈
 NC	NC
-K-88 Radio	K-88电台
+K-88 Radio	电台电台
 KR	KR
 Payload	内容
 Summary	摘要
@@ -572,7 +572,7 @@ Relation identity endpoints	关系标识端点
 My nets are more hole than	我的网破洞比网眼还多
 Buy him nets	给他买些渔网
 Tell him to mend them	让他自己补网
-Noah hasn't 30 to spare	Noah 手头没有多余的 30
+Noah hasn't 30 to spare	诺亚 手头没有多余的 30
 Bench	长椅
 3 of 10	3 / 10
 Safe	安全
@@ -694,7 +694,7 @@ Save as a picture (S)	存为图片 (S)
 Close (Esc)	关闭 (Esc)
 Back	返回
 Lines of the story	故事的每一行
-The almanac · Year {}	年鉴 · 第 {} 年
+The almanac · Year {year}	年鉴 · 第 {year} 年
 The year's moment	这一年的时刻
 A quiet year.	平静的一年。
 Who came and went, and what was built	谁来了，谁走了，建起了什么
@@ -800,7 +800,7 @@ A note in the World's key for every card, letter and thing placed	每张卡片�
 Done, and thanked.	办好了，也道过谢了。
 This is where the demo ends	试玩到这里就结束了
 The harbour keeps everything you did here. Open it in the full World Machine and it carries on from this evening, with the same people and all they remember.	你在这里做过的一切，海港都会留着。用完整版 World Machine 打开它，就能从今晚接着过下去：还是这些人，他们也都记得。
-Your World is kept in My Worlds. Nothing is deleted, and nothing more is asked of you.	你的世界保存在「我的世界」里。什么都不会删除，也不会再向你要求什么。
+Your World is kept in My Worlds, and nothing is deleted. If you'd like to come back to it, a wishlist helps the full game most.	你的世界保存在「我的世界」里，什么都不会删除。如果你想回来接着玩，把完整版加入愿望单就是最大的支持。
 Stay a while	再待一会儿
 About the full app	了解完整版
 A second opinion	第二意见
@@ -814,18 +814,23 @@ Stays on this Mac · free	留在这台 Mac 上 · 免费
 No Worlds yet. Start one below; it keeps living while you are away.	还没有世界。从下面开始一个吧，即使你不在，它也会照常生活。
 For World makers	面向世界制作者
 The drawer shows each World's inner workings: its records and counters.	抽屉里会显示每个世界的内部运作：记录与计数。
-Find {}	去找{}
+Find {name}	去找{name}
+Asking {name}	正在问{name}
+Not now: {reason}	暂不：{reason}
 What you did here	你在这里做过的事
 Keep a postcard	留一张明信片
 Come back when you can. We'll keep the lamps lit.	有空就回来吧。我们会一直给你留着灯。
-The demo plays Tiny Society. This World opens in the full app.	试玩版只能玩 Tiny Society。这个世界请用完整版打开。
+The demo plays Tiny Society. This World opens in the full app.	试玩版只能玩 小小社会。这个世界请用完整版打开。
 World Machine Demo	World Machine 试玩版
 On the house, to welcome you.	送你的，欢迎你来。
 Postcard saved to Pictures	明信片已保存到“图片”
 Couldn't save the postcard	没能保存这张明信片
 Keeping the postcard…	正在留下明信片…
+Add to your wishlist	加入愿望单
+The town lived on without you. The demo skips the wait; the full game lives a day for every six hours you're away.	你不在的时候，小镇照常过日子。试玩版省去了等待；完整版里，你每离开六小时，小镇就过去一天。
 World voice is on: an AI model is writing this answer. The World decides what happens.	世界之声已开启：这句回答由 AI 模型撰写。发生什么由世界决定。
 Written by AI	AI 撰写
 Reported	已举报
 Report this line	举报这句话
 Report	举报
+Here before you came	你来之前就在这里

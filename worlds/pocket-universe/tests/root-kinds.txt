@@ -1,0 +1,26 @@
+# The kinds of event that begin a chain of their own: nothing recorded
+# caused them (AGENTS.md invariant 5). Every other event this Pack records
+# names its cause, and roots are under a tenth of all events
+# (tests/invariants.rs, world-pack-testkit/src/invariants.rs). A saved
+# World's events recorded before v0.29 keep their old form and are not
+# checked. Keep this list short: a new kind of event says what caused it.
+
+# The World beginning.
+universe_seeded      # the player chooses where the World begins
+
+# A day passing (the calendar System): everything the day's rules do
+# follows from it.
+day_began
+
+# The player's own deeds. What comes of each follows from it; an answer
+# follows the question it answers, so answers are not listed here.
+built_by_hand        # making something with their own hands
+decorated_by_hand
+planted_by_hand
+moved_by_hand
+undone_by_hand       # taking back what they just did
+designed             # painting a design on something
+named                # giving something a name
+spoken               # saying something in their own words
+suggestion_held      # suggesting something to do
+guest_visited        # a guest from another of the player's Worlds

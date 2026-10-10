@@ -1567,6 +1567,25 @@ fn place(name: &str) -> ProjectionSnapshot {
     ProjectionSnapshot::try_from(wire).expect("a snapshot")
 }
 
+/// The three places of the second Pack, as their fixtures are named.
+const PLACES: [&str; 3] = ["ares", "maple", "icebridge"];
+
+/// The same places as they start, as a player first sees them, by the
+/// ground each is painted as (in the order of [`PLACES`]).
+fn place_start(ground: &str) -> ProjectionSnapshot {
+    let json = match ground {
+        "dust" => include_str!("../tests/fixtures/start-dust.json"),
+        "street" => include_str!("../tests/fixtures/start-street.json"),
+        _ => include_str!("../tests/fixtures/start-ice.json"),
+    };
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(json).expect("a place's snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+/// The grounds of [`PLACES`], in order.
+const STARTS: [&str; 3] = ["dust", "street", "ice"];
+
 /// Each place of Pocket Universe in its own clothes, at noon: Ares's domes
 /// and hab modules on regolith under a butterscotch sky, Maple Street's
 /// storefronts, cars and wires, Icebridge's snow nests, ice shelf and sea
@@ -1575,13 +1594,32 @@ fn place(name: &str) -> ProjectionSnapshot {
 #[test]
 fn each_pocket_universe_place_matches_its_golden_picture() {
     let shots = std::env::var("WORLD_GPUI_PLACE_SHOTS").ok();
-    for name in ["ares", "maple", "icebridge"] {
+    for name in PLACES {
         let snapshot = place(name);
         assert!(snapshot.canvas.setting.is_some(), "{name} says what it is");
         let frame = diorama_frame(&snapshot, 480.0, 300.0, Daylight::Day, 12.5);
         let image = draw(480.0, 300.0, move || painted(frame.clone()));
         matches_golden(&format!("place-{name}"), &image);
         if let Some(dir) = &shots {
+            let ground = STARTS[PLACES.iter().position(|place| *place == name).unwrap_or(0)];
+            let start = place_start(ground);
+            // On whoever is out, as the window opens on them.
+            let keeper = |stage: &diorama::Stage| {
+                let x = stage
+                    .people
+                    .first()
+                    .map_or(stage.width / 2.0, |spot| spot.x);
+                Camera::around(stage, 1.0, x, stage.height / 2.0)
+            };
+            for (label, hour) in [
+                ("start-noon", 12.5),
+                ("start-dusk", 19.5),
+                ("start-night", 23.0),
+            ] {
+                let frame = frame_at(&start, (1100.0, 848.0), hour, Some(&keeper));
+                let image = draw(1100.0, 848.0, move || painted(frame.clone()));
+                image.save(format!("{dir}/{name}-{label}.png")).unwrap();
+            }
             for (label, daylight, hour) in [
                 ("noon", Daylight::Day, 12.5),
                 ("dusk", Daylight::Dusk, 19.5),
@@ -1942,4 +1980,750 @@ fn a_zoomed_out_town_settles_while_the_boil_runs() {
     crate::painter::paint_elsewhere(false);
     assert!(boils.len() > 1, "the boil ran");
     assert!(settled, "every layer of the zoomed-out town settles");
+}
+
+/// v0.29's year-three zoom-out: one press of the zoom control out of a
+/// still view folds the place into its postcard, three rows of pictures
+/// none of which was painted, and the camera settled on the rough painting
+/// for two seconds on a slow renderer while they were painted and handed
+/// to the display. From a still, sharp view the view a press away, where
+/// it folds, is painted ahead of time and handed over: the first frame
+/// there shows no rough painting and nothing unpainted. (Without it, the
+/// same first frame is the rough painting: the test tells.)
+#[test]
+fn a_zoom_out_into_the_postcard_lands_on_sharp_paint() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    // Each run at an hour of its own: nothing either paints is the other's.
+    for (ahead, hour) in [(false, 12.0_f32), (true, 14.0)] {
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+        let living = diorama::living(
+            &stage,
+            &snapshot,
+            0.0,
+            Daylight::Day,
+            &Default::default(),
+            None,
+        );
+        let whole = Camera::around(&stage, 1.0, stage.width / 2.0, height / 2.0);
+        let out = Camera::around(&stage, 0.8, whole.x, height / 2.0);
+        assert!(out.fold > 0.0, "a press out folds a three-year World");
+        let make = |camera: Camera, steps: Vec<Camera>| {
+            diorama::frame(
+                &snapshot,
+                &stage,
+                &living,
+                camera,
+                0.0,
+                Daylight::Day,
+                &Glows::new(),
+                1.0,
+            )
+            .at_hour(hour)
+            .zooming_to(steps)
+        };
+        let steps = if ahead { vec![out] } else { Vec::new() };
+        let shared = std::rc::Rc::new(std::cell::RefCell::new(make(whole, steps)));
+        let strip = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let mut cx = HeadlessAppContext::with_platform(
+            Arc::new(NoopTextSystem::new()),
+            Arc::new(()),
+            || Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>),
+        );
+        let view = shared.clone();
+        let window = cx
+            .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+                cx.new(|_| LiveScene(view.clone(), strip.clone()))
+            })
+            .expect("a window");
+        // The view at one window settles: sharp, and nothing left to paint
+        // or to hand over (ahead of time included).
+        let started = Instant::now();
+        let mut quiet = 0;
+        while quiet < 10 {
+            assert!(
+                started.elapsed() < Duration::from_secs(120),
+                "the view settles"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            let (sharp, pending) = cx
+                .update_window(window.into(), |_, window, _| {
+                    window.refresh();
+                    (
+                        diorama::rough_shown(window).0 <= 0.0 && diorama::unpainted(window) == 0,
+                        diorama::zoom_ahead_pending(window),
+                    )
+                })
+                .expect("a window");
+            cx.run_until_parked();
+            quiet = if sharp && !pending && crate::painter::idle() {
+                quiet + 1
+            } else {
+                0
+            };
+        }
+        // The camera glides out, a frame or two on the way, as the window
+        // draws it; then it lands: the first frame there.
+        for t in [0.3, 0.6] {
+            *shared.borrow_mut() = make(whole.toward(out, t), Vec::new()).heading_to(out, None);
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .expect("a window");
+            cx.run_until_parked();
+        }
+        *shared.borrow_mut() = make(out, Vec::new()).heading_to(out, None);
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("a window");
+        cx.run_until_parked();
+        let (rough, gaps) = cx
+            .update_window(window.into(), |_, window, _| {
+                (diorama::rough_shown(window), diorama::unpainted(window))
+            })
+            .expect("a window");
+        if ahead {
+            assert_eq!(gaps, 0, "nothing unpainted where the zoom lands");
+            assert!(
+                rough.0 <= 0.0 && rough.1 <= 0.0,
+                "the zoom lands on the rough painting: {rough:?} px²"
+            );
+        } else {
+            assert!(
+                rough.0 > 0.0,
+                "not painted ahead, the zoom lands on the rough painting"
+            );
+        }
+    }
+    crate::painter::paint_elsewhere(false);
+}
+
+/// v0.29's return film: each beat's camera pans along the place at the
+/// same zoom, and what it lands on is painted ahead, as one drawing of the
+/// still things' boil; by the time it lands the boil has moved on to
+/// another, none of whose pictures are painted there, and the first frame
+/// there was the rough painting, the beat's subject a blur for a frame
+/// (250 to 430 ms on a software renderer). Landing on a view painted ahead
+/// in one drawing with another on show, the first frame shows the drawing
+/// painted ahead: no rough painting, nothing unpainted.
+#[test]
+fn a_pan_lands_on_sharp_paint_whichever_drawing_of_the_boil_is_on_show() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    let hour = 15.0_f32;
+    let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+    let living = diorama::living(
+        &stage,
+        &snapshot,
+        0.0,
+        Daylight::Day,
+        &Default::default(),
+        None,
+    );
+    let zoom = 1.8;
+    let span = width / zoom;
+    let from = Camera::around(&stage, zoom, span, height / 2.0);
+    let to = Camera::around(&stage, zoom, span * 4.5, height / 2.0);
+    assert!(
+        to.x - from.x > span * 3.0,
+        "the pan goes well past the first view"
+    );
+    // Half a second into looking, the boil shows its second drawing
+    // (what is painted ahead is the first).
+    let seconds = 0.5;
+    let make = |camera: Camera| {
+        diorama::frame(
+            &snapshot,
+            &stage,
+            &living,
+            camera,
+            0.0,
+            Daylight::Day,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(hour)
+        .at_seconds(seconds)
+    };
+    assert_ne!(make(from).boil(), 0, "the boil is on another drawing");
+    let shared = std::rc::Rc::new(std::cell::RefCell::new(make(from)));
+    let strip = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let view = shared.clone();
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| LiveScene(view.clone(), strip.clone()))
+        })
+        .expect("a window");
+    let frame_until =
+        |cx: &mut HeadlessAppContext, what: &str, done: &dyn Fn(&gpui::Window) -> bool| {
+            let started = Instant::now();
+            let mut quiet = 0;
+            while quiet < 10 {
+                assert!(started.elapsed() < Duration::from_secs(120), "{what}");
+                std::thread::sleep(Duration::from_millis(10));
+                let yes = cx
+                    .update_window(window.into(), |_, window, _| {
+                        window.refresh();
+                        done(window)
+                    })
+                    .expect("a window");
+                cx.run_until_parked();
+                quiet = if yes && crate::painter::idle() {
+                    quiet + 1
+                } else {
+                    0
+                };
+            }
+        };
+    // The first view settles on the boil's second drawing, sharp.
+    frame_until(&mut cx, "the first view settles", &|window| {
+        diorama::settled(window)
+            && diorama::rough_shown(window).0 <= 0.0
+            && diorama::unpainted(window) == 0
+    });
+    // The camera is sent along the place, and held until all it will see
+    // there is painted and with the display (as `Glide` holds it).
+    *shared.borrow_mut() = make(from).heading_to(to, None);
+    frame_until(&mut cx, "where it goes is painted ahead", &|window| {
+        diorama::heading_ready(window, to) == Some(true)
+    });
+    // It glides, a frame on the way, and lands: the first frame there.
+    *shared.borrow_mut() = make(from.toward(to, 0.5)).heading_to(to, None);
+    cx.update_window(window.into(), |_, window, _| window.refresh())
+        .expect("a window");
+    cx.run_until_parked();
+    *shared.borrow_mut() = make(to).heading_to(to, None);
+    cx.update_window(window.into(), |_, window, _| window.refresh())
+        .expect("a window");
+    cx.run_until_parked();
+    let (rough, gaps) = cx
+        .update_window(window.into(), |_, window, _| {
+            (diorama::rough_shown(window), diorama::unpainted(window))
+        })
+        .expect("a window");
+    crate::painter::paint_elsewhere(false);
+    assert_eq!(gaps, 0, "nothing unpainted where the pan lands");
+    assert!(
+        rough.0 <= 0.0 && rough.1 <= 0.0,
+        "the pan lands on the rough painting: {rough:?} px²"
+    );
+}
+
+/// The first Pack's lived town, as it was sent over the wire: on day 1,
+/// 163, 358 or 1082 (the fixtures under `tests/fixtures/`).
+fn town_on(day: u32) -> ProjectionSnapshot {
+    let day = if [1, 163, 358].contains(&day) {
+        day
+    } else {
+        1082
+    };
+    let path = format!(
+        "{}/tests/fixtures/{TOWN}-day-{day}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let json = std::fs::read_to_string(&path).expect("a lived town's fixture");
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(&json).expect("a town's snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+/// What the first Pack's fixtures are named for.
+const TOWN: &str = "harbour";
+
+/// What the tower on the point is drawn as.
+const BEACON: &str = "lighthouse";
+
+/// The frame of `snapshot` seen from `camera` (or the whole first window),
+/// at `hour` with its part of the day's light.
+fn frame_at(
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+    hour: f32,
+    camera: Option<&dyn Fn(&diorama::Stage) -> Camera>,
+) -> diorama::Frame {
+    let daylight = crate::scene::daylight_at(hour as u32);
+    let stage = diorama::stage_at(snapshot, width, height, diorama::Clock::at(hour as u8));
+    let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
+    let camera = camera.map_or_else(|| Camera::whole(&stage), |at| at(&stage));
+    diorama::frame(
+        snapshot,
+        &stage,
+        &living,
+        camera,
+        0.0,
+        daylight,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(hour)
+}
+
+/// Where the tower on the point stands along a town's stage, in stage
+/// pixels.
+fn beacon_x(snapshot: &ProjectionSnapshot, size: (f32, f32)) -> f32 {
+    let frame = frame_at(snapshot, size, 13.0, None);
+    frame
+        .buildings_along()
+        .into_iter()
+        .find(|(index, ..)| {
+            snapshot.canvas.items[*index]
+                .art
+                .as_deref()
+                .is_some_and(|art| art.contains(BEACON))
+        })
+        .map_or(size.0 * 0.86, |(_, x, _)| x)
+}
+
+/// Where a picture darkens another of the same size, 0 to 255 of luma.
+fn darkening(with: &RgbaImage, without: &RgbaImage) -> Vec<f32> {
+    let luma =
+        |p: &image::Rgba<u8>| 0.3 * p.0[0] as f32 + 0.59 * p.0[1] as f32 + 0.11 * p.0[2] as f32;
+    without
+        .pixels()
+        .zip(with.pixels())
+        .map(|(a, b)| (luma(a) - luma(b)).max(0.0))
+        .collect()
+}
+
+/// The longest straight hard edge in a darkening map: a run of pixels
+/// along a row (or down a column) where the dark steps by more than
+/// `step` from one pixel to the next, in square pixels of length.
+fn longest_hard_edge(dark: &[f32], width: usize, height: usize, step: f32) -> usize {
+    let at = |x: usize, y: usize| dark[y * width + x];
+    let mut longest = 0;
+    // Edges along rows: a step down a column, the same for a run of x.
+    for y in 0..height.saturating_sub(1) {
+        let mut run = 0;
+        for x in 0..width {
+            if (at(x, y + 1) - at(x, y)).abs() > step {
+                run += 1;
+                longest = longest.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    for x in 0..width.saturating_sub(1) {
+        let mut run = 0;
+        for y in 0..height {
+            if (at(x + 1, y) - at(x, y)).abs() > step {
+                run += 1;
+                longest = longest.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    longest
+}
+
+/// Each pixel's luma, 0 to 255.
+fn luma_of(image: &RgbaImage) -> Vec<f32> {
+    image
+        .pixels()
+        .map(|p| 0.3 * p.0[0] as f32 + 0.59 * p.0[1] as f32 + 0.11 * p.0[2] as f32)
+        .collect()
+}
+
+/// The longest straight hard edge in `map` (as [`longest_hard_edge`]) that
+/// lies on open ground: nowhere within 3 pixels of where `bare` (the
+/// picture with nothing standing on the ground) and `built` (with all of
+/// it) differ, nor of a crisp edge of `built`'s own (a lamp post), so what
+/// stands there, its own cut-paper edges and whatever it hides, is left
+/// out. Its length, and where it ends.
+fn longest_edge_on_open_ground(
+    map: &[f32],
+    (bare, built): (&[f32], &[f32]),
+    (width, height): (usize, usize),
+    step: f32,
+) -> (usize, (usize, usize)) {
+    let at = |v: &[f32], x: usize, y: usize| v[y * width + x];
+    let mut busy = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let here = at(built, x, y);
+            let crisp = (x + 1 < width && (at(built, x + 1, y) - here).abs() >= 5.0)
+                || (y + 1 < height && (at(built, x, y + 1) - here).abs() >= 5.0);
+            if crisp || (at(bare, x, y) - here).abs() >= 3.0 {
+                for yy in y.saturating_sub(3)..(y + 4).min(height) {
+                    for xx in x.saturating_sub(3)..(x + 4).min(width) {
+                        busy[yy * width + xx] = true;
+                    }
+                }
+            }
+        }
+    }
+    let open = |x: usize, y: usize| !busy[y * width + x];
+    let mut longest = (0, (0, 0));
+    for y in 0..height.saturating_sub(1) {
+        let mut run = 0;
+        for x in 0..width {
+            let hard =
+                (at(map, x, y + 1) - at(map, x, y)).abs() > step && open(x, y) && open(x, y + 1);
+            run = if hard { run + 1 } else { 0 };
+            if run > longest.0 {
+                longest = (run, (x, y));
+            }
+        }
+    }
+    for x in 0..width.saturating_sub(1) {
+        let mut run = 0;
+        for y in 0..height {
+            let hard =
+                (at(map, x + 1, y) - at(map, x, y)).abs() > step && open(x, y) && open(x + 1, y);
+            run = if hard { run + 1 } else { 0 };
+            if run > longest.0 {
+                longest = (run, (x, y));
+            }
+        }
+    }
+    longest
+}
+
+/// The v0.29 bar for shadows: no straight dark edge longer than 8 px under
+/// a structure. Each frame is drawn with the buildings' shadows and
+/// without, so what they lay is known exactly; an edge detector then looks
+/// for a hard step in it (a soft ellipse falls off over many pixels; v0.28's
+/// shadow cut square where the building's picture ended stepped at once).
+/// Over the lived town on day 1 and in year three, at noon, in the low sun
+/// of late afternoon, and at dusk, and zoomed on the tower on the point.
+#[test]
+fn no_shadow_has_a_straight_hard_edge() {
+    // The detector itself: a hard-edged box is found, a soft ellipse not.
+    let (w, h) = (120, 80);
+    let boxed = (0..w * h)
+        .map(|at| {
+            let (x, y) = (at % w, at / w);
+            if (30..90).contains(&x) && (20..50).contains(&y) {
+                60.0
+            } else {
+                0.0
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        longest_hard_edge(&boxed, w, h, 20.0) > 8,
+        "a box's edge is found"
+    );
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    let at = beacon_x(&town_on(1082), (width, height));
+    let point = move |stage: &diorama::Stage| Camera::around(stage, 1.6, at, height * 0.62);
+    for (day, camera) in [
+        (1, None),
+        (1082, None),
+        (1082, Some(&point as &dyn Fn(&diorama::Stage) -> Camera)),
+    ] {
+        let snapshot = town_on(day);
+        for hour in [13.0, 16.5, 19.0] {
+            let frame = frame_at(&snapshot, (width, height), hour, camera);
+            let with = {
+                let frame = frame.clone();
+                draw(width, height, move || painted(frame.clone()))
+            };
+            diorama::leave_out_shadows(true);
+            let without = {
+                let frame = frame.clone();
+                draw(width, height, move || painted(frame.clone()))
+            };
+            diorama::leave_out_shadows(false);
+            let bare = {
+                let frame = frame.bare();
+                draw(width, height, move || painted(frame.clone()))
+            };
+            let dark = darkening(&with, &without);
+            let most = dark.iter().copied().fold(0.0_f32, f32::max);
+            // In the picture's own pixels (it is drawn at the display's
+            // scale; v0.29 round 2: it was read as if one window pixel
+            // were one of its own, so it looked at a scramble of the top
+            // quarter), the bar in the window's; and only on open ground,
+            // where a shadow meets the building that casts it, the
+            // building's own cut edge is meant to be crisp.
+            let (w, h) = with.dimensions();
+            let scale = w as f32 / width;
+            let (run, end) = longest_edge_on_open_ground(
+                &dark,
+                (&luma_of(&bare), &luma_of(&without)),
+                (w as usize, h as usize),
+                20.0,
+            );
+            let edge = run as f32 / scale;
+            eprintln!("day {day} at {hour}: longest hard shadow edge {edge} px, ending at {end:?}");
+            assert!(
+                most > 5.0,
+                "day {day} at {hour}: the shadows lay something ({most})"
+            );
+            assert!(
+                edge <= 8.0,
+                "day {day} at {hour}: a straight hard shadow edge {edge} px long"
+            );
+        }
+    }
+}
+
+/// The same bar for the light lit windows and a glowing subject throw,
+/// over each place of the second Pack as it starts and lived in, at dusk
+/// and at night, whole and zoomed: no straight hard edge in what the glow
+/// lays (v0.29 round 2: a lit box behind the rust planet's ring of habitat
+/// modules, its pool of light cut square where the ring's picture ended). Each frame is drawn
+/// with the glow and without, so what it lays is known exactly.
+#[test]
+fn no_night_glow_has_a_straight_hard_edge() {
+    const GLOW_STEP: f32 = 4.0;
+    let (width, height) = (1100.0_f32, 700.0_f32);
+    let focal =
+        |stage: &diorama::Stage| Camera::around(stage, 1.3, stage.width * 0.3, 700.0 * 0.55);
+    for (name, snapshot) in PLACES
+        .into_iter()
+        .zip(STARTS)
+        .flat_map(|(name, ground)| [(name, place_start(ground)), (name, place(name))])
+    {
+        for camera in [None, Some(&focal as &dyn Fn(&diorama::Stage) -> Camera)] {
+            for hour in [19.5, 23.0] {
+                // Every place lit as the moment's subject is (the ring
+                // glowed as the first card's subject).
+                let glows = snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .filter(|item| item.kind == world_projection::CanvasItemKind::Place)
+                    .map(|item| (item.id, gpui::hsla(0.1, 0.8, 0.6, 1.0)))
+                    .collect::<Glows>();
+                let frame = {
+                    let daylight = crate::scene::daylight_at(hour as u32);
+                    let stage =
+                        diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+                    let living = diorama::living(
+                        &stage,
+                        &snapshot,
+                        0.0,
+                        daylight,
+                        &Default::default(),
+                        None,
+                    );
+                    let camera = camera.map_or_else(|| Camera::whole(&stage), |at| at(&stage));
+                    diorama::frame(
+                        &snapshot, &stage, &living, camera, 0.0, daylight, &glows, 1.0,
+                    )
+                    .at_hour(hour)
+                };
+                let with = {
+                    let frame = frame.clone();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                diorama::leave_out_glow(true);
+                let without = {
+                    let frame = frame.clone();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                diorama::leave_out_glow(false);
+                let bare = {
+                    let frame = frame.bare();
+                    draw(width, height, move || painted(frame.clone()))
+                };
+                if let Ok(dir) = std::env::var("WORLD_GPUI_GLOW_SHOTS") {
+                    let at = format!(
+                        "{dir}/{name}-{}-{hour}-{}",
+                        snapshot.canvas.items.len(),
+                        camera.is_some()
+                    );
+                    with.save(format!("{at}.png")).unwrap();
+                    without.save(format!("{at}-without.png")).unwrap();
+                }
+                // What the glow lays, lighter or darker (a pale glass's
+                // glow over rust ground greys it).
+                let light = darkening(&without, &with)
+                    .into_iter()
+                    .zip(darkening(&with, &without))
+                    .map(|(lighter, darker)| lighter + darker)
+                    .collect::<Vec<_>>();
+                let most = light.iter().copied().fold(0.0_f32, f32::max);
+                // In the picture's own pixels (drawn at the display's
+                // scale), the bar in the window's.
+                let (w, h) = with.dimensions();
+                let scale = w as f32 / width;
+                // Only on open ground: a building's own cut-paper edge, lit,
+                // is meant to be crisp.
+                let (bare, built) = (luma_of(&bare), luma_of(&without));
+                let (run, end) = longest_edge_on_open_ground(
+                    &light,
+                    (&bare, &built),
+                    (w as usize, h as usize),
+                    GLOW_STEP,
+                );
+                let edge = run as f32 / scale;
+                eprintln!(
+                    "{name} at {hour}: the glow lays {most:.0}, its longest hard edge {edge} px, \
+                     ending at {end:?}"
+                );
+                assert!(
+                    edge <= 8.0,
+                    "{name} at {hour}: a straight hard edge {edge} px long in the windows' glow"
+                );
+            }
+        }
+    }
+}
+
+/// The hue (degrees) and saturation (0 to 1) of a colour.
+fn hue_of([r, g, b]: [f32; 3]) -> (f32, f32) {
+    let (most, least) = (r.max(g).max(b), r.min(g).min(b));
+    let chroma = most - least;
+    if chroma <= 1e-6 {
+        return (0.0, 0.0);
+    }
+    let hue = if most == r {
+        60.0 * ((g - b) / chroma).rem_euclid(6.0)
+    } else if most == g {
+        60.0 * ((b - r) / chroma + 2.0)
+    } else {
+        60.0 * ((r - g) / chroma + 4.0)
+    };
+    (hue, chroma / most)
+}
+
+/// The mean colour of rows `from` to `to` (shares of the height) of a
+/// picture, 0 to 1 each channel.
+fn mean_colour(image: &RgbaImage, from: f32, to: f32) -> [f32; 3] {
+    let (w, h) = image.dimensions();
+    let (y0, y1) = ((h as f32 * from) as u32, (h as f32 * to) as u32);
+    let mut sum = [0.0_f64; 3];
+    let mut count = 0.0_f64;
+    for y in y0..y1 {
+        for x in 0..w {
+            let p = image.get_pixel(x, y).0;
+            for c in 0..3 {
+                sum[c] += p[c] as f64 / 255.0;
+            }
+            count += 1.0;
+        }
+    }
+    sum.map(|s| (s / count.max(1.0)) as f32)
+}
+
+/// The v0.29 bar for dusk: gold, not grey-olive fog. Over the town on
+/// day 1, in its first year and in year three, clear and under cloud, the
+/// light low over the place (the sky's lower half and the land, down to the
+/// water) is within a gold hue band and warm enough to read as gold; and
+/// every lamp on the spine is lit (held in `diorama::tests`).
+#[test]
+fn dusk_is_gold() {
+    let (width, height) = (550.0_f32, 424.0_f32);
+    for day in [1, 163, 1082] {
+        for weather in [
+            world_projection::Weather::Clear,
+            world_projection::Weather::Cloudy,
+        ] {
+            for hour in [18.5, 19.0, 19.5] {
+                let mut snapshot = town_on(day);
+                snapshot.weather = weather;
+                let frame = frame_at(&snapshot, (width, height), hour, None);
+                let image = draw(width, height, move || painted(frame.clone()));
+                let (hue, saturation) = hue_of(mean_colour(&image, 0.2, 0.72));
+                let (sky_hue, sky_saturation) = hue_of(mean_colour(&image, 0.0, 0.3));
+                eprintln!(
+                    "day {day} {weather:?} at {hour}: hue {hue:.0} saturation {saturation:.2}; \
+                     sky {sky_hue:.0} {sky_saturation:.2}"
+                );
+                assert!(
+                    (DUSK_HUE.0..=DUSK_HUE.1).contains(&hue) && saturation >= DUSK_SATURATION,
+                    "day {day}, {weather:?}, at {hour}: dusk is hue {hue:.0} saturation \
+                     {saturation:.2}, not gold"
+                );
+                assert!(
+                    (12.0..=DUSK_HUE.1).contains(&sky_hue) && sky_saturation >= 0.12,
+                    "day {day}, {weather:?}, at {hour}: the dusk sky is hue {sky_hue:.0} \
+                     saturation {sky_saturation:.2}, grey or violet, not gold"
+                );
+            }
+        }
+    }
+}
+
+/// The gold band dusk is held to: from orange to gold, in degrees, and how
+/// saturated at least. Calibrated on the v0.27 key art's dusk (hue 41,
+/// saturation 0.40 over the same rows) against v0.28's grey-olive dusk in
+/// the real window (hue 42, saturation 0.26-0.28): the hue alone cannot
+/// tell them apart, the saturation does.
+const DUSK_HUE: (f32, f32) = (22.0, 48.0);
+const DUSK_SATURATION: f32 = 0.36;
+
+/// The v0.29 bars for people, on the lived town's first screen, by day
+/// and at dusk, on day 1, in its first year and in year three: never more
+/// than four standing in one row, and no two overlapping by more than a
+/// fifth; and at dusk the spine is not empty (two groups out by the water).
+#[test]
+fn people_stand_in_groups_never_rows_or_blobs() {
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    let mut failures = Vec::new();
+    for day in [1, 163, 358, 1082] {
+        let snapshot = town_on(day);
+        for hour in [10.0, 13.0, 16.0, 19.0] {
+            let frame = frame_at(&snapshot, (width, height), hour, None);
+            let people = frame
+                .people
+                .iter()
+                .filter(|person| person.x > 0.0 && person.x < width)
+                .map(|person| (person.x, person.y, person.height))
+                .collect::<Vec<_>>();
+            let (row, overlap) = diorama::rows_and_overlap(&people);
+            if row > 4 {
+                failures.push(format!(
+                    "day {day} at {hour}: {row} people stand in one row"
+                ));
+            }
+            if overlap > 0.2 {
+                failures.push(format!(
+                    "day {day} at {hour}: two people overlap by {:.0}%",
+                    overlap * 100.0
+                ));
+            }
+            let least = if day == 1 { 3 } else { 4 };
+            if hour == 19.0 && people.len() < least {
+                failures.push(format!(
+                    "day {day} at dusk: only {} people out on the first screen",
+                    people.len()
+                ));
+            }
+            if !failures.is_empty() && std::env::var_os("WORLD_GPUI_PEOPLE").is_some() {
+                eprintln!("day {day} at {hour}: {people:?}");
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// For looking, not a bar: with `WORLD_GPUI_LOOK_DIR=<dir>`, the town
+/// on day 1, in its first year and in year three at noon, in the low sun
+/// and at dusk, whole and zoomed on the tower on the point, drawn large.
+#[test]
+#[ignore = "pictures to look at: WORLD_GPUI_LOOK_DIR=<dir> cargo test -p world-gpui -- --ignored look_at"]
+fn look_at_the_town() {
+    let Some(dir) = std::env::var_os("WORLD_GPUI_LOOK_DIR") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    for day in [1, 163, 1082] {
+        let snapshot = town_on(day);
+        let at = beacon_x(&snapshot, (width, height));
+        let point = move |stage: &diorama::Stage| Camera::around(stage, 1.6, at, height * 0.62);
+        for hour in [13.0, 16.5, 19.0, 19.5] {
+            for (name, camera) in [
+                ("whole", None),
+                ("point", Some(&point as &dyn Fn(&diorama::Stage) -> Camera)),
+            ] {
+                let frame = frame_at(&snapshot, (width, height), hour, camera);
+                let image = draw(width, height, move || painted(frame.clone()));
+                image
+                    .save(dir.join(format!("town-{day}-{hour}-{name}.png")))
+                    .unwrap();
+            }
+        }
+    }
 }

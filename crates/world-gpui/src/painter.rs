@@ -93,23 +93,6 @@ impl Canvas {
             None,
         );
     }
-
-    /// Lays `other` (in device pixels) over this canvas through the map
-    /// `transform`, from its pixels to this canvas's pixels.
-    pub fn draw_mapped(&mut self, other: &sk::Pixmap, transform: sk::Transform, opacity: f32) {
-        self.pixmap.draw_pixmap(
-            0,
-            0,
-            other.as_ref(),
-            &sk::PixmapPaint {
-                opacity,
-                quality: sk::FilterQuality::Bilinear,
-                ..sk::PixmapPaint::default()
-            },
-            transform,
-            None,
-        );
-    }
 }
 
 pub fn colour(colour: Hsla) -> sk::Color {
@@ -421,6 +404,85 @@ pub fn fill_shaded(
         .fill_path(&path, &paint, sk::FillRule::Winding, transform, None);
 }
 
+/// A soft, blurred ellipse of `colour` centred on `centre`, `radii` across
+/// and `blur` soft at its edge, as [`Brush::soft`] lays it; but where the
+/// land ends (`shore`, the stage rows from where it begins to fade to the
+/// water's edge) it fades out, so a shadow never lies on the water and
+/// never stops on a line.
+pub fn soft_on_land(
+    canvas: &mut Canvas,
+    (cx, cy): (f32, f32),
+    (rx, ry): (f32, f32),
+    blur: f32,
+    colour_: Hsla,
+    shore: Option<(f32, f32)>,
+) {
+    if rx <= 0.0 || ry <= 0.0 || colour_.a <= 0.0 {
+        return;
+    }
+    let reach = blur.max(0.5) / 2.0;
+    let (ox, oy) = (rx + reach, ry + reach);
+    let inner = ((rx.min(ry) - reach) / (rx.min(ry) + reach)).clamp(0.0, 0.98);
+    let (x0, y0) = canvas.device(cx - ox, cy - oy);
+    let (x1, y1) = canvas.device(cx + ox, cy + oy);
+    let (width, height) = (canvas.pixmap.width() as i32, canvas.pixmap.height() as i32);
+    let (left, top) = ((x0.floor() as i32).max(0), (y0.floor() as i32).max(0));
+    let (right, bottom) = (
+        (x1.ceil() as i32).min(width),
+        (y1.ceil() as i32).min(height),
+    );
+    if right <= left || bottom <= top {
+        return;
+    }
+    let Rgba { r, g, b, a } = colour_.into();
+    let (r, g, b, a) = (
+        r.clamp(0.0, 1.0),
+        g.clamp(0.0, 1.0),
+        b.clamp(0.0, 1.0),
+        a.clamp(0.0, 1.0),
+    );
+    let scale = canvas.scale;
+    let origin = canvas.origin;
+    let shore = shore.map(|(from, to)| {
+        let from = (from - origin.1) * scale;
+        let to = (to - origin.1) * scale;
+        (from, (to - from).max(1.0))
+    });
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let stride = width as usize;
+    let data = canvas.pixmap.data_mut();
+    for y in top..bottom {
+        let py = y as f32 + 0.5;
+        let land = shore.map_or(1.0, |(from, span)| 1.0 - smooth((py - from) / span));
+        if land <= 0.0 {
+            continue;
+        }
+        let dy = ((py / scale + origin.1) - cy) / oy;
+        for x in left..right {
+            let dx = (((x as f32 + 0.5) / scale + origin.0) - cx) / ox;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d >= 1.0 {
+                continue;
+            }
+            let k = a * land * (1.0 - smooth((d - inner) / (1.0 - inner).max(1e-3)));
+            if k <= 0.002 {
+                continue;
+            }
+            let at = (y as usize * stride + x as usize) * 4;
+            let keep = 1.0 - k;
+            for (channel, value) in [r, g, b].into_iter().enumerate() {
+                let old = data[at + channel] as f32;
+                data[at + channel] = (value * k * 255.0 + old * keep).round().min(255.0) as u8;
+            }
+            let old = data[at + 3] as f32;
+            data[at + 3] = (k * 255.0 + old * keep).round().min(255.0) as u8;
+        }
+    }
+}
+
 /// A soft light added over what is there (screen blending): a lamp's
 /// halo, the low sun's glow on the sky.
 pub fn glow(canvas: &mut Canvas, cx: f32, cy: f32, rx: f32, ry: f32, colour_: Hsla) {
@@ -565,6 +627,44 @@ pub fn grain_lit(
                 let m = (k * lit) >> 10;
                 *channel = ((*channel as i32 * m) >> 10).min(alpha) as u8;
             }
+        }
+    }
+}
+
+/// A glaze of `colour` (0 to 1 each channel) laid over what is painted on
+/// `pixmap`, as a painter glazes gold over a dusk: each colour taken
+/// `strength` of the way to its overlay with the glaze, so a green field
+/// turns ochre-gold rather than the olive a plain multiply makes of it
+/// (the v0.29 art director's dusk). Leaves what is transparent alone.
+pub fn glaze(pixmap: &mut sk::Pixmap, colour: [f32; 3], strength: f32) {
+    if strength <= 0.0 {
+        return;
+    }
+    let s = (strength.clamp(0.0, 1.0) * 1024.0) as i32;
+    // The overlay of every straight channel value with the glaze, ahead.
+    let table: [[u8; 256]; 3] = std::array::from_fn(|channel| {
+        let g = colour[channel].clamp(0.0, 1.0);
+        std::array::from_fn(|value| {
+            let c = value as f32 / 255.0;
+            let o = if c < 0.5 {
+                2.0 * c * g
+            } else {
+                1.0 - 2.0 * (1.0 - c) * (1.0 - g)
+            };
+            (o * 255.0).round().clamp(0.0, 255.0) as u8
+        })
+    });
+    for pixel in pixmap.data_mut().as_chunks_mut::<4>().0.iter_mut() {
+        let alpha = pixel[3] as i32;
+        if alpha == 0 {
+            continue;
+        }
+        for (channel, value) in pixel[..3].iter_mut().enumerate() {
+            // Premultiplied: to straight, glazed, and back.
+            let straight = ((*value as i32 * 255 + alpha / 2) / alpha).min(255);
+            let over = table[channel][straight as usize] as i32;
+            let mixed = straight + (((over - straight) * s) >> 10);
+            *value = ((mixed * alpha + 127) / 255).clamp(0, alpha) as u8;
         }
     }
 }
@@ -824,6 +924,12 @@ struct Cache {
     /// Whether the window being drawn is still opening, under its loading
     /// wash.
     opening: bool,
+    /// When the last frame began, and this frame's whole share of new
+    /// pictures (bytes).
+    began: Option<Instant>,
+    whole: usize,
+    /// How far apart frames have come lately, smoothed.
+    apart: Duration,
 }
 
 thread_local! {
@@ -1014,6 +1120,27 @@ pub fn sweep(window: &mut gpui::Window) {
     for image in dropped {
         let _ = window.drop_image(image);
     }
+}
+
+/// Lets go of what is kept for windows that have closed: when their
+/// frames began, and their pictures (the display that held them is gone
+/// with the window).
+pub fn forget_windows(gone: &std::collections::HashSet<u64>) {
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let cache = &mut *cache;
+        cache.frames.retain(|window, _| !gone.contains(window));
+        let dropped = cache
+            .entries
+            .iter()
+            .filter(|(_, entry)| gone.contains(&entry.window))
+            .map(|(key, _)| *key)
+            .collect::<Vec<_>>();
+        for key in dropped {
+            cache.entries.remove(&key);
+            cache.handed.remove(&key);
+        }
+    });
 }
 
 /// How long the painter has spent painting, and how many images, since
@@ -1366,33 +1493,6 @@ fn coarse(width: usize, height: usize, value: impl Fn(usize) -> f32) -> (Vec<f32
     (mask, cw, ch)
 }
 
-/// A painted shape as a soft dark at a quarter of its resolution: what it
-/// casts on the ground.
-pub fn silhouette(pixmap: &sk::Pixmap, blur: usize) -> Option<sk::Pixmap> {
-    let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
-    let data = pixmap.data();
-    let (mut mask, cw, ch) = coarse(width, height, |at| data[at * 4 + 3] as f32 / 255.0);
-    blur_mask(&mut mask, cw, ch, (blur / COARSE).max(1));
-    let mut out = sk::Pixmap::new(cw as u32, ch as u32)?;
-    for (pixel, value) in out.data_mut().as_chunks_mut::<4>().0.iter_mut().zip(&mask) {
-        pixel[3] = (value.clamp(0.0, 1.0) * 255.0) as u8;
-    }
-    Some(out)
-}
-
-/// A copy of a silhouette (alpha only) inked in `rgb`, 0 to 1: a shadow
-/// in the hour's own cool colour rather than black.
-pub fn inked(silhouette: &sk::Pixmap, rgb: [f32; 3]) -> sk::Pixmap {
-    let mut out = silhouette.clone();
-    for pixel in out.data_mut().as_chunks_mut::<4>().0.iter_mut() {
-        let a = pixel[3] as f32;
-        for (channel, value) in rgb.iter().enumerate() {
-            pixel[channel] = (value.clamp(0.0, 1.0) * a).round() as u8;
-        }
-    }
-    out
-}
-
 /// The windows of a mask as runs of columns: where each lit window is,
 /// from its left column to its right and its top row to its bottom.
 fn windows_of(mask: &[f32], width: usize) -> Vec<(usize, usize, usize, usize)> {
@@ -1481,9 +1581,17 @@ pub fn inside(pixmap: &mut sk::Pixmap, glass: &[f32], count: usize) {
 }
 
 /// The soft light a lit window throws around itself: the glass mask
-/// blurred, laid over in `rgb`.
+/// blurred, laid over in `rgb`. It fades out toward the picture's edges,
+/// so a glow that reaches them is never cut off square there (v0.29 round
+/// 2: a lit band under the rust planet's ring, ending on a straight line
+/// where the ring's picture ended).
 pub fn bloom(pixmap: &mut sk::Pixmap, glass: &[f32], radius: usize, rgb: [f32; 3], strength: f32) {
     let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
+    let fade = (radius * 4).max(height / 6).max(4) as f32;
+    let edge = |at: usize, extent: usize| {
+        let t = ((at.min(extent - 1 - at) as f32 + 0.5) / fade).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
     let (mut mask, cw, ch) = coarse(width, height, |at| glass[at]);
     blur_mask(&mut mask, cw, ch, (radius * 2 / COARSE).max(1));
     let peak = mask.iter().copied().fold(0.0_f32, f32::max).max(0.05);
@@ -1512,8 +1620,9 @@ pub fn bloom(pixmap: &mut sk::Pixmap, glass: &[f32], radius: usize, rgb: [f32; 3
             let bottom = lower[x0] + (lower[x1] - lower[x0]) * tx;
             *value = top + (bottom - top) * ty;
         }
+        let fade_y = edge(y, height);
         for (x, value) in row.iter().enumerate() {
-            let g = (value / peak).min(1.0) * strength;
+            let g = (value / peak).min(1.0) * strength * fade_y * edge(x, width);
             if g <= 0.004 {
                 continue;
             }
@@ -1659,8 +1768,9 @@ pub fn fade_down(pixmap: &mut sk::Pixmap, from: f32, to: f32) {
 struct Pool {
     /// Work waiting for a painter: what the camera needs to show anything
     /// at all first (the rough painting of the place, the sky and the
-    /// hills), then the rest, each in the order asked.
-    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>)>,
+    /// hills), then the rest, then what is painted ahead of time (a view
+    /// the camera may go to next), each in the order asked.
+    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>, VecDeque<Job>)>,
     ready: std::sync::Condvar,
     /// What has been asked for and not yet painted, by the thread that
     /// asked, and when it was last asked for: work nobody still wants is
@@ -1704,7 +1814,12 @@ fn pool() -> &'static Pool {
                             return;
                         };
                         loop {
-                            if let Some(job) = queue.0.pop_front().or_else(|| queue.1.pop_front()) {
+                            if let Some(job) = queue
+                                .0
+                                .pop_front()
+                                .or_else(|| queue.1.pop_front())
+                                .or_else(|| queue.2.pop_front())
+                            {
                                 break job;
                             }
                             queue = match pool.ready.wait(queue) {
@@ -1837,17 +1952,57 @@ pub fn begin_frame(limit: bool) {
         cache.fresh = 0;
         cache.drawing = Duration::ZERO;
         let cost = cache.cost.unwrap_or(FIRST_COST);
+        // Where frames come slowly anyway (a software renderer drawing a
+        // few a second), a frame may hand over as much as the same share
+        // of its time allows: what a frame at sixty a second hands over in
+        // [`HANDOFF`] is about an eighth of its time. Never less than that.
+        let now = Instant::now();
+        let gap = cache
+            .began
+            .map_or(Duration::ZERO, |began| now.duration_since(began))
+            .min(SLOW_FRAME);
+        cache.began = Some(now);
+        // How far apart frames come, smoothed: slow to believe they come
+        // slowly, so one late frame (a busy moment) never earns the next a
+        // larger share and a hitch of its own.
+        let apart = cache.apart.mul_f32(0.85) + gap.mul_f32(0.15);
+        cache.apart = apart;
+        let roomy = if apart > SLOW_RENDERER {
+            HANDOFF.max(apart.min(gap).mul_f32(HANDOFF_SHARE))
+        } else {
+            HANDOFF
+        };
+        let wider = roomy.as_secs_f32() / HANDOFF.as_secs_f32();
         // While the window is still opening (its loading wash over
         // everything, nothing yet to see move), a frame may take a little
         // more: the place arrives sooner, and no hitch can be seen.
         let (least, most, time) = if cache.opening {
-            (OPENING_PER_FRAME, OPENING_PER_FRAME * 4, HANDOFF * 2)
+            (
+                OPENING_PER_FRAME,
+                OPENING_PER_FRAME * 4,
+                (HANDOFF * 2).max(roomy),
+            )
         } else {
-            (LEAST_PER_FRAME, BUDGET_PER_FRAME, HANDOFF)
+            (
+                LEAST_PER_FRAME,
+                (BUDGET_PER_FRAME as f32 * wider) as usize,
+                roomy,
+            )
         };
-        cache.budget = limit.then(|| ((time.as_nanos() as f32 / cost) as usize).clamp(least, most));
+        let whole = ((time.as_nanos() as f32 / cost) as usize).clamp(least, most);
+        cache.whole = whole;
+        cache.budget = limit.then_some(whole);
     });
 }
+
+/// The share of the time between frames a frame may spend handing new
+/// pictures to the display, where frames come slowly anyway.
+const HANDOFF_SHARE: f32 = 0.12;
+/// Frames this far apart, lately, are a slow renderer's.
+const SLOW_RENDERER: Duration = Duration::from_millis(60);
+/// Frames further apart than this count as this far apart (a window
+/// waking after a while is not a slow renderer).
+const SLOW_FRAME: Duration = Duration::from_millis(250);
 
 /// Lifts this frame's share: what a layer with nothing to show at all was
 /// just painted for is handed over at once, however much (a window's first
@@ -1863,12 +2018,7 @@ pub fn to_spare() -> bool {
     CACHE.with(|cache| {
         let cache = cache.borrow();
         match cache.budget {
-            Some(left) => {
-                let cost = cache.cost.unwrap_or(FIRST_COST);
-                let whole = ((HANDOFF.as_nanos() as f32 / cost) as usize)
-                    .clamp(LEAST_PER_FRAME, BUDGET_PER_FRAME);
-                left * 2 >= whole
-            }
+            Some(left) => left * 2 >= cache.whole,
             None => true,
         }
     })
@@ -1990,6 +2140,36 @@ pub fn ask(
     first: bool,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 ) {
+    let priority = if first {
+        Priority::First
+    } else {
+        Priority::Normal
+    };
+    ask_as(window, key, now, priority, paint)
+}
+
+/// How soon a picture asked for off the window's thread is painted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Priority {
+    /// What the window needs to show anything at all of what the camera
+    /// sees, or where it is going.
+    First,
+    /// Everything else the camera sees, or will see next.
+    Normal,
+    /// Ahead of time, only when nothing else waits: a view the camera
+    /// may go to (one press of the zoom control away). Never ahead of
+    /// anything asked for otherwise, so it never delays what is seen.
+    Later,
+}
+
+/// As [`ask`], at `priority`.
+pub fn ask_as(
+    window: &gpui::Window,
+    key: u64,
+    now: bool,
+    priority: Priority,
+    paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
+) {
     if painted(key) {
         return;
     }
@@ -2040,10 +2220,10 @@ pub fn ask(
                 thread: std::thread::current().id(),
                 paint,
             };
-            if first {
-                queue.0.push_back(job);
-            } else {
-                queue.1.push_back(job);
+            match priority {
+                Priority::First => queue.0.push_back(job),
+                Priority::Normal => queue.1.push_back(job),
+                Priority::Later => queue.2.push_back(job),
             }
             pool.ready.notify_one();
         }

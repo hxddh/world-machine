@@ -48,12 +48,48 @@ pub(crate) fn snapshot_since(
     world: &World,
     since_event_count: Option<usize>,
 ) -> ProjectionSnapshot {
+    std::thread::scope(|scope| snapshot_on(world, since_event_count, scope))
+}
+
+/// The snapshot, with the place's inspectors and moments (each read from
+/// the whole history) and its layout worked out on threads of their own
+/// meanwhile: they read the World and change nothing, so the snapshot is
+/// the same either way.
+fn snapshot_on<'scope>(
+    world: &'scope World,
+    since_event_count: Option<usize>,
+    scope: &'scope std::thread::Scope<'scope, '_>,
+) -> ProjectionSnapshot {
+    let reading = std::thread::Builder::new()
+        .name("pocket-universe-history".into())
+        .spawn_scoped(scope, || {
+            (told_inspectors(world), crate::moments::moments(world))
+        });
+    // The place laid out along its panorama, likewise.
+    let laying = std::thread::Builder::new()
+        .name("pocket-universe-canvas".into())
+        .spawn_scoped(scope, move || {
+            with_changes(world, canvas(world), since_event_count)
+        });
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
     let commands = commands(world, seeded);
     let talks = crate::talk::talks(world, &commands);
     let exchanges = exchanges(world, &commands);
     let almanac = crate::almanac::almanac(world.state());
+    let laid_out = match laying {
+        Ok(laying) => laying
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        Err(_) => with_changes(world, canvas(world), since_event_count),
+    };
+    let (inspectors, moments) = match reading {
+        Ok(reading) => reading
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        // No thread to be had: read here instead.
+        Err(_) => (told_inspectors(world), crate::moments::moments(world)),
+    };
     let mut snapshot = ProjectionSnapshot {
         title: if seeded {
             universe_name(world)
@@ -70,8 +106,8 @@ pub(crate) fn snapshot_since(
         commands,
         collection: collection(world),
         timeline: told_timeline(world),
-        canvas: with_changes(world, canvas(world), since_event_count),
-        inspectors: told_inspectors(world),
+        canvas: laid_out,
+        inspectors,
         why: why_map_from_world(world),
         scenery: seeded
             .then(|| seed_scenery(seed_id(world)))
@@ -96,7 +132,7 @@ pub(crate) fn snapshot_since(
         talks,
         exchanges,
         openers: if seeded {
-            conversation::openers::shown(world, &crate::speech::kit(world.state()))
+            conversation::openers::shown(world, &crate::speech::kit_of(world))
         } else {
             Vec::new()
         },
@@ -110,10 +146,9 @@ pub(crate) fn snapshot_since(
         moments: Vec::new(),
         almanac: None,
         almanac_years: crate::almanac_page::years(world),
-        favour: conversation::favour::shown(world, &crate::speech::kit(world.state())),
+        favour: conversation::favour::shown(world, &crate::speech::kit_of(world)),
     };
     // The place's moments: the latest few, and every one in the book.
-    let moments = crate::moments::moments(world);
     snapshot.almanac = crate::almanac_page::new_year(world, &moments);
     snapshot.book.extend(crate::moments::book_entries(&moments));
     snapshot.moments = world_projection::latest_moments(&moments);
@@ -305,12 +340,15 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
     // Everyday life is told as it happens, in what people say; History
     // keeps to what changed, and to today's, which today's words point at.
     let now = world.world_time();
+    // A day beginning tells nothing: it is there to be the cause of what
+    // the day brings.
     let mut timeline = world_projection::timeline_of(world, |event| {
-        event.world_time == now
-            || !matches!(
-                event.kind.as_str(),
-                "lived" | "life_began" | "lines_forgotten"
-            )
+        !calendar::is_day_begun(event)
+            && (event.world_time == now
+                || !matches!(
+                    event.kind.as_str(),
+                    "lived" | "life_began" | "lines_forgotten"
+                ))
     });
     world_projection::retell_timeline(&mut timeline, world, |event| {
         let summary =
@@ -865,9 +903,14 @@ pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
         sun,
     };
     match seed {
-        "mars-colony" => Some(scenery(0xe7b089, 0xf5d9bd, 0xc2663f, 0x8a3a22, 0xfff3dc)),
-        "1980s-town" => Some(scenery(0x7ca6d6, 0xeedfcc, 0x857e9c, 0x46465a, 0xffd98a)),
-        "penguin-civilization" => Some(scenery(0x8fbcd8, 0xeaf3f7, 0xbcd4e4, 0x2f6f8a, 0xfff6dc)),
+        // A rust plain going dark toward the front: nothing grows out there.
+        "mars-colony" => Some(scenery(0xe7b089, 0xf5d9bd, 0xb25633, 0x5a2617, 0xfff3dc)),
+        // Green front yards and trees up the hill, asphalt in front.
+        "1980s-town" => Some(scenery(0x7ca6d6, 0xeedfcc, 0x7d9566, 0x3c3d44, 0xffd98a)),
+        // Packed snow, and dark water off the causeway. The snow a clear
+        // ice-blue, so held a step under the sky it stays snow in the sun
+        // rather than a flat grey (the v0.29 art director's noon).
+        "penguin-civilization" => Some(scenery(0x8fbcd8, 0xeaf3f7, 0xa9cdec, 0x173a4f, 0xfff6dc)),
         _ => None,
     }
 }

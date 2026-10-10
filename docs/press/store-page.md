@@ -35,7 +35,11 @@ Begin in **Tiny Society**, a harbour town of eight neighbours and whoever else t
 
 **Made to be kept.** Every World is a file on your Mac. There is no account and no telemetry, and nothing is uploaded. What happened is kept as history and replayed exactly, never made up again.
 
-**A free demo** holds the whole first hour of Tiny Society. When it ends, your harbour is kept, and the full game opens it and carries on.
+**What the clock does.** While you play, a day passes when you say so: choose "Let the day pass". Close the window and the town keeps living by the real clock, a day for every six hours you are away; come back after a week or more and it has lived 28 days, no more, told back as a short film. The light over the town follows your own clock, so an evening visit finds it at dusk.
+
+**Every drawing is made by the game's own code.** There are no image files and no AI-generated art: the town, its people, the sky, the app icon and the key art are all drawn by World Machine itself.
+
+**A free demo** of 20 to 30 minutes: the town's first days, a favour asked of you, something you build going up, a few days the town lives on without you (the demo skips the six-hour wait so you see the return), and an evening at dusk to end on. When it ends, your town is kept, and the full game opens it and carries on.
 
 *An optional World voice lets a language model word what people say, using your own API key or your Mac's own model. It is off by default. See the AI disclosure below.*
 
@@ -97,7 +101,13 @@ World Machine
 
 **值得好好保存。** 每个世界都是你 Mac 上的一个文件。不需要账号，没有数据收集，什么都不会上传。发生过的事作为历史保存，并被原样重放，而不是重新编造。
 
-**免费试玩版** 包含 Tiny Society 完整的第一个小时。试玩结束时，你的海港会被保留下来，完整版打开它就能接着玩下去。
+**时钟怎么走。** 你在玩的时候，一天由你来翻过：选「让这一天过去」。关上窗口后，小镇按真实的时钟继续生活，你每离开六小时就过去一天；离开一周或更久再回来，它最多过了 28 天，并用一段短片讲给你听。镇上的光线跟着你电脑的时钟走，傍晚来看，它正是黄昏。
+
+**每一幅画都由游戏自己的代码画成。** 没有图片素材，也没有 AI 生成的美术：小镇、镇上的人、天空、应用图标和宣传图，全都由 World Machine 自己画出来。
+
+**免费试玩版** 约 20 到 30 分钟：小镇最初的几天、有人请你帮个忙、你亲手建的东西一点点立起来、小镇在你不在时自己过上几天（试玩版省去了六小时的等待，好让你看到回来时的那段短片），最后停在一个黄昏。试玩结束时，你的小镇会被保留下来，完整版打开它就能接着玩下去。
+
+*（以上三段为 v0.29 新增，由模型撰写，发布前需请中文母语者审读。）*
 
 *可选的「世界之声」可以用语言模型来组织人们说的话，使用你自己的 API 密钥或 Mac 自带的模型，默认关闭。详见下方的 AI 说明。*
 
@@ -159,7 +169,13 @@ World Machine
 
 **大切に残せる。** どの世界も、あなたの Mac にあるひとつのファイルです。アカウントは不要、利用データの収集もなく、なにもアップロードされません。起きたことは歴史として残り、作り直されることなく、そのとおりに再生されます。
 
-**無料体験版** では、タイニー・ソサエティの最初の 1 時間をまるごと遊べます。体験版が終わっても港町はそのまま残り、製品版で開けば続きから遊べます。
+**時計のしくみ。** 遊んでいるあいだは、あなたが決めたときに一日が過ぎます。「一日を過ごす」を選んでください。ウィンドウを閉じると、町は本物の時計に合わせて暮らし続け、留守にした 6 時間ごとに一日が過ぎます。1 週間以上たってから戻っても、進むのは最大 28 日で、その出来事を短い映像で伝えます。町の光はあなたの時計に合わせて移ろうので、夕方に訪れると町も夕暮れです。
+
+**絵はすべて、ゲーム自身のコードが描いています。** 画像素材も AI 生成のアートも使っていません。町も住人も空も、アプリのアイコンもキーアートも、すべて World Machine 自身が描いたものです。
+
+**無料体験版** は 20〜30 分ほど。町の最初の数日、頼みごと、自分で作ったものが建ち上がるところ、あなたがいないあいだに町が自分で過ごす数日（体験版では 6 時間の待ち時間を省いて、戻ってきたときの映像を見られるようにしています）、そして夕暮れで幕を閉じます。体験版が終わっても町はそのまま残り、製品版で開けば続きから遊べます。
+
+*（この 3 段落は v0.29 で追加。モデルが書いたもので、公開前に日本語のネイティブの方に読んでもらう必要があります。）*
 
 *オプションの「ワールドの声」を使うと、住人のせりふを言語モデルが言葉にします。使うのはあなた自身の API キーか、Mac に内蔵のモデルです。初期設定ではオフです。下の AI に関する開示をご覧ください。*
 
@@ -196,6 +212,9 @@ Windows と Linux には対応していません。
 ## Notes for whoever publishes this
 
 - **Japanese:** listed as a language only once L's v0.26 work ships (`ja.tsv` beside every `zh-Hans.tsv`). The Japanese hearing phrases are L's; the "28 kinds of thing in English and Chinese" line should gain Japanese when L's corpus test passes.
+- **"A day passes when you say so" / "28 days, no more":** a turn passes the day only when "Let the day pass" is chosen (the command's `PassesTime` role); nothing moves a World while its window is open. The cap is 28 periods, a week of absence (`DEFAULT_MAX_PERIODS`). The demo's time away is the World's own background days, the same `advance_background` the observer runs (`apps/world-machine-desktop/src/demo.rs`, `demo/pacing.json`).
+- **"Every drawing is made by the game's own code":** the scene is drawn by `world-gpui`, the key art by its `key_art` example, the app icon by `scripts/render_app_icon.py`. The only image files in the source are the test goldens those make.
+- **"20 to 30 minutes":** `apps/world-machine-desktop/tests/demo_walk.rs` walks the demo at the intended pace in `demo/pacing.json`.
 - **"Every six hours … up to a week":** `apps/world-machine-desktop/src/observer.rs` (`DEFAULT_SECONDS_PER_PERIOD`, `DEFAULT_MAX_PERIODS`).
 - **"Two deeds a day":** docs/KNOWN_ISSUES.md ("Your hands allow two deeds a period").
 - **"Never more than two letters a week":** docs/KNOWN_ISSUES.md and the three-year tests.

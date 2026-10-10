@@ -2061,6 +2061,9 @@ It was {at} that did it.	{at}のおかげだよ。
 You began a {} by {at_name}	{at_name}のそばで{}を造りはじめた
 You began an {} by {at_name}	{at_name}のそばで{}を造りはじめた
 The {} you began by {at} was finished	{at}のそばで造りはじめた{}が完成した
+You began a {}	{}を造りはじめた
+You began an {}	{}を造りはじめた
+The {} you began was finished	造りはじめた{}が完成した
 You painted a design on the flag	旗に絵柄を描いた
 You painted a design on the sail	帆に絵柄を描いた
 You painted a design on the sign	看板に絵柄を描いた
@@ -2153,3 +2156,5 @@ Another day, maybe. It'll keep.	また今度ね。急ぐ話じゃないから。
 It's fine. I'll tell you sometime.	大丈夫。いつか話すよ。
 Oh, it doesn't matter now.	ああ、もういいんだ。
 I'll save it for a quieter day.	もっと落ち着いた日に話すよ。
+{title} in year {year}	{year}年目の{title}
+I left home for a place of my own	家を出て、自分の住まいに移った

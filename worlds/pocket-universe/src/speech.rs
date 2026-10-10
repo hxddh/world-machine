@@ -231,7 +231,15 @@ fn era_lacks(unit: &str) -> &'static [&'static str] {
 }
 
 pub(crate) fn kit(state: &WorldState) -> conversation::Kit {
-    let cast = crate::life::cast(state);
+    kit_with(&crate::life::cast(state))
+}
+
+/// The kit, with the cast the World keeps as it stands.
+pub(crate) fn kit_of(world: &World) -> conversation::Kit {
+    kit_with(&crate::life::cast_kept(world).0)
+}
+
+fn kit_with(cast: &lives::Cast) -> conversation::Kit {
     conversation::Kit {
         era: era(cast.unit),
         elsewhere: elsewhere(cast.unit),
@@ -465,7 +473,7 @@ pub(crate) fn voice_hearing(
 
 /// How someone the player can talk to stands with them.
 pub(crate) fn standing_of(world: &World, who: EntityId) -> Option<world_projection::Standing> {
-    conversation::faces::standing_of(world, &kit(world.state()), who)
+    conversation::faces::standing_of(world, &kit_of(world), who)
 }
 
 /// Hears what the player says to someone and answers, ready to record: with
@@ -522,7 +530,7 @@ pub(crate) fn mood_of(
     who: EntityId,
     askers: &std::collections::BTreeSet<EntityId>,
 ) -> Option<world_projection::Mood> {
-    conversation::faces::mood_of(world, &kit(world.state()), who, askers, || None)
+    conversation::faces::mood_of(world, &kit_of(world), who, askers, || None)
 }
 
 #[cfg(test)]

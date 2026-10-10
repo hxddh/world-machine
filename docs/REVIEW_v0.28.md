@@ -417,3 +417,75 @@ The measurement found five statements in v0.28's CHANGELOG, KNOWN_ISSUES and the
 5. **"0 partly English letters":** true over a year; over three years two Maple Street letters in Chinese carry English sentences.
 
 Also: set 5's English wrongly-declined is 0.38%, not 0.2%.
+
+## What v0.29 did
+
+v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6029090`, in release on the same 4-core Linux machine (idle load 1.0–1.9), before the fixes and the art rounds that followed; where a later commit changed a result, the table says so. Nothing was measured on a Mac or on a Windows PC. What it met and missed:
+
+| Bar | Result | |
+|---|---|---|
+| **1. Sharp where the player looks** | | |
+| The rough on the subject of a moment at most 250 ms | Find 0 ms in 3 runs; return beats at most 241, 0 and 238 ms; openings 0 ms (one of 32 ms). Zooming out: 1,520, 2,193 and 2,161 ms, and the `zoom` scenario failed in 3 of 3 runs. Fixed before release (see below): 0 ms after every move | missed at measurement; met at release |
+| The rough anywhere at most 600 ms | up to 2,365 ms when zooming out; fixed before release | missed at measurement; met at release |
+| 0 frames of another World in the first 2 s of any open | 0 in 17 scenarios × 3 runs | **met** |
+| No straight dark edge longer than 8 px under a structure | the shadow test passes; the one hard edge the art director found, a glow box behind Ares at night in round 2, was gone in round 3 | **met** |
+| At most 4 people in a line, overlapping at most 20% | the people test passes; in the frames, people still overlap within groups (an accepted deviation) | met by test |
+| Dusk within a gold hue band | hue 34–40, the dusk test passes; the harbour's dusk sky stays beige-pink (an accepted deviation) | met by test |
+| The longest frame under 8 ms in 10 of 10 runs on a quiet box | 6 of 10 (6.3–13.2 ms, and one of 102.4 ms, about that run's 99 ms opening frame; the cause is not confirmed) | missed |
+| The art director's sign-off on free play | four rounds on 2026-10-09; final at `8b0e994`: all four places YES with deviations ([ART_DIRECTION](ART_DIRECTION.md#v029-sign-off)) | **met**, with 19 deviations |
+| Every store shot matches the frame the player sees | the store shots were not captured again; they are still v0.28's, under review | missed |
+| **2. Cards and words that fit** | | |
+| 0 frames where a card or bubble covers its own speaker or a Find target; every card inside the window | the card tests pass; from round 3 the art director saw neither, but cards clip people beside the speaker (an accepted deviation) | **met** |
+| No English line under 30% of its bubble; no Chinese or Japanese line starting with 、。」 or only punctuation | the line tests pass | **met** |
+| 0 Latin UI strings in Chinese or Japanese | 2 found in free play ("Find {name}" and the return film's initials); fixed in `eff8954`, and the test that missed them now sees formatted lines and all of `window.rs` | met after a fix |
+| 0 partly English letters over three years in every place | 1 Chinese and 1 Japanese letter in Icebridge, and Ares's `{keeper}` left unfilled; fixed in `eff8954` (27 catalog lines named the wrong slot), with a catalog-wide slot test: 0 at 1,080 days in every Pack | met after a fix |
+| **3. Each Pocket Universe place its own** | | |
+| At most 20% of a place's first-month cards shared | 11–16% (was 100%) | **met** |
+| Trust cannot reach 10 of 10 in the first week | at most 7 | **met** |
+| A turn at year three under 30 / 35 ms | medians Ares 22.6–23.3, Icebridge 23.0–25.9, Maple Street 23.3–24.8 ms; p95 at most 34.7 ms | **met** |
+| Looking again at an unchanged World under 15 ms | 2.5–3.5 ms in every place (was 20–36 ms) | **met** |
+| The art director's sign-off of each place | Ares, Maple Street and Icebridge YES with deviations (Icebridge only in round 4) | **met**, with deviations |
+| **4. Talk you can trust** | | |
+| Blind set 7: at least 95% declined, at most 1% wrongly, per language | its prompts are written; the judge needs a live key, and none was available | not measured |
+| fresh29 heard at least 85% per language | en 94.6%, zh 87.5%, ja 83.9% | missed (ja) |
+| At least 80% of favours done in everyday words | 88.9% | **met** |
+| 0 completions in talk for rewards | Tiny Society 1 of 3,348 ("free drink" heard as an invitation), Pocket Universe 0 of 1,116 | missed |
+| Sets 3–5 hold; the California exemption pinned | the floors hold and the exemption test passes in three languages; the memo for counsel is written | **met** |
+| **5. Windows you can play** | | |
+| Windows CI green with tests | clippy and tests green on Windows (run 37904447012) | **met** |
+| In the background, under 2% of one core and no frames while covered | covered: 0 frames at 0.93–1.00% of a core; minimised: 0.17–0.20% (Linux, Xvfb). A covered window that keeps the input focus still draws; that case is not held to the bar | **met** |
+| The first 30 minutes on a real Windows machine | not done | missed |
+| **6. The record tells the truth** | | |
+| Under 10% of events without a cause, none of an undeclared kind | a harbour 4.9% over 30 days and 5.0% over a year; Maple Street 9.5% / 7.8%; Ares 9.5% / 8.7%; Icebridge 9.9% / 7.9% (were 90–99%); undeclared root kinds fail the test | **met** |
+| Three green nights on v0.29 code | none: the nightly runs on `main` only | missed |
+| **7. The demo** | | |
+| A 20–30 minute demo, complete without the voice, in the planned order | 24.8 min at the intended pace: painted at 2 s, a build at 123 s, a day at 185 s, the return film at 1,006 s, the ending at 1,433 s; the real window reaches the ending | **met** |
+| A favour within about 3 minutes | 94 s for a player who answers first; 748 s at the intended pace | met only answering first |
+| The art director's free-play sign-off on the demo | the demo's ending was judged in round 1 only, with the harbour's NO; rounds 2–4 judged the full app's harbour, which the demo shares | missed as written |
+| Five think-aloud testers on the v0.29 demo | not done | missed |
+
+**Speed and size beyond the plan** (a three-year harbour):
+- **The turn is not slower than v0.28's.** The measurement first read a regression: the repo's turn bench took 34.8–36.8 ms against the 24.5–24.8 ms in this review. On the same file, interleaved, v0.28 takes 35.4–38.9 ms and v0.29 36.6–37.7 ms, and callgrind counts 1,810 M instructions for twelve turns against v0.28's 2,034 M (−11%). The 24.5 ms was another file on a faster day; this machine was about 30% slower, with about 40% iowait. The 25 ms mark is still not reached here. A turn with its save on the speed test's own file is 26–27 ms (22–23 ms in this review), under its 30 / 35 bar.
+- **The first look after a day:** medians 36.7, 21.5 and 19.3 ms in three rounds (bar 20). Missed.
+- **Memory after 20 days:** 108.6 MB, from 92.6 MB just opened (bar 100). Missed.
+
+**What the misses say.**
+- **Zooming out** into the folded postcard of a whole town was the one move where the rough still showed for seconds (1.2–2.4 s). Found before release: folded views were never painted ahead, so ~83 large tiles were asked for only when the camera settled and handed to a software renderer over 2–3 slow frames. The view one zoom press away is now painted ahead on a lowest-priority queue, and the `zoom` scenario shows 0 ms. The same release check then showed two more misses, on CI as well as here: day 1 opened on 2 whole buildings (the edge-keeping framing from art round 2 pushed the left home out; the test had measured the framing function, not the window), and a return beat landed rough for one frame (303 ms on CI) because only boil drawing 0 was painted ahead. Both are fixed, with tests that fail without the fix.
+- **The art director's four rounds.** Round 1 was NO for the harbour, Ares and Icebridge: the return film's camera never moved in Chinese and Japanese, Find landed on the rough and its card opened before Leo was on screen, cards covered people, dusk was not gold, and the three places were still one template. Round 2 (`ca532e3`) left the harbour, Ares and Icebridge NO: the film dropped beats in 3 of 4 runs, scaffolding stood on other buildings, Ares had a hard-edged glow box at night. Round 3 (`f76389d`) passed the harbour, Ares and Maple Street; Icebridge's night framing had regressed and its noon lost the nests. Round 4 (`8b0e994`) passed all four with no blocker left. In rounds 2–4 the director rebuilt the commit and re-captured everything, because each time some of the team's binaries were not built from it.
+- **The voice and hearing.** Japanese hearing is 83.9% on fresh29 (77.7% on v0.28's fresh28) and favours 88.9% (60.6%), on new sets, not the same ones. fresh29 and the exploit set were written by the agent that tuned, before it read the code, so they may be optimistic. Set 7 is still unmeasured without a key, so the judge's new examples are untested blind.
+- **Talk for rewards.** One trick in 3,348: "free drink" said to a resident is heard as an invitation out.
+- **The real machines.** Nobody has played v0.29 on Windows or on a Mac. The Mac build stays ad-hoc signed, by the owner's answer above.
+
+**Found on the way.**
+- The return film's beat clock did not restart on Next, and the film found its subjects by position, so in Chinese and Japanese the camera never moved. Fixed in `eff8954`.
+- A Pack's launch image was named by process id, so a reused id could stop a World opening, and the sweep for dead processes' images had never run (each killed app left about 10 MB). Fixed in `eff8954`.
+- The test for untranslated code never saw `format!` inside the UI helpers and stopped reading `window.rs` at `mod walk;`. Fixed.
+- CI's `deny` job failed on `8b0e994` only on a Docker Hub pull limit (429), not on the code.
+- Under Xvfb's software renderer, a World in front uses about 2.9 cores at 5 frames a second; the Home window shows through for 0.1–0.3 s after a World window appears; the drawer's tooltip covers its first row.
+
+**For v0.30.**
+- Find the slow opening frame. Make a zoom glide stop asking for a new tile set every frame (its "moving" check never sees the camera move: ~180 tiles wasted on one zoom out).
+- Measure set 7 with a key; a fresh blind set for hearing, written by someone who did not tune.
+- The art deviations in [KNOWN_ISSUES](KNOWN_ISSUES.md), the harbour's dusk sky first.
+- Play the first 30 minutes on a real Windows PC, and five think-aloud testers on the demo.
+- Store shots captured from the frames players see.

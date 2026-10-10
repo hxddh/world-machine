@@ -34,6 +34,10 @@ pub use interface::*;
 pub use light::*;
 pub use people::*;
 pub use scene::*;
+#[cfg(test)]
+pub(crate) use works::leave_out_glow;
+#[cfg(test)]
+pub(crate) use works::leave_out_shadows;
 #[allow(unused_imports)]
 pub use works::*;
 
@@ -57,6 +61,9 @@ use world_projection::{
 #[derive(Clone, Debug)]
 pub struct Frame {
     scenery: Scenery,
+    /// How the place looks beyond its scenery, as its Pack declares it:
+    /// its spine's lamps, the tint of its light, its spine and its air.
+    look: Option<world_projection::PlaceLook>,
     daylight: Daylight,
     /// The hour the light is graded for, 0 to 24.
     hour: f32,
@@ -103,14 +110,137 @@ pub struct Frame {
     pictures: BTreeMap<usize, Picture>,
     /// Bunting strung between two buildings, by their items.
     garlands: Vec<(usize, usize)>,
+    /// Where the camera is going while it glides there (a return film's
+    /// beat, Find, a card closing), so what it will see is painted, sharp,
+    /// before it arrives; and what the moment is about, a box in stage
+    /// pixels, painted first of all.
+    heading: Option<Camera>,
+    subject: Option<(f32, f32, f32, f32)>,
+    /// Where the camera will go after that (the return film's next beat),
+    /// and what it will be about: painted ahead, behind everything else.
+    next: Option<(Camera, (f32, f32, f32, f32))>,
+    /// Where one press of the zoom control would take the camera, closer
+    /// and further: where such a view folds into a postcard, painted ahead
+    /// while the camera is still, so a zoom lands on sharp paint.
+    zoom_steps: Vec<Camera>,
+    /// Every building on the stage with the zoom it shows from (0 for
+    /// always): what the composition holds back for a closer look comes
+    /// into the frame the camera is heading for.
+    standing: std::sync::Arc<Vec<(f32, BuildingPaint)>>,
 }
 
 impl Frame {
+    /// The same frame with nothing standing in it (no buildings, things or
+    /// people): in a test, what of a picture is the bare ground.
+    #[cfg(test)]
+    pub(crate) fn bare(&self) -> Self {
+        let mut frame = self.clone();
+        frame.buildings.clear();
+        frame.things.clear();
+        frame.people.clear();
+        frame
+    }
+
+    /// The light this frame is graded in: the hour's and the weather's,
+    /// turned toward the place's own key light where its Pack gives one
+    /// (a cold blue over the ice rather than a gold dusk).
+    pub(crate) fn light(&self) -> [f32; 3] {
+        keyed_light(
+            light_at(self.hour, self.weather),
+            self.look.as_ref().and_then(|look| look.key),
+            self.hour,
+        )
+    }
+
+    /// The air over the place's field toward its hills: its Pack's own, or
+    /// the sky's lowest colour.
+    pub(crate) fn haze(&self) -> Hsla {
+        art::hex(
+            self.look
+                .as_ref()
+                .and_then(|look| look.haze)
+                .unwrap_or(self.scenery.sky_bottom),
+        )
+    }
+
+    /// The colour of the spine people walk along, if the Pack gives one.
+    pub(crate) fn spine(&self) -> Option<Hsla> {
+        self.look.as_ref().and_then(|look| look.spine).map(art::hex)
+    }
+
+    /// What the place's lamps and lit windows glow: its Pack's own colour,
+    /// or lamplight.
+    pub(crate) fn glow(&self) -> Hsla {
+        art::hex(
+            self.look
+                .as_ref()
+                .and_then(|look| look.glow)
+                .unwrap_or(0xffd27a),
+        )
+    }
+
     /// The same frame graded for `hour` whatever the clock says, so a
     /// picture (a test's, the key art) never depends on when it is drawn.
     pub fn at_hour(mut self, hour: f32) -> Self {
         self.hour = hour;
         self
+    }
+
+    /// The same frame with the camera on its way to `camera`, and the
+    /// moment's subject (a box in stage pixels): painted first, before
+    /// the camera settles there.
+    pub fn heading_to(mut self, camera: Camera, subject: Option<(f32, f32, f32, f32)>) -> Self {
+        self.heading = Some(camera);
+        self.subject = subject;
+        self
+    }
+
+    /// The same frame knowing where the camera goes after this (the return
+    /// film's next beat) and what it will be about there.
+    pub fn next_to(mut self, camera: Camera, subject: (f32, f32, f32, f32)) -> Self {
+        self.next = Some((camera, subject));
+        self
+    }
+
+    /// The same frame knowing where a press of the zoom control would take
+    /// the camera, closer and further (none at the end of its travel).
+    pub fn zooming_to(mut self, steps: Vec<Camera>) -> Self {
+        self.zoom_steps = steps;
+        self
+    }
+
+    /// Where the camera is going, if it is on its way somewhere else.
+    pub(crate) fn heading(&self) -> Option<Camera> {
+        self.heading.filter(|to| *to != self.camera)
+    }
+
+    /// The moment's subject, a box in stage pixels.
+    pub(crate) fn subject(&self) -> Option<(f32, f32, f32, f32)> {
+        self.subject
+    }
+
+    /// The same frame seen through `camera`: what the composition keeps
+    /// back for a closer look is in it as the camera's zoom has it, and
+    /// everything else as this frame has it.
+    pub(crate) fn seen_from(&self, camera: Camera) -> Frame {
+        let mut seen = self.clone();
+        seen.camera = camera;
+        seen.heading = None;
+        seen.next = None;
+        seen.zoom_steps = Vec::new();
+        seen.buildings = self
+            .standing
+            .iter()
+            .filter(|(least, _)| camera.zoom + 1e-4 >= *least)
+            .map(|(_, building)| {
+                self.buildings
+                    .iter()
+                    .find(|now| now.index == building.index)
+                    .unwrap_or(building)
+                    .clone()
+            })
+            .collect();
+        seen
     }
 
     /// The same frame `seconds` into looking, for the boil.
@@ -289,6 +419,18 @@ impl Frame {
     fn quay_top(&self) -> f32 {
         self.feet - self.figure_h * 0.55
     }
+
+    /// On the ice, the lead of open water along the back of the causeway:
+    /// its far and near edges, in stage pixels (`scene::paint_lead`). About
+    /// forty pixels of dark water in a window 848 high, so it reads as
+    /// water the bridge spans, not the causeway's edge (v0.29 round 3).
+    fn lead(&self) -> Option<(f32, f32)> {
+        (self.setting == crate::art::Setting::Ice && self.water).then(|| {
+            let k = (self.height / 848.0).clamp(0.3, 1.3);
+            let top = self.quay_top();
+            (top - 24.0 * k, top + 14.0 * k)
+        })
+    }
 }
 
 /// What a frame lights up, and in what colour.
@@ -389,10 +531,9 @@ pub fn frame(
     }
     // What the composition keeps for a closer look is left out.
     let shows = |spot: &&Spot| stage.shows(spot.index, z);
-    let buildings = stage
+    let standing: Vec<(f32, BuildingPaint)> = stage
         .buildings
         .iter()
-        .filter(shows)
         .map(|spot| {
             let item = &items[spot.index];
             let shape = item.shape.unwrap_or_default();
@@ -425,7 +566,8 @@ pub fn frame(
                 (lw * fit, lh * fit)
             })
             .unwrap_or((w, h));
-            BuildingPaint {
+            let least = stage.shown_from.get(&spot.index).copied().unwrap_or(0.0);
+            let paint = BuildingPaint {
                 index: spot.index,
                 x: spot.x,
                 base: spot.y,
@@ -434,16 +576,39 @@ pub fn frame(
                 shape,
                 palette: painted_as(item, lit, setting, &scenery),
                 flip: item.variant.is_some_and(|variant| variant.flip),
+                // A low wall runs on only to a neighbour that stands there
+                // to meet it, never into the open (v0.29 round 3's grey
+                // slab beside the net store).
                 joins: item.variant.map_or((false, false), |variant| {
-                    (variant.join_left, variant.join_right)
+                    // The wall reaches 0.72 of the building's width out
+                    // from its middle (`works::sprite_painted`).
+                    let meets = |side: f32| {
+                        stage.buildings.iter().chain(&stage.things).any(|other| {
+                            let along = side * (other.x - spot.x);
+                            other.index != spot.index
+                                && along > 0.0
+                                && (other.y - spot.y).abs() < stage.figure_h * 0.25
+                                && along - other.w / 2.0 <= w * 0.74
+                        })
+                    };
+                    (
+                        variant.join_left && meets(-1.0),
+                        variant.join_right && meets(1.0),
+                    )
                 }),
                 glow: glow_of(item),
                 drawing,
                 squash: (1.0, 1.0),
                 grow: 1.0,
                 inside: inside.remove(&spot.index).unwrap_or_default(),
-            }
+            };
+            (least, paint)
         })
+        .collect();
+    let buildings = standing
+        .iter()
+        .filter(|(least, _)| z + 1e-4 >= *least)
+        .map(|(_, building)| building.clone())
         .collect();
 
     let mut things = stage
@@ -594,6 +759,7 @@ pub fn frame(
     };
     Frame {
         scenery,
+        look: snapshot.canvas.look.clone(),
         daylight,
         hour,
         seconds,
@@ -639,6 +805,11 @@ pub fn frame(
             .collect(),
         pictures: BTreeMap::new(),
         garlands: Vec::new(),
+        heading: None,
+        subject: None,
+        next: None,
+        zoom_steps: Vec::new(),
+        standing: std::sync::Arc::new(standing),
     }
 }
 

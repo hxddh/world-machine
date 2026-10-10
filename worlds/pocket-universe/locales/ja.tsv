@@ -520,9 +520,9 @@ Heard back from Earth.	地球から返事が来た。
 Held first time.	一回でうまくいった。
 Hello from me.	私からこんにちは。
 Help look	探すのを手伝う
-Help me fit the new a spare fuse?	予備のヒューズの取りつけ、手伝ってくれる？
-Help me fit the new a spare lantern?	予備のランタンの取りつけ、手伝ってくれる？
-Help me fit the new a spare seal?	予備のシールの取りつけ、手伝ってくれる？
+Help me fit a spare fuse?	予備のヒューズの取りつけ、手伝ってくれる？
+Help me fit a spare lantern?	予備のランタンの取りつけ、手伝ってくれる？
+Help me fit a spare seal?	予備のシールの取りつけ、手伝ってくれる？
 Help me look?	探すの手伝ってくれる？
 Helped {name} run the late show at K-88 Radio.	K-88ラジオで{name}の深夜番組を手伝った。
 Helped {name} with their feathers.	{name}の羽づくろいを手伝った。
@@ -9017,3 +9017,752 @@ What do you think of {name}?	{name}のこと、どう思う？
 Is there anything you need?	何か必要なものはある？
 How's work going?	仕事はどう？
 What's new with you?	最近なにか変わったことある？
+A few of us made something of our own: {b}	何人かで、自分たちで{b}を作った
+a few of us made something of our own: {b}	何人かで、自分たちで{b}を作った
+Dust settled on the solar panels	ソーラーパネルに砂ぼこりが積もった
+The panels are under dust again. Sweep them before the shift?	パネルがまた砂をかぶってる。シフトの前に掃いておく？
+Sweep them now	今すぐ掃く
+Brooms and a long morning.	ほうきを持って、長い朝になる。
+{explorer} and you swept the solar panels clean	{explorer}とあなたでソーラーパネルをきれいに掃いた
+Full power by noon. Look at that needle!	昼には満充電。あの針を見て！
+After the shift	シフトのあとで
+The power runs low till evening.	夕方まで電力が心もとない。
+The solar panels stayed dusty till evening	ソーラーパネルは夕方まで砂まみれのままだった
+The lights were dim at supper. We managed.	夕食のとき灯りが暗かった。なんとかなったけど。
+Nobody swept the solar panels	誰もソーラーパネルを掃かなかった
+We're running on half power.	電力が半分しかない。
+The air scrubber started whining	空気清浄機がうなり始めた
+Hear that whine? The air scrubber wants a new filter. Swap it early?	あのうなり、聞こえる？空気清浄機がフィルター交換をせがんでる。早めに替える？
+Swap it now	今すぐ替える
+One spare filter, and quiet air.	予備のフィルターひとつで、静かな空気。
+{keeper} swapped the air scrubber's filter early	{keeper}は空気清浄機のフィルターを早めに替えた
+Quiet as a library. I can think again.	図書館みたいに静か。やっと考えごとができる。
+Run it a week more	もう一週間もたせる
+Filters are precious out here.	ここじゃフィルターは貴重品だ。
+The air scrubber ran on its old filter	空気清浄機は古いフィルターのまま動き続けた
+It'll hold. Probably. Mind the headache.	もつよ。たぶん。頭痛には気をつけて。
+The air scrubber whined all night	空気清浄機が一晩じゅううなっていた
+Nobody slept for that noise.	あの音で誰も眠れなかった。
+{Keeper} hoped for the long call home	{Keeper}は地球への長い通話を願っていた
+The Earth window opens tonight. Can I have the long call? My sister's having a baby.	今夜、地球との通信窓が開くの。長い通話枠をもらえる？姉に赤ちゃんが生まれるんだ。
+Take the long call	長い通話をどうぞ
+Twenty minutes, light-lag and all.	二十分、光の遅れも込みで。
+{keeper} called home in the Earth window	{keeper}は通信窓が開いているあいだに地球へ電話した
+Share it round	みんなで分ける
+Everyone gets five minutes.	ひとり五分ずつ。
+Everyone shared the Earth window	みんなで地球との通信窓を分け合った
+Five minutes. I heard her laugh, at least.	五分だけ。でも、姉の笑い声は聞けた。
+The Earth window closed before anyone called	誰も電話しないうちに通信窓が閉じた
+Missed it. The next one's in a week.	逃しちゃった。次は一週間後。
+The tomato flowers opened in the dome garden	ドーム菜園でトマトの花が咲いた
+The tomato flowers are open, and there are no bees on Mars. Help me pollinate them with a paintbrush?	トマトの花が咲いたのに、火星にはハチがいない。絵筆で受粉させるの、手伝ってくれる？
+Fetch the brushes	絵筆を取ってくる
+Flower by flower.	一輪ずつ。
+{keeper} and you pollinated the dome garden by hand	{keeper}とあなたで、ドーム菜園を手作業で受粉させた
+Every single flower. My arm's dead. The tomatoes will thank us.	一輪残らず。腕が死んでる。トマトが感謝してくれるよ。
+Let the fans do it	ファンに任せる
+Maybe the air will carry enough.	空気の流れで足りるかもしれない。
+The tomato flowers were left to the fans	トマトの花はファンに任された
+Fewer tomatoes, then. The fans did their best.	じゃあトマトは少なめだね。ファンはがんばったよ。
+The tomato flowers closed again	トマトの花はまた閉じてしまった
+Too late now. The next lot, maybe.	もう遅い。次の花で、かな。
+The rover cracked a wheel on the ridge	ローバーが尾根で車輪を割った
+I cracked a wheel on the ridge. Print a new one tonight, or patch the old one?	尾根で車輪を割っちゃった。今夜新しいのを印刷する？それとも古いのを直す？
+Print a new wheel	新しい車輪を印刷する
+It eats the printer stock.	プリンターの材料を食うけど。
+{explorer} printed the rover a new wheel	{explorer}はローバーの新しい車輪を印刷した
+Good as new. Better, actually: I gave it more tread.	新品同様。いや、もっといい。溝を深くしたから。
+Patch the old one	古いのを直す
+Tape, resin and hope.	テープと樹脂と、あとは祈り。
+{explorer} patched the rover's cracked wheel	{explorer}はローバーの割れた車輪を直した
+It wobbles. Character, I call it.	ぐらつくけど。個性ってことで。
+The rover sat on its cracked wheel	ローバーは割れた車輪のまま止まっていた
+No trips till that's fixed.	直るまで遠出はなし。
+{Explorer} eyed the last tin of peaches	{Explorer}は最後の桃缶を見つめていた
+Ration day. Algae loaf again, or shall we open the last tin of peaches?	配給日。また藻のパン？それとも最後の桃缶を開ける？
+Open the peaches	桃缶を開ける
+A treat for the whole ring.	居住リング全員へのごちそう。
+The colony shared the last tin of peaches	コロニーのみんなで最後の桃缶を分け合った
+Syrup and all. Best thing I've tasted in a year.	シロップまで全部。この一年でいちばんおいしかった。
+Save them	取っておく
+For a day that needs them more.	もっと必要な日のために。
+The last tin of peaches went back in the store	最後の桃缶は倉庫に戻された
+You're right. Some day will need them more.	そうだね。もっと必要になる日がきっと来る。
+It was algae loaf again	またしても藻のパンだった
+Green again. Always green.	また緑。いつも緑。
+{Explorer} needed someone for the paper route	{Explorer}は新聞配達の代わりを探していた
+I'll do it	やるよ
+Up before the milkman.	牛乳配達より早起きだ。
+You did {explorer}'s paper route before dawn	あなたは夜明け前に{explorer}の新聞配達を済ませた
+Every porch? Even the one with the dog? You're a legend.	全部の家？犬のいる家も？伝説だね。
+Not that early	そんな早起きは無理
+Sleep wins.	睡眠の勝ち。
+Nobody covered {explorer}'s paper route	誰も{explorer}の新聞配達を代わらなかった
+Half the street got no paper. Guess who they called.	通りの半分に新聞が届かなかった。誰に電話が来たと思う？
+The papers piled up on the corner	新聞が角に山積みになった
+Soggy papers everywhere. Great.	そこらじゅう、ふやけた新聞。最高だね。
+{Explorer} made a tape for the request show	{Explorer}はリクエスト番組用にテープを作った
+Drop it off	届ける
+The station's raising money for {beacon}.	局は{beacon}のための募金をしてる。
+The radio played {explorer}'s mixtape	ラジオで{explorer}のミックステープが流れた
+They played track three! Our song, on the radio!	三曲目がかかった！ぼくらの歌がラジオで！
+Some tapes are just for us.	ふたりだけのテープもあるさ。
+{explorer} kept the mixtape at home	{explorer}はミックステープを家に置いておいた
+Fine. It sounds better on my stereo anyway.	いいよ。どうせうちのステレオのほうが音がいい。
+The mixtape got lost under a car seat	ミックステープが車のシートの下でなくなった
+Found it. Melted. Summer, huh.	見つけた。溶けてた。夏だねえ。
+{Keeper} wanted a yard sale	{Keeper}はガレージセールをしたかった
+Set up the tables	テーブルを並べる
+Price stickers on everything.	なんにでも値札を貼る。
+{keeper} held a yard sale for {second}	{keeper}は{second}のためにガレージセールを開いた
+It still gets channel nine.	まだ九チャンネルが映るんだ。
+There was no yard sale	ガレージセールは開かれなかった
+Fine, keep your channel nine.	わかった、九チャンネルはそのままね。
+The yard sale was rained off	ガレージセールは雨で中止になった
+Rain on a Saturday. Typical.	土曜に雨。お約束だね。
+{Keeper} dreamed of a block party	{Keeper}はブロックパーティーを夢見ていた
+Close the street	通りを閉める
+Folding chairs and a cooler.	折りたたみ椅子とクーラーボックス。
+The whole street came out for the block party	通りじゅうの人がブロックパーティーに出てきた
+Even the grumpy neighbors danced. I saw it!	気難しいお隣さんまで踊ってた。この目で見たよ！
+Too much fuss	大げさすぎる
+Maybe next summer.	来年の夏かな。
+There was no block party	ブロックパーティーは開かれなかった
+Next summer, then. I'm holding you to it.	じゃあ来年の夏。約束だからね。
+The block party never got going	ブロックパーティーはまるで盛り上がらなかった
+Nobody brought the music.	誰も音楽を持ってこなかった。
+The neighbors' dog got out	お隣の犬が逃げ出した
+The dog from number twelve got out! Help me put up flyers?	十二番地の犬が逃げちゃった！チラシ貼り、手伝ってくれる？
+Make the flyers	チラシを作る
+Photocopies and staples.	コピーとホチキス。
+{keeper} and you found the neighbors' dog	{keeper}とあなたでお隣の犬を見つけた
+Found him behind the diner, eating fries. Happy ending.	ダイナーの裏でフライドポテトを食べてた。めでたしめでたし。
+He'll come home	そのうち帰ってくる
+Dogs know the way.	犬は道を覚えてる。
+Everyone waited for the dog to come home	みんなで犬が帰ってくるのを待った
+He came back on his own, muddy and proud.	泥だらけで、得意げに自分で帰ってきた。
+The dog stayed out all night	犬は一晩じゅう帰ってこなかった
+Howling till dawn. Poor thing.	夜明けまで遠吠え。かわいそうに。
+The garage band wanted to practice late	ガレージバンドが遅くまで練習したがった
+The band wants to practice in our garage till ten. Cool with you?	バンドがうちのガレージで十時まで練習したいって。いいかな？
+Turn it up	音を上げて
+The street gets a free concert.	通りに無料コンサートだ。
+The band practiced in the garage till ten	バンドはガレージで十時まで練習した
+We nailed the bridge! Sorry about the windows.	ブリッジ、決まった！窓のことはごめん。
+Not on a school night	平日の夜はだめ
+Unplugged, maybe.	アンプなしなら、まあ。
+The band played unplugged	バンドはアンプなしで演奏した
+Acoustic. Very sensitive. Very quiet.	アコースティック。とても繊細。とても静か。
+The band found another garage	バンドは別のガレージを見つけた
+They're at the other end of the street now. Traitors.	今じゃ通りの向こう端にいる。裏切り者め。
+The power went out on the whole block	ブロックじゅうが停電した
+The power's out on the whole block! Candles at home, or the diner's gas grill?	ブロックじゅう停電だ！家でろうそく？それともダイナーのガスグリル？
+Light the candles	ろうそくをつける
+Cards by candlelight.	ろうそくの灯りでトランプ。
+The block spent the power cut by candlelight	ブロックの人たちはろうそくの灯りで停電をやり過ごした
+Cards by candlelight. I won, obviously.	ろうそくの灯りでトランプ。もちろん、わたしの勝ち。
+Head to the diner	ダイナーへ行く
+Grilled cheese in the dark.	暗がりでグリルドチーズ。
+Everyone ate at the diner in the dark	みんな暗いダイナーで食事をした
+Best grilled cheese of my life, cooked in the dark.	人生最高のグリルドチーズ。真っ暗な中で焼いたのに。
+The street sat in the dark	通りは真っ暗なままだった
+Nobody could find a flashlight.	誰も懐中電灯を見つけられなかった。
+The delivery truck pulled up	配達トラックがやってきた
+The delivery truck's here with the week's order. Share it round the street, or put it toward {second}?	配達トラックが今週の注文を持ってきた。通りのみんなで分ける？それとも{second}に回す？
+Something for every porch.	どの玄関先にも何かしら。
+They shared the delivery round the street	ふたりは届いた品を通りじゅうに配った
+Something on every porch. That felt good.	どの玄関先にも何かしら。いい気分。
+Put it to building	建てるのに使う
+Every box goes toward {second}.	箱はぜんぶ{second}に回す。
+The delivery went into {second}	届いた品は{second}に使われた
+Every dollar counts.	一ドルだって大事。
+The delivery sat on the curb	届いた品は縁石の上に置きっぱなしだった
+Boxes on the curb all day.	一日じゅう縁石に箱が置きっぱなし。
+A crack opened across the causeway	土手道にひびが走った
+There's a crack running across the causeway! Pack it with snow and flag the safe way round?	土手道にひびが走ってる！雪で埋めて、安全な回り道に旗を立てる？
+Pack it and flag it	埋めて旗を立てる
+Snow, flags and careful feet.	雪と旗と、慎重な足取り。
+{explorer} flagged a safe way round the crack	{explorer}はひびを避ける安全な道に旗を立てた
+Flags all the way across. Nobody's going in the water today.	向こうまでずっと旗が並んでる。今日は誰も水に落ちないよ。
+Everyone jump it	みんなで跳び越える
+It's only a little crack.	ほんの小さなひびだし。
+Everyone jumped the crack in the causeway	みんな土手道のひびを跳び越えた
+Little crack, big splash. Everyone's dried off now.	小さなひび、大きな水しぶき。もうみんな乾いたけどね。
+The crack in the causeway widened	土手道のひびが広がった
+It's a channel now. We'll need a plank.	もう水路だよ。板が要るね。
+The causeway lanterns ran low on oil	土手道のランタンの油が少なくなった
+The lanterns are low on oil. Light every other one, or put some by for {beacon}?	ランタンの油が少ない。一つおきに灯す？それとも{beacon}のために取っておく？
+Every other lantern	一つおきに灯す
+Half the light, twice the nights.	明かりは半分、夜は二倍もつ。
+Every other lantern was lit on the causeway	土手道のランタンは一つおきに灯された
+Darker, but we'll last till the fish come.	暗いけど、魚が来るまではもつよ。
+Save it for {beacon}	{beacon}のために取っておく
+Dark tonight, bright later.	今夜は暗くても、あとで明るく。
+Lantern oil went by for {beacon}	ランタンの油は{beacon}のために取っておかれた
+One day it'll shine from here to the far floe.	いつか、ここから遠くの浮氷まで照らすんだ。
+The causeway lanterns guttered out	土手道のランタンが消えてしまった
+Pitch black on the bridge. Mind your beaks.	橋の上は真っ暗。くちばしに気をつけて。
+The fish ran early	魚の群れが早く来た
+The fish are running early! Everyone to the holes, or keep to the rota?	魚が早く来た！みんなで穴に行く？それとも当番どおり？
+Everyone to the holes	みんなで穴へ
+A full vault by moonrise.	月が昇るまでに魚倉がいっぱい。
+The whole colony fished the early run	コロニー総出で早い魚群を獲った
+The vault's full! Wet feathers everywhere.	魚倉がいっぱい！あちこち濡れた羽だらけ。
+Keep to the rota	当番どおりにする
+Fair shares, no crowding.	公平に、押し合いなし。
+The colony fished the early run by turns	コロニーは交代で早い魚群を獲った
+Slow and fair. Nobody fell in, at least.	ゆっくり、公平に。少なくとも誰も落ちなかった。
+The early fish went by	早く来た魚は行ってしまった
+Gone under the ice. Next time.	氷の下へ行っちゃった。また今度。
+{Keeper} needed someone to mind the egg	{Keeper}は卵を見ていてくれる誰かを探していた
+Will you keep my egg warm on your feet while I swim? Just till moonrise.	泳いでるあいだ、わたしの卵を足の上で温めててくれる？月が昇るまででいいから。
+Hand it over	渡して
+Very, very carefully.	そうっと、そうっと。
+You kept {keeper}'s egg warm till moonrise	あなたは月が昇るまで{keeper}の卵を温めた
+Not a wobble. You're a natural.	ぐらつきもしなかった。才能あるね。
+I'd drop it	落としちゃいそう
+Better ask someone steadier.	もっと落ち着いた誰かに頼んで。
+{keeper} kept the egg and missed the swim	{keeper}は卵を抱いて、泳ぐのをあきらめた
+No swim today. The egg comes first.	今日は泳がない。卵が先。
+{Keeper} missed the swim	{Keeper}は泳ぎそびれた
+Feathers all dry and itchy. Oh well.	羽がかさかさでかゆい。まあいいか。
+A seal fell asleep by the fishing hole	アザラシが釣り穴のそばで眠ってしまった
+A seal's asleep right by the fishing hole. Wait it out, or shoo it off?	アザラシが釣り穴のすぐ横で寝てる。起きるまで待つ？それとも追い払う？
+Wait it out	起きるまで待つ
+It has to wake some time.	いつかは起きるさ。
+Everyone waited for the seal to wake	みんなでアザラシが起きるのを待った
+It yawned, rolled in and took half the fish. Fair's fair.	あくびして、転がり込んで、魚を半分持っていった。おあいこだね。
+Shoo it off	追い払う
+All together, flap and shout.	みんなで羽ばたいて、叫ぶ。
+The colony shooed the seal from the fishing hole	コロニーのみんなでアザラシを釣り穴から追い払った
+Flapping works! It looked very offended.	羽ばたき作戦、成功！すごく気を悪くしてたけど。
+The seal kept the fishing hole all day	アザラシが一日じゅう釣り穴を占領していた
+No fish today. The seal had a lovely time.	今日は魚なし。アザラシは楽しそうだったけど。
+{Explorer} watched the wind come round	{Explorer}は風向きが変わるのを見ていた
+The wind's coming round from the south. Build the snow wall higher before dark?	風が南から回ってきた。暗くなる前に雪の壁を高くする？
+Build it higher	高くする
+Blocks, packed and stacked.	雪のブロックを固めて、積んで。
+{explorer} and you built the snow wall higher	{explorer}とあなたで雪の壁を高くした
+Not a breath of wind behind it. Cosy.	壁の内側は風ひとつない。ぬくぬく。
+It'll hold	もつよ
+It held last time.	前のときももった。
+The snow wall was left as it was	雪の壁はそのままにされた
+It held. Just. My tail feathers are frozen.	もった。ぎりぎり。尾羽が凍っちゃった。
+The wind drifted snow over the wall	風が壁の向こうへ雪を吹き寄せた
+Snow in every nest. Lovely.	どの巣にも雪。すてきだね。
+The coldest night came	いちばん寒い夜がやってきた
+It's the coldest night yet. Huddle all together, or take turns on the outside?	今まででいちばん寒い夜だ。みんなで固まる？それとも外側を交代で？
+Everyone in the middle	みんな真ん中へ
+Nobody's left on the edge.	誰も端に残さない。
+The colony huddled through the coldest night	コロニーはみんなで身を寄せ合って、いちばん寒い夜を越した
+Toasty in the middle. Somebody snores.	真ん中はぽかぽか。誰かがいびきをかいてる。
+Take turns outside	外側を交代で
+Fair shifts in the wind.	風の中、公平に交代。
+Everyone took turns on the cold side	みんな交代で寒い側に立った
+My turn lasted forever. Worth it.	わたしの番、永遠に感じた。でも、その甲斐はあった。
+Nobody slept for the cold	寒さで誰も眠れなかった
+Long night. Very long night.	長い夜。とても長い夜。
+The herring came in	ニシンがやってきた
+The herring are in! Share them round the nests, or trade them for blocks for {second}?	ニシンが来た！巣ごとに分ける？それとも{second}のための氷のブロックと交換する？
+Share them round	みんなに分ける
+A fish for every nest.	どの巣にも一匹ずつ。
+They shared the herring round the nests	ふたりはニシンを巣ごとに分けた
+Fish for everyone. Even the chicks got one.	みんなに魚。ひなたちにも一匹ずつ。
+Trade for ice blocks	氷のブロックと交換する
+Every fish goes toward {second}.	魚はぜんぶ{second}に回す。
+The herring went into {second}	ニシンは{second}に使われた
+Fish for blocks. The span's growing!	魚とブロックを交換。橋がのびてるよ！
+The herring sat in a heap	ニシンが山積みのまま放っておかれた
+A heap of fish and no plan.	魚の山、計画なし。
+Airlock's sealed behind you.	後ろのエアロックは閉まったよ。
+It's a girl! Eight minutes' delay and I couldn't stop grinning.	女の子だって！八分の遅れがあっても、にやにやが止まらなかった。
+Sold the television, the lamp and somebody's roller skates. Not ours, I hope.	テレビとランプと、誰かのローラースケートが売れた。うちのじゃないといいけど。
+Keep the television	テレビは残す
+A light left on for the call home	地球への通話のために灯したままの明かり
+Tomato flowers, brushed by hand	手で受粉させたトマトの花
+A table set for the peaches	桃缶のために整えたテーブル
+A new wheel, fresh off the printer	印刷したての新しい車輪
+A bundle of morning papers	朝刊の束
+A request-show poster	リクエスト番組のポスター
+Yard sale tables	ガレージセールのテーブル
+Block party bunting	ブロックパーティーの旗飾り
+Lost-dog flyers	迷い犬のチラシ
+A warm nest for the egg	卵のための温かい巣
+A heap of the early fish	早く来た魚の山
+New blocks on the snow wall	雪の壁に積んだ新しいブロック
+Flags round the crack	ひびのまわりの旗
+A seat for watching the seal	アザラシを眺める席
+Herring for every nest	どの巣にもニシン
+Feathers left from the huddle	身を寄せ合ったあとに残った羽
+Breathe easy, you're inside.	安心して、もう中だから。
+Hey, new kid on the street!	やあ、この通りの新入りだね！
+Arcade's open till ten.	ゲームセンターは十時まで開いてるよ。
+Careful, the causeway's slippy!	気をつけて、土手道は滑るよ！
+{Keeper}'s sister sent a picture of the baby	{Keeper}の姉から赤ちゃんの写真が届いた
+My sister sent a picture of the baby! Shall we pin it up in the mess?	姉が赤ちゃんの写真を送ってくれた！食堂に貼ろうか？
+Pin it up	貼る
+Where everyone eats.	みんなが食べるところに。
+{keeper} pinned the baby's picture up in the mess	{keeper}は赤ちゃんの写真を食堂に貼った
+Look at her. Everyone keeps stopping to wave.	見て。みんな立ち止まって手を振っていくの。
+Keep it by your bunk	寝台のそばに置く
+Some pictures are just yours.	自分だけの写真もあるよね。
+{keeper} kept the baby's picture by the bunk	{keeper}は赤ちゃんの写真を寝台のそばに置いた
+I say goodnight to her every shift.	シフトのたびに、おやすみって言うんだ。
+The baby's picture stayed in its envelope	赤ちゃんの写真は封筒に入ったままだった
+I'll show you later. Maybe.	あとで見せるね。たぶん。
+The first tomato ripened in the dome garden	ドーム菜園で最初のトマトが熟した
+The first tomato's red! Share it round, or save it for seed?	最初のトマトが赤くなった！みんなで分ける？それとも種に取っておく？
+A slice each, thin as paper.	ひとり一切れ、紙みたいに薄く。
+The colony shared the first tomato, a slice each	コロニーのみんなで最初のトマトを一切れずつ分け合った
+Thin as paper and the best thing on Mars.	紙みたいに薄くて、火星でいちばんおいしい。
+Save it for seed	種に取っておく
+A hundred tomatoes next time.	次は百個のトマトだ。
+{keeper} saved the first tomato for its seeds	{keeper}は最初のトマトを種のために取っておいた
+Patience. Next year there'll be a hundred.	辛抱だよ。来年は百個になる。
+The first tomato split on the vine	最初のトマトはつるの上で割れてしまった
+Too ripe. Oh well.	熟しすぎた。まあいいか。
+{Explorer} wanted to test the new wheel	{Explorer}は新しい車輪を試したかった
+Come for a test drive on the new wheel? Just out to the crater rim and back.	新しい車輪で試運転しない？クレーターの縁まで行って帰るだけ。
+Hop in	乗って
+Helmets on.	ヘルメットをかぶって。
+{explorer} and you drove the rover out to the crater rim	{explorer}とあなたはローバーでクレーターの縁まで走った
+Smooth as anything. I could drive to the ridge on that.	すごくなめらか。これなら尾根まで行ける。
+Another day	また今度
+Let it settle in.	なじむまで待とう。
+The rover's test drive was put off	ローバーの試運転は先送りになった
+Another day, then. It isn't going anywhere.	じゃあまた今度。どこにも行かないし。
+Nobody tried the new wheel	誰も新しい車輪を試さなかった
+It's just sitting there, shiny.	ぴかぴかのまま、ただ置いてある。
+The street wanted another block party	通りのみんながもう一度ブロックパーティーをしたがった
+Everyone's asking for another block party. Make it a summer thing?	みんながまたブロックパーティーをって言ってる。夏の恒例にする？
+Every summer	毎年夏に
+First Saturday in June.	六月の第一土曜日。
+The block party became a summer tradition on the street	ブロックパーティーは通りの夏の恒例になった
+First Saturday in June, every year. I'm making a sign.	毎年六月の第一土曜日。看板を作るよ。
+Once was enough	一度で十分
+Keep it special.	特別なままにしておこう。
+The block party stayed a one-off	ブロックパーティーは一度きりになった
+Fine. We'll always have that one night.	わかった。あの夜があれば十分。
+Talk of another block party died down	またブロックパーティーをという話は立ち消えになった
+Guess everyone's busy.	みんな忙しいんだろうね。
+The neighbors baked a pie to say thank you	お隣さんがお礼にパイを焼いてくれた
+The neighbors baked us a pie for finding their dog! Eat it on the porch?	犬を見つけたお礼に、お隣さんがパイを焼いてくれた！玄関先で食べる？
+Get the forks	フォークを持ってくる
+Cherry, still warm.	チェリー味、まだ温かい。
+{keeper} and you ate the neighbors' pie on the porch	{keeper}とあなたは玄関先でお隣さんのパイを食べた
+Cherry, still warm. The dog watched every bite.	チェリー味、まだ温かい。犬がひと口ごとに見てた。
+Share it down the street	通りのみんなに分ける
+Everyone helped look.	みんな探すのを手伝ってくれたし。
+The neighbors' pie went round the street	お隣さんのパイは通りじゅうに配られた
+A sliver each, but everyone got one.	ほんのひと切れずつ。でも、みんなに行き渡った。
+The pie went cold on the counter	パイはカウンターの上で冷めてしまった
+Still good cold. Mostly.	冷めてもおいしい。たぶん。
+The paper route paid out its tips	新聞配達のチップが出た
+The paper route paid out tips! Split them, or put them in the street fund?	新聞配達のチップが出た！山分けする？それとも通りの基金に入れる？
+Split them	山分けする
+Half each, fair and square.	半分ずつ、公平に。
+{explorer} split the paper route tips with you	{explorer}は新聞配達のチップをあなたと山分けした
+Half each. I'm buying a new tape.	半分ずつ。新しいテープを買うんだ。
+The street fund	通りの基金に
+Every quarter helps.	二十五セントだって役に立つ。
+The paper route tips went into the street fund	新聞配達のチップは通りの基金に入った
+Every quarter helps, right?	二十五セントだって役に立つ、だよね？
+The tips got spent on candy	チップはお菓子に消えた
+Gone. Worth it.	なくなった。でも、その価値はあった。
+{Keeper}'s egg hatched	{Keeper}の卵がかえった
+The egg's hatched! Will you help me show the chick round the rookery?	卵がかえった！ひなを巣場のみんなに見せて回るの、手伝ってくれる？
+Show it round	見せて回る
+Slowly, on careful feet.	ゆっくり、足元に気をつけて。
+You and {keeper} showed the new chick round the rookery	あなたと{keeper}は生まれたてのひなを巣場じゅうに見せて回った
+Everyone cooed. It fell asleep halfway round.	みんながあやしてくれた。半分回ったところで眠っちゃった。
+Let it sleep	寝かせておく
+It's had a big day.	今日は大変な一日だったから。
+The new chick slept in the nest all day	生まれたてのひなは一日じゅう巣で眠っていた
+Fast asleep. Tomorrow it meets everyone.	ぐっすり。みんなに会うのは明日。
+The chick hid under {keeper}	ひなは{keeper}の下に隠れていた
+Shy. It'll come out.	恥ずかしがり屋。そのうち出てくるよ。
+The crack in the causeway froze over	土手道のひびが凍りついた
+The crack's frozen over solid. Take the flags down, or leave them as a warning?	ひびはがっちり凍った。旗を外す？それとも警告に残しておく？
+Take them down	外す
+The way is clear again.	道はまた通れる。
+{explorer} took the flags down from the mended crack	{explorer}はふさがったひびのそばの旗を外した
+Clear all the way across. Feels good.	向こうまでずっと通れる。いい気分。
+Leave them up	残しておく
+Ice remembers.	氷は覚えてるから。
+The flags stayed up by the mended crack	ふさがったひびのそばの旗はそのまま残された
+Better safe. Ice remembers.	用心に越したことはない。氷は覚えてるから。
+The wind took the flags	風が旗を持っていった
+They're halfway to the far floe now.	今ごろ遠くの浮氷の途中だよ。
+The fish vault was full to creaking	魚倉がきしむほどいっぱいになった
+The vault's so full it's creaking. Have a feast, or keep it all for the dark?	魚倉がいっぱいできしんでる。宴会にする？それとも暗い季節のために全部取っておく？
+Have a feast	宴会にする
+Everyone to the plaza.	みんな広場へ。
+The colony held a feast from the full fish vault	コロニーはいっぱいの魚倉で宴会を開いた
+Fish on fish on fish. Nobody can move.	魚、魚、また魚。もう誰も動けない。
+Keep it for the dark	暗い季節のために取っておく
+The long nights are coming.	長い夜がやってくる。
+The full fish vault was kept for the dark	いっぱいの魚倉は暗い季節のために取っておかれた
+Sensible. The long nights will thank us.	賢明だね。長い夜が感謝してくれるよ。
+The vault creaked on, untouched	魚倉は手つかずのまま、きしみ続けた
+It's still creaking.	まだきしんでる。
+Cover my paper route tomorrow? Six a.m., every porch.	明日の新聞配達、代わってくれる？朝六時、全部の玄関先に。
+My mixtape for the request show. Drop it at the station?	リクエスト番組用のミックステープ。局に届けようか？
+Yard sale Saturday? The old television could go toward {second}.	土曜にガレージセール？古いテレビを{second}の足しにできるよ。
+Block party Saturday? Close the street, music, the works?	土曜にブロックパーティー？通りを閉めて、音楽もかけて、ぜんぶやる？
+{Explorer} found an old guitar in the cargo	{Explorer}は積み荷の中に古いギターを見つけた
+Found a guitar in the cargo! Music night in the mess?	積み荷にギターがあった！食堂で音楽の夜にする？
+Music night	音楽の夜にする
+Earth songs, badly sung.	下手な歌で地球の歌を。
+{explorer} played the old guitar in the mess	{explorer}は食堂で古いギターを弾いた
+Three chords and everyone singing. Perfect.	コード三つで、みんなで歌った。最高。
+Chairs set out for music night	音楽の夜のために並べた椅子
+Quiet tonight	今夜は静かに
+Some of us are on the early shift.	早番の人もいるし。
+The guitar stayed in its case	ギターはケースに入ったままだった
+Fair. I'll practise in the airlock.	了解。エアロックで練習するよ。
+Nobody played the old guitar	誰も古いギターを弾かなかった
+It's out of tune anyway.	どうせ音が狂ってるし。
+A dust devil spun up by the pad	発着場のそばで塵旋風が巻き起こった
+A dust devil's heading for the pad! Tie everything down, or ride it out inside?	塵旋風が発着場に向かってる！全部固定する？それとも中でやり過ごす？
+Tie it all down	全部固定する
+Straps and pegs, quick.	ベルトと杭で、急いで。
+Everyone tied the pad down before the dust devil	塵旋風の前に、みんなで発着場の荷を固定した
+Not a crate moved. Good work.	箱ひとつ動かなかった。よくやった。
+Ride it out inside	中でやり過ごす
+Let the wind have the pad.	発着場は風にくれてやろう。
+Everyone rode the dust devil out inside	みんな中で塵旋風をやり過ごした
+Two crates are halfway to the ridge now.	箱がふたつ、もう尾根の途中だよ。
+The dust devil went right through the pad	塵旋風が発着場をまっすぐ通り抜けた
+Dust in every seam.	どの継ぎ目にも砂。
+{Explorer} wanted to go to the drive-in	{Explorer}はドライブインシアターに行きたかった
+Double feature at the drive-in tonight. Want to come?	今夜ドライブインで二本立て。一緒に行く？
+Grab the blanket	毛布を持っていく
+Popcorn and a crackly speaker.	ポップコーンと、がさがさ鳴るスピーカー。
+{explorer} and you went to the drive-in	{explorer}とあなたはドライブインシアターに行った
+We missed half of it talking. Best night.	しゃべってて半分見逃した。最高の夜。
+Not tonight	今夜はやめておく
+Homework, chores, the usual.	宿題に家事、いつものやつ。
+Nobody went to the drive-in	誰もドライブインシアターに行かなかった
+I'll tell you how it ends. Badly, probably.	結末を教えてあげる。たぶん、ひどいやつ。
+The drive-in was rained off	ドライブインシアターは雨で中止になった
+Rain on the windshield. No movie.	フロントガラスに雨。映画はなし。
+{Keeper}'s bike got a flat	{Keeper}の自転車がパンクした
+My bike's got a flat and I'm late for my shift! Patch it, or give me a ride?	自転車がパンクして、シフトに遅れそう！直す？それとも乗せてくれる？
+Patch it	直す
+A bucket of water and a kit.	水の入ったバケツと修理キット。
+You patched {keeper}'s bike tire	あなたは{keeper}の自転車のタイヤを直した
+Good as new, and only ten minutes late.	新品同様。遅刻は十分だけ。
+Give a ride	乗せていく
+Hop on the handlebars.	ハンドルに乗って。
+{keeper} rode to work on your handlebars	{keeper}はあなたの自転車のハンドルに乗って仕事に行った
+Terrifying. Thank you.	怖かった。ありがとう。
+{Keeper} walked to work	{Keeper}は歩いて仕事に行った
+Late again. The boss noticed.	また遅刻。店長に気づかれた。
+Beans under the long lights	長く照らされた豆
+{Keeper} worried about the beans	{Keeper}は豆のことを心配していた
+Can we run the grow lights an hour longer? The beans are sulking.	育成ライトをもう一時間つけてもいい？豆がすねてるの。
+An hour longer	もう一時間
+Power for the beans.	豆のための電力。
+{keeper} ran the grow lights an hour longer	{keeper}は育成ライトを一時間長くつけた
+Look at them, perked right up. Beans are dramatic.	見て、すっかり元気。豆って大げさなんだから。
+Save the power	電力を節約する
+The beans will cope.	豆はなんとかするよ。
+The grow lights kept their hours	育成ライトはいつもの時間のままだった
+Sulky beans it is, then.	じゃあ、すねた豆で決まりね。
+The beans sulked under the short lights	豆は短いライトの下ですねていた
+They've gone a bit yellow.	ちょっと黄色くなっちゃった。
+{Keeper}'s suit sprang a slow leak	{Keeper}の宇宙服に小さな漏れが見つかった
+My suit's got a slow leak at the elbow. Patch it tonight, or lend me yours for the walk?	宇宙服のひじから少しずつ漏れてる。今夜直す？それとも外の作業にあなたのを貸してくれる？
+Patch it tonight	今夜直す
+Glue, a patch and a pressure test.	接着剤と当て布と気圧テスト。
+You helped {keeper} patch the leaking suit	あなたは{keeper}の漏れた宇宙服を直すのを手伝った
+Holds pressure like new. I owe you one.	新品みたいに気圧がもつ。借りができたね。
+Lend mine	自分のを貸す
+A little big, but sealed.	ちょっと大きいけど、密閉は大丈夫。
+{keeper} borrowed your suit for the walk	{keeper}はあなたの宇宙服を借りて外に出た
+Your suit smells of coffee. Thanks, though.	あなたの宇宙服、コーヒーの匂いがする。でも、ありがとう。
+{Keeper} called off the walk outside	{Keeper}は外での作業を取りやめた
+No walk till the suit's fixed.	宇宙服が直るまで外には出ない。
+The crew wanted to send a song to Earth	クルーは地球に歌を送りたかった
+The crew wants to record a song for Earth. Sing it with me?	みんなで地球に送る歌を録音したいって。一緒に歌う？
+Sing along	一緒に歌う
+Off key, but loud.	音はずれでも、大声で。
+{explorer} and you recorded a song for Earth	{explorer}とあなたは地球に送る歌を録音した
+Twelve minutes to get there. I hope they turn it up.	届くまで十二分。音量を上げて聴いてくれるといいな。
+Just listen	聴くだけにする
+Someone has to clap.	誰かが拍手しないとね。
+{explorer} recorded a song for Earth while you listened	{explorer}が地球に送る歌を録音し、あなたはそれを聴いていた
+You clapped in all the right places.	拍手のタイミング、完璧だったよ。
+Nobody recorded the song for Earth	誰も地球に送る歌を録音しなかった
+Maybe next window.	次の通信窓かな。
+Crates blew off the pad in the dust devil	塵旋風で発着場から箱が飛ばされた
+Two crates blew off the pad. Go out and find them, or write them off?	箱がふたつ発着場から飛ばされた。探しに行く？それともあきらめる？
+Go and find them	探しに行く
+Follow the tracks in the dust.	砂の跡をたどって。
+{explorer} and you found the crates the dust devil took	{explorer}とあなたは塵旋風に飛ばされた箱を見つけた
+Half buried by the ridge, both of them. Lucky.	ふたつとも尾根のそばで半分埋まってた。運がいい。
+Write them off	あきらめる
+Not worth a suit's air.	宇宙服の空気を使うほどじゃない。
+The crates the dust devil took were written off	塵旋風に飛ばされた箱はあきらめられた
+Somebody on the ridge is getting a surprise.	尾根の誰かが驚くことになるね。
+The lost crates were buried by the dust	なくした箱は砂に埋もれてしまった
+Gone for good now.	これでもう見つからない。
+The colony ran low on air filters	コロニーの空気フィルターが残り少なくなった
+We're low on air filters. Print a new batch, or ask the next shuttle?	空気フィルターが少ない。新しく印刷する？それとも次のシャトルに頼む？
+Print a batch	まとめて印刷する
+Slow, but ours.	遅いけど、自前だ。
+{keeper} printed a new batch of air filters	{keeper}は空気フィルターを新しく印刷した
+Six new filters. The air's never been so quiet.	新しいフィルターが六つ。空気がこんなに静かなのは初めて。
+Ask the shuttle	シャトルに頼む
+Earth-made, and three weeks away.	地球製、届くのは三週間後。
+{keeper} ordered air filters on the next shuttle	{keeper}は次のシャトルで空気フィルターを注文した
+Three weeks. We'll breathe carefully.	三週間。そっと息をしよう。
+The colony made do with old filters	コロニーは古いフィルターでしのいだ
+Everyone's a little headachy.	みんな少し頭が痛い。
+The garage band got a gig at the diner	ガレージバンドがダイナーでライブをすることになった
+The band got a gig at the diner on Friday! Will you come and clap?	バンドが金曜にダイナーでライブするんだ！拍手しに来てくれる？
+Front row	最前列で
+Clapping on the beat.	リズムに合わせて拍手。
+You cheered the band from the front row at the diner	あなたはダイナーの最前列でバンドに声援を送った
+You were the loudest one there. We heard you.	いちばん声が大きかったよ。ちゃんと聞こえた。
+Tell me how it went	どうだったか教えて
+Busy Friday.	金曜は忙しくて。
+The band played the diner without you there	バンドはあなた抜きでダイナーで演奏した
+We were great. You'll have to trust me.	最高だったよ。信じてもらうしかないけど。
+The band's gig at the diner fell through	バンドのダイナーでのライブは流れた
+Diner booked a magician instead.	ダイナーは代わりに手品師を呼んだ。
+The power came back on the block	ブロックの電気が戻った
+The power's back! Keep a box of candles by the door, for next time?	電気が戻った！次のために、ろうそくを一箱ドアのそばに置いておく？
+Keep a box ready	一箱用意しておく
+Candles, matches, a flashlight.	ろうそく、マッチ、懐中電灯。
+{keeper} kept a box of candles by the door	{keeper}はドアのそばにろうそくを一箱置いた
+Next time we'll be ready. And I'll still win at cards.	次は準備万端。トランプはまたわたしの勝ちだけど。
+It won't happen again	もう起きないよ
+Lightning, same place, twice?	雷が同じ場所に二度も落ちる？
+The candles went back in the drawer	ろうそくは引き出しに戻された
+Famous last words.	それ、言わないほうがいいやつ。
+The candles stayed wherever they were	ろうそくはどこかに置かれたままだった
+Somewhere. Probably.	どこかにある。たぶん。
+{Keeper} saw a bike for sale	{Keeper}は売りに出ている自転車を見つけた
+There's a ten-speed for sale at the garage. Help me fix it up?	ガレージで十段変速の自転車が売ってる。修理を手伝ってくれる？
+Fix it up	修理する
+Oil, new brakes, a bell.	油をさして、ブレーキを新しく、ベルもつけて。
+{keeper} and you fixed up a ten-speed	{keeper}とあなたは十段変速の自転車を修理した
+Ten speeds! I'll never be late again.	十段変速！もう二度と遅刻しない。
+The old one's fine	古いので十分
+Flat tires and all.	パンクも込みで。
+{keeper} kept riding the old bike	{keeper}は古い自転車に乗り続けた
+Fine. It has character.	まあいいか。味があるし。
+Someone else bought the ten-speed	十段変速の自転車は別の誰かが買っていった
+Gone by Tuesday. Figures.	火曜にはもうなかった。やっぱりね。
+A trader from the far floe brought seal oil	遠くの浮氷から来た商人がアザラシの油を持ってきた
+A trader from the far floe has seal oil. Swap some fish for it?	遠くの浮氷の商人がアザラシの油を持ってる。魚と交換する？
+Swap some fish	魚と交換する
+A sack for a jar.	一袋で一壺。
+{keeper} swapped fish for seal oil from the far floe	{keeper}は魚と遠くの浮氷のアザラシ油を交換した
+Every lantern lit tonight. Look at the bridge!	今夜はランタンが全部灯ってる。橋を見て！
+We'll manage	なんとかなる
+The fish are for eating.	魚は食べるためのものだし。
+The trader went back with the seal oil	商人はアザラシの油を持って帰っていった
+Dim again tonight. We'll manage.	今夜もまた薄暗い。なんとかなるさ。
+The oil trader moved on	油の商人は次へ向かった
+Off to the next colony.	次のコロニーへ行っちゃった。
+The seal came back with a friend	アザラシが友だちを連れて戻ってきた
+The seal's back, and it's brought a friend! Share the hole, or cut a new one?	アザラシが戻ってきて、友だちまで連れてきた！穴を分け合う？それとも新しく開ける？
+Share the hole	穴を分け合う
+Turns for everyone.	みんなで順番に。
+The colony shared the fishing hole with the seals	コロニーは釣り穴をアザラシと分け合った
+They took turns. Better manners than some of us.	ちゃんと順番を守ってた。わたしたちより行儀がいいかも。
+Cut a new hole	新しく穴を開ける
+Ice saws out.	氷のこぎりの出番だ。
+{explorer} cut a new fishing hole away from the seals	{explorer}はアザラシから離れたところに新しい釣り穴を開けた
+Our own hole again. The seals waved.	また自分たちの穴。アザラシが手を振ってた。
+The seals kept the fishing hole	アザラシが釣り穴を占領し続けた
+Two seals, one hole, no fish.	アザラシふたり、穴ひとつ、魚なし。
+Someone sang in the huddle	身を寄せ合っているとき、誰かが歌った
+Someone started a song in the huddle last night. Shall we teach it to the chicks?	ゆうべ、身を寄せ合ってるときに誰かが歌い出したの。ひなたちに教えようか？
+Teach the chicks	ひなに教える
+Slowly, verse by verse.	ゆっくり、一節ずつ。
+{keeper} taught the chicks the huddle song	{keeper}はひなたちにあの歌を教えた
+They've only got the first line. They sing it all day.	最初の一行しか覚えてないけど、一日じゅう歌ってる。
+Keep it for the huddle	寄り添うときのために取っておく
+Some songs are for cold nights.	寒い夜のための歌もある。
+The huddle song was kept for cold nights	あの歌は寒い夜のために取っておかれた
+Next cold night, then. It's better in the dark.	じゃあ次の寒い夜に。暗いほうがいい歌なんだ。
+Nobody remembered how the song went	誰もあの歌を思い出せなかった
+Something about fish. I think.	魚の歌だった、と思う。
+{Explorer} had an idea for the solar panels	{Explorer}はソーラーパネルのことで思いついた
+What if we rigged covers for the panels before the next storm? Old tarp, a few clips.	次の嵐の前に、パネルに覆いをかけたらどうかな？古い防水シートとクリップで。
+Rig the covers	覆いをかける
+Tarp, clips and a ladder.	防水シートとクリップとはしご。
+{explorer} and you rigged covers over the solar panels	{explorer}とあなたでソーラーパネルに覆いをかけた
+Let the dust come. We're ready.	砂よ来い。準備はできてる。
+Brooms will do	ほうきで十分
+They worked last time.	前もそれで済んだし。
+The solar panels stayed uncovered	ソーラーパネルは覆いのないままだった
+Brooms it is. My shoulders disagree.	ほうきで決まり。肩は反対してるけど。
+Nobody rigged the panel covers	誰もパネルに覆いをかけなかった
+The tarp's still in the store.	防水シートはまだ倉庫の中。
+{Explorer} kept a peach stone	{Explorer}は桃の種を取っておいた
+I kept a peach stone from the tin. Shall we try to grow it in the dome garden?	缶詰の桃の種を取っておいたんだ。ドーム菜園で育ててみる？
+Plant it	植える
+A pot by the warm pipe.	暖かい配管のそばに鉢を置いて。
+{explorer} planted a peach stone in the dome garden	{explorer}はドーム菜園に桃の種を植えた
+A peach tree on Mars. Give it ten years.	火星の桃の木。十年待ってて。
+Keep it as a charm	お守りにする
+{explorer} kept the peach stone for luck	{explorer}は幸運のお守りに桃の種を持っていた
+It's in my pocket. For luck.	ポケットに入れてある。幸運のお守り。
+The peach stone went down the recycler	桃の種はリサイクラーに流れてしまった
+{Explorer} heard of a meteor shower	{Explorer}は流星群のことを聞きつけた
+There's a meteor shower over the ridge tonight. Suit up and watch it outside?	今夜、尾根の上に流星群が来る。宇宙服を着て外で見る？
+Suit up	宇宙服を着る
+Lie back on the regolith.	レゴリスに寝そべって。
+{explorer} and you watched the meteor shower from the regolith	{explorer}とあなたはレゴリスに寝そべって流星群を眺めた
+Forty-one. I counted. You made a wish on every one.	四十一個。数えたよ。あなたはひとつ残らず願いごとをしてた。
+Watch from the window	窓から見る
+Warm, and nearly as good.	暖かくて、ほとんど同じくらいいい。
+The meteor shower was watched through the window	流星群は窓越しに眺められた
+Nearly as good. Nearly.	ほとんど同じくらい。ほとんど、ね。
+Nobody watched the meteor shower	誰も流星群を見なかった
+Clouds of dust. Missed it.	砂ぼこりの雲。見逃した。
+Earth sent a library of seeds	地球から種のライブラリーが届いた
+Earth sent a seed library on the shuttle! Plant the lot, or keep some in reserve?	地球がシャトルで種のライブラリーを送ってくれた！全部植える？それとも少し取っておく？
+Plant the lot	全部植える
+Every tray in the dome.	ドームのトレイを全部使って。
+{keeper} planted the whole seed library in the dome garden	{keeper}は種のライブラリーを全部ドーム菜園に植えた
+Every tray full. It'll be a jungle by spring.	トレイは全部いっぱい。春にはジャングルだね。
+Trays of new seedlings	新しい苗のトレイ
+Keep some back	少し取っておく
+Half now, half for a bad year.	半分は今、半分は不作の年のために。
+{keeper} kept half the seed library in reserve	{keeper}は種の半分を予備に取っておいた
+Half in the soil, half in the cold store. Sensible.	半分は土に、半分は冷蔵庫に。賢明だね。
+The seed library sat in its box	種のライブラリーは箱に入ったままだった
+They'll keep. Seeds are patient.	もつよ。種は気長だから。
+The drill struck clean ice under the ridge	ドリルが尾根の下できれいな氷に当たった
+The drill's hit clean ice under the ridge! Melt it for the garden, or keep it for drinking?	ドリルが尾根の下できれいな氷に当たった！溶かして菜園に使う？それとも飲み水に取っておく？
+Melt it for the garden	溶かして菜園に
+Green things first.	緑のものが先。
+The clean ice from the ridge went to the dome garden	尾根のきれいな氷はドーム菜園に回された
+The garden's drinking like it's never seen water.	菜園が、水を初めて見たみたいに飲んでる。
+Keep it for drinking	飲み水に取っておく
+The cleanest water on Mars.	火星でいちばんきれいな水。
+The clean ice from the ridge went into the water tanks	尾根のきれいな氷は貯水タンクに入れられた
+Tastes like a mountain stream. Or what I remember of one.	山の小川みたいな味。覚えてる限りでは、だけど。
+The clean ice under the ridge went to vapour	尾根の下のきれいな氷は蒸発してしまった
+Left it too long. Mars took it back.	放っておきすぎた。火星が取り返していった。
+{Keeper} remembered the day they landed	{Keeper}は着陸した日のことを思い出した
+It's a year since we landed. A party in the mess, or a quiet minute on the apron?	着陸してから一年。食堂でパーティー？それともエプロンで静かなひととき？
+A party in the mess	食堂でパーティー
+Music, peaches if there are any.	音楽と、残ってたら桃も。
+The colony threw a landing-day party in the mess	コロニーは食堂で着陸記念日のパーティーを開いた
+A whole year. Look at us, still here, still singing.	まる一年。見てよ、まだここにいて、まだ歌ってる。
+Landing-day streamers	着陸記念日の紙テープ
+A quiet minute outside	外で静かなひととき
+Just the stars and the dust.	星と砂だけ。
+{keeper} and you spent a quiet minute on the apron	{keeper}とあなたはエプロンで静かなひとときを過ごした
+Just us and the stars. That was the right way.	わたしたちと星だけ。それでよかった。
+Landing day went by unmarked	着陸記念日は何事もなく過ぎた
+Did anyone else remember? No?	ほかに誰か覚えてた？いない？
+The chicks found the snow wall	ひなたちが雪の壁を見つけた
+The chicks are sliding down the snow wall! Let them, or shoo them off before it breaks?	ひなたちが雪の壁を滑り下りてる！好きにさせる？それとも壊れる前に追い払う？
+Let them slide	滑らせてあげる
+It's what walls are for.	壁ってそのためのものだし。
+The chicks slid down the snow wall all afternoon	ひなたちは午後じゅう雪の壁を滑っていた
+Squeals all afternoon. The wall's a bit shorter now.	午後じゅう歓声。壁は少し低くなったけど。
+Shoo them off	追い払う
+Walls are for wind.	壁は風よけのためのもの。
+{explorer} shooed the chicks off the snow wall	{explorer}はひなたちを雪の壁から追い払った
+They're sulking. The wall's fine.	すねてるけど、壁は無事。
+The chicks wore a groove in the wall	ひなたちが壁に溝を作ってしまった
+There's a slide in it now. Officially.	今じゃ壁に滑り台がある。公式にね。
+Herring was left over	ニシンが余った
+There's herring left over. Smoke it for the dark, or give it to the skuas?	ニシンが余ってる。燻製にして暗い季節に取っておく？それともトウゾクカモメにあげる？
+Smoke it	燻製にする
+A slow fire and patience.	とろ火と辛抱。
+{keeper} smoked the leftover herring for the dark	{keeper}は余ったニシンを暗い季節のために燻製にした
+The whole rookery smells of smoke. Lovely.	巣場じゅう燻製の匂い。いいね。
+Give it to the skuas	トウゾクカモメにあげる
+They'll leave the eggs alone.	そうすれば卵には手を出さない。
+The leftover herring went to the skuas	余ったニシンはトウゾクカモメにあげた
+Fat skuas leave eggs alone. That's the idea.	おなかいっぱいのトウゾクカモメは卵を狙わない。そういう作戦。
+The leftover herring froze solid	余ったニシンはかちかちに凍った
+Fish-sicles. Still food.	魚のアイスキャンディー。まだ食べられる。
+{Explorer} wanted a movie night at home	{Explorer}は家で映画の夜をやりたかった
+Let's do our own movie night on the garage wall! Borrow the school projector?	ガレージの壁で自分たちの映画の夜をやろうよ！学校の映写機を借りる？
+Borrow the projector	映写機を借りる
+Bring a sheet and popcorn.	シーツとポップコーンを持ってきて。
+{explorer} showed a movie on the garage wall	{explorer}はガレージの壁に映画を映した
+Half the street brought chairs. We're a drive-in now.	通りの半分が椅子を持ってきた。もうドライブインだね。
+The couch is fine	ソファで十分
+Fewer bugs inside.	家の中なら虫も少ない。
+Movie night was on the couch	映画の夜はソファで
+Fine. Couch, popcorn, no mosquitoes.	いいよ。ソファにポップコーン、蚊もいない。
+Movie night never happened	映画の夜は結局やらなかった
+Projector's broken anyway.	どうせ映写機は壊れてるし。
+The kelp beds grew thick	昆布の群生地がよく茂った
+The kelp beds are thick this year. Weave kelp rope, or dry it to line the nests?	今年は昆布がよく茂ってる。ロープに編む？それとも干して巣に敷く？
+Weave rope	ロープに編む
+Strong enough for a bridge.	橋が架けられるくらい丈夫。
+{explorer} and you wove rope from the kelp beds	{explorer}とあなたで昆布からロープを編んだ
+A whole coil! Strong enough to tie the moon down.	まるごと一巻き！月だってつなぎとめられる。
+Line the nests	巣に敷く
+Soft and warm underfoot.	足もとがふかふかで暖かい。
+The nests were lined with dried kelp	巣に干した昆布が敷かれた
+Every nest smells of the sea now. Cosy.	どの巣も海の匂い。ぬくぬく。
+The kelp drifted off on the current	昆布は潮に流されていった
+Gone to the far floe.	遠くの浮氷まで行っちゃった。
+The chicks kept wandering onto the causeway	ひなたちが土手道に迷い出てばかりいた
+The chicks keep wandering onto the causeway. Teach them the safe edges, or rope off the end?	ひなたちが土手道に出ちゃうの。安全な縁を教える？それとも端をロープで囲う？
+Teach the edges	縁を教える
+Where the ice is thick, where it isn't.	氷が厚いところと、薄いところ。
+{keeper} and you taught the chicks the causeway's safe edges	{keeper}とあなたはひなたちに土手道の安全な縁を教えた
+They walk the edge like little guards now.	今じゃ小さな見張りみたいに縁を歩いてる。
+Little flags for the chicks	ひなのための小さな旗
+Rope off the end	端をロープで囲う
+Simple, and safe.	簡単で、安全。
+The end of the causeway was roped off	土手道の端はロープで囲われた
+Rope it is. They're climbing it, mind.	ロープで決まり。よじ登ってるけどね。
+The chicks kept wandering	ひなたちは迷い出てばかりだった
+Somebody will get a wet tail.	そのうち誰かのしっぽが濡れるよ。
+{Keeper} thought about a spare suit	{Keeper}は予備の宇宙服のことを考えた
+We should keep a spare suit by the airlock. Fix up the old training suit?	エアロックのそばに予備の宇宙服を置いておくべきだね。古い訓練用のを直そうか？
+Seals, gloves, a new visor.	シールと手袋と、新しいバイザー。
+{keeper} and you fixed up a spare suit for the airlock	{keeper}とあなたはエアロック用の予備の宇宙服を直した
+One spare, ready by the door. I sleep better already.	予備が一着、ドアのそばに。もうよく眠れそう。
+We'll share	共用する
+Two suits go a long way.	二着あれば十分やっていける。
+The colony kept sharing suits	コロニーは宇宙服の共用を続けた
+Sharing it is. Mind the coffee smell.	共用で決まり。コーヒーの匂いには気をつけて。
+The training suit stayed in its locker	訓練用の宇宙服はロッカーに入ったままだった
+It'll still be there.	まだそこにあるよ。
+The beans were ready	豆が実った
+The beans are ready! Cook them tonight, or dry them for later?	豆が実った！今夜料理する？それとも干して取っておく？
+Cook them tonight	今夜料理する
+A real stew, with real beans.	本物の豆で、本物のシチュー。
+{keeper} cooked the first beans into a stew	{keeper}は最初の豆でシチューを作った
+Real beans in real stew. The mess went quiet, eating.	本物の豆の本物のシチュー。食堂がしんとなって、みんな食べてた。
+Dry them for later	干して取っておく
+Beans keep.	豆は日持ちするから。
+{keeper} dried the beans for later	{keeper}は豆を干して取っておいた
+A jar of beans for a hungry week. Very sensible.	おなかの空く週のために豆を一瓶。とても賢明。
+The beans went tough on the vine	豆はつるの上で硬くなってしまった
+Left them too long.	放っておきすぎた。
+{Explorer} looked at the kelp and the gap	{Explorer}は昆布と隙間を見比べた
+With all that kelp we could string a handrail along the causeway. Shall we?	あれだけ昆布があれば、土手道に手すりを張れるよ。やってみる？
+String the handrail	手すりを張る
+Post by post.	杭から杭へ。
+{explorer} and you strung a kelp handrail along the causeway	{explorer}とあなたは土手道に昆布の手すりを張った
+Something to hold on the windy nights. Good work.	風の強い夜につかまれるものができた。よくやった。
+Feet are enough	足だけで十分
+We've managed so far.	今までなんとかなってきたし。
+The causeway went without a handrail	土手道には手すりがないままだった
+Careful feet it is.	慎重な足取りで行こう。
+The spare kelp went soggy	余った昆布はふやけてしまった
+Too soggy for rope now.	もうロープにするには柔らかすぎる。
+Right. Seal the ring, light the apron, and this rock's a home.	よし。リングを閉じて、エプロンに灯りをともせば、この岩も家になる。
+Seal the ring, light the apron, and this rock's a home.	リングを閉じて、エプロンに灯りをともせば、この岩も家になる。
+Cool. Let's make this street feel like ours.	いいね。この通りを、ぼくらの通りにしよう。
+Let's make this street feel like ours.	この通りを、ぼくらの通りにしよう。
+Good! Pack the snow tight. We'll build a home here.	よし！雪をしっかり固めて。ここに家を建てよう。
+Pack the snow tight.	雪をしっかり固めて。
+We'll build a home here.	ここに家を建てよう。

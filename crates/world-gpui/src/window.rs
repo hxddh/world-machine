@@ -16,6 +16,7 @@ use crate::scene;
 mod arrival;
 mod drawer;
 mod farewell;
+mod glide;
 mod marking;
 mod stories;
 #[cfg(test)]
@@ -165,7 +166,10 @@ impl ProjectionView {
                 self.status_is_error = false;
             }
             Err(error) => {
-                self.status = Some(format!("Couldn't continue: {error}"));
+                self.status = Some(crate::i18n::fill(
+                    "Couldn't continue: {error}",
+                    &[("error", &world_i18n::tr_owned(&error.to_string()))],
+                ));
                 self.status_is_error = true;
             }
         }
@@ -202,7 +206,7 @@ impl ProjectionView {
                 .bg(color(tokens::SURFACE))
                 .text_sm()
                 .text_color(color(tone))
-                .child(status.clone()),
+                .child(crate::wrap::text(status.clone())),
         )
     }
 
@@ -212,7 +216,11 @@ impl ProjectionView {
         self.snapshot.briefing.as_ref()?.beats().get(index).copied()
     }
 
+    /// The return film's next beat, however it is asked for (the Next
+    /// button, a key, or the beat's own time running out): its clock starts
+    /// again, so every beat is told for its full time.
     fn step_retelling(&mut self, cx: &mut Context<Self>) {
+        self.looking.beat_at = Some(std::time::Instant::now());
         let count = self
             .snapshot
             .briefing
@@ -268,26 +276,21 @@ impl ProjectionView {
                 div()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(beat.title.clone()),
+                    .child(crate::wrap::text(beat.title.clone())),
             );
         if !beat.detail.is_empty() {
             body = body.child(ui::body(beat.detail.clone()));
         }
         let mut telling = div().flex().items_start().gap_4();
         if let Some(name) = faces.first() {
-            let face = match self
-                .snapshot
-                .canvas
-                .items
-                .iter()
-                .find(|item| &item.label == name)
-            {
+            // The face of what the camera is on (see `beat_subject`).
+            let face = match beat_subject(&self.snapshot, beat).first() {
                 Some(item) => world_window::portrait(
                     world_window::likeness_of(&self.snapshot, item.id),
                     52.0,
                     false,
                 ),
-                None => ui::avatar(name, 52.0),
+                None => ui::avatar(&world_i18n::tr_owned(name), 52.0),
             };
             telling = telling.child(if beat.tone == Tone::Neutral {
                 face
@@ -313,9 +316,12 @@ impl ProjectionView {
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .child(ui::section_label(format!(
-                        "While you were away · {} of {count}",
-                        index + 1
+                    .child(ui::section_label(crate::i18n::fill(
+                        "While you were away · {beat} of {count}",
+                        &[
+                            ("beat", &(index + 1).to_string()),
+                            ("count", &count.to_string()),
+                        ],
                     )))
                     .child(
                         div()
@@ -324,7 +330,7 @@ impl ProjectionView {
                             .text_color(color(tokens::TEXT_SECONDARY))
                             .cursor_pointer()
                             .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
-                            .child("Skip to your turn")
+                            .child(ui::t("Skip to your turn"))
                             .on_click(cx.listener(|this, _, _, cx| this.end_retelling(cx))),
                     ),
             )
@@ -345,6 +351,7 @@ impl ProjectionView {
                             if last { "Your turn →" } else { "Next →" },
                             ButtonKind::Primary,
                         )
+                        .debug_selector(|| "retelling-next".into())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if last {
                                 this.end_retelling(cx)
@@ -395,7 +402,7 @@ impl ProjectionView {
             .selection
             .and_then(|selection| scene::event_actor(&self.snapshot, selection));
         let face = match actor {
-            Some(name) => ui::avatar(&name, 26.0),
+            Some(name) => ui::avatar(&world_i18n::tr_owned(&name), 26.0),
             None => div()
                 .size(px(26.0))
                 .flex()
@@ -543,7 +550,7 @@ impl ProjectionView {
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(tokens::ACCENT_TEXT))
-                                .child("Begin here →"),
+                                .child(ui::t("Begin here →")),
                         ),
                 )
                 .on_click(
@@ -704,12 +711,10 @@ impl ProjectionView {
                 .child(rows);
         }
         if hidden > 0 {
-            history = history.child(
-                div()
-                    .px_3()
-                    .pt_2()
-                    .child(ui::caption(format!("{hidden} earlier moments"))),
-            );
+            history = history.child(div().px_3().pt_2().child(ui::caption(crate::i18n::fill(
+                "{hidden} earlier moments",
+                &[("hidden", &hidden.to_string())],
+            ))));
         }
         Some(
             div()
@@ -730,7 +735,7 @@ impl ProjectionView {
         let selected = self.selected == Some(selection);
         let actor = scene::event_actor(&self.snapshot, selection);
         let face = match &actor {
-            Some(name) => ui::avatar(name, 20.0),
+            Some(name) => ui::avatar(&world_i18n::tr_owned(name), 20.0),
             None => div()
                 .size(px(20.0))
                 .flex()
@@ -1066,12 +1071,12 @@ impl ProjectionView {
             };
             for (position, index) in shown.iter().enumerate() {
                 if path_len > 6 && position == 2 {
-                    path_nodes = path_nodes.child(
-                        div()
-                            .px_3()
-                            .py_1()
-                            .child(ui::caption(format!("{} steps in between", path_len - 5))),
-                    );
+                    path_nodes = path_nodes.child(div().px_3().py_1().child(ui::caption(
+                        crate::i18n::fill(
+                            "{steps} steps in between",
+                            &[("steps", &(path_len - 5).to_string())],
+                        ),
+                    )));
                 }
                 let (_, item, effect) = &semantic_path[*index];
                 path_nodes = path_nodes.child(self.semantic_path_node(item, effect, cx));
@@ -1094,11 +1099,10 @@ impl ProjectionView {
                 .child(ui::section_label("Also because of it"))
                 .child(other_nodes);
             if other_count > 6 {
-                others = others.child(
-                    div()
-                        .px_3()
-                        .child(ui::caption(format!("{} more", other_count - 6))),
-                );
+                others = others.child(div().px_3().child(ui::caption(crate::i18n::fill(
+                    "{hidden} more",
+                    &[("hidden", &(other_count - 6).to_string())],
+                ))));
             }
             panel = panel.child(others);
         }
@@ -1302,7 +1306,7 @@ impl Render for ProjectionView {
                             .text_base()
                             .font_weight(FontWeight::SEMIBOLD)
                             .truncate()
-                            .child(self.snapshot.title.clone()),
+                            .child(crate::wrap::text(self.snapshot.title.clone())),
                     ),
             );
         }
@@ -1335,48 +1339,104 @@ fn starts_retelling(snapshot: &ProjectionSnapshot) -> Option<usize> {
     (briefing.returned && !briefing.beats().is_empty()).then_some(0)
 }
 
-/// Who and where a beat is about, as things on the scene: the people its
-/// event names, or the person, place or relationship it points at.
+/// What a return beat is about, as the things on the scene it shows: the
+/// person it happened to (the event's "Who"), else what it happened to
+/// ("With"), the people and things before the places they stand in (never
+/// the whole place for a catch that left it). Found by the World's own
+/// names for them, which every language shares (see [`items_named`]), so
+/// the camera, the glow and the face are on the same thing whatever
+/// language the window is in.
+fn beat_subject<'a>(
+    snapshot: &'a ProjectionSnapshot,
+    beat: &BriefingItem,
+) -> Vec<&'a world_projection::CanvasItem> {
+    let Some(selection) = beat.selection else {
+        return Vec::new();
+    };
+    if !matches!(selection, SelectionId::Event(_)) {
+        return snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.id == selection)
+            .collect();
+    }
+    let Some(inspector) = snapshot.inspector(selection) else {
+        return Vec::new();
+    };
+    let named = |labels: [&str; 2]| {
+        let mut items = Vec::new();
+        for row in inspector
+            .sections
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .filter(|row| labels.contains(&row.label.as_str()))
+        {
+            for name in row.value.split(", ") {
+                for item in items_named(snapshot, name) {
+                    if !items
+                        .iter()
+                        .any(|known: &&world_projection::CanvasItem| known.id == item.id)
+                    {
+                        items.push(item);
+                    }
+                }
+            }
+        }
+        items
+    };
+    let who = named([world_projection::EVENT_WHO_ROW, "Actor"]);
+    if !who.is_empty() {
+        return who;
+    }
+    let with = named([world_projection::EVENT_WITH_ROW, "Targets"]);
+    let not_places = with
+        .iter()
+        .copied()
+        .filter(|item| item.kind != CanvasItemKind::Place)
+        .collect::<Vec<_>>();
+    if not_places.is_empty() {
+        with
+    } else {
+        not_places
+    }
+}
+
+/// Who and what a return beat is about (see [`beat_subject`]), or the
+/// person, place or relationship it points at.
 fn beat_targets(
     snapshot: &ProjectionSnapshot,
     beat: &BriefingItem,
 ) -> std::collections::BTreeSet<SelectionId> {
-    let mut targets = std::collections::BTreeSet::new();
-    let Some(selection) = beat.selection else {
-        return targets;
-    };
-    let names = match selection {
-        SelectionId::Event(_) => snapshot
-            .inspector(selection)
-            .map(|inspector| {
-                inspector
-                    .sections
-                    .iter()
-                    .flat_map(|section| section.rows.iter())
-                    .filter(|row| {
-                        [
-                            world_projection::EVENT_WHO_ROW,
-                            world_projection::EVENT_WITH_ROW,
-                            "Actor",
-                            "Targets",
-                        ]
-                        .contains(&row.label.as_str())
-                    })
-                    .flat_map(|row| row.value.split(", ").map(str::to_owned).collect::<Vec<_>>())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default(),
-        _ => {
-            targets.insert(selection);
-            Vec::new()
+    match beat.selection {
+        Some(selection) if !matches!(selection, SelectionId::Event(_)) => {
+            return std::iter::once(selection).collect();
         }
-    };
-    for item in &snapshot.canvas.items {
-        if names.contains(&item.label) {
-            targets.insert(item.id);
-        }
+        _ => {}
     }
-    targets
+    beat_subject(snapshot, beat)
+        .into_iter()
+        .map(|item| item.id)
+        .collect()
+}
+
+/// The things on the scene called `name` as the World names them (an
+/// event's "Who" row, untranslated), found in every language: by the
+/// label as it is shown (translated, so `name` is put in the reader's
+/// script first), the label as the World wrote it, or the thing's own
+/// inspector, which keeps its untranslated name.
+fn items_named<'a>(
+    snapshot: &'a ProjectionSnapshot,
+    name: &'a str,
+) -> impl Iterator<Item = &'a world_projection::CanvasItem> + 'a {
+    let shown = world_i18n::tr_owned(name);
+    snapshot.canvas.items.iter().filter(move |item| {
+        item.label == name
+            || item.label == shown
+            || snapshot
+                .inspector(item.id)
+                .is_some_and(|inspector| inspector.title == name)
+    })
 }
 
 /// The people a choice concerns, by name: the asker, or both ends of the
@@ -1614,7 +1674,10 @@ fn linked_section(title: &str, items: Div, hidden: usize) -> Div {
         .child(ui::section_label(title.to_string()))
         .child(items.mx(px(-12.0)));
     if hidden > 0 {
-        section = section.child(ui::caption(format!("{hidden} more")));
+        section = section.child(ui::caption(crate::i18n::fill(
+            "{hidden} more",
+            &[("hidden", &hidden.to_string())],
+        )));
     }
     section
 }

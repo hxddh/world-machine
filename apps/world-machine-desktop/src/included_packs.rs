@@ -60,13 +60,16 @@ pub fn discover() -> io::Result<Vec<IncludedPack>> {
     Ok(discover_in(&root))
 }
 
+/// Where the included Packs are for the app at `executable`: inside the
+/// Mac's app bundle, `Contents/Resources/World Packs`; anywhere else (the
+/// Windows installer's folder), `World Packs` beside the executable.
 fn resource_root_for_executable(executable: &Path) -> Option<PathBuf> {
-    let macos = executable.parent()?;
-    if macos.file_name()?.to_str()? != "MacOS" {
-        return None;
+    let folder = executable.parent()?;
+    if folder.file_name()?.to_str()? == "MacOS" {
+        let contents = folder.parent()?;
+        return Some(contents.join("Resources").join(INCLUDED_PACKS_RESOURCE_DIR));
     }
-    let contents = macos.parent()?;
-    Some(contents.join("Resources").join(INCLUDED_PACKS_RESOURCE_DIR))
+    Some(folder.join(INCLUDED_PACKS_RESOURCE_DIR))
 }
 
 fn discover_in(root: &Path) -> Vec<IncludedPack> {
@@ -118,9 +121,10 @@ mod tests {
                 "/tmp/World Machine.app/Contents/Resources/World Packs"
             ))
         );
+        // Windows: the installer puts the Packs beside the executable.
         assert_eq!(
-            resource_root_for_executable(Path::new("/tmp/world-machine-desktop")),
-            None
+            resource_root_for_executable(Path::new("/tmp/World Machine/World Machine.exe")),
+            Some(PathBuf::from("/tmp/World Machine/World Packs"))
         );
     }
 

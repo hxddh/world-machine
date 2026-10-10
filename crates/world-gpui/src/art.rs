@@ -2396,6 +2396,9 @@ pub struct Inks {
     pub skin: Hsla,
     /// Whether windows are lit, and glow.
     pub lit: bool,
+    /// Whether lit windows throw their soft glow around themselves (left
+    /// out only by a test measuring what that glow lays).
+    pub glow: bool,
 }
 
 impl Inks {
@@ -2416,6 +2419,7 @@ impl Inks {
             hair: palette.trim,
             skin: hex(0xf0c7a2),
             lit: false,
+            glow: true,
         }
     }
 
@@ -2430,6 +2434,7 @@ impl Inks {
             hair: figure.hair,
             skin: figure.skin,
             lit: false,
+            glow: true,
         }
     }
 
@@ -2487,18 +2492,24 @@ pub fn paint_drawing(
                 round,
             } => {
                 let left = if flip > 0.0 { px(*rx) } else { px(rx + rw) };
-                // A lit window throws a soft glow around itself.
-                if inks.lit && part.ink == world_projection::Ink::Glass {
+                // A lit window throws a soft glow around itself: a soft
+                // ellipse, kept inside the room a building's picture has
+                // around it (0.72 of its width either side, a little
+                // below its foot), so it is never cut square at the
+                // picture's edge (v0.29 round 2: a lit box behind the
+                // rust planet's dome garden, a rounded rectangle 1.7 times the
+                // glass, hard-edged).
+                if inks.lit && inks.glow && part.ink == world_projection::Ink::Glass {
                     let (gw, gh) = (rw * w, rh * h);
-                    rect(
-                        window,
-                        left - gw * 0.35,
-                        py(ry + rh) - gh * 0.35,
-                        gw * 1.7,
-                        gh * 1.7,
-                        gw.min(gh) * 0.6,
-                        colour.opacity(0.22),
-                    );
+                    let (cx, cy) = (left + gw / 2.0, py(ry + rh) + gh / 2.0);
+                    let blur = gw.min(gh) * 0.6;
+                    let reach = blur / 2.0;
+                    let room_x = w * 0.68 - (cx - x).abs() - reach;
+                    let room_y = (base + h * 0.02 - cy).min(cy - (base - h * 1.25)) - reach;
+                    let (gx, gy) = ((gw * 0.85).min(room_x), (gh * 0.85).min(room_y));
+                    if gx > gw * 0.3 && gy > gh * 0.3 {
+                        window.soft(cx, cy, gx, gy, blur, colour.opacity(0.22));
+                    }
                 }
                 rect(window, left, py(ry + rh), rw * w, rh * h, round * w, colour);
             }

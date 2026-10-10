@@ -292,7 +292,11 @@ pub fn done_by(kind: Kind, asker: EntityId, heard: Heard, accepts: impl Fn() -> 
     }
     let accepted = || heard.intent == Intent::Invite && accepts();
     match kind {
-        Kind::AskAfter => true,
+        // Looking in on someone is asking after them: how they are, how
+        // their day went, what is wrong. Any other words, even an offer
+        // of help (a demand can sound like one),
+        // however warm, are not ("free drink, free drink").
+        Kind::AskAfter => asks_after(heard.intent),
         Kind::Invite => accepted(),
         Kind::CheerUp => {
             matches!(
@@ -303,6 +307,148 @@ pub fn done_by(kind: Kind, asker: EntityId, heard: Heard, accepts: impl Fn() -> 
         // Word passed on is word about the asker.
         Kind::Sorry => heard.about == Some(asker),
     }
+}
+
+/// Whether words heard as `intent` ask after whoever they are said to.
+pub fn asks_after(intent: Intent) -> bool {
+    matches!(intent, Intent::HowAreYou | Intent::Worry | Intent::Day)
+}
+
+/// Words that pass on someone else's apology without naming them: "she's
+/// sorry", "he asked me to apologise", "on her behalf", "有人让我替她道歉",
+/// "彼女が謝ってた". Said with an apology to whom an apology favour is for,
+/// the one who is sorry can only be whoever asked it.
+const PASSED_ON: &[&str] = &[
+    "she",
+    "he",
+    "they",
+    "her",
+    "him",
+    "them",
+    "someone",
+    "somebody",
+    "behalf",
+    "asked me",
+    "wanted me",
+    "told me",
+    "pass on",
+    "passing on",
+    "message",
+    "from her",
+    "from him",
+    "她",
+    "他",
+    "有人",
+    "替",
+    "代",
+    "托我",
+    "转告",
+    "转达",
+    "让我",
+    "叫我",
+    "彼女",
+    "彼",
+    "ある人",
+    "代わり",
+    "伝え",
+    "預か",
+    "頼まれ",
+    "言ってた",
+    "って",
+];
+
+/// Whether `words` pass on an apology from someone not named.
+fn passed_on(words: &str) -> bool {
+    let text = crate::normal(words);
+    crate::any(&text, PASSED_ON)
+}
+
+/// The words heard in the light of the favour open for `who`, if any: what
+/// is otherwise unclear about it is settled by whoever asked it, and only
+/// ever to the meaning the words themselves have.
+///
+/// - An apology passed on without a name ("she's sorry, she asked me to
+///   tell you") is the asker's: whom an apology favour is for has only one
+///   apology to hear.
+/// - Words that name the asker as the one who sent the player to look in
+///   or to ask someone out ("Mara asked me to see how you are") are heard
+///   without the asker's name, if what is left does the favour.
+///
+/// Nothing here ever makes words do a favour their meaning does not.
+pub(crate) fn in_context(
+    state: &WorldState,
+    kit: &Kit,
+    who: EntityId,
+    words: &str,
+    heard: Heard,
+) -> Heard {
+    let Some(favour) = open(state, kit).filter(|favour| favour.whom == who) else {
+        return heard;
+    };
+    if does(state, kit, &favour, who, heard) {
+        return heard;
+    }
+    match favour.kind {
+        Kind::Sorry => {
+            if heard.about.is_none() && heard.intent == Intent::Apologize && passed_on(words) {
+                return Heard {
+                    intent: Intent::ThinkOf,
+                    about: Some(favour.asker),
+                };
+            }
+            heard
+        }
+        // Sent by the asker to ask after someone, or to ask them out:
+        // never for kind words, which a "consider it done" can pass for.
+        Kind::AskAfter | Kind::Invite if heard.about == Some(favour.asker) => {
+            let mut rest = words.to_string();
+            for name in crate::names_of(state, kit, favour.asker, false)
+                .into_iter()
+                .chain([lives::first_name(state, favour.asker)])
+                .chain((kit.aliases)(&lives::name(state, favour.asker)))
+            {
+                if name.trim().is_empty() {
+                    continue;
+                }
+                rest = replace_name(&rest, name.trim());
+            }
+            let without = crate::hear_words(state, kit, who, &rest);
+            if does(state, kit, &favour, who, without) {
+                without
+            } else {
+                heard
+            }
+        }
+        _ => heard,
+    }
+}
+
+/// `words` with a name taken out wherever it is, in any case, and its
+/// possessive with it.
+fn replace_name(words: &str, name: &str) -> String {
+    let lower = words.to_lowercase();
+    // Folding case kept every letter its length (it nearly always does);
+    // where it did not, the words are read in lower case.
+    let words = if lower.len() == words.len() {
+        words
+    } else {
+        lower.as_str()
+    };
+    let name = name.to_lowercase();
+    let mut out = String::with_capacity(words.len());
+    let mut at = 0;
+    while let Some(found) = lower[at..].find(&name) {
+        let start = at + found;
+        out.push_str(&words[at..start]);
+        let mut end = start + name.len();
+        if lower[end..].starts_with("'s") {
+            end += 2;
+        }
+        out.push(' ');
+        at = end;
+    }
+    out.push_str(&words[at..]);
+    out
 }
 
 /// What the open favour's quick reply means said to `who`: the System's own

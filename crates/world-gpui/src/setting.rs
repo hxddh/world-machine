@@ -38,6 +38,8 @@ pub struct Ground {
     pub near: Hsla,
     pub cover: Option<GroundCover>,
     pub water: bool,
+    /// The colour of the spine people walk along, if the Pack gives one.
+    pub spine: Option<Hsla>,
 }
 
 impl Ground {
@@ -285,9 +287,33 @@ fn mars_props(canvas: &mut Canvas, g: &Ground) {
 fn street_props(canvas: &mut Canvas, g: &Ground) {
     let (k, per) = (g.k, g.per());
     // The sidewalk: pale concrete along the foot of the buildings, cut
-    // into slabs, a kerb at its edge.
-    let walk = art::hex(0xc9c9c6);
-    let (top, bottom) = (g.strip_top - 4.0 * k, g.meadow);
+    // into slabs, a kerb at its edge. A street whose Pack gives its spine
+    // a colour has front yards before it: grass by the porches, then the
+    // walk, narrower, in the spine's own colour.
+    let walk = g.spine.unwrap_or(art::hex(0xc9c9c6));
+    let (mut top, bottom) = (g.strip_top - 4.0 * k, g.meadow);
+    if g.spine.is_some() {
+        let yards = top + (bottom - top) * 0.42;
+        let grass = crate::diorama::mix(g.ground, art::hex(0x5f8a4a), 0.55);
+        canvas.rect(g.from, top, g.to - g.from, yards - top, 0.0, grass);
+        // Low hedges and the gaps of front paths.
+        let lot = 64.0 * k;
+        let mut x = (g.from / lot).floor() * lot;
+        while x < g.to {
+            let hash = painter::hash2((x / lot) as i32, 77, g.seed);
+            let gap = 10.0 * k + (hash % 7) as f32 * k;
+            canvas.rect(
+                x + gap,
+                yards - 6.0 * k,
+                lot - gap * 2.0,
+                5.0 * k,
+                2.0 * k,
+                art::shade(grass, -0.22),
+            );
+            x += lot;
+        }
+        top = yards;
+    }
     canvas.rect(g.from, top, g.to - g.from, bottom - top, 0.0, walk);
     canvas.rect(
         g.from,
@@ -479,9 +505,9 @@ fn ice_props(canvas: &mut Canvas, g: &Ground) {
         let mut ridge = Shape::new();
         ridge
             .move_to(x - long, y)
-            .curve_to(x + long, y, x - long * 0.2, y - 5.0 * k)
+            .curve_to(x + long, y, x - long * 0.2, y - 2.5 * k)
             .close();
-        canvas.fill(&ridge, snow.opacity(0.85));
+        canvas.fill(&ridge, snow.opacity(0.45));
         let mut under = Shape::new();
         under.move_to(x - long * 0.7, y + 0.5).curve_to(
             x + long,
@@ -491,43 +517,8 @@ fn ice_props(canvas: &mut Canvas, g: &Ground) {
         );
         canvas.stroke(&under, 1.2 * k, shade.opacity(0.6));
     }
-    // Blocks of ice lying about, and the penguins' pebbles.
-    for index in 0..((8.0 * per) as i32) {
-        let (x, t, seed) = g.scatter(index, 32);
-        if !g.seen(x, 20.0) {
-            continue;
-        }
-        let y = g.strip_top + t * (g.meadow - g.strip_top);
-        let s = (5.0 + (seed >> 16) as f32 % 8.0) * k;
-        canvas.soft(
-            x + s * 0.4,
-            y + 1.0,
-            s * 1.2,
-            s * 0.3,
-            s * 0.3,
-            art::hex(0x7fa8c0).opacity(0.25),
-        );
-        art::polygon(
-            canvas,
-            &[
-                (x - s, y),
-                (x + s * 0.8, y),
-                (x + s * 0.6, y - s * 1.1),
-                (x - s * 0.7, y - s * 0.9),
-            ],
-            art::hex(0xcfe6f0),
-        );
-        art::polygon(
-            canvas,
-            &[
-                (x + s * 0.1, y),
-                (x + s * 0.8, y),
-                (x + s * 0.6, y - s * 1.1),
-                (x + s * 0.05, y - s * 1.0),
-            ],
-            art::hex(0xe8f4f8),
-        );
-    }
+    // No loose blocks of ice: pale chips on the snow read as litter, lighter
+    // than the land may be (v0.29 round 3). Only the penguins' pebbles.
     for index in 0..((22.0 * per) as i32) {
         let (x, t, seed) = g.scatter(index, 33);
         if !g.seen(x, 6.0) {
@@ -655,6 +646,7 @@ pub fn paint_street_life(
     lit: bool,
     seed: u32,
     (left, right): (f32, f32),
+    (lamps, glow): (&[f32], Hsla),
 ) {
     if setting != Setting::Street {
         return;
@@ -664,7 +656,13 @@ pub fn paint_street_life(
     // The poles stand at the kerb, their tops above the roofs.
     let foot = front - 2.0;
     let tall = (foot - (base - building_h * 1.3)) * 0.7;
-    let spots = pole_spots(width, view_w);
+    // Where the Pack says its streetlamps stand, else a pole every half
+    // view.
+    let spots = if lamps.is_empty() {
+        pole_spots(width, view_w)
+    } else {
+        lamps.to_vec()
+    };
     let on_screen = |x: f32| (left - 80.0..right + 80.0).contains(&x);
     let mut tops: Vec<(f32, f32)> = Vec::new();
     for x in &spots {
@@ -722,7 +720,6 @@ pub fn paint_street_life(
             art::hex(0x6b6f78),
         );
         if lit {
-            let glow = art::hex(0xffc96b);
             art::rect(
                 window,
                 sx + 21.0 * z,

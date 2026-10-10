@@ -8,7 +8,7 @@
 crates/world-art 7
 crates/world-builtins 22
 crates/world-document 8
-crates/world-gpui 593
+crates/world-gpui 590
 crates/world-i18n 11
 crates/world-library 26
 crates/world-observer 1
@@ -24,4 +24,4 @@ systems/days 24
 systems/hands 23
 systems/lives 19
 systems/storylets 2
-apps/world-machine-desktop 145
+apps/world-machine-desktop 142

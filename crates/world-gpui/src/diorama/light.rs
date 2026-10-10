@@ -91,7 +91,7 @@ pub fn light_at(hour: f32, weather: Weather) -> [f32; 3] {
     let of = |daylight: Daylight| match daylight {
         Daylight::Dawn => [1.0, 0.9, 0.86],
         Daylight::Day => [1.0, 0.995, 0.97],
-        Daylight::Dusk => [1.0, 0.8, 0.6],
+        Daylight::Dusk => [1.0, 0.76, 0.48],
         Daylight::Night => [0.34, 0.4, 0.6],
     };
     // `between` has already eased `t`: ease(t).
@@ -108,6 +108,60 @@ pub fn light_at(hour: f32, weather: Weather) -> [f32; 3] {
         Weather::Dust => [1.0, 0.84, 0.7],
     };
     [0, 1, 2].map(|channel| sky[channel] * air[channel])
+}
+
+/// `light` turned toward a place's own key light `key` (`0xRRGGBB`): its
+/// warmth (dusk's gold most of all) traded for the key's colour at the
+/// same brightness, a little by day, most at dusk and dawn, some at night.
+pub fn keyed_light(light: [f32; 3], key: Option<u32>, hour: f32) -> [f32; 3] {
+    let Some(key) = key else {
+        return light;
+    };
+    let tint = [16, 8, 0].map(|shift| ((key >> shift) & 0xff) as f32 / 255.0);
+    let most = tint.iter().copied().fold(0.0_f32, f32::max).max(0.01);
+    let tint = tint.map(|channel| channel / most);
+    // A cold key (ice under a blue sky) gives way at noon to a warm sun,
+    // so the blue ice has warm light against it (v0.29 round 2: the ice at
+    // noon still read flat).
+    let cool = (key & 0xff) > (key >> 16) & 0xff;
+    let weight = |daylight: Daylight| match daylight {
+        Daylight::Dawn => 0.6,
+        // Little by day: noon stays clear and sunlit, never a flat
+        // grey-lilac (the v0.29 art director on the ice at noon).
+        Daylight::Day if cool => 0.0,
+        Daylight::Day => 0.15,
+        Daylight::Dusk => 0.8,
+        Daylight::Night => 0.45,
+    };
+    let sun = |daylight: Daylight| f32::from(u8::from(cool && daylight == Daylight::Day));
+    // `between` has already eased `t`: ease(t).
+    let (from, to, t) = between(hour);
+    let share = weight(from) + (weight(to) - weight(from)) * t;
+    let warm = sun(from) + (sun(to) - sun(from)) * t;
+    let bright = (light[0] * 0.3 + light[1] * 0.5 + light[2] * 0.2).min(1.0);
+    let sunlit = [1.03, 1.0, 0.95];
+    [0, 1, 2].map(|channel| {
+        (light[channel] * (1.0 - share) + tint[channel] * bright * share)
+            * (1.0 + (sunlit[channel] - 1.0) * warm)
+    })
+}
+
+/// How far into dusk `hour` is, 0 to 1: all of it at its fullest, none
+/// by day or at night.
+pub(crate) fn dusk_share(hour: f32) -> f32 {
+    let (from, to, t) = between(hour);
+    let of = |daylight: Daylight| if daylight == Daylight::Dusk { 1.0 } else { 0.0 };
+    of(from) + (of(to) - of(from)) * t
+}
+
+/// The gold glaze dusk lays over the land and the hills (see
+/// [`painter::glaze`]): its colour, and how strong it is at `hour`, less
+/// where the place has a key light of its own (a cold blue over the ice
+/// keeps most of its blue). Gold in every place, never olive fog.
+pub(crate) fn dusk_glaze(hour: f32, key: Option<u32>) -> ([f32; 3], f32) {
+    let cool = key.is_some_and(|key| (key & 0xff) > (key >> 16) & 0xff);
+    let strength = 0.36 * dusk_share(hour) * if cool { 0.45 } else { 1.0 };
+    ([1.0, 0.7, 0.28], strength)
 }
 
 /// Where the light comes from at `hour`: across (-1 from the left, the
@@ -165,7 +219,7 @@ pub(super) fn paint_haze(
     span: (f32, f32),
     height: f32,
 ) {
-    let light = light_at(frame.hour, frame.weather);
+    let light = frame.light();
     let (_, bottom) = sky_colours(frame);
     let rgba: gpui::Rgba = bottom.into();
     let haze = Hsla::from(gpui::Rgba {
@@ -288,8 +342,14 @@ pub(super) fn paint_sky_on(
             canvas.soft(sx, sy, 34.0 * k, 34.0 * k, 3.0, sun.opacity(dim));
         }
     }
-    // Under weather the sky greys, or reddens in dust.
+    // Under weather the sky greys, or reddens in dust; at dusk a light
+    // cloud lets the gold through (v0.29: a cloudy dusk read beige).
     if let Some((tint, alpha)) = overcast(frame.weather) {
+        let alpha = if frame.weather == Weather::Cloudy {
+            alpha * (1.0 - 0.7 * dusk_share(frame.hour))
+        } else {
+            alpha
+        };
         canvas.rect(
             -16.0,
             -16.0,
@@ -306,13 +366,26 @@ pub(super) fn paint_sky_on(
 pub(super) fn sky_colours(frame: &Frame) -> (Hsla, Hsla) {
     let top = art::hex(frame.scenery.sky_top);
     let bottom = art::hex(frame.scenery.sky_bottom);
+    // How warm each of the place's own sky colours is: a warm sky (a rust
+    // planet's) takes more of the night's navy, so its night never reads
+    // purple-grey (the v0.29 art director on the rust planet).
+    let warmth = |colour: u32| {
+        let (r, b) = (((colour >> 16) & 0xff) as f32, (colour & 0xff) as f32);
+        ((r - b) / 255.0).clamp(0.0, 1.0)
+    };
+    let (warm_top, warm_bottom) = (
+        warmth(frame.scenery.sky_top) * 0.4,
+        warmth(frame.scenery.sky_bottom) * 0.4,
+    );
     let tinted = |daylight: Daylight| {
         let (tint_top, tint_bottom) = match daylight {
             Daylight::Day => ((0xffffff, 0.0), (0xffffff, 0.0)),
             // Dawn is pink; dusk is gold under violet.
             Daylight::Dawn => ((0xf0a0b8, 0.46), (0xffc0b8, 0.4)),
-            Daylight::Dusk => ((0x8a6a9a, 0.4), (0xff9a40, 0.74)),
-            Daylight::Night => ((0x0e1436, 0.78), (0x1c2450, 0.64)),
+            // Gold all the way up: warm rose high, gold low (v0.29; the
+            // violet top read as grey fog over the whole picture).
+            Daylight::Dusk => ((0xe69c5e, 0.76), (0xffa844, 0.88)),
+            Daylight::Night => ((0x0e1436, 0.78 + warm_top), (0x1c2450, 0.64 + warm_bottom)),
         };
         (
             mix(top, art::hex(tint_top.0), tint_top.1),
@@ -673,6 +746,14 @@ pub(super) fn shadow_ink(hour: f32) -> [f32; 3] {
     [0, 1, 2].map(|channel| a[channel] + (b[channel] - a[channel]) * t)
 }
 
+/// A glow on the ground under someone or something lit up (news, the one
+/// being asked, where a pick can go): a pale light of its colour, never a
+/// dark of it, so it never reads as a shadow (v0.28's purple halo under Nia
+/// on the red planet). `strength` is how strong it is at its middle.
+pub(super) fn ground_glow(glow: Hsla, strength: f32) -> Hsla {
+    mix(glow, art::hex(0xfff6e0), 0.6).opacity(strength * 0.8)
+}
+
 /// The soft shadow where something stands on the ground: an ellipse under
 /// its foot, `w` across, cool and blurred, 20 to 30% dark (the art bible's
 /// §4). Everything standing has one, so nothing floats.
@@ -695,21 +776,20 @@ pub(super) fn contact_shadow(window: &mut dyn Brush, hour: f32, x: f32, base: f3
 pub(super) const LAMP_STRIDE: f32 = 6.0;
 
 /// Which lamps along the spine are lit at `hour`, 0 to 1 each: none by
-/// day; at dusk the first ones, every other lamp, coming up as the light
-/// goes; at night all of them (the art bible's §4).
+/// day; as dusk comes on, every lamp on the spine, one after another along
+/// it within a few minutes; all of them through the night (the art bible's
+/// §4: a gold dusk with every spine lamp lit).
 pub(super) fn lamps_lit(hour: f32, nth: usize) -> f32 {
     let hour = hour.rem_euclid(24.0);
-    let evening = ((hour - 18.0) / 0.6).clamp(0.0, 1.0);
-    let late = ((hour - 20.0) / 0.6).clamp(0.0, 1.0);
+    // The lamplighter's round: a minute and a half between lamps, the
+    // whole spine lit by a quarter past six.
+    let starts = 17.75 + (nth % 6) as f32 * 0.025;
+    let evening = ((hour - starts) / 0.3).clamp(0.0, 1.0);
     let morning = 1.0 - ((hour - 5.6) / 0.6).clamp(0.0, 1.0);
-    let night = if hour < 12.0 { morning } else { 0.0 };
-    let first = nth.is_multiple_of(2);
     if hour < 12.0 {
-        night
-    } else if first {
-        evening
+        morning
     } else {
-        late
+        evening
     }
 }
 
@@ -747,7 +827,10 @@ pub(super) fn paint_spine_lamps(
         if !seen(x, w * z) {
             continue;
         }
-        let base_y = frame.quay_top() + frame.figure_h * 0.04;
+        // On the ice, on the causeway's lip in front of the lead, never in
+        // its water.
+        let base_y =
+            frame.lead().map_or(frame.quay_top(), |(_, near)| near) + frame.figure_h * 0.04;
         let (sx, base) = screen(x, base_y);
         let (w, h) = (w * z, p * 1.8 * z);
         contact_shadow(window, frame.hour, sx, base, w * 0.35);
@@ -769,7 +852,7 @@ pub(super) fn paint_spine_lamps(
         if on <= 0.0 {
             continue;
         }
-        let warm = art::hex(0xffd27a);
+        let warm = frame.glow();
         let flicker = 0.94 + 0.06 * (t * 7.0 + nth as f32 * 1.7).sin().abs();
         let head = base - h * 0.93;
         // Its pool of light on the ground, a halo round the lamp, and the
@@ -827,6 +910,11 @@ pub(super) fn paint_spine_lamps(
 /// quay.
 pub(super) fn spine_lamps(frame: &Frame) -> Vec<f32> {
     let stride = frame.figure_h * LAMP_STRIDE;
+    let declared = frame
+        .look
+        .as_ref()
+        .map(|look| look.lamps.as_slice())
+        .unwrap_or_default();
     let seed = seed_of_scenery(&frame.scenery);
     let start = frame.width * MARGIN * 0.5 + (seed % 100) as f32 / 100.0 * stride * 0.5;
     let quay = |y: f32| Depth::at(y, frame.height) == Depth::Quay;
@@ -847,16 +935,26 @@ pub(super) fn spine_lamps(frame: &Frame) -> Vec<f32> {
                 .iter()
                 .all(|building| (building.x - x).abs() > building.w * 0.55)
     };
-    let mut x = start;
-    while x < frame.width - frame.width * MARGIN * 0.5 {
-        let nudge = frame.figure_h * 0.5;
-        if let Some(at) = (0..=6)
+    let nudge = frame.figure_h * 0.5;
+    let place = |x: f32| {
+        (0..=6)
             .flat_map(|step| [step, -step])
             .map(|step| x + step as f32 * nudge)
             .find(|at| clear(*at))
-        {
-            lamps.push(at);
-        }
+    };
+    // Where the place's Pack says its lamps stand, each nudged clear of
+    // what stands there; otherwise one a stride apart all along.
+    if !declared.is_empty() {
+        return declared
+            .iter()
+            .map(|at| at * frame.view_w)
+            .filter(|x| (0.0..=frame.width).contains(x))
+            .filter_map(place)
+            .collect();
+    }
+    let mut x = start;
+    while x < frame.width - frame.width * MARGIN * 0.5 {
+        lamps.extend(place(x));
         x += stride;
     }
     lamps
@@ -922,12 +1020,29 @@ pub(super) fn under_sky(scenery: &Scenery, colour: Hsla, share: f32) -> Hsla {
     }
     let k = most / light;
     let rgba: gpui::Rgba = colour.into();
-    Hsla::from(gpui::Rgba {
+    let held = Hsla::from(gpui::Rgba {
         r: rgba.r * k,
         g: rgba.g * k,
         b: rgba.b * k,
         a: rgba.a,
-    })
+    });
+    // Held under the sky, a pale ground takes some of the sky's own colour
+    // at the same value, as snow in the sun does, rather than turning a
+    // flat grey (the v0.29 art director on the ice at noon).
+    let sky = art::hex(scenery.sky_top);
+    let sky_light = luma(sky);
+    if sky_light <= 0.0 {
+        return held;
+    }
+    let s: gpui::Rgba = sky.into();
+    let j = most / sky_light;
+    let tinted = Hsla::from(gpui::Rgba {
+        r: (s.r * j).min(1.0),
+        g: (s.g * j).min(1.0),
+        b: (s.b * j).min(1.0),
+        a: rgba.a,
+    });
+    mix(held, tinted, (1.2 * (1.0 - k)).clamp(0.0, 0.35))
 }
 
 /// How light the ground may be against the sky: a step below it.
@@ -1056,7 +1171,7 @@ impl Brush for Under<'_> {
 
 /// Whether a building is a lighthouse: the harbour's own drawing or the
 /// library's.
-pub(super) fn is_lighthouse(building: &BuildingPaint) -> bool {
+pub(super) fn is_beacon(building: &BuildingPaint) -> bool {
     building
         .drawing
         .as_ref()
@@ -1082,7 +1197,7 @@ pub(super) fn paint_beacons(
     }
     let z = frame.camera.zoom;
     let t = if frame.still { 0.0 } else { frame.seconds };
-    for building in frame.buildings.iter().filter(|b| is_lighthouse(b)) {
+    for building in frame.buildings.iter().filter(|b| is_beacon(b)) {
         if !seen(building.x, building.w * z * 4.0) {
             continue;
         }
@@ -1150,7 +1265,7 @@ pub(super) fn paint_jetties(
     for building in frame
         .buildings
         .iter()
-        .filter(|b| b.base >= edge && !is_lighthouse(b))
+        .filter(|b| b.base >= edge && !is_beacon(b))
     {
         if !seen(building.x, building.w * z) {
             continue;

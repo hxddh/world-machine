@@ -56,6 +56,10 @@ pub(crate) fn build_registry(
             .trusted_source()
             .map_err(|error| error.to_string())?;
         let source = world_voice::with_settings(source, world_voice::pack_settings());
+        let source = world_voice::with_crash_logs(
+            source,
+            crate::diagnostics::crash_log_dir().map(|dir| dir.join("Packs")),
+        );
         registry
             .install_source(&source)
             .map_err(|error| error.to_string())?;

@@ -344,7 +344,7 @@ pub(crate) const LEO_VOICE: Voice = Voice {
 
 /// Emma: the teacher, clear and a little restless, fond of a question.
 pub(crate) const EMMA_VOICE: Voice = Voice {
-    openers: &["Right.", "Honestly.", "Here's a thing."],
+    openers: &["Right.", "Here's a thing."],
     closers: &[", I think.", ". Isn't it?", ". Class dismissed."],
     instead: &[
         ("kids", "children"),
@@ -585,7 +585,7 @@ pub(crate) const MIA_VOICE: Voice = Voice {
 
 /// Noah: the mayor, careful with words and money, a stickler.
 pub(crate) const NOAH_VOICE: Voice = Voice {
-    openers: &["Frankly.", "For the record.", "Well now."],
+    openers: &["For the record.", "Well now."],
     closers: &[". As I said.", ", in principle.", ". Noted."],
     instead: &[("problem", "matter"), ("money", "funds"), ("chat", "word")],
     lines: &[
@@ -822,7 +822,7 @@ pub(crate) const EVAN_VOICE: Voice = Voice {
 
 /// Sofia: at the shop, sharp with prices, proud, careful with a penny.
 pub(crate) const SOFIA_VOICE: Voice = Voice {
-    openers: &["Mind you.", "Honestly.", "Between us."],
+    openers: &["Mind you.", "Between us."],
     closers: &[". Not cheap.", ", no less.", ". I checked."],
     instead: &[("cheap", "a bargain"), ("expensive", "daylight robbery")],
     lines: &[

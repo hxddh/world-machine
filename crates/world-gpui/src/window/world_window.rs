@@ -23,6 +23,8 @@ const CARD_WIDTH: f32 = 560.0;
 pub(crate) const DRAWER_WIDTH: f32 = 380.0;
 /// How wide the card of someone being asked is.
 const ASKING_WIDTH: f32 = 300.0;
+/// How far the card of someone being asked keeps from the window's edges.
+const ASKING_CLEAR: f32 = 12.0;
 /// How often a living World redraws while its window is in front.
 /// How often a window behind others checks whether it has come to the
 /// front again. In front, it draws at the display's own rate.
@@ -64,8 +66,9 @@ const ANSWER_SECONDS: f32 = 9.0;
 pub(crate) const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
-/// How long the camera takes to move.
-pub(crate) const CAMERA_SECONDS: f32 = 0.9;
+#[cfg(test)]
+pub(crate) use super::glide::CAMERA_SECONDS;
+use super::glide::{Bound, Glide};
 /// How many of today's exchanges with someone their card shows.
 const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
@@ -81,6 +84,52 @@ const HINT_WIDTH: f32 = 280.0;
 /// The shortest stage the zoom control is pointed at on: shorter, the
 /// pointer beside it could reach down to the card.
 const ZOOM_HINT_ROOM: f32 = 520.0;
+
+/// Where a zoom leaves the camera: how close, where along the place it
+/// looks, and the point it zoomed on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Zoomed {
+    zoom: f32,
+    pan: f32,
+    on: (f32, f32),
+}
+
+/// `factor` times closer than `before` from `camera`, around the screen
+/// point `at` (the point under it stays under it): none if the zoom is at
+/// the end of its travel that way.
+fn zoomed(
+    stage: &Stage,
+    camera: Camera,
+    before: f32,
+    factor: f32,
+    at: (f32, f32),
+) -> Option<Zoomed> {
+    let (x, y) = camera.stage_point(stage, at.0, at.1);
+    let mut zoom = (before * factor).clamp(Camera::least(stage), diorama::ZOOM_MOST);
+    if (zoom - 1.0).abs() < 0.02 {
+        zoom = 1.0;
+    }
+    if (zoom - before).abs() <= f32::EPSILON {
+        return None;
+    }
+    let keep = camera.zoom / zoom;
+    Some(Zoomed {
+        zoom,
+        pan: x - (x - camera.x) * keep,
+        on: (x - (x - camera.x) * keep, y - (y - camera.y) * keep),
+    })
+}
+
+/// The view wherever the player has zoomed (`zoom`) and panned to
+/// (`pan`, the whole place's middle if never), around the point zoomed on.
+fn free_view(stage: &Stage, zoom: f32, pan: Option<f32>, on: (f32, f32)) -> Camera {
+    Camera::around(
+        stage,
+        zoom,
+        pan.unwrap_or(Camera::whole(stage).x),
+        if zoom > 1.0 { on.1 } else { stage.height / 2.0 },
+    )
+}
 
 /// Where the zoom control sits, down the left of a stage `height` tall:
 /// below the stakes, well above the card.
@@ -110,6 +159,8 @@ impl Area {
 const HUD_ROOM: f32 = 64.0;
 /// How tall the card at the foot of the stage is, generously.
 const CARD_ROOM: f32 = 250.0;
+/// How tall a chapter's ending card stands, generously, at text size 1.
+const CHAPTER_ROOM: f32 = 400.0;
 /// The zoom control's size: two buttons, one over the other.
 const ZOOM_SIZE: (f32, f32) = (36.0, 68.0);
 /// How far a bubble's tail reaches down to the head it speaks for.
@@ -120,6 +171,7 @@ const BUBBLE_CLEAR: f32 = 6.0;
 
 /// How big a speech bubble showing `page` is drawn, generously: its width
 /// and its height, the tail below it included.
+#[cfg(test)]
 pub(crate) fn bubble_size(page: &str) -> (f32, f32) {
     let scale = crate::text_scale();
     let widest = page.lines().map(text_width).max().unwrap_or(0) as f32;
@@ -367,9 +419,8 @@ pub(crate) struct Looking {
     pub(crate) asking: Option<SelectionId>,
     pub(crate) answered: Option<(usize, Instant)>,
     pub(crate) beat_at: Option<Instant>,
-    pub(crate) camera_from: Option<Camera>,
-    pub(crate) camera_to: Option<Camera>,
-    pub(crate) camera_at: Option<Instant>,
+    /// The camera's glide toward what it is sent to look at.
+    pub(crate) glide: Glide,
     pub(crate) focus: Option<gpui::FocusHandle>,
     /// The clock that keeps a living World moving; dropped (stopping it)
     /// while the window cannot be seen.
@@ -444,6 +495,10 @@ pub(crate) struct Looking {
     /// Whoever the window opened on to welcome the player, and where it
     /// put the camera for them.
     pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// Where the opening view is centred at noon, for a stage of this
+    /// width and height: the framing every hour opens on where its own
+    /// would leave a building against the window's edge.
+    pub(crate) noon_view: Option<((f32, f32), f32)>,
     /// A farewell showing over the World, and whether the camera has gone
     /// to whoever says goodbye.
     pub(crate) farewell: Option<super::farewell::Farewell>,
@@ -454,6 +509,9 @@ pub(crate) struct Looking {
     /// held back until it is placed or put away.
     pub(crate) free_offered: bool,
     pub(crate) free_offer: bool,
+    /// While someone is being talked to (and the camera has moved in on
+    /// them), where it was: so putting them away leaves the camera there.
+    pub(crate) held: Option<Camera>,
 }
 
 /// Something the player's hands can make or do, for the build card.
@@ -757,6 +815,43 @@ fn part_of_the_place(selection: SelectionId) -> bool {
         .strip_prefix("entity-")
         .and_then(|id| id.parse::<u64>().ok())
         .is_some_and(|id| id >= 900_000_000)
+}
+
+/// The box on the stage around whatever a return film's beat is about.
+fn beat_box(
+    snapshot: &ProjectionSnapshot,
+    stage: &Stage,
+    beat: &BriefingItem,
+) -> Option<(f32, f32, f32, f32)> {
+    let targets = beat_targets(snapshot, beat);
+    let frames = |targets: &std::collections::BTreeSet<SelectionId>| {
+        snapshot
+            .canvas
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| targets.contains(&item.id))
+            .filter_map(|(index, _)| stage.frame_of(index))
+            .collect::<Vec<_>>()
+    };
+    let mut boxes = frames(&targets);
+    // Someone not out on the scene just now (indoors at that hour) is
+    // looked for where they are.
+    if boxes.is_empty() {
+        let at = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| targets.contains(&item.id))
+            .filter_map(|item| item.at)
+            .collect();
+        boxes = frames(&at);
+    }
+    let (x0, y0, x1, y1) = boxes.iter().fold(
+        (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+        |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
+    );
+    (!boxes.is_empty()).then_some((x0, y0, x1 - x0, y1 - y0))
 }
 
 /// With `WORLD_MACHINE_FRAME_LOG` set, how long the scene takes on the
@@ -1083,9 +1178,136 @@ fn answer_seconds(answer: &str) -> f32 {
 /// How wide a speech bubble can be.
 const BUBBLE_ROOM: f32 = 300.0;
 
-/// A speech bubble: what someone says, where [`place_bubbles`] put it,
-/// with a tail pointing down at their head.
-fn bubble(line: String, placed: Placed, opacity: f32, strong: bool) -> Div {
+/// How far a bubble's words keep from its sides.
+const BUBBLE_PAD: f32 = 12.0;
+
+/// A page of speech laid out for its bubble, measured by the text system
+/// itself: its lines, broken by the World's rules (`crate::wrap`) and as
+/// even as they can be, and how big the bubble is drawn (its width and
+/// its height, the tail below it included). What is measured is what is
+/// drawn: no line is broken again where the measure was out.
+pub(crate) fn lay_bubble(window: &Window, page: &str, strong: bool) -> (Vec<String>, f32, f32) {
+    let paragraph = page
+        .lines()
+        .map(str::trim)
+        .filter(|row| !row.is_empty())
+        .fold(String::new(), |all, row| {
+            let spaced = all
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_ascii() && !c.is_whitespace())
+                || row.chars().next().is_some_and(|c| c.is_ascii());
+            if all.is_empty() {
+                row.to_string()
+            } else if spaced {
+                format!("{all} {row}")
+            } else {
+                format!("{all}{row}")
+            }
+        });
+    let mut style = window.text_style();
+    style.font_size = gpui::rems(0.875).into();
+    if strong {
+        style.font_weight = FontWeight::MEDIUM;
+    }
+    let rem = window.rem_size();
+    let font_size = style.font_size.to_pixels(rem);
+    let line_height = f32::from(style.line_height.to_pixels(font_size.into(), rem));
+    let shaped = window.text_system().shape_line(
+        SharedString::from(paragraph.clone()),
+        font_size,
+        &[style.to_run(paragraph.len())],
+        None,
+    );
+    let x = |i: usize| f32::from(shaped.x_for_index(i));
+    let room = BUBBLE_ROOM * crate::text_scale().clamp(1.0, 1.4) - BUBBLE_PAD * 2.0;
+    let ranges = crate::wrap::balanced(&paragraph, room, x);
+    let widest = ranges
+        .iter()
+        .map(|range| {
+            let end = range.start + paragraph[range.clone()].trim_end().len();
+            x(end) - x(range.start)
+        })
+        .fold(0.0, f32::max);
+    let rows = ranges
+        .iter()
+        .map(|range| paragraph[range.clone()].trim().to_string())
+        .filter(|row| !row.is_empty())
+        .collect::<Vec<_>>();
+    let w = (widest.ceil() + BUBBLE_PAD * 2.0 + 2.0).max(56.0);
+    let h = rows.len().max(1) as f32 * line_height + 16.0 + TAIL;
+    (rows, w, h)
+}
+
+/// Whether a head at `x`, `y` is on a stage `width` by `height`.
+fn on_screen(x: f32, y: f32, (width, height): (f32, f32)) -> bool {
+    (4.0..=width - 4.0).contains(&x) && y > 0.0 && y <= height
+}
+
+/// How much wider an edge tab is than a bubble with the same words: the
+/// speaker's face and the arrow toward them.
+const TAB_FACE: f32 = 52.0;
+
+/// Where the words of someone off the stage go: a tab at the edge they
+/// are beyond, level with them as far as it can be, clear of the
+/// interface. Its box, and whether it is on the left.
+fn place_tab(
+    x: f32,
+    y: f32,
+    (w, h): (f32, f32),
+    interface: &[Area],
+    (width, height): (f32, f32),
+) -> (Area, bool) {
+    let left = x < width / 2.0;
+    let tw = (w + TAB_FACE).min(width - BUBBLE_CLEAR * 2.0);
+    let th = (h - TAIL).max(44.0);
+    let ax = if left {
+        BUBBLE_CLEAR
+    } else {
+        width - BUBBLE_CLEAR - tw
+    };
+    let lowest = (height - th - BUBBLE_CLEAR).max(HUD_ROOM);
+    let want = (y - th / 2.0).clamp(HUD_ROOM + BUBBLE_CLEAR, lowest);
+    let mut best: Option<(f32, Area)> = None;
+    for step in 0..24 {
+        let by = if step % 2 == 0 {
+            step / 2
+        } else {
+            -(step / 2 + 1)
+        } as f32
+            * 20.0;
+        let area = Area {
+            x: ax,
+            y: (want + by).clamp(HUD_ROOM + BUBBLE_CLEAR, lowest),
+            w: tw,
+            h: th,
+        };
+        let covered = interface
+            .iter()
+            .map(|other| area.grown(BUBBLE_CLEAR).over(other))
+            .sum::<f32>();
+        if best.is_none_or(|(least, _)| covered < least) {
+            best = Some((covered, area));
+        }
+        if covered <= 0.0 {
+            break;
+        }
+    }
+    (
+        best.map(|(_, area)| area).unwrap_or(Area {
+            x: ax,
+            y: want,
+            w: tw,
+            h: th,
+        }),
+        left,
+    )
+}
+
+/// A speech bubble: what someone says, in the lines [`lay_bubble`] broke
+/// it into, where [`place_bubbles`] put it, with a tail pointing down at
+/// their head.
+fn bubble(rows: Vec<String>, placed: Placed, opacity: f32, strong: bool) -> Div {
     let area = placed.whole();
     let stalk = placed.stalk();
     let ink: Hsla = color(tokens::TEXT).into();
@@ -1129,7 +1351,7 @@ fn bubble(line: String, placed: Placed, opacity: f32, strong: bool) -> Div {
                 .left_0()
                 .bottom(px(stalk.h))
                 .w_full()
-                .px_3()
+                .px(px(BUBBLE_PAD))
                 .py_2()
                 .rounded_xl()
                 .bg(ground)
@@ -1138,9 +1360,108 @@ fn bubble(line: String, placed: Placed, opacity: f32, strong: bool) -> Div {
                 .text_center()
                 .when(strong, |text| text.font_weight(FontWeight::MEDIUM))
                 .text_color(ink)
-                .child(line),
+                .flex()
+                .flex_col()
+                .items_center()
+                .children(
+                    rows.into_iter()
+                        .map(|row| div().whitespace_nowrap().child(row)),
+                ),
         )
         .child(tail_shape)
+}
+
+/// The words of someone off the stage, at its edge: their face, the words,
+/// and an arrow toward where they are.
+fn edge_tab(
+    rows: Vec<String>,
+    area: Area,
+    left: bool,
+    likeness: Likeness,
+    opacity: f32,
+    strong: bool,
+) -> Div {
+    let arrow = div()
+        .flex_shrink_0()
+        .text_sm()
+        .text_color(color(tokens::TEXT_SECONDARY))
+        .child(if left { "‹" } else { "›" });
+    let words = div()
+        .flex_1()
+        .min_w(px(0.0))
+        .text_sm()
+        .text_center()
+        .when(strong, |text| text.font_weight(FontWeight::MEDIUM))
+        .text_color(color(tokens::TEXT))
+        .flex()
+        .flex_col()
+        .items_center()
+        .children(
+            rows.into_iter()
+                .map(|row| div().whitespace_nowrap().child(row)),
+        );
+    let face = div().flex_shrink_0().child(portrait(likeness, 28.0, false));
+    let row = div()
+        .absolute()
+        .left(px(area.x))
+        .top(px(area.y))
+        .w(px(area.w))
+        .min_h(px(area.h))
+        .opacity(opacity)
+        .px_2()
+        .py_2()
+        .rounded_xl()
+        .bg(color(tokens::SURFACE))
+        .shadow_md()
+        .flex()
+        .items_center()
+        .gap_1();
+    if left {
+        row.child(arrow).child(face).child(words)
+    } else {
+        row.child(words).child(face).child(arrow)
+    }
+}
+
+/// Where the card of someone being asked goes, generously: beside them
+/// (their head at `x`, `head`) on whichever side has room, never over
+/// them, level with their head as far as the stage `width` by `height`
+/// allows, clear of an open drawer and always inside the window; `talked`
+/// exchanges make it taller, though never taller than the window has room
+/// for (what does not fit scrolls inside it).
+pub(crate) fn asking_place(
+    x: f32,
+    head: f32,
+    (width, height): (f32, f32),
+    drawer: bool,
+    talked: usize,
+    scale: f32,
+) -> Area {
+    let room = width - if drawer { DRAWER_WIDTH } else { 0.0 };
+    let left = if x + 40.0 + ASKING_WIDTH < room - ASKING_CLEAR {
+        x + 40.0
+    } else if x - 40.0 - ASKING_WIDTH >= ASKING_CLEAR {
+        x - 40.0 - ASKING_WIDTH
+    } else if x > room / 2.0 {
+        // No room either side: the side with more, as far from them as
+        // the window allows.
+        ASKING_CLEAR
+    } else {
+        (room - ASKING_CLEAR - ASKING_WIDTH).max(ASKING_CLEAR)
+    }
+    // Always inside the window, beside the drawer if it is open.
+    .clamp(
+        ASKING_CLEAR,
+        (room - ASKING_CLEAR - ASKING_WIDTH).max(ASKING_CLEAR),
+    );
+    let room_tall = (height - HUD_ROOM - ASKING_CLEAR).max(120.0);
+    let tall = ((360.0 + talked as f32 * 96.0) * scale).min(room_tall);
+    Area {
+        x: left,
+        y: (head - 24.0).clamp(HUD_ROOM, (height - ASKING_CLEAR - tall).max(HUD_ROOM)),
+        w: ASKING_WIDTH,
+        h: tall,
+    }
 }
 
 impl ProjectionView {
@@ -1220,6 +1541,8 @@ impl ProjectionView {
         self.looking.card_back = false;
         self.looking.asking = None;
         self.looking.answered = None;
+        // A turn goes back to the player's own view of the place.
+        self.looking.held = None;
     }
 
     fn cycle_card(&mut self, by: isize, cx: &mut Context<Self>) {
@@ -1386,7 +1709,10 @@ impl ProjectionView {
                     let name = label_of(&this.snapshot, who)
                         .map(|name| first_name(&name).to_string())
                         .unwrap_or_else(|| "They".into());
-                    this.status = Some(format!("The moment passed before {name} could answer."));
+                    this.status = Some(crate::i18n::fill(
+                        "The moment passed before {name} could answer.",
+                        &[("name", &world_i18n::tr_owned(&name))],
+                    ));
                     this.status_is_error = false;
                     cx.notify();
                     return;
@@ -1426,7 +1752,7 @@ impl ProjectionView {
             if self.looking.pan != Some(at) {
                 self.looking.welcome_pan = None;
             } else if let Some(x) = self.stage_x(stage, who) {
-                let x = super::arrival::best_view(stage, x);
+                let x = self.opening_view(stage, who, x);
                 self.looking.pan = Some(x);
                 self.looking.welcome_pan = Some((who, x));
             }
@@ -1459,13 +1785,39 @@ impl ProjectionView {
                 .max_by(|a, b| a.0.cmp(&b.0))
                 .map(|(_, who)| who)
         });
-        if let Some((who, x)) = who.and_then(|who| {
-            self.stage_x(stage, who)
-                .map(|x| (who, super::arrival::best_view(stage, x)))
-        }) {
+        if let Some((who, x)) = who
+            .and_then(|who| self.stage_x(stage, who).map(|x| (who, x)))
+            .map(|(who, x)| (who, self.opening_view(stage, who, x)))
+        {
             self.looking.pan = Some(x);
             self.looking.welcome_pan = Some((who, x));
         }
+    }
+
+    /// Where to centre the opening view on `who`, standing at `x`: the
+    /// best view around them, or, where that leaves a building against
+    /// the window's edge, the nearest to how the place opens at noon (see
+    /// [`super::arrival::framed_as_at_noon`]).
+    fn opening_view(&mut self, stage: &Stage, who: SelectionId, x: f32) -> f32 {
+        let size = (stage.view_w, stage.height);
+        super::arrival::opening_view(stage, x, || match self.looking.noon_view {
+            Some((kept, centre)) if kept == size => centre,
+            _ => {
+                let noon_stage =
+                    diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
+                let at_noon = self.stage_x(&noon_stage, who).or_else(|| {
+                    let spot = noon_stage.people.first()?;
+                    let (x, _, w, _) = noon_stage.frame_of(spot.index)?;
+                    Some(x + w / 2.0)
+                });
+                let centre = at_noon.map_or_else(
+                    || super::arrival::best_view(stage, x),
+                    |x| super::arrival::best_view(&noon_stage, x),
+                );
+                self.looking.noon_view = Some((size, centre));
+                centre
+            }
+        })
     }
 
     /// On a World's first day, once the welcome has been heard, the
@@ -1594,7 +1946,10 @@ impl ProjectionView {
                 true
             }
             Err(error) => {
-                self.status = Some(format!("Couldn't say that: {error}"));
+                self.status = Some(crate::i18n::fill(
+                    "Couldn't say that: {error}",
+                    &[("error", &world_i18n::tr_owned(&error.to_string()))],
+                ));
                 self.status_is_error = true;
                 false
             }
@@ -1674,14 +2029,12 @@ impl ProjectionView {
                     self.look_away(cx);
                 } else if self.looking.drawer {
                     self.toggle_drawer(cx);
-                } else if (self.view_zoom() - 1.0).abs() > 0.01 {
-                    self.looking.zoom = 1.0;
-                    cx.notify();
                 }
+                // Esc puts things away; it never moves the camera.
             }
             _ if self.retelling.is_some() => {
                 if matches!(key, "right" | "enter" | "space") {
-                    self.step_film(cx);
+                    self.step_retelling(cx);
                 }
             }
             "left" | "right" if self.pans_with_arrows(event) => {
@@ -1741,36 +2094,62 @@ impl ProjectionView {
         }
     }
 
-    fn step_film(&mut self, cx: &mut Context<Self>) {
-        self.looking.beat_at = Some(Instant::now());
-        self.step_retelling(cx);
+    /// The return film's next beat, after the one being told: where the
+    /// camera will go next, and what it will be about, painted ahead once
+    /// the beat on screen is sharp.
+    fn next_beat_view(&self, stage: &Stage) -> Option<(Camera, (f32, f32, f32, f32))> {
+        let index = self.retelling? + 1;
+        let beat = *self.snapshot.briefing.as_ref()?.beats().get(index)?;
+        let subject = beat_box(&self.snapshot, stage, beat)?;
+        Some((Camera::on(stage, subject), subject))
     }
 
-    /// Where the camera is now, moving toward where it was last sent.
-    fn camera(&mut self, stage: &Stage) -> Camera {
-        let whole = Camera::whole(stage);
-        // A return looks at whatever its beat is about.
-        let target = self
-            .current_beat()
-            .map(|beat| beat_targets(&self.snapshot, beat))
-            .and_then(|targets| {
-                let boxes = self
+    /// What the moment is about, as a box on the stage: whatever the return
+    /// film's beat is about, or whoever the player is talking to (Find
+    /// lands on them). The scene paints it first, sharp, before the camera
+    /// settles on it.
+    fn subject(&self, stage: &Stage) -> Option<(f32, f32, f32, f32)> {
+        let boxes = match self.current_beat() {
+            Some(beat) => return beat_box(&self.snapshot, stage, beat),
+            None => {
+                let who = self.looking.asking?;
+                let index = self
                     .snapshot
                     .canvas
                     .items
                     .iter()
-                    .enumerate()
-                    .filter(|(_, item)| targets.contains(&item.id))
-                    .filter_map(|(index, _)| stage.frame_of(index))
-                    .collect::<Vec<_>>();
-                let (x0, y0, x1, y1) = boxes.iter().fold(
-                    (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-                    |(x0, y0, x1, y1), (x, y, w, h)| {
-                        (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h))
-                    },
-                );
-                (!boxes.is_empty()).then(|| Camera::on(stage, (x0, y0, x1 - x0, y1 - y0)))
-            })
+                    .position(|item| item.id == who)?;
+                vec![stage.frame_of(index)?]
+            }
+        };
+        let (x0, y0, x1, y1) = boxes.iter().fold(
+            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
+        );
+        (!boxes.is_empty()).then_some((x0, y0, x1 - x0, y1 - y0))
+    }
+
+    /// Where the camera is now, moving toward where it was last sent.
+    fn camera(&mut self, stage: &Stage, window: &Window) -> Camera {
+        let whole = Camera::whole(stage);
+        // Whoever was being talked to is put away (Esc, the close button,
+        // the drawer, a page): the camera stays where it is, never jumping
+        // back to wherever the player had looked before.
+        if self.looking.asking.is_none() && self.current_beat().is_none() {
+            if let Some(held) = self.looking.held.take() {
+                let now = self.looking.camera_now.unwrap_or(held);
+                self.looking.zoom = now.zoom;
+                self.looking.pan = Some(now.x);
+                self.looking.zoom_on = (now.x, now.y);
+            }
+        } else if self.looking.asking.is_some() && self.current_beat().is_none() {
+            self.looking.held = self.looking.camera_now.or(Some(whole));
+        }
+        // A return looks at whatever its beat is about.
+        let target = self
+            .current_beat()
+            .and_then(|beat| beat_box(&self.snapshot, stage, beat))
+            .map(|subject| Camera::on(stage, subject))
             // Talking to someone, the camera moves in on them.
             .or_else(|| {
                 let who = self.looking.asking?;
@@ -1790,45 +2169,28 @@ impl ProjectionView {
                 ))
             })
             // Otherwise wherever the player has zoomed and panned to.
-            .unwrap_or_else(|| {
-                let zoom = self.view_zoom();
-                Camera::around(
-                    stage,
-                    zoom,
-                    self.looking.pan.unwrap_or(whole.x),
-                    if zoom > 1.0 {
-                        self.looking.zoom_on.1
-                    } else {
-                        stage.height / 2.0
-                    },
-                )
-            });
-        let current = match (self.looking.camera_from, self.looking.camera_to) {
-            (Some(from), Some(to)) => {
-                from.toward(to, since(self.looking.camera_at) / CAMERA_SECONDS)
-            }
-            _ => whole,
+            .unwrap_or_else(|| self.free_target(stage));
+        let bound = match (self.retelling, self.looking.asking) {
+            (Some(index), _) if self.current_beat().is_some() => Bound::Beat(index),
+            (_, Some(who)) => Bound::Asking(who),
+            _ => Bound::Free,
         };
         // A drag moves the view with the hand, at once; and the window's
         // first frame is where the camera is meant to be, never a glide
         // there from somewhere else (the welcome's view, a keeper's).
-        if self.looking.camera_to.is_none() || self.looking.drag.is_some_and(|(.., moved)| moved) {
-            self.looking.camera_from = Some(target);
-            self.looking.camera_to = Some(target);
-            self.looking.camera_at = Some(Instant::now());
-            self.looking.camera_now = Some(target);
-            return target;
-        }
-        if self.looking.camera_to != Some(target) {
-            self.looking.camera_from = Some(current);
-            self.looking.camera_to = Some(target);
-            // The wheel follows the hand at once; everything else glides.
-            let wheel = self.looking.asking.is_none() && self.current_beat().is_none();
-            self.looking.camera_at = Some(if wheel {
-                Instant::now() - Duration::from_secs_f32(CAMERA_SECONDS * 0.7)
-            } else {
-                Instant::now()
-            });
+        let snap = self.looking.drag.is_some_and(|(.., moved)| moved);
+        let (current, wants) =
+            self.looking
+                .glide
+                .step(target, bound, Instant::now(), whole, snap, |to| {
+                    diorama::heading_ready(window, to)
+                });
+        // A glide asks for its own frames: a window in front but not
+        // active draws only when asked, and a glide whose destination was
+        // painted ahead asks the painter for nothing (v0.29 round 2's
+        // silent beats).
+        if wants {
+            window.request_animation_frame();
         }
         self.looking.camera_now = Some(current);
         current
@@ -1969,21 +2331,53 @@ impl ProjectionView {
         let (x, y) = at.map_or((width / 2.0, height / 2.0), |at| {
             (f32::from(at.x), f32::from(at.y) - CHROME)
         });
-        let (x, y) = camera.stage_point(&stage, x, y);
-        let before = self.view_zoom();
-        let mut zoom = (before * factor).clamp(Camera::least(&stage), diorama::ZOOM_MOST);
-        if (zoom - 1.0).abs() < 0.02 {
-            zoom = 1.0;
-        }
-        if (zoom - before).abs() > f32::EPSILON {
-            // The point under the pointer stays under it.
-            let keep = camera.zoom / zoom;
-            self.looking.zoom = zoom;
-            self.looking.pan = Some(x - (x - camera.x) * keep);
-            self.looking.zoom_on = (x - (x - camera.x) * keep, y - (y - camera.y) * keep);
+        if self.zoom_at(&stage, camera, factor, (x, y)) {
             pointers::used(Pointer::Zoom);
             cx.notify();
         }
+    }
+
+    /// Zooms `factor` times closer from `camera` around the screen point
+    /// `at`; whether it moved (not at the end of the zoom's travel).
+    fn zoom_at(&mut self, stage: &Stage, camera: Camera, factor: f32, at: (f32, f32)) -> bool {
+        let Some(zoomed) = zoomed(stage, camera, self.view_zoom(), factor, at) else {
+            return false;
+        };
+        self.looking.zoom = zoomed.zoom;
+        self.looking.pan = Some(zoomed.pan);
+        self.looking.zoom_on = zoomed.on;
+        true
+    }
+
+    /// Wherever the player has zoomed and panned to.
+    fn free_target(&self, stage: &Stage) -> Camera {
+        free_view(
+            stage,
+            self.view_zoom(),
+            self.looking.pan,
+            self.looking.zoom_on,
+        )
+    }
+
+    /// Where one press of the zoom control (or + and −) would take the
+    /// camera now, closer and further: none while it is on its way, held
+    /// on someone or a return beat, or dragged, and none at either end of
+    /// its travel. The scene paints them ahead (see
+    /// [`diorama::Frame::zooming_to`]).
+    fn zoom_steps(&self, stage: &Stage, camera: Camera) -> Vec<Camera> {
+        if self.current_beat().is_some()
+            || self.looking.asking.is_some()
+            || self.looking.drag.is_some()
+            || self.looking.glide.moving(Instant::now())
+        {
+            return Vec::new();
+        }
+        let middle = (stage.view_w / 2.0, stage.height / 2.0);
+        [1.0 / ZOOM_STEP, ZOOM_STEP]
+            .into_iter()
+            .filter_map(|factor| zoomed(stage, camera, self.view_zoom(), factor, middle))
+            .map(|zoomed| free_view(stage, zoomed.zoom, Some(zoomed.pan), zoomed.on))
+            .collect()
     }
 
     /// What the scene lights up now, and in what colour.
@@ -2078,14 +2472,7 @@ impl ProjectionView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(hands) = self.looking.hands.as_ref() else {
-            return false;
-        };
-        if !matches!(
-            hands.verb.as_deref(),
-            Some("Build" | "Decorate" | "Plant" | "Move")
-        ) || hands.thing.as_deref().is_none_or(|thing| thing == "*")
-        {
+        if !self.placing() {
             return false;
         }
         let (width, height) = self.stage_size(window);
@@ -2099,6 +2486,13 @@ impl ProjectionView {
             f32::from(position.x),
             f32::from(position.y) - CHROME,
         );
+        self.place_hands_at(&stage, x, cx)
+    }
+
+    /// Puts what the player's hands hold at stage point `x` along the
+    /// ground: counted with the nearest place it can go by, standing at
+    /// that spot. Whether it was put.
+    pub(crate) fn place_hands_at(&mut self, stage: &Stage, x: f32, cx: &mut Context<Self>) -> bool {
         let targets = self.hand_targets().unwrap_or_default();
         let nearest = stage
             .buildings
@@ -2111,10 +2505,38 @@ impl ProjectionView {
         let Some(deed) = self.deed_at(self.snapshot.canvas.items[nearest.index].id) else {
             return false;
         };
-        let spot = diorama::ground_spot(&stage, x);
+        let spot = diorama::ground_spot(stage, x);
         self.looking.hands = None;
         self.invoke_command(format!("{deed}@{spot}"), cx);
         true
+    }
+
+    /// Whether a window point is on the interface over the scene (the
+    /// row of gauges and handles, the zoom): a click there is never a
+    /// click on the ground.
+    fn on_a_control(&self, position: gpui::Point<gpui::Pixels>, window: &Window) -> bool {
+        let (_, height) = self.stage_size(window);
+        let (x, y) = (f32::from(position.x), f32::from(position.y) - CHROME);
+        let zoom = Area {
+            x: 16.0 - BUBBLE_CLEAR,
+            y: zoom_top(height) - BUBBLE_CLEAR,
+            w: ZOOM_SIZE.0 + BUBBLE_CLEAR * 2.0,
+            h: ZOOM_SIZE.1 + BUBBLE_CLEAR * 2.0,
+        };
+        let inside = |area: &Area| {
+            x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h
+        };
+        y < HUD_ROOM || inside(&zoom)
+    }
+
+    /// Whether the player's hands hold something to put on the ground.
+    pub(crate) fn placing(&self) -> bool {
+        self.looking.hands.as_ref().is_some_and(|hands| {
+            matches!(
+                hands.verb.as_deref(),
+                Some("Build" | "Decorate" | "Plant" | "Move")
+            ) && hands.thing.as_deref().is_some_and(|thing| thing != "*")
+        })
     }
 
     /// The player's last thing made or moved, which they can take back
@@ -2271,13 +2693,28 @@ impl ProjectionView {
         // only on a painted scene: while what the camera sees is not
         // painted (the window opening, the camera arriving somewhere new),
         // its clock is held and its words wait.
-        let film_painted = diorama::view_painted(window);
+        // Nor while the camera is still on its way to the beat (held until
+        // what it will see is painted, then gliding): the words never show
+        // over the last beat's subject (v0.29's catch over the school).
+        let arrived = crate::painter::synchronous()
+            || self.retelling.is_some_and(|index| {
+                self.looking
+                    .glide
+                    .arrived(Bound::Beat(index), Instant::now())
+            });
+        let film_painted = diorama::view_painted(window) && arrived;
         if self.retelling.is_some() {
             if self.looking.beat_at.is_none() || !film_painted {
                 self.looking.beat_at = Some(Instant::now());
+                // Words still waiting ask for the next frame themselves:
+                // whether the view is painted is known only from the frame
+                // drawn before, and a window in front but not active draws
+                // only when asked (v0.29 round 2: a beat landed on painted
+                // ground, nothing asked for another frame, and its words
+                // never came).
+                window.request_animation_frame();
             }
             if since(self.looking.beat_at) > BEAT_SECONDS {
-                self.looking.beat_at = Some(Instant::now());
                 self.step_retelling(cx);
             }
         }
@@ -2365,7 +2802,7 @@ impl ProjectionView {
         let daylight = scene::daylight_now();
 
         let film_painted = self.keep_books(window, &stage, cx);
-        let camera = self.camera(&stage);
+        let camera = self.camera(&stage, window);
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
@@ -2540,6 +2977,17 @@ impl ProjectionView {
             rising,
         )
         .stilled(still);
+        // Where the camera is going, and what the moment is about: painted
+        // first, so the camera arrives on sharp paint; and where the return
+        // film goes next, painted ahead.
+        if let Some(to) = self.looking.glide.to {
+            frame = frame.heading_to(to, self.subject(&stage));
+        }
+        if let Some((camera, subject)) = self.next_beat_view(&stage) {
+            frame = frame.next_to(camera, subject);
+        }
+        // And where a press of the zoom control would take it.
+        frame = frame.zooming_to(self.zoom_steps(&stage, camera));
         frame.bounce(&self.snapshot, &poked);
         // What a turn just built rises into place.
         if let Some(before) = &self.before_turn {
@@ -2659,7 +3107,7 @@ impl ProjectionView {
                     .left_0()
                     .size_full()
                     .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
-                        if this.just_dragged() {
+                        if this.just_dragged() || this.on_a_control(event.position(), window) {
                             return;
                         }
                         if !this.place_on_ground(event.position(), window, cx) {
@@ -2739,6 +3187,7 @@ impl ProjectionView {
         // only as far as half way to a neighbour, so a click finds the
         // person nearest the pointer and two are never named at once.
         let mut heads = Vec::new();
+        let mut bodies = Vec::new();
         let reach = diorama::reach_of(
             &frame
                 .people
@@ -2764,6 +3213,7 @@ impl ProjectionView {
             let hover =
                 painted && !speaking && speaker_x.is_none_or(|x| (x - person.x).abs() > NAME_ROOM);
             heads.push((selection, person.x, person.y - person.height * 1.08));
+            bodies.push((selection, person.x, person.y - person.height, person.y));
             root = root.child(
                 div()
                     .id(SharedString::from(format!(
@@ -2798,9 +3248,14 @@ impl ProjectionView {
             );
         }
         // Whom a favour is for: a mark over their head until it is done.
-        if let Some((_, x, y)) = super::arrival::marked(&self.snapshot)
+        if let Some((_, x, _, feet)) = super::arrival::marked(&self.snapshot)
             .filter(|_| self.looking.painted && self.retelling.is_none())
-            .and_then(|whom| heads.iter().find(|(id, ..)| *id == whom))
+            .and_then(|whom| bodies.iter().find(|(id, ..)| *id == whom))
+            .filter(|(_, x, top, feet)| {
+                // Only where they stand in view, drawn big enough to be
+                // seen: never a mark over empty ground.
+                on_screen(*x, *feet, (width, height)) && feet - top >= 12.0
+            })
         {
             let hint = self
                 .snapshot
@@ -2808,7 +3263,7 @@ impl ProjectionView {
                 .as_ref()
                 .map(|favour| favour.hint.clone())
                 .unwrap_or_default();
-            root = root.child(favour_mark(*x, *y, hint, seconds));
+            root = root.child(favour_mark(*x, *feet, hint, seconds));
         }
         // Where a line said now goes: over its speaker, clear of the
         // interface; and so no pointer covers it.
@@ -2821,17 +3276,62 @@ impl ProjectionView {
             .looking
             .asking
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied());
-        let interface = self.interface_areas((width, height), asker_x, asking);
-        let placed = line.as_ref().and_then(|(who, text, ..)| {
-            let (_, x, y) = heads.iter().find(|(id, ..)| id == who)?;
-            let (w, h) = bubble_size(text);
-            place_bubbles(&[(*x, *y, w, h)], &interface, (width, height)).pop()
+        let crowd = self.crowd(&bodies, height);
+        let mut interface = self.interface_areas((width, height), asker_x, asking, &crowd);
+        // Nor over whoever a card is about, or the person being talked to.
+        for who in card_people.iter().chain(self.looking.asking.iter()) {
+            if line.as_ref().is_some_and(|(speaker, ..)| speaker == who) {
+                continue;
+            }
+            if let Some((_, x, top, feet)) = bodies.iter().find(|(id, ..)| id == who) {
+                interface.push(Area {
+                    x: x - 14.0,
+                    y: *top,
+                    w: 28.0,
+                    h: feet - top,
+                });
+            }
+        }
+        // The words as the text system measures them, in even lines.
+        let laid = line
+            .as_ref()
+            .map(|(_, text, _, strong)| lay_bubble(window, text, *strong));
+        let speaker = line
+            .as_ref()
+            .and_then(|(who, ..)| heads.iter().find(|(id, ..)| id == who).copied());
+        let seen = speaker.filter(|(_, x, y)| on_screen(*x, *y, (width, height)));
+        let placed = seen.zip(laid.as_ref()).and_then(|((_, x, y), (_, w, h))| {
+            place_bubbles(&[(x, y, *w, *h)], &interface, (width, height)).pop()
         });
-        let pointing = self.point(width, height, placed.map(|placed| placed.whole()));
+        // A speaker off the screen speaks from its edge, with their face.
+        let tab = match (speaker, seen, laid.as_ref()) {
+            (Some((_, x, y)), None, Some((_, w, h))) => {
+                Some(place_tab(x, y, (*w, *h), &interface, (width, height)))
+            }
+            _ => None,
+        };
+        let pointing = self.point(
+            width,
+            height,
+            placed
+                .map(|placed| placed.whole())
+                .or(tab.map(|(area, _)| area)),
+        );
         // Whoever is talking, over their head, once there is a place
         // under them to talk in.
-        if let (Some((_, text, fade, strong)), Some(placed), true) = (line, placed, painted) {
-            root = root.child(bubble(text, placed, fade, strong));
+        if let (Some((who, _, fade, strong)), Some((rows, ..)), true) = (&line, laid, painted) {
+            if let Some(placed) = placed {
+                root = root.child(bubble(rows, placed, *fade, *strong));
+            } else if let Some((area, left)) = tab {
+                root = root.child(edge_tab(
+                    rows,
+                    area,
+                    left,
+                    likeness_of(&self.snapshot, *who),
+                    *fade,
+                    *strong,
+                ));
+            }
         }
 
         // Something handed over while the player watches is shown for a
@@ -2856,7 +3356,11 @@ impl ProjectionView {
                 div()
                     .id("gift-shown")
                     .role(gpui::Role::Status)
-                    .aria_label(format!("{from} gave you {}", keepsake.what))
+                    .aria_label(format!(
+                        "{} {}",
+                        crate::i18n::gave_you(&from),
+                        keepsake.what
+                    ))
                     .max_w(px(420.0))
                     .px_4()
                     .py_2()
@@ -2866,13 +3370,13 @@ impl ProjectionView {
                     .flex()
                     .flex_col()
                     .items_center()
-                    .child(ui::caption(format!("{from} gave you")))
+                    .child(ui::caption(crate::i18n::gave_you(&from)))
                     .child(
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(color(tokens::TEXT))
-                            .child(capitalized(&keepsake.what)),
+                            .child(crate::wrap::text(capitalized(&keepsake.what))),
                     )
             });
             root = root.child(
@@ -2965,7 +3469,9 @@ impl ProjectionView {
                 };
             // The player's mark, while it is open, has the stage to itself.
             let marking = &self.looking.marking;
+            // One card at a time: while someone is being talked to, theirs.
             let card = if self.moment_up()
+                || self.looking.asking.is_some()
                 || self.reading.page.is_some()
                 || marking.design.is_some()
                 || marking.card.is_some()
@@ -2999,14 +3505,26 @@ impl ProjectionView {
                     .map(|(_, x, _)| *x)
                     .filter(|_| self.retelling.is_none());
                 root = root.child(
-                    bottom_card(card, card_dock(room, asker_x))
+                    bottom_card(card, card_dock(room, asker_x, &crowd))
                         .when(self.looking.drawer, |card| card.right(px(DRAWER_WIDTH))),
                 );
             }
         }
+        // The talk card waits for the camera to land on whoever it is
+        // for, as the film's words do (v0.29 round 2: Find's card opened
+        // over the old view, its speaker not yet on screen).
+        let landed = |who: SelectionId| {
+            crate::painter::synchronous()
+                || self.retelling.is_some()
+                || self
+                    .looking
+                    .glide
+                    .arrived(Bound::Asking(who), Instant::now())
+        };
         if let Some((who, x, y)) = self
             .looking
             .asking
+            .filter(|who| landed(*who))
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied())
         {
             root = root.child(lit_one(|| self.render_asking(who, x, y, &stage, cx)));
@@ -3166,6 +3684,9 @@ impl ProjectionView {
             .id("zoom")
             .role(Role::Group)
             .aria_label(ui::t("Zoom"))
+            // A click on the zoom is never a click on the ground under it
+            // (it once placed the free bench).
+            .occlude()
             .flex()
             .flex_col()
             .items_center()
@@ -3220,9 +3741,13 @@ impl ProjectionView {
         }
         let mut right = div().flex().items_center().gap_2();
         if self.snapshot.world_time > 0 {
-            right = right.child(pill().font_weight(FontWeight::SEMIBOLD).child(
-                crate::i18n::moment_label(&self.snapshot, self.snapshot.world_time),
-            ));
+            // Named for the part of the day the sky shows.
+            let dark = matches!(scene::daylight_now(), scene::Daylight::Night);
+            right = right.child(
+                pill()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::i18n::now_label(&self.snapshot, dark)),
+            );
         }
         // A pointer at one of these handles hangs just under it.
         let hint_under = |handle: Stateful<Div>, pointers: &[Pointer], cx: &mut Context<Self>| {
@@ -3330,7 +3855,7 @@ impl ProjectionView {
                     .items_center()
                     .gap_1()
                     .child(div().size(px(8.0)).rounded_full().bg(color(tokens::ACCENT)))
-                    .child(ui::t(format!("Find {name}")))
+                    .child(crate::i18n::find_whom(&name))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.ask(whom, cx)
@@ -3359,8 +3884,11 @@ impl ProjectionView {
             .items_start()
             .justify_between()
             .gap_4()
-            .child(gauges)
-            .child(right)
+            // The gauges keep to their row; a handle added on the right
+            // (a chip to take something back) wraps the handles, never
+            // the gauges into a column.
+            .child(gauges.flex_shrink_0())
+            .child(right.flex_1().min_w(px(0.0)).flex_wrap().justify_end())
     }
 
     /// What the player's hands can make or do with `verb`, each thing
@@ -3846,7 +4374,10 @@ impl ProjectionView {
             .flex_col()
             .items_center()
             .gap_3()
-            .child(ui::caption(format!("Chapter {number} ends")))
+            .child(ui::caption(crate::i18n::fill(
+                "Chapter {number} ends",
+                &[("number", &number.to_string())],
+            )))
             .child(
                 div()
                     .text_2xl()
@@ -3894,51 +4425,44 @@ impl ProjectionView {
             .find(|item| item.id == who)
             .map(|item| capitalize(&item.detail))
             .unwrap_or_default();
+        // Who they are stays at the top and where the player types at the
+        // foot; what is between scrolls, so a long talk or large text never
+        // takes the card past the window.
+        let header = div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(portrait(likeness_of(&self.snapshot, who), 40.0, false))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .child(ui::row_title(name.clone()))
+                    .child(ui::caption(detail)),
+            )
+            .when(self.controller.is_some(), |row| {
+                row.child(
+                    ui::button("asking-story", "Their story", ButtonKind::Secondary)
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_legend(who, cx))),
+                )
+            })
+            .child(arrow_button(
+                "asking-close",
+                "×",
+                "Close",
+                cx.listener(|this, _, _, cx| this.look_away(cx)),
+            ));
         let mut card = div()
-            .id("asking")
-            .role(Role::Group)
-            .aria_label(ui::t(format!("Asking {name}")))
-            .w(px(ASKING_WIDTH))
-            .p_4()
-            .rounded_xl()
-            .bg(color(tokens::SURFACE))
-            .shadow_lg()
-            .border_1()
-            .border_color(color(tokens::BORDER))
+            .id("asking-body")
             .flex()
             .flex_col()
             .gap_2()
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(portrait(likeness_of(&self.snapshot, who), 40.0, false))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .flex()
-                            .flex_col()
-                            .child(ui::row_title(name.clone()))
-                            .child(ui::caption(detail)),
-                    )
-                    .when(self.controller.is_some(), |row| {
-                        row.child(
-                            ui::button("asking-story", "Their story", ButtonKind::Secondary)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.open_legend(who, cx)),
-                                ),
-                        )
-                    })
-                    .child(arrow_button(
-                        "asking-close",
-                        "×",
-                        "Close",
-                        cx.listener(|this, _, _, cx| this.look_away(cx)),
-                    )),
-            );
+            .flex_shrink(1.0)
+            .min_h(px(0.0))
+            .overflow_y_scroll();
+        let mut footer = Vec::new();
         if let Some(standing) = self
             .snapshot
             .canvas
@@ -4110,7 +4634,7 @@ impl ProjectionView {
             if let Some(openers) = self.render_openers(who, cx) {
                 card = card.child(openers);
             }
-            card = card.child(
+            footer.push(
                 div()
                     .pt_1()
                     .flex()
@@ -4120,10 +4644,11 @@ impl ProjectionView {
                     .child(
                         ui::button("say", "Say", ButtonKind::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.say(cx))),
-                    ),
+                    )
+                    .into_any_element(),
             );
         }
-        card = card.child(
+        footer.push(
             div()
                 .id("ask-more")
                 .role(Role::Button)
@@ -4137,9 +4662,32 @@ impl ProjectionView {
                     this.selected = Some(who);
                     this.open_drawer();
                     cx.notify();
-                })),
+                }))
+                .into_any_element(),
         );
-        let area = self.asking_area(who, x, head, (stage.width, stage.height));
+        let area = self.asking_area(who, x, head, (stage.view_w, stage.height));
+        let card = div()
+            .id("asking")
+            .role(Role::Group)
+            .aria_label(crate::i18n::fill(
+                "Asking {name}",
+                &[("name", &world_i18n::tr_owned(&name))],
+            ))
+            .w(px(ASKING_WIDTH))
+            .max_h(px((stage.height - ASKING_CLEAR - area.y).max(120.0)))
+            .p_4()
+            .rounded_xl()
+            .bg(color(tokens::SURFACE))
+            .shadow_lg()
+            .border_1()
+            .border_color(color(tokens::BORDER))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(header)
+            .child(card)
+            .children(footer);
         div()
             .absolute()
             .left(px(area.x))
@@ -4162,23 +4710,19 @@ impl ProjectionView {
         head: f32,
         (width, height): (f32, f32),
     ) -> Area {
-        let left = if x + 40.0 + ASKING_WIDTH < width - 12.0 {
-            x + 40.0
-        } else {
-            (x - 40.0 - ASKING_WIDTH).max(12.0)
-        };
         let talked = self
             .snapshot
             .exchanges_with(who)
             .count()
-            .min(CONVERSATION_SHOWN) as f32;
-        let tall = 360.0 + talked * 96.0;
-        Area {
-            x: left,
-            y: (head + 8.0).clamp(64.0, (height - tall).max(64.0)),
-            w: ASKING_WIDTH,
-            h: tall,
-        }
+            .min(CONVERSATION_SHOWN);
+        asking_place(
+            x,
+            head,
+            (width, height),
+            self.looking.drawer,
+            talked,
+            crate::text_scale(),
+        )
     }
 
     /// What of the interface lies over a stage `width` by `height`,
@@ -4191,6 +4735,7 @@ impl ProjectionView {
         (width, height): (f32, f32),
         asker_x: Option<f32>,
         asking: Option<(SelectionId, f32, f32)>,
+        crowd: &[(f32, f32)],
     ) -> Vec<Area> {
         let mut areas = vec![Area {
             x: 0.0,
@@ -4215,13 +4760,14 @@ impl ProjectionView {
         let (from, to) = if is_beginning(&self.snapshot) {
             (0.0, width)
         } else {
-            card_dock(room, asker_x).span(room)
+            card_dock(room, asker_x, crowd).span(room)
         };
+        let tall = self.card_room();
         areas.push(Area {
             x: from,
-            y: height - CARD_MARGIN - CARD_ROOM,
+            y: height - CARD_MARGIN - tall,
             w: to - from,
-            h: CARD_ROOM + CARD_MARGIN,
+            h: tall + CARD_MARGIN,
         });
         if self.looking.drawer {
             areas.push(Area {
@@ -4235,6 +4781,31 @@ impl ProjectionView {
             areas.push(self.asking_area(who, x, head, (width, height)));
         }
         areas
+    }
+
+    /// How tall the card at the foot of the stage is, generously: a
+    /// chapter's ending, with its summary, stands taller than a question
+    /// (v0.29's chapter card cut a bubble placed over the question's room).
+    fn card_room(&self) -> f32 {
+        let chapter = self.retelling.is_none()
+            && chapter_just_ended(&self.snapshot, self.looking.chapter_read).is_some();
+        if chapter {
+            CHAPTER_ROOM * crate::text_scale()
+        } else {
+            CARD_ROOM
+        }
+    }
+
+    /// The people whose figures reach down into the band the card at the
+    /// foot of the stage covers: each where they stand, and half their
+    /// width.
+    fn crowd(&self, bodies: &[(SelectionId, f32, f32, f32)], height: f32) -> Vec<(f32, f32)> {
+        let top = height - CARD_MARGIN - self.card_room();
+        bodies
+            .iter()
+            .filter(|(_, _, head, feet)| *feet > top && feet - head >= 8.0)
+            .map(|(_, x, head, feet)| (*x, ((feet - head) * 0.4).max(6.0)))
+            .collect()
     }
 
     /// What the player and someone said to each other today, latest last:
@@ -4303,7 +4874,7 @@ impl ProjectionView {
                             .bg(color(tokens::ACCENT_SOFT))
                             .text_xs()
                             .text_color(color(tokens::ACCENT_TEXT))
-                            .child(words.clone()),
+                            .child(crate::wrap::text(words.clone())),
                     ),
                 )
                 .child(
@@ -4320,7 +4891,7 @@ impl ProjectionView {
                         .px_1()
                         .text_xs()
                         .text_color(color(tokens::TEXT_TERTIARY))
-                        .child(ui::t(VOICE_NOTICE)),
+                        .child(crate::wrap::text(ui::t(VOICE_NOTICE))),
                 );
         }
         conversation
@@ -4438,25 +5009,60 @@ fn lit_one<E: Styled>(build: impl FnOnce() -> E) -> E {
 const NAME_ROOM: f32 = 72.0;
 
 /// A name under something on the scene.
-/// The mark over whom a favour is for: a small lantern-gold drop that
-/// bobs gently, named for a screen reader by how the favour is done.
-pub(crate) fn favour_mark(x: f32, head: f32, hint: String, seconds: f32) -> Stateful<Div> {
-    const SIDE: f32 = 14.0;
-    let bob = (seconds * 2.4).sin() * 2.0;
+/// The mark beside whom a favour is for: a small lantern-gold flag on a
+/// stick, standing on the ground at their feet with its own soft shadow,
+/// its head bobbing gently; named for a screen reader by how the favour
+/// is done.
+pub(crate) fn favour_mark(x: f32, feet: f32, hint: String, seconds: f32) -> Stateful<Div> {
+    const SIDE: f32 = 12.0;
+    const TALL: f32 = 30.0;
+    const BESIDE: f32 = 14.0;
+    let bob = (seconds * 2.4).sin() * 1.5;
+    let left = x + BESIDE - SIDE / 2.0;
     div()
         .id("favour-mark")
         .role(Role::Image)
         .aria_label(hint)
         .debug_selector(|| "favour-mark".into())
         .absolute()
-        .left(px(x - SIDE / 2.0))
-        .top(px(head - SIDE - 14.0 + bob))
-        .size(px(SIDE))
-        .rounded_full()
-        .border_2()
-        .border_color(color(tokens::SURFACE))
-        .bg(color(tokens::ACCENT))
-        .shadow_md()
+        .left(px(left - 4.0))
+        .top(px(feet - TALL - SIDE))
+        .w(px(SIDE + 8.0))
+        .h(px(TALL + SIDE + 4.0))
+        // The shadow it casts on the ground.
+        .child(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .top(px(TALL + SIDE - 2.0))
+                .w(px(SIDE + 8.0))
+                .h(px(5.0))
+                .rounded_full()
+                .bg(gpui::black().opacity(0.22)),
+        )
+        // The stick, from the ground up.
+        .child(
+            div()
+                .absolute()
+                .left(px(SIDE / 2.0 + 3.0))
+                .top(px(SIDE + bob))
+                .w(px(2.0))
+                .h(px(TALL - bob))
+                .bg(color(tokens::TEXT_SECONDARY)),
+        )
+        // Its head.
+        .child(
+            div()
+                .absolute()
+                .left(px(4.0))
+                .top(px(bob))
+                .size(px(SIDE))
+                .rounded_full()
+                .border_2()
+                .border_color(color(tokens::SURFACE))
+                .bg(color(tokens::ACCENT))
+                .shadow_sm(),
+        )
 }
 
 pub(crate) fn name_tag(name: String) -> Div {
@@ -4710,7 +5316,7 @@ pub(crate) fn pointer_hint(
                 .min_w(px(0.0))
                 .text_sm()
                 .text_color(color(tokens::TEXT))
-                .child(words.clone()),
+                .child(crate::wrap::text(words.clone())),
         )
         .child(
             ui::named(
@@ -4875,7 +5481,10 @@ fn answer_button(
     if let Some(reason) = unavailable {
         let row = row
             .when(!reason.is_empty(), |row| {
-                row.aria_description(ui::t(format!("Not now: {reason}")))
+                row.aria_description(crate::i18n::fill(
+                    "Not now: {reason}",
+                    &[("reason", &world_i18n::tr_owned(reason))],
+                ))
             })
             .border_color(color(tokens::BORDER))
             .text_color(color(tokens::TEXT_TERTIARY))
@@ -4956,28 +5565,87 @@ const CARD_MARGIN: f32 = 16.0;
 const CARD_CLEAR: f32 = 64.0;
 
 /// Where the card goes on a stage `width` wide, with whoever asks standing
-/// at `asker_x` on screen: on the far side from them, no wider than half
-/// the stage less its margins, so the half they stand in stays clear; with
-/// nobody asking, centred.
-pub(crate) fn card_dock(width: f32, asker_x: Option<f32>) -> Dock {
+/// at `asker_x` on screen and the rest of the people whose figures reach
+/// down into the card's band at `crowd` (each where they stand and half
+/// their width): wherever it covers the fewest of them, never the asker.
+/// With an asker it prefers the far side from them, no wider than half the
+/// stage less its margins, so the half they stand in stays clear; with
+/// nobody asking, centred, unless that covers someone a side would not
+/// (v0.29's talk card over the group by the water).
+pub(crate) fn card_dock(width: f32, asker_x: Option<f32>, crowd: &[(f32, f32)]) -> Dock {
     let full = (CARD_WIDTH * crate::text_scale().sqrt()).min(width - CARD_MARGIN * 2.0);
-    match asker_x {
-        Some(x) if width >= 720.0 => Dock {
-            side: if x > width / 2.0 {
-                DockSide::Left
-            } else {
-                DockSide::Right
-            },
-            // Clear of the middle by more than anyone's shoulders, so
-            // someone standing right at it is still in the open half.
-            w: full.min(width / 2.0 - CARD_CLEAR),
-        },
-        _ => Dock {
-            side: DockSide::Centre,
-            w: full,
-        },
+    let centre = Dock {
+        side: DockSide::Centre,
+        w: full,
+    };
+    if width < 720.0 {
+        return centre;
     }
+    // Clear of the middle by more than anyone's shoulders, so someone
+    // standing right at it is still in the open half.
+    let side = |side| Dock {
+        side,
+        w: full.min(width / 2.0 - CARD_CLEAR),
+    };
+    let order = match asker_x {
+        Some(x) if x > width / 2.0 => [side(DockSide::Left), centre, side(DockSide::Right)],
+        Some(_) => [side(DockSide::Right), centre, side(DockSide::Left)],
+        None => [centre, side(DockSide::Left), side(DockSide::Right)],
+    };
+    let covers = |dock: &Dock, x: f32, half: f32| {
+        let (left, right) = dock.span(width);
+        x + half > left && x - half < right
+    };
+    let cost = |dock: &Dock| {
+        let asker = asker_x.is_some_and(|x| covers(dock, x, ASKER_HALF));
+        let crowd = crowd
+            .iter()
+            .filter(|(x, half)| covers(dock, *x, *half))
+            .count();
+        usize::from(asker) * 1000 + crowd
+    };
+    // And each side narrowed to the open ground beside everyone, where that
+    // still leaves a card wide enough to read.
+    let least = CARD_LEAST * crate::text_scale().sqrt();
+    let everyone = crowd
+        .iter()
+        .copied()
+        .chain(asker_x.map(|x| (x, ASKER_HALF)))
+        .collect::<Vec<_>>();
+    let gap = 12.0;
+    let left_free = everyone
+        .iter()
+        .map(|(x, half)| x - half - gap)
+        .fold(width - CARD_MARGIN, f32::min)
+        - CARD_MARGIN;
+    let right_free = width
+        - CARD_MARGIN
+        - everyone
+            .iter()
+            .map(|(x, half)| x + half + gap)
+            .fold(CARD_MARGIN, f32::max);
+    let fitted = [(DockSide::Left, left_free), (DockSide::Right, right_free)]
+        .into_iter()
+        .filter(|(_, free)| *free >= least)
+        .map(|(side, free)| Dock {
+            side,
+            w: free.min(full),
+        });
+    let mut best = order[0];
+    for dock in order[1..].iter().copied().chain(fitted) {
+        if cost(&dock) < cost(&best) {
+            best = dock;
+        }
+    }
+    best
 }
+
+/// The narrowest a card at the foot of the stage is made to keep clear of
+/// people, at text size 1.
+const CARD_LEAST: f32 = 400.0;
+
+/// Half of anyone's width, generously, for keeping a card off an asker.
+const ASKER_HALF: f32 = 24.0;
 
 impl Dock {
     /// The span of the stage the card covers, left to right.
@@ -5009,6 +5677,8 @@ fn bottom_card(card: impl IntoElement, dock: Dock) -> Div {
         div()
             .debug_selector(|| "bottom-card".into())
             .w(px(dock.w))
+            // A click on the card is the card's, never the ground's.
+            .occlude()
             .child(card),
     )
 }
@@ -5058,7 +5728,8 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
 /// only when a picture of that name is already there (a postcard, which is
 /// named after its day).
 pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) -> bool {
-    let Some(home) = std::env::var_os("HOME") else {
+    // Windows names the home folder USERPROFILE.
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
         return false;
     };
     let folder = std::path::Path::new(&home)
@@ -5091,14 +5762,117 @@ pub(crate) fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stam
         f32::from(bounds.size.width).round(),
         f32::from(bounds.size.height).round()
     );
-    std::process::Command::new("/usr/sbin/screencapture")
-        .arg("-x")
-        .arg("-R")
-        .arg(region)
-        .arg(&path)
+    capture_region(&region, &path) && path.is_file()
+}
+
+/// Copies the screen area `region` ("x,y,width,height" in the window's
+/// points) to the PNG at `path`. Not offscreen: GPUI renders a frame to an
+/// image (`Window::render_to_image`, Metal and DirectX) only with its
+/// `test-support` feature at the pinned revision, so until it does, this is
+/// the operating system's own copy of the screen: `screencapture` on the
+/// Mac, .NET's `CopyFromScreen` through Windows PowerShell on Windows
+/// (DPI-unaware, so it takes the same points GPUI gives), ImageMagick's
+/// `import` or `grim` on Linux, nothing elsewhere.
+fn capture_region(region: &str, path: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/sbin/screencapture")
+            .arg("-x")
+            .arg("-R")
+            .arg(region)
+            .arg(path)
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let numbers = region
+            .split(',')
+            .filter_map(|part| part.parse::<f64>().ok())
+            .map(|value| value.round() as i64)
+            .collect::<Vec<_>>();
+        let [x, y, width, height] = numbers[..] else {
+            return false;
+        };
+        let target = path.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "Add-Type -AssemblyName System.Drawing; \
+             $b = New-Object System.Drawing.Bitmap {width}, {height}; \
+             $g = [System.Drawing.Graphics]::FromImage($b); \
+             $g.CopyFromScreen({x}, {y}, 0, 0, $b.Size); \
+             $b.Save('{target}', [System.Drawing.Imaging.ImageFormat]::Png)"
+        );
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::process::Command::new(
+            std::path::Path::new(&system)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe"),
+        )
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .is_ok_and(|status| status.success())
-        && path.is_file()
+    }
+    // Linux (a preview build, `linux-window`): ImageMagick's `import` on
+    // X11, `grim` on Wayland, whichever is there; nothing otherwise.
+    #[cfg(target_os = "linux")]
+    {
+        let numbers = region
+            .split(',')
+            .filter_map(|part| part.parse::<f64>().ok())
+            .map(|value| value.round() as i64)
+            .collect::<Vec<_>>();
+        let [x, y, width, height] = numbers[..] else {
+            return false;
+        };
+        let ran = |program: &str, args: &[&std::ffi::OsStr]| {
+            std::process::Command::new(program)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        };
+        let crop = format!("{width}x{height}+{x}+{y}");
+        let geometry = format!("{x},{y} {width}x{height}");
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let x11 = || {
+            ran(
+                "import",
+                &[
+                    "-silent".as_ref(),
+                    "-window".as_ref(),
+                    "root".as_ref(),
+                    "-crop".as_ref(),
+                    crop.as_ref(),
+                    "+repage".as_ref(),
+                    path.as_os_str(),
+                ],
+            )
+        };
+        let grim = || {
+            ran(
+                "grim",
+                &["-g".as_ref(), geometry.as_ref(), path.as_os_str()],
+            )
+        };
+        let tries: [&dyn Fn() -> bool; 2] = if wayland {
+            [&grim, &x11]
+        } else {
+            [&x11, &grim]
+        };
+        tries.iter().any(|capture| capture())
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+    {
+        let _ = (region, path);
+        false
+    }
 }
 
 /// The paper of a postcard around a scene `width` by `height`: an even
@@ -5153,7 +5927,7 @@ pub(crate) fn postcard_paper(card: &crate::postcard::Postcard, width: f32, heigh
                         .text_lg()
                         .italic()
                         .line_clamp(2)
-                        .child(card.printed_caption()),
+                        .child(crate::wrap::text(card.printed_caption())),
                 )
                 .child(
                     div()
@@ -5214,6 +5988,41 @@ mod tests {
 
     fn someone() -> SelectionId {
         SelectionId::from_stable_key("entity-7").expect("an entity key")
+    }
+
+    /// The views the scene paints ahead of time for the zoom control are
+    /// exactly where a press of it takes the camera (the tiles of another
+    /// view would be no use): all the way out into the folded postcard of
+    /// a three-year World and all the way back in, and none past either
+    /// end of the zoom's travel.
+    #[test]
+    fn the_zoom_steps_painted_ahead_are_where_the_zoom_control_goes() {
+        let snapshot = crate::diorama::tests::three_years();
+        let stage = diorama::stage_at(&snapshot, 1100.0, 848.0, diorama::Clock::at(12));
+        let mut view = ProjectionView::new(snapshot);
+        view.retelling = None;
+        let middle = (stage.view_w / 2.0, stage.height / 2.0);
+        let mut camera = Camera::whole(&stage);
+        let mut folded = 0;
+        for factor in [1.0 / ZOOM_STEP; 5].into_iter().chain([ZOOM_STEP; 9]) {
+            let steps = view.zoom_steps(&stage, camera);
+            let ahead = steps
+                .iter()
+                .find(|step| (step.zoom > camera.zoom) == (factor > 1.0))
+                .copied();
+            let moved = view.zoom_at(&stage, camera, factor, middle);
+            assert_eq!(moved, ahead.is_some(), "{camera:?} by {factor}: {steps:?}");
+            if moved {
+                camera = view.free_target(&stage);
+                assert_eq!(Some(camera), ahead, "{factor}");
+                folded += usize::from(camera.fold > 0.0);
+            }
+        }
+        assert!(folded >= 2, "the zoom went into the folded postcard");
+        assert!(
+            (camera.zoom - diorama::ZOOM_MOST).abs() < 1e-4,
+            "{camera:?}"
+        );
     }
 
     /// As a World opens on a question, the card waits while the first
@@ -5333,6 +6142,8 @@ mod tests {
             "Previous card (↑)",
             "Next card (↓)",
         ] {
+            // As this computer's keyboard has its shortcuts.
+            let name = &crate::ui::keys_here(name);
             let bounds = cx
                 .debug_bounds(named(name))
                 .unwrap_or_else(|| panic!("{name} is drawn"));
@@ -5437,6 +6248,11 @@ mod tests {
     }
 
     /// A World whose snapshot never changes, for the window tests.
+    /// The place on its 1,082nd day, three years built.
+    fn day_1082() -> ProjectionSnapshot {
+        crate::diorama::tests::harbour_1082()
+    }
+
     struct Still(ProjectionSnapshot);
 
     impl crate::ProjectionController for Still {
@@ -5497,19 +6313,22 @@ mod tests {
             for caret in [Caret::Up, Caret::Down, Caret::Left] {
                 let (role, node) = accessible(&pointer_hint(pointer, caret, |_, _, _| {}));
                 assert_eq!(role, Some(Role::Status));
-                assert_eq!(node.label(), Some(pointer.words()));
+                assert_eq!(
+                    node.label(),
+                    Some(crate::ui::keys_here(pointer.words()).as_str())
+                );
             }
         }
     }
 
     /// The v0.24 bar: the question card never covers whoever asks it. On
-    /// the day-1,082 harbour at 1100 by 900 and 1440 by 900, for everyone
+    /// the day-1,082 place at 1100 by 900 and 1440 by 900, for everyone
     /// out on the quay at noon, looked at from anywhere along the place,
     /// the card docked for them as asker covers no part of their figure.
     #[test]
     fn the_card_never_covers_its_asker() {
         use crate::diorama::{self, Camera, Glows};
-        let snapshot = crate::diorama::tests::harbour_1082();
+        let snapshot = day_1082();
         for (width, window_h) in [(1100.0_f32, 900.0_f32), (1440.0, 900.0)] {
             let height = window_h - 52.0;
             let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(12));
@@ -5540,7 +6359,7 @@ mod tests {
                         continue;
                     }
                     askers += 1;
-                    let dock = card_dock(width, Some(person.x));
+                    let dock = card_dock(width, Some(person.x), &[]);
                     let (left, right) = dock.span(width);
                     let half = person.height * 0.4;
                     assert!(
@@ -5553,6 +6372,241 @@ mod tests {
             }
             assert!(askers > 50, "{askers} askers seen");
         }
+    }
+
+    /// The v0.29 bar for English bubbles: every line the place says,
+    /// page by page, laid out for its bubble, leaves no line under three
+    /// tenths of the bubble's width and no word alone on a line.
+    #[test]
+    fn english_bubbles_read_evenly() {
+        let mut lines = Vec::new();
+        for snapshot in [day_1082(), super::super::drawer::tests::day_358()] {
+            lines.extend(snapshot.voices.iter().map(|voice| voice.line.clone()));
+            lines.extend(snapshot.talks.iter().map(|talk| talk.answer.clone()));
+            lines.extend(
+                snapshot
+                    .timeline
+                    .items
+                    .iter()
+                    .map(|item| item.title.clone()),
+            );
+            lines.extend(snapshot.letters.iter().map(|letter| letter.note.clone()));
+            lines.extend(
+                snapshot
+                    .chapters
+                    .iter()
+                    .map(|chapter| chapter.summary.clone()),
+            );
+        }
+        lines.extend([
+            "Watched the ferry come and go from the bench.".to_string(),
+            "Evan came up the hill with a heavy crate.".to_string(),
+            "Sat on the bench till my tea went cold.".to_string(),
+        ]);
+        let mut pages = 0;
+        let mut short = Vec::new();
+        for line in &lines {
+            for page in speech_pages(line) {
+                pages += 1;
+                let text = page.lines().collect::<Vec<_>>().join(" ");
+                let x = |i: usize| text_width(&text[..i]) as f32 * 7.4;
+                let room = BUBBLE_ROOM - BUBBLE_PAD * 2.0;
+                let ranges = crate::wrap::balanced(&text, room, x);
+                if ranges.len() < 2 {
+                    continue;
+                }
+                let widths = ranges
+                    .iter()
+                    .map(|range| {
+                        let end = range.start + text[range.clone()].trim_end().len();
+                        x(end) - x(range.start)
+                    })
+                    .collect::<Vec<_>>();
+                let widest = widths.iter().copied().fold(0.0, f32::max);
+                let lone = ranges
+                    .iter()
+                    .any(|range| text[range.clone()].split_whitespace().count() < 2);
+                if widths.iter().any(|w| *w < widest * 0.3) || lone {
+                    short.push(format!(
+                        "{:?}",
+                        ranges.iter().map(|r| &text[r.clone()]).collect::<Vec<_>>()
+                    ));
+                }
+            }
+        }
+        eprintln!("{pages} pages, {} uneven", short.len());
+        assert!(pages > 20, "{pages} pages");
+        assert!(short.is_empty(), "uneven bubbles:\n{}", short.join("\n"));
+    }
+
+    /// The drawer and Esc never move the camera: talking to someone moves
+    /// it in on them, and putting them away (Esc, the drawer) leaves it
+    /// where it is, never jumping to another part of the place.
+    #[gpui::test]
+    fn the_drawer_and_esc_never_move_the_camera(cx: &mut gpui::TestAppContext) {
+        use gpui::VisualTestContext;
+        let snapshot = day_1082();
+        let someone = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+            .nth(3)
+            .map(|item| item.id)
+            .expect("someone");
+        let window = cx.add_window(move |_, _| {
+            let mut view =
+                ProjectionView::controlled(Still(snapshot.clone())).with_strip(|_, _| {});
+            view.looking.opening = None;
+            view
+        });
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1100.0), px(900.0)));
+        cx.run_until_parked();
+        let settle = |cx: &mut VisualTestContext| {
+            std::thread::sleep(Duration::from_secs_f32(CAMERA_SECONDS + 0.2));
+            window
+                .update(cx, |_, _, cx| cx.notify())
+                .expect("the window");
+            cx.run_until_parked();
+            window
+                .update(cx, |view, _, _| view.looking.camera_now)
+                .expect("the window")
+                .expect("a camera")
+        };
+        window
+            .update(cx, |view, _, cx| view.ask(someone, cx))
+            .expect("the window");
+        cx.run_until_parked();
+        let talking = settle(cx);
+        for (what, step) in [("Esc", 0_u8), ("the drawer", 1), ("the drawer shut", 2)] {
+            window
+                .update(cx, |view, _, cx| match step {
+                    0 => view.look_away(cx),
+                    _ => view.toggle_drawer(cx),
+                })
+                .expect("the window");
+            cx.run_until_parked();
+            let now = settle(cx);
+            assert!(
+                (now.x - talking.x).abs() < 1.0 && (now.zoom - talking.zoom).abs() < 0.01,
+                "{what} moved the camera from {talking:?} to {now:?}"
+            );
+        }
+    }
+
+    /// The v0.29 bars for the talk card and speech: on the day-1,082 place
+    /// at 1100 by 900 and 1440 by 900, with the drawer shut and open, at
+    /// both text sizes, for everyone out on the ground looked at from
+    /// anywhere along it, the card of whoever is talked to (whom Find
+    /// lands on) is wholly inside the window and covers no part of them;
+    /// a bubble over anyone's head never covers them; and words from
+    /// anyone off the stage go to a tab inside it.
+    #[test]
+    fn no_card_or_bubble_covers_its_own_speaker_and_every_card_fits() {
+        use crate::diorama::{self, Camera, Glows};
+        let snapshot = day_1082();
+        let mut seen = 0;
+        for (width, window_h) in [(1100.0_f32, 900.0_f32), (1440.0, 900.0)] {
+            let height = window_h - CHROME;
+            let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(12));
+            let lives = diorama::living(
+                &stage,
+                &snapshot,
+                0.0,
+                crate::scene::Daylight::Day,
+                &Default::default(),
+                None,
+            );
+            for pan in 0..=20 {
+                for zoom in [1.0, 1.35] {
+                    let camera =
+                        Camera::around(&stage, zoom, stage.width * pan as f32 / 20.0, height / 2.0);
+                    let frame = diorama::frame(
+                        &snapshot,
+                        &stage,
+                        &lives,
+                        camera,
+                        0.0,
+                        crate::scene::Daylight::Day,
+                        &Glows::new(),
+                        1.0,
+                    );
+                    for person in &frame.people {
+                        let half = person.height * 0.4;
+                        let head = person.y - person.height * 1.08;
+                        let body = Area {
+                            x: person.x - half,
+                            y: person.y - person.height,
+                            w: half * 2.0,
+                            h: person.height,
+                        };
+                        if !on_screen(person.x, head, (width, height)) {
+                            // Off the stage: words go to a tab inside it.
+                            let (tab, _) =
+                                place_tab(person.x, head, (220.0, 70.0), &[], (width, height));
+                            assert!(
+                                tab.x >= 0.0
+                                    && tab.x + tab.w <= width
+                                    && tab.y >= 0.0
+                                    && tab.y + tab.h <= height,
+                                "{width}: a tab at {tab:?}"
+                            );
+                            continue;
+                        }
+                        seen += 1;
+                        for drawer in [false, true] {
+                            for scale in [1.0, 2.0] {
+                                for talked in 0..=CONVERSATION_SHOWN {
+                                    let card = asking_place(
+                                        person.x,
+                                        head,
+                                        (width, height),
+                                        drawer,
+                                        talked,
+                                        scale,
+                                    );
+                                    let room = width - if drawer { DRAWER_WIDTH } else { 0.0 };
+                                    assert!(
+                                        card.x >= 0.0
+                                            && card.x + card.w <= room
+                                            && card.y >= 0.0
+                                            && card.y + card.h <= height,
+                                        "{width}, drawer {drawer}, x{scale}: card {card:?} \
+                                         outside the window"
+                                    );
+                                    if person.x <= room {
+                                        assert!(
+                                            !card.overlaps(&body),
+                                            "{width}, drawer {drawer}: card {card:?} \
+                                             covers whoever it is for at {body:?}"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        let placed = place_bubbles(
+                            &[(person.x, head, 240.0, 70.0)],
+                            &[Area {
+                                x: 0.0,
+                                y: 0.0,
+                                w: width,
+                                h: HUD_ROOM,
+                            }],
+                            (width, height),
+                        );
+                        for bubble in placed {
+                            assert!(
+                                !bubble.area.overlaps(&body),
+                                "{width}: a bubble {:?} covers its speaker at {body:?}",
+                                bubble.area
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(seen > 100, "{seen} people seen");
     }
 
     /// Where each pointer goes keeps clear of the card and of the speech
@@ -5780,6 +6834,289 @@ mod tests {
                 assert!(row.chars().count() <= 18, "{row:?} is too wide");
             }
             assert_eq!(rows.concat(), line, "nothing is lost");
+        }
+    }
+
+    /// The Next button, the keys and the beat's own time all go on to the
+    /// next beat the same way, its clock started again: a click once left
+    /// the clock running, and the next beat could go after 0.7–2 seconds.
+    #[gpui::test]
+    fn every_way_on_in_the_return_film_starts_the_beat_afresh(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, VisualTestContext};
+        use world_projection::{BriefingItem, BriefingItemKind, BriefingProjection};
+        let mut snapshot = day_1082();
+        snapshot.briefing = Some(BriefingProjection {
+            items: [
+                "The pub found its feet again",
+                "Jonas's catch reached the mainland",
+                "A note",
+            ]
+            .into_iter()
+            .map(|title| BriefingItem {
+                selection: None,
+                title: title.into(),
+                detail: String::new(),
+                kind: BriefingItemKind::Beat,
+                tone: world_projection::Tone::Neutral,
+            })
+            .collect(),
+            eyebrow: String::new(),
+            title: String::new(),
+            returned: true,
+        });
+        let window = cx.add_window(move |_, _| {
+            let mut view = ProjectionView::controlled(Still(snapshot));
+            view.looking.opening = None;
+            view.retelling = Some(0);
+            view
+        });
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+        cx.run_until_parked();
+        let late = || Some(Instant::now() - Duration::from_secs(4));
+        // A click on Next, four seconds into a beat.
+        view.update(cx, |view, cx| {
+            view.looking.beat_at = late();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let next = cx.debug_bounds("retelling-next").expect("Next");
+        let clicked = Instant::now();
+        cx.simulate_click(next.center(), Modifiers::none());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.retelling, Some(1), "the next beat");
+            assert!(view.looking.beat_at >= Some(clicked), "told from its start");
+        });
+        // The Right arrow, four seconds into that one.
+        view.update(cx, |view, cx| {
+            view.looking.beat_at = late();
+            cx.notify();
+        });
+        let pressed = Instant::now();
+        cx.simulate_keystrokes("right");
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.retelling, Some(2), "the last beat");
+            assert!(view.looking.beat_at >= Some(pressed), "told from its start");
+        });
+    }
+
+    /// A return film of three beats (a catch sold, something the player
+    /// began finished, a note left), as the window shows it in English,
+    /// Chinese and Japanese; and each beat's subject.
+    fn film_in_every_language() -> (Vec<(&'static str, ProjectionSnapshot)>, [SelectionId; 3]) {
+        use world_projection::{
+            BriefingItem, BriefingItemKind, BriefingProjection, InspectorProjection, InspectorRow,
+            InspectorSection,
+        };
+        let mut english = day_1082();
+        let entity = |id: u64| SelectionId::from_stable_key(&format!("entity-{id}")).unwrap();
+        // The place itself, a person and a thing built on it.
+        let (place, person, thing) = (entity(101), entity(1), entity(702));
+        let label = |id: SelectionId| {
+            english
+                .canvas
+                .items
+                .iter()
+                .find(|item| item.id == id)
+                .map(|item| item.label.clone())
+                .unwrap()
+        };
+        let (person_name, thing_name) = (label(person), label(thing));
+        // Every thing on the scene by the name the World keeps for it, as
+        // a real snapshot has them; the place's is lowercase.
+        let place_name = label(place).to_lowercase();
+        let titles = english
+            .canvas
+            .items
+            .iter()
+            .map(|item| {
+                let title = if item.id == place {
+                    place_name.clone()
+                } else {
+                    item.label.clone()
+                };
+                (item.id, title)
+            })
+            .collect::<Vec<_>>();
+        for (item, title) in titles {
+            english.inspectors.insert(
+                item,
+                InspectorProjection {
+                    selection: item,
+                    title,
+                    subtitle: String::new(),
+                    sections: Vec::new(),
+                },
+            );
+        }
+        let event = |id: u64, rows: Vec<(&str, String)>| {
+            let selection = SelectionId::from_stable_key(&format!("event-{id}")).expect("an event");
+            (
+                selection,
+                rows.into_iter()
+                    .map(|(label, value)| InspectorRow {
+                        label: label.into(),
+                        value,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let beats = [
+            // A catch sold: who caught it, and where it went.
+            (
+                event(
+                    341,
+                    vec![
+                        ("Who", person_name.clone()),
+                        (
+                            "With",
+                            format!("{person_name}, {place_name}, Mainland Fish Market"),
+                        ),
+                    ],
+                ),
+                person,
+            ),
+            // Something the player began, finished: no one did it.
+            (event(329, vec![("With", thing_name.clone())]), thing),
+            // A note left.
+            (
+                event(
+                    352,
+                    vec![("Who", person_name.clone()), ("With", person_name.clone())],
+                ),
+                person,
+            ),
+        ];
+        let mut items = Vec::new();
+        for ((selection, rows), _) in &beats {
+            english.inspectors.insert(
+                *selection,
+                InspectorProjection {
+                    selection: *selection,
+                    title: String::new(),
+                    subtitle: String::new(),
+                    sections: vec![InspectorSection {
+                        title: "Context".into(),
+                        rows: rows.clone(),
+                    }],
+                },
+            );
+            items.push(BriefingItem {
+                selection: Some(*selection),
+                title: "A beat".into(),
+                detail: String::new(),
+                kind: BriefingItemKind::Beat,
+                tone: world_projection::Tone::Neutral,
+            });
+        }
+        english.briefing = Some(BriefingProjection {
+            eyebrow: String::new(),
+            title: String::new(),
+            items,
+            returned: true,
+        });
+        // The scene as the window shows it in another language: its labels
+        // translated, what the events say not.
+        let shown_as = |names: [(SelectionId, &str); 3]| {
+            let mut snapshot = english.clone();
+            for item in &mut snapshot.canvas.items {
+                if let Some((_, shown)) = names.iter().find(|(id, _)| *id == item.id) {
+                    item.label = (*shown).into();
+                }
+            }
+            snapshot
+        };
+        let languages = [
+            ("English", english.clone()),
+            (
+                "Chinese",
+                shown_as([(person, "乔纳斯"), (thing, "港口灯"), (place, "港口")]),
+            ),
+            (
+                "Japanese",
+                shown_as([(person, "ジョナス"), (thing, "港の灯り"), (place, "港")]),
+            ),
+        ];
+        let subjects = beats.map(|(_, subject)| subject);
+        (languages.into(), subjects)
+    }
+
+    /// Each beat's words show within 2.5 s of Next, on its own subject, in
+    /// every language, on every run, however painting and the display go
+    /// (v0.29 round 2: beats went silent in three runs of four). Played on
+    /// a clock the test holds, never the wall clock.
+    #[test]
+    fn every_beat_speaks_on_its_subject_within_two_and_a_half_seconds_in_every_language() {
+        let (languages, _) = film_in_every_language();
+        for (language, snapshot) in &languages {
+            let stage =
+                crate::diorama::stage_at(snapshot, 1100.0, 748.0, crate::diorama::Clock::at(12));
+            let beats = snapshot.briefing.as_ref().unwrap().beats();
+            // The film twice over, so a subject comes round again.
+            let views = beats
+                .iter()
+                .chain(beats.iter())
+                .map(|beat| Camera::on(&stage, beat_box(snapshot, &stage, beat).expect("framed")))
+                .collect::<Vec<_>>();
+            let runs = super::super::glide::tests::film_runs(&views, Camera::whole(&stage));
+            assert!(!runs.is_empty(), "{language}");
+        }
+    }
+
+    /// Each beat of a return is about its own subject, by the World's own
+    /// names for things, whatever language the window is in: the camera
+    /// frames it, it glows, and its face is the one shown. In Chinese and
+    /// Japanese the scene's labels are translated and the event's names
+    /// are not, and the camera never moved (v0.29); a catch that left the
+    /// place framed the whole place, not the fisher.
+    #[test]
+    fn each_return_beat_frames_its_own_subject_in_every_language() {
+        let (languages, subjects) = film_in_every_language();
+        let beats = subjects.map(|subject| ((), subject));
+        for (language, snapshot) in &languages {
+            let stage =
+                crate::diorama::stage_at(snapshot, 1100.0, 748.0, crate::diorama::Clock::at(12));
+            let beats_shown = snapshot.briefing.as_ref().unwrap().beats();
+            for (beat, (_, subject)) in beats_shown.into_iter().zip(&beats) {
+                let targets = beat_targets(snapshot, beat);
+                assert_eq!(
+                    targets,
+                    [*subject].into(),
+                    "{language}: what the beat is about"
+                );
+                // The face shown is the subject's.
+                let face = super::super::beat_subject(snapshot, beat)
+                    .first()
+                    .map(|item| item.id);
+                assert_eq!(face, Some(*subject), "{language}: the face");
+                // The camera frames the subject itself, or where it is if
+                // it is not out on the scene.
+                let index = |id: SelectionId| {
+                    snapshot
+                        .canvas
+                        .items
+                        .iter()
+                        .position(|item| item.id == id)
+                        .unwrap()
+                };
+                let own = stage.frame_of(index(*subject)).or_else(|| {
+                    let at = snapshot.canvas.items[index(*subject)].at?;
+                    stage.frame_of(index(at))
+                });
+                let framed = beat_box(snapshot, &stage, beat);
+                let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+                assert!(
+                    match (framed, own) {
+                        (Some(a), Some(b)) =>
+                            near(a.0, b.0) && near(a.1, b.1) && near(a.2, b.2) && near(a.3, b.3),
+                        _ => false,
+                    },
+                    "{language}: the camera on {subject:?}: {framed:?}, not {own:?}"
+                );
+            }
         }
     }
 }

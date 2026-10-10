@@ -208,14 +208,13 @@ impl Action for Finishes {
             .map_or_else(|| name(state, fixture), |work| work.name.to_string());
         let mut draft = EventDraft::new("plot_finished");
         draft.targets = vec![fixture];
-        draft.payload.insert(
-            "told".into(),
-            format!(
-                "The {} you began by {at} was finished",
-                thing.to_lowercase()
-            )
-            .into(),
-        );
+        let thing = thing.to_lowercase();
+        let told = if names_its_place(&thing, &at) {
+            format!("The {thing} you began was finished")
+        } else {
+            format!("The {thing} you began by {at} was finished")
+        };
+        draft.payload.insert("told".into(), told.into());
         if let Some(plot) = plot_of(state, fixture) {
             draft.payload.insert("plot".into(), plot.into());
         }
@@ -651,4 +650,17 @@ pub(crate) fn clear_plot(
             .execute(actions, &ActionRequest::new("hands_clear_plot"))?
             .id,
     ))
+}
+
+/// Whether a thing's name already says where it stands (a "pier lamp" by
+/// "the pier"), so "by" the place would say it twice.
+pub(crate) fn names_its_place(thing: &str, at: &str) -> bool {
+    let at = at.to_lowercase();
+    let place = at.trim_start_matches("the ").trim();
+    !place.is_empty()
+        && thing
+            .to_lowercase()
+            .split_whitespace()
+            .filter(|word| word.len() > 2)
+            .any(|word| place.split_whitespace().any(|part| part == word))
 }

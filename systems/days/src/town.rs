@@ -890,6 +890,8 @@ impl Town {
             plots,
             setting: Some(setting.into()),
             clusters,
+            // The Pack says how its place looks, if it does.
+            look: None,
         }
     }
 

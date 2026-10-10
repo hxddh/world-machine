@@ -155,34 +155,48 @@ const fn quarter(
     }
 }
 
+/// How far down the scene Icebridge's bridge stands: on the lead of open
+/// water just behind the causeway, in front of the plots' row.
+const BRIDGE_Y: f32 = 0.73;
+
+/// Where along the panorama Icebridge's bridge stands: just clear of the
+/// rookery's second plot (0.69), and near enough the nests (0.24 and 0.32)
+/// that one window holds the nests, the plaza and the bridge whole at every
+/// hour (v0.29 round 3: at 1.04 the nests and the bridge could not share a
+/// window, and night cut one or the other at its edge).
+const BRIDGE_PX: f32 = 0.94;
+
 fn layout(place: Place) -> &'static Layout {
+    // Ares: a sheltered ring against a hostile plain. The habitats and the
+    // green dome garden huddle round the lit airlock apron at the near end;
+    // the plain runs out to the rover's tracks, the ridge and the mine.
     const ARES: Layout = Layout {
         width: 2.5,
         stretches: [
             Stretch {
                 id: "domes",
                 from: 0.0,
-                to: 0.9,
+                to: 1.15,
             },
             Stretch {
                 id: "pad",
-                from: 0.9,
-                to: 1.7,
+                from: 1.15,
+                to: 1.75,
             },
             Stretch {
                 id: "ridge",
-                from: 1.7,
+                from: 1.75,
                 to: 2.5,
             },
         ],
         labels: ["The domes", "The landing pad", "The ridge and the ice mine"],
-        anchors: [(SLOT_A, 0.3), (SLOT_C, 1.1), (SLOT_D, 1.95)],
+        anchors: [(SLOT_A, 0.86), (SLOT_C, 1.05), (SLOT_D, 1.85)],
         home: "Quarters",
         quarters: &[
             quarter(
                 "hab_ring",
                 "the Habitat Ring",
-                0.3,
+                0.35,
                 &[Zone::Lanes],
                 true,
                 Ground::Pad,
@@ -190,7 +204,7 @@ fn layout(place: Place) -> &'static Layout {
             quarter(
                 "dome_garden",
                 "the Dome Garden",
-                0.72,
+                1.0,
                 &[Zone::Green],
                 false,
                 Ground::Garden,
@@ -214,7 +228,7 @@ fn layout(place: Place) -> &'static Layout {
             quarter(
                 "crater_rim",
                 "the Crater Rim",
-                1.0,
+                1.6,
                 &[Zone::Water, Zone::Quay],
                 false,
                 Ground::Pad,
@@ -222,7 +236,7 @@ fn layout(place: Place) -> &'static Layout {
             quarter(
                 "east_ring",
                 "the East Ring",
-                0.55,
+                0.66,
                 &[Zone::Lanes, Zone::Green],
                 true,
                 Ground::Pad,
@@ -238,7 +252,7 @@ fn layout(place: Place) -> &'static Layout {
             quarter(
                 "solar_flats",
                 "the Solar Flats",
-                1.6,
+                1.75,
                 &[Zone::Edge, Zone::Green],
                 false,
                 Ground::Pad,
@@ -269,7 +283,7 @@ fn layout(place: Place) -> &'static Layout {
             "The square and the park",
             "The school and the lake",
         ],
-        anchors: [(SLOT_A, 0.35), (SLOT_C, 1.2), (SLOT_D, 2.15)],
+        anchors: [(SLOT_A, 0.68), (SLOT_C, 1.25), (SLOT_D, 2.15)],
         home: "Home",
         quarters: &[
             quarter(
@@ -344,21 +358,29 @@ fn layout(place: Place) -> &'static Layout {
             Stretch {
                 id: "rookery",
                 from: 0.0,
-                to: 0.9,
+                to: 0.85,
             },
             Stretch {
                 id: "bridge",
-                from: 0.9,
-                to: 1.7,
+                from: 0.85,
+                to: 1.75,
             },
             Stretch {
                 id: "far_floe",
-                from: 1.7,
+                from: 1.75,
                 to: 2.5,
             },
         ],
         labels: ["The rookery", "The bridge", "The far floe"],
-        anchors: [(SLOT_A, 0.35), (SLOT_C, 1.15), (SLOT_D, 1.75)],
+        // The bridge on the lead stands in the open between the plots
+        // (0.53/0.69 and 1.33), so no staked plot lies across it; it is
+        // drawn just clear of the second (`BRIDGE_PX`) once stood, its slot
+        // (and what is sited by it) kept where it was. The fish
+        // vault stands by the nests, so the rookery is a cluster the first
+        // screen holds with the bridge (v0.29 round 3: one lone igloo in
+        // the middle band), and the council nearer, so no screen-width of
+        // the floe lies bare.
+        anchors: [(SLOT_A, 1.0), (SLOT_C, 0.6), (SLOT_D, 1.8)],
         home: "Nest",
         quarters: &[
             quarter(
@@ -790,6 +812,18 @@ pub(crate) fn lay_out(
         };
         town.stand(&mut items, id, row, px, false);
     }
+    // On the ice the bridge spans the lead of open water behind the
+    // causeway, its foot on the water rather than out on the snow (the
+    // v0.29 art director: "a tray sitting on the ice; no water under it").
+    if place == Place::Ice {
+        if let Some(bridge) = items.iter_mut().find(|item| {
+            item.id == SelectionId::Entity(SLOT_A)
+                && item.shape == Some(world_projection::MarkShape::Bridge)
+        }) {
+            bridge.y = BRIDGE_Y;
+            bridge.px = Some(BRIDGE_PX);
+        }
+    }
 
     let home_of = town.homes(
         &mut items,
@@ -941,14 +975,54 @@ pub(crate) fn lay_out(
 
     crate::drawings::vary_seats(&mut items);
     let almanac = crate::almanac::almanac(state);
-    town.projection(
+    let mut canvas = town.projection(
         items,
         links,
         layout.labels,
         season_on(place, calendar::day_of_year(state, &almanac)),
         crate::plots::canvas_plots(world),
         crate::drawings::setting_of(place),
-    )
+    );
+    canvas.look = Some(look(place));
+    canvas
+}
+
+/// How each place looks beyond its scenery (the art director's v0.29
+/// brief): no two share their lamps or their light.
+pub(crate) fn look(place: Place) -> world_projection::PlaceLook {
+    match place {
+        // A sheltered ring against a hostile plain: the lamps huddle round
+        // the habitats, the dome garden and the airlock apron, and the
+        // plain beyond stays rust dark. Inside, at night, the windows and
+        // lamps glow teal and signal white. A low gold key: the night over
+        // rust reads dark umber, never purple-grey, and dusk turns gold.
+        Place::Ares => world_projection::PlaceLook {
+            lamps: vec![0.15, 0.26, 0.44, 0.53, 0.71, 0.88, 1.06, 1.34, 1.42, 2.32],
+            key: Some(0xffc890),
+            glow: Some(0xc4f4ec),
+            spine: None,
+            haze: Some(0xe2a582),
+        },
+        // A street, not a lawn: streetlamps at the kerb, never quite
+        // evenly; front yards, then a walk of warm concrete, then the
+        // asphalt; air clear of any lilac haze.
+        Place::Maple => world_projection::PlaceLook {
+            lamps: vec![0.08, 0.3, 0.78, 1.14, 1.55, 1.9, 2.21, 2.6, 2.9],
+            key: None,
+            glow: None,
+            spine: Some(0xb5aea4),
+            haze: Some(0xdfe4e2),
+        },
+        // A causeway over dark water: lanterns at uneven steps along it,
+        // lantern-gold on packed snow under a cold blue key light.
+        Place::Ice => world_projection::PlaceLook {
+            lamps: vec![0.21, 0.37, 0.62, 0.96, 1.2, 1.27, 1.49, 1.68, 2.03, 2.4],
+            key: Some(0x9cc2f0),
+            glow: Some(0xffbf47),
+            spine: Some(0xe4edf3),
+            haze: Some(0xd9e7f2),
+        },
+    }
 }
 
 #[cfg(test)]

@@ -1,10 +1,10 @@
-#![cfg(unix)]
 //! A design or a name goes to a Pack typed only when the Pack speaks v8 and
 //! says it takes them; a Pack on v7, or one that does not say so, hears
 //! the command it offered with the argument after `=`, as it always did.
 
+mod support;
+
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
@@ -54,7 +54,7 @@ fn snapshot() -> PackResponse {
 
 /// A Pack that answers in turn and writes every request it reads to
 /// `requests.log`.
-fn write_pack(root: &Path, version: u32, described: PackDescriptor) -> PathBuf {
+fn write_pack(root: &Path, version: u32, described: PackDescriptor) -> ProcessPack {
     let log = root.join("requests.log");
     let responses = [
         response_line(
@@ -68,27 +68,11 @@ fn write_pack(root: &Path, version: u32, described: PackDescriptor) -> PathBuf {
         response_line(version, 3, snapshot()),
         response_line(version, 4, snapshot()),
     ];
-    let mut script = String::from("#!/bin/sh\n");
-    for response in responses {
-        script.push_str("IFS= read -r line || exit 1\n");
-        script.push_str(&format!(
-            "printf '%s\\n' \"$line\" >> '{}'\n",
-            log.display()
-        ));
-        script.push_str(&format!(
-            "printf '%s\\n' '{}'\n",
-            response.replace('\'', "'\\''")
-        ));
-    }
-    script.push_str("IFS= read -r _shutdown || true\n");
-    let runtime = root.join("runtime.sh");
-    fs::write(&runtime, script).unwrap();
-    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    let mut steps = vec![format!("log\t{}", log.display())];
+    steps.extend(support::respond(&responses));
+    let mut manifest = PackManifest::process(descriptor(), "runtime", Vec::new());
     manifest.protocol_version = version;
-    let path = root.join("fixture.world-pack.json");
-    fs::write(&path, manifest.to_json_pretty().unwrap()).unwrap();
-    path
+    support::fixture_pack(root, manifest, &steps)
 }
 
 fn design() -> Design {
@@ -98,7 +82,7 @@ fn design() -> Design {
 /// The requests the Pack read for a design and a name.
 fn sent(version: u32, described: PackDescriptor) -> Vec<String> {
     let root = temp_dir(&format!("v{version}"));
-    let pack = ProcessPack::load(write_pack(&root, version, described)).unwrap();
+    let pack = write_pack(&root, version, described);
     let mut registry = WorldRegistry::new();
     registry
         .install_source(&ProcessPackSource::from_packs(vec![pack]))
