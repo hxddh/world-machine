@@ -2097,6 +2097,123 @@ fn a_zoom_out_into_the_postcard_lands_on_sharp_paint() {
     crate::painter::paint_elsewhere(false);
 }
 
+/// v0.29's return film: each beat's camera pans along the place at the
+/// same zoom, and what it lands on is painted ahead, as one drawing of the
+/// still things' boil; by the time it lands the boil has moved on to
+/// another, none of whose pictures are painted there, and the first frame
+/// there was the rough painting, the beat's subject a blur for a frame
+/// (250 to 430 ms on a software renderer). Landing on a view painted ahead
+/// in one drawing with another on show, the first frame shows the drawing
+/// painted ahead: no rough painting, nothing unpainted.
+#[test]
+fn a_pan_lands_on_sharp_paint_whichever_drawing_of_the_boil_is_on_show() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1100.0_f32, 848.0_f32);
+    let hour = 15.0_f32;
+    let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+    let living = diorama::living(
+        &stage,
+        &snapshot,
+        0.0,
+        Daylight::Day,
+        &Default::default(),
+        None,
+    );
+    let zoom = 1.8;
+    let span = width / zoom;
+    let from = Camera::around(&stage, zoom, span, height / 2.0);
+    let to = Camera::around(&stage, zoom, span * 4.5, height / 2.0);
+    assert!(
+        to.x - from.x > span * 3.0,
+        "the pan goes well past the first view"
+    );
+    // Half a second into looking, the boil shows its second drawing
+    // (what is painted ahead is the first).
+    let seconds = 0.5;
+    let make = |camera: Camera| {
+        diorama::frame(
+            &snapshot,
+            &stage,
+            &living,
+            camera,
+            0.0,
+            Daylight::Day,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(hour)
+        .at_seconds(seconds)
+    };
+    assert_ne!(make(from).boil(), 0, "the boil is on another drawing");
+    let shared = std::rc::Rc::new(std::cell::RefCell::new(make(from)));
+    let strip = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let view = shared.clone();
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| LiveScene(view.clone(), strip.clone()))
+        })
+        .expect("a window");
+    let frame_until =
+        |cx: &mut HeadlessAppContext, what: &str, done: &dyn Fn(&gpui::Window) -> bool| {
+            let started = Instant::now();
+            let mut quiet = 0;
+            while quiet < 10 {
+                assert!(started.elapsed() < Duration::from_secs(120), "{what}");
+                std::thread::sleep(Duration::from_millis(10));
+                let yes = cx
+                    .update_window(window.into(), |_, window, _| {
+                        window.refresh();
+                        done(window)
+                    })
+                    .expect("a window");
+                cx.run_until_parked();
+                quiet = if yes && crate::painter::idle() {
+                    quiet + 1
+                } else {
+                    0
+                };
+            }
+        };
+    // The first view settles on the boil's second drawing, sharp.
+    frame_until(&mut cx, "the first view settles", &|window| {
+        diorama::settled(window)
+            && diorama::rough_shown(window).0 <= 0.0
+            && diorama::unpainted(window) == 0
+    });
+    // The camera is sent along the place, and held until all it will see
+    // there is painted and with the display (as `Glide` holds it).
+    *shared.borrow_mut() = make(from).heading_to(to, None);
+    frame_until(&mut cx, "where it goes is painted ahead", &|window| {
+        diorama::heading_ready(window, to) == Some(true)
+    });
+    // It glides, a frame on the way, and lands: the first frame there.
+    *shared.borrow_mut() = make(from.toward(to, 0.5)).heading_to(to, None);
+    cx.update_window(window.into(), |_, window, _| window.refresh())
+        .expect("a window");
+    cx.run_until_parked();
+    *shared.borrow_mut() = make(to).heading_to(to, None);
+    cx.update_window(window.into(), |_, window, _| window.refresh())
+        .expect("a window");
+    cx.run_until_parked();
+    let (rough, gaps) = cx
+        .update_window(window.into(), |_, window, _| {
+            (diorama::rough_shown(window), diorama::unpainted(window))
+        })
+        .expect("a window");
+    crate::painter::paint_elsewhere(false);
+    assert_eq!(gaps, 0, "nothing unpainted where the pan lands");
+    assert!(
+        rough.0 <= 0.0 && rough.1 <= 0.0,
+        "the pan lands on the rough painting: {rough:?} px²"
+    );
+}
+
 /// The first Pack's lived town, as it was sent over the wire: on day 1,
 /// 163, 358 or 1082 (the fixtures under `tests/fixtures/`).
 fn town_on(day: u32) -> ProjectionSnapshot {

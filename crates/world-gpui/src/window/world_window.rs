@@ -1799,12 +1799,8 @@ impl ProjectionView {
     /// the window's edge, the nearest to how the place opens at noon (see
     /// [`super::arrival::framed_as_at_noon`]).
     fn opening_view(&mut self, stage: &Stage, who: SelectionId, x: f32) -> f32 {
-        let own = super::arrival::best_view(stage, x);
-        if super::arrival::crowded_at_the_edges(stage, own) == 0 {
-            return own;
-        }
         let size = (stage.view_w, stage.height);
-        let noon = match self.looking.noon_view {
+        super::arrival::opening_view(stage, x, || match self.looking.noon_view {
             Some((kept, centre)) if kept == size => centre,
             _ => {
                 let noon_stage =
@@ -1814,12 +1810,14 @@ impl ProjectionView {
                     let (x, _, w, _) = noon_stage.frame_of(spot.index)?;
                     Some(x + w / 2.0)
                 });
-                let centre = at_noon.map_or(own, |x| super::arrival::best_view(&noon_stage, x));
+                let centre = at_noon.map_or_else(
+                    || super::arrival::best_view(stage, x),
+                    |x| super::arrival::best_view(&noon_stage, x),
+                );
                 self.looking.noon_view = Some((size, centre));
                 centre
             }
-        };
-        super::arrival::framed_as_at_noon(stage, x, own, noon)
+        })
     }
 
     /// On a World's first day, once the welcome has been heard, the

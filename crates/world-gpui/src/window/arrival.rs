@@ -233,6 +233,32 @@ pub(crate) fn best_view(stage: &crate::diorama::Stage, x: f32) -> f32 {
         .unwrap_or(x)
 }
 
+/// Where the window opens centred on someone standing at stage `x` (who
+/// welcomes the player, or a place's keeper): the best view around them
+/// ([`best_view`]), or, where that leaves a building against the window's
+/// edge, the nearest to how the place opens at noon that keeps them clear
+/// ([`framed_as_at_noon`]; `noon` is asked only then). The window opens
+/// on exactly this (`ProjectionView::opening_view`), and the tests of the
+/// first screen measure it.
+pub(crate) fn opening_view(
+    stage: &crate::diorama::Stage,
+    x: f32,
+    noon: impl FnOnce() -> f32,
+) -> f32 {
+    let own = best_view(stage, x);
+    if crowded_at_the_edges(stage, own) == 0 {
+        return own;
+    }
+    framed_as_at_noon(stage, x, own, noon())
+}
+
+/// Whether the window centred on stage `centre` opens on the art bible's
+/// focal cluster: at least four residents and three whole buildings.
+fn focal(stage: &crate::diorama::Stage, centre: f32) -> bool {
+    let (residents, buildings) = first_screen(stage, centre);
+    residents >= 4 && buildings >= 3
+}
+
 /// Where to centre the opening view at this hour, given `own` (the best
 /// view around whoever opens it, standing at `x` now) and `noon` (the best
 /// view the same place opens on at noon): wherever the hour's own view
@@ -241,7 +267,10 @@ pub(crate) fn best_view(stage: &crate::diorama::Stage, x: f32) -> f32 {
 /// building clear of the edges, or as many as can be (v0.29 round 2: at dusk and night the
 /// keeper of the rust planet stood elsewhere, and the view framed on her left the
 /// dome garden against the edge, cut by the window's frame). A view that
-/// keeps every building clear is kept as it is.
+/// keeps every building clear is kept as it is, and so is the focal
+/// cluster `own` opens on: a home is never pushed out of the window to
+/// clear the edge, leaving two buildings where there were three (v0.29:
+/// day 1 opened on two buildings, the home beside them pushed out).
 pub(crate) fn framed_as_at_noon(stage: &crate::diorama::Stage, x: f32, own: f32, noon: f32) -> f32 {
     if crowded_at_the_edges(stage, own) == 0 {
         return own;
@@ -249,13 +278,16 @@ pub(crate) fn framed_as_at_noon(stage: &crate::diorama::Stage, x: f32, own: f32,
     let half = stage.view_w / 2.0;
     let reach = half - (stage.view_w * 0.12).min(half);
     let steps = 96;
-    // Nothing cut (wherever that can be), then the fewest buildings
-    // against the edges, then the least of any building hidden past the
-    // edge (a sliver of a home rather than half the bridge), then the
-    // nearest the noon framing.
+    let keep_focal = focal(stage, own);
+    // Nothing cut (wherever that can be), then the focal cluster kept if
+    // the own view had it, then the fewest buildings against the edges,
+    // then the least of any building hidden past the edge (a sliver of a
+    // home rather than half the bridge), then the nearest the noon
+    // framing.
     let rank = |centre: f32| {
         (
             cut_at_the_edges(stage, centre),
+            keep_focal && !focal(stage, centre),
             crowded_at_the_edges(stage, centre),
             (hidden_past_the_edges(stage, centre) / 8.0).round() as i32,
         )
@@ -798,15 +830,21 @@ mod tests {
 
     /// The v0.28 bar, in the real window (1100 by 900, a stage 848 high
     /// under the bar): day 1 opens on the focal cluster, at least four
-    /// residents and three buildings, with whoever welcomes the player.
-    /// The camera does its part (`best_view`); the rest is the day-1
-    /// composition (A1): where the fishers work stands on the water beside
-    /// the pub, so the people at work and the pub's share a window.
-    #[test]
-    fn the_first_screen_opens_on_the_focal_cluster() {
+    /// residents and three whole buildings, with whoever welcomes the
+    /// player. The camera does its part (`opening_view`); the rest is the
+    /// day-1 composition (A1): where the fishers work stands on the water
+    /// beside the pub, so the people at work and the pub's share a window.
+    /// Measured where the window itself puts the camera, not where
+    /// `best_view` alone would: v0.29 round 2 moved the opening off a view
+    /// with a home near the edge, and day 1 opened on two buildings while
+    /// this test, asking `best_view`, still saw three.
+    #[gpui::test]
+    fn the_first_screen_opens_on_the_focal_cluster(cx: &mut gpui::TestAppContext) {
+        use gpui::VisualTestContext;
         crate::scene::pin_hour(Some(12));
         let snapshot = first_day();
-        let stage = crate::diorama::stage(&snapshot, 1100.0, 848.0);
+        let (width, height) = (1100.0, 900.0 - super::super::world_window::CHROME);
+        let stage = crate::diorama::stage(&snapshot, width, height);
         let welcomer = super::super::world_window::voices_now(&snapshot)[0].speaker;
         let index = snapshot
             .canvas
@@ -815,17 +853,54 @@ mod tests {
             .position(|item| item.id == welcomer)
             .unwrap();
         let (x, _, w, _) = stage.frame_of(index).expect("the welcomer is out");
-        let centre = best_view(&stage, x + w / 2.0);
-        let (residents, buildings) = first_screen(&stage, centre);
-        let cut = cut_at_the_edges(&stage, centre);
+        let recording = Recording {
+            now: snapshot.clone(),
+            done: snapshot.clone(),
+            heard: Default::default(),
+        };
+        let window = cx.add_window(move |_, _| super::super::ProjectionView::controlled(recording));
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(gpui::px(1100.0), gpui::px(900.0)));
+        cx.run_until_parked();
+        let centre = view
+            .read_with(cx, |view, _| view.looking.pan)
+            .expect("the camera opens on the welcome");
         crate::scene::pin_hour(None);
+        assert_eq!(
+            centre,
+            // At noon, the noon framing is this stage's own best view.
+            opening_view(&stage, x + w / 2.0, || best_view(&stage, x + w / 2.0)),
+            "the window opens where `opening_view` says"
+        );
+        // Counted as the release harness counts them from the frame log:
+        // each building wholly inside the window.
+        let (residents, buildings) = first_screen(&stage, centre);
+        let half = stage.view_w / 2.0;
+        let shown = centre.clamp(half, stage.width - half);
+        let whole = |left: f32, right: f32| {
+            stage
+                .buildings
+                .iter()
+                .filter(|spot| spot.x - spot.w / 2.0 >= left && spot.x + spot.w / 2.0 <= right)
+                .count()
+        };
+        assert_eq!(buildings, whole(shown - half, shown + half));
+        eprintln!(
+            "first screen: {residents} residents, {buildings} buildings, centre {centre:.0}, \
+             best view {:.0}, {} against the edges",
+            best_view(&stage, x + w / 2.0),
+            crowded_at_the_edges(&stage, centre)
+        );
         assert!(
             residents >= 4 && buildings >= 3,
             "{residents} residents and {buildings} buildings on the first screen"
         );
-        assert_eq!(cut, 0, "no building is cut by the window's edge");
-        let half = stage.view_w / 2.0;
-        let shown = centre.clamp(half, stage.width - half);
+        assert_eq!(
+            cut_at_the_edges(&stage, centre),
+            0,
+            "no building is cut by the window's edge"
+        );
         assert!(
             (x + w / 2.0 - shown).abs() <= half * 0.9,
             "the welcomer is on the first screen"
@@ -908,17 +983,8 @@ mod tests {
             let (x, _, w, _) = stage.frame_of(spot.index).expect("framed");
             x + w / 2.0
         };
-        // As the window opens (`ProjectionView::opening_view`): the best
-        // view round the keeper, or, where it leaves a building against
-        // an edge, the nearest to noon's that keeps them all clear.
-        let opening = |stage: &Stage, x: f32, noon: f32| {
-            let own = best_view(stage, x);
-            if crowded_at_the_edges(stage, own) == 0 {
-                own
-            } else {
-                framed_as_at_noon(stage, x, own, noon)
-            }
-        };
+        // As the window opens.
+        let opening = |stage: &Stage, x: f32, noon: f32| opening_view(stage, x, || noon);
         for (width, height) in [(1100.0, 848.0), (1400.0, 950.0)] {
             let noon_stage = stage_at(&snapshot, width, height, Clock::at(12));
             let noon = best_view(&noon_stage, keeper(&noon_stage));

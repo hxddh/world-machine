@@ -910,9 +910,13 @@ pub(super) fn plan(
             };
             let clock = std::time::Instant::now();
             let mut early = None;
+            let instead_of = another_drawing(frame, layer, wanted, slot_key, (width, height, dpr));
             let (shown, arriving) = SLOTS.with(|slots| {
                 let mut slots = slots.borrow_mut();
                 let slot = slots.entry(slot_key).or_insert((None, None));
+                if let Some(drawing) = instead_of {
+                    slot.0 = Some(drawing);
+                }
                 let boiled = slot.0.is_some_and(|shown| shown.boils_into(&wanted));
                 if slot.0 == Some(wanted) {
                     slot.1 = None;
@@ -1281,6 +1285,45 @@ pub(super) fn plan(
         });
     }
     plans
+}
+
+/// Where the drawing of the boil on show has no pictures of what the
+/// camera sees (it has just moved there: what was painted ahead of it is
+/// one drawing, the boil may have moved on to another), another drawing
+/// of the same look that is all painted and with the display there, to
+/// show in its place at once, as the boil itself would: the drawing
+/// `wanted` first, then the first. Never the rough painting over a place
+/// painted sharp (v0.29: each return beat's camera landed on the rough
+/// painting for a frame, the drawing painted ahead not the one on show).
+/// `None` while the drawing on show is all painted, or none other is.
+fn another_drawing(
+    frame: &std::sync::Arc<Frame>,
+    layer: Still,
+    wanted: Version,
+    slot_key: SlotKey,
+    (width, height, dpr): (f32, f32, f32),
+) -> Option<Version> {
+    if layer != Still::Buildings {
+        return None;
+    }
+    let on_show = SLOTS.with(|slots| slots.borrow().get(&slot_key).and_then(|slot| slot.0))?;
+    if on_show.key != wanted.key || on_show.scale != wanted.scale {
+        return None;
+    }
+    let all = |version: Version, ready: fn(u64) -> bool| {
+        pieces(frame, layer, version, width, height, dpr, 0)
+            .iter()
+            .all(|piece| ready(piece.key))
+    };
+    if all(on_show, painter::painted) {
+        return None;
+    }
+    [wanted.boil]
+        .into_iter()
+        .chain(0..crate::hand::BOILS)
+        .filter(|boil| *boil != on_show.boil)
+        .map(|boil| Version { boil, ..wanted })
+        .find(|version| all(*version, painter::painted) && all(*version, painter::handed))
 }
 
 /// A piece of where the camera is going, as the camera sees it now: where
