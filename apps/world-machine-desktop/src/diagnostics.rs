@@ -132,9 +132,34 @@ fn write_crash_log(location: &str, message: &str) -> Option<PathBuf> {
         message,
         &std::backtrace::Backtrace::force_capture().to_string(),
     );
-    let path = dir.join(crash_file_name(now));
-    fs::write(&path, report).ok()?;
-    Some(path)
+    write_new(&dir, &crash_file_name(now), report.as_bytes()).ok()
+}
+
+/// Writes `bytes` to a new file in `dir` named `name`, or, when a file of
+/// that name is already there (two crashes in one second), `name` with
+/// `-2`, `-3`… before its extension: an earlier report is never overwritten.
+fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
+    for attempt in 1..=1000u32 {
+        let candidate = match (attempt, extension) {
+            (1, _) => name.to_string(),
+            (_, "") => format!("{stem}-{attempt}"),
+            (_, extension) => format!("{stem}-{attempt}.{extension}"),
+        };
+        let path = dir.join(candidate);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "every crash report name is taken",
+    ))
 }
 
 /// The log file path once the sink is open. `None` when logging could not
@@ -459,6 +484,26 @@ mod tests {
             crash_file_name(at),
             format!("world-machine-1700000000-{}.log", std::process::id())
         );
+    }
+
+    #[test]
+    fn two_crashes_in_one_second_keep_both_reports() {
+        let dir = std::env::temp_dir().join(format!(
+            "world-machine-crash-names-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let first = write_new(&dir, "world-machine-1-2.log", b"first").unwrap();
+        let second = write_new(&dir, "world-machine-1-2.log", b"second").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(second.file_name().unwrap(), "world-machine-1-2-2.log");
+        assert_eq!(fs::read(&first).unwrap(), b"first");
+        assert_eq!(fs::read(&second).unwrap(), b"second");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -1226,6 +1226,38 @@ pub fn crash_log_file_name(id: &str, unix_seconds: u64, host_process: u32) -> St
     format!("{id}-{unix_seconds}-{host_process}.log")
 }
 
+/// Writes `bytes` to a new file in `dir` named `name`, or, when a file of
+/// that name is already there (a Pack that crashes twice in one second),
+/// `name` with `-2`, `-3`… before its extension: an earlier crash log is
+/// never overwritten.
+fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
+    for attempt in 1..=1000u32 {
+        let candidate = match (attempt, extension) {
+            (1, _) => name.to_string(),
+            (_, "") => format!("{stem}-{attempt}"),
+            (_, extension) => format!("{stem}-{attempt}.{extension}"),
+        };
+        let path = dir.join(candidate);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                io::Write::write_all(&mut file, bytes)?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "every crash log name is taken",
+    ))
+}
+
 struct ProcessClient {
     child: Child,
     stdin: Option<deadline_stdin::BoundedStdin>,
@@ -1251,7 +1283,18 @@ impl ProcessClient {
         // A Pack starts in a folder of its own, with only the variables it
         // needs and the settings it was given: nothing else the host was
         // started with reaches it, a secret least of all.
-        let scratch = make_scratch_dir().ok();
+        let scratch = match make_scratch_dir() {
+            Ok(scratch) => Some(scratch),
+            Err(error) => {
+                if let Some(path) = launch_cleanup.as_ref() {
+                    let _ = fs::remove_file(path);
+                }
+                return Err(HostError::session(format!(
+                    "could not make a folder for external Pack {}: {error}",
+                    pack.descriptor.pack.id
+                )));
+            }
+        };
         command.env_clear().envs(pack_environment(
             env::vars_os(),
             &pack.settings,
@@ -1363,8 +1406,8 @@ impl ProcessClient {
         )
         .into_bytes();
         log.extend_from_slice(&tail);
-        let path = dir.join(crash_log_file_name(&self.pack.id, now, process::id()));
-        let _ = fs::create_dir_all(&dir).and_then(|_| fs::write(path, log));
+        let name = crash_log_file_name(&self.pack.id, now, process::id());
+        let _ = fs::create_dir_all(&dir).and_then(|_| write_new(&dir, &name, &log));
     }
 
     fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {
@@ -2219,6 +2262,12 @@ mod tests {
             "a_b_c-7-9.log",
             "a Pack id cannot reach outside the crash log folder"
         );
+        let logs = clean.join("same-second");
+        fs::create_dir_all(&logs).unwrap();
+        let first = write_new(&logs, "p-7-9.log", b"first").unwrap();
+        let second = write_new(&logs, "p-7-9.log", b"second").unwrap();
+        assert_eq!(second.file_name().unwrap(), "p-7-9-2.log");
+        assert_eq!(fs::read(&first).unwrap(), b"first", "never overwritten");
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(clean);
     }

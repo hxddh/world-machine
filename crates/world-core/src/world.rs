@@ -406,12 +406,18 @@ impl World {
     /// recorded as caused by `cause`. This is how one event (a day passing,
     /// a player's deed) is recorded as the cause of everything the rules do
     /// because of it, however deep in them the event is recorded. An inner
-    /// `following` puts a nearer cause in force until it returns.
+    /// `following` puts a nearer cause in force until it returns. The outer
+    /// cause is back in force however `run` ends, a panic included, so a
+    /// caller that catches the panic never records later events under a
+    /// cause that no longer applies.
     pub fn following<T>(&mut self, cause: EventId, run: impl FnOnce(&mut Self) -> T) -> T {
         let outer = self.cause_in_force.replace(cause);
-        let result = run(self);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(self)));
         self.cause_in_force = outer;
-        result
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 
     /// A copy to try something out on: the same state, schedule and rules,
@@ -761,6 +767,22 @@ mod tests {
         assert!(causes(after).is_empty(), "the cause ends with `following`");
         // Replay applies what was recorded, causes and all.
         assert_eq!(world.replay().unwrap().events(), world.events());
+    }
+
+    #[test]
+    fn a_cause_ends_with_following_even_when_its_rules_panic() {
+        let registry = registry();
+        let mut world = World::new(baseline());
+        let root = world.execute(&registry, &transfer(1)).unwrap().id;
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.following(root, |_| panic!("a rule went wrong"));
+        }));
+        assert!(caught.is_err(), "the panic still reaches the caller");
+        let after = world.execute(&registry, &transfer(1)).unwrap().id;
+        assert!(
+            world.event(after).unwrap().caused_by.is_empty(),
+            "an event after a caught panic is not recorded under its cause"
+        );
     }
 
     struct BrokenMutation;
