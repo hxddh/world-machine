@@ -425,8 +425,8 @@ v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6
 | Bar | Result | |
 |---|---|---|
 | **1. Sharp where the player looks** | | |
-| The rough on the subject of a moment at most 250 ms | Find 0 ms in 3 runs; return beats at most 241, 0 and 238 ms; openings 0 ms (one of 32 ms). Zooming out: 1,520, 2,193 and 2,161 ms, and the `zoom` scenario failed in 3 of 3 runs | missed (met except zoom) |
-| The rough anywhere at most 600 ms | up to 2,365 ms when zooming out | missed |
+| The rough on the subject of a moment at most 250 ms | Find 0 ms in 3 runs; return beats at most 241, 0 and 238 ms; openings 0 ms (one of 32 ms). Zooming out: 1,520, 2,193 and 2,161 ms, and the `zoom` scenario failed in 3 of 3 runs. Fixed before release (see below): 0 ms after every move | missed at measurement; met at release |
+| The rough anywhere at most 600 ms | up to 2,365 ms when zooming out; fixed before release | missed at measurement; met at release |
 | 0 frames of another World in the first 2 s of any open | 0 in 17 scenarios × 3 runs | **met** |
 | No straight dark edge longer than 8 px under a structure | the shadow test passes; the one hard edge the art director found, a glow box behind Ares at night in round 2, was gone in round 3 | **met** |
 | At most 4 people in a line, overlapping at most 20% | the people test passes; in the frames, people still overlap within groups (an accepted deviation) | met by test |
@@ -470,7 +470,7 @@ v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6
 - **Memory after 20 days:** 108.6 MB, from 92.6 MB just opened (bar 100). Missed.
 
 **What the misses say.**
-- **Zooming out** into the folded postcard of a whole town is the one move where the rough still shows for seconds; the R1 commit had already measured it at 1.2–2.3 s. Its cause is not found yet.
+- **Zooming out** into the folded postcard of a whole town was the one move where the rough still showed for seconds (1.2–2.4 s). Found before release: folded views were never painted ahead, so ~83 large tiles were asked for only when the camera settled and handed to a software renderer over 2–3 slow frames. The view one zoom press away is now painted ahead on a lowest-priority queue, and the `zoom` scenario shows 0 ms. The same release check then showed two more misses, on CI as well as here: day 1 opened on 2 whole buildings (the edge-keeping framing from art round 2 pushed the left home out; the test had measured the framing function, not the window), and a return beat landed rough for one frame (303 ms on CI) because only boil drawing 0 was painted ahead. Both are fixed, with tests that fail without the fix.
 - **The art director's four rounds.** Round 1 was NO for the harbour, Ares and Icebridge: the return film's camera never moved in Chinese and Japanese, Find landed on the rough and its card opened before Leo was on screen, cards covered people, dusk was not gold, and the three places were still one template. Round 2 (`ca532e3`) left the harbour, Ares and Icebridge NO: the film dropped beats in 3 of 4 runs, scaffolding stood on other buildings, Ares had a hard-edged glow box at night. Round 3 (`f76389d`) passed the harbour, Ares and Maple Street; Icebridge's night framing had regressed and its noon lost the nests. Round 4 (`8b0e994`) passed all four with no blocker left. In rounds 2–4 the director rebuilt the commit and re-captured everything, because each time some of the team's binaries were not built from it.
 - **The voice and hearing.** Japanese hearing is 83.9% on fresh29 (77.7% on v0.28's fresh28) and favours 88.9% (60.6%), on new sets, not the same ones. fresh29 and the exploit set were written by the agent that tuned, before it read the code, so they may be optimistic. Set 7 is still unmeasured without a key, so the judge's new examples are untested blind.
 - **Talk for rewards.** One trick in 3,348: "free drink" said to a resident is heard as an invitation out.
@@ -484,7 +484,7 @@ v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6
 - Under Xvfb's software renderer, a World in front uses about 2.9 cores at 5 frames a second; the Home window shows through for 0.1–0.3 s after a World window appears; the drawer's tooltip covers its first row.
 
 **For v0.30.**
-- Paint ahead of a zoom-out, and find the slow opening frame.
+- Find the slow opening frame. Make a zoom glide stop asking for a new tile set every frame (its "moving" check never sees the camera move: ~180 tiles wasted on one zoom out).
 - Measure set 7 with a key; a fresh blind set for hearing, written by someone who did not tune.
 - The art deviations in [KNOWN_ISSUES](KNOWN_ISSUES.md), the harbour's dusk sky first.
 - Play the first 30 minutes on a real Windows PC, and five think-aloud testers on the demo.
