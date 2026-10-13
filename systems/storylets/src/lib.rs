@@ -239,6 +239,8 @@ pub enum Condition {
     /// under a key, or nothing recorded there: a new player's first days
     /// passed ("arrived" on the harbour, five periods).
     Since(EntityId, &'static str, u64),
+    /// Any one of these holds.
+    AnyOf(Vec<Condition>),
 }
 
 /// Something a World is building toward, part by part.
@@ -441,6 +443,9 @@ pub fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
         Condition::RaisedBefore(id) => times_raised(state, deck, id) >= 2,
         Condition::Since(entity, key, periods) => integer(state, *entity, key)
             .is_none_or(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
+        Condition::AnyOf(conditions) => conditions
+            .iter()
+            .any(|condition| holds(state, deck, condition)),
     }
 }
 
@@ -1379,6 +1384,12 @@ impl Action for Marks {
         });
         Ok(draft)
     }
+}
+
+/// Whether `event` only marks something for the storyteller (see
+/// [`mark_now`]), and so tells the player nothing.
+pub fn is_mark(event: &world_core::Event) -> bool {
+    event.kind == "story_marked"
 }
 
 /// Marks `mark` as happening now, unless it was marked within `every`

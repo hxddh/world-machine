@@ -50,6 +50,9 @@ env:
   #                                          to answer (WORLD_MACHINE_JUDGE_DIR); panics without it
   #   judged_metrics                         testkit: reads those answers back and prints the
   #                                          numbers (WORLD_MACHINE_JUDGE_DIR); panics without it
+  #   a_blind_fresh_set_is_heard             tiny-society: measures a blind hearing set kept
+  #                                          outside the repository, once a release, by hand
+  #                                          (FRESH_DIR); panics without it
   TOOLS: >-
     --skip write_people_sheet
     --skip write_person_sheet
@@ -70,6 +73,7 @@ env:
     --skip time_a_year_old_world
     --skip judge_prompts_are_written
     --skip judged_metrics
+    --skip a_blind_fresh_set_is_heard
   # Wall-clock budgets run in their own job below, so a slow shared runner
   # shows up as a timing failure and never hides whether the long bars held.
   TIMING: >-

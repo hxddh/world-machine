@@ -19,8 +19,11 @@ const LETTER_WEEKS: &[usize] = &[2, 1, 1, 0, 2, 1, 1, 2];
 
 /// One day in this many is left quiet, with nothing new at all: fewer
 /// than the harbour's, since a place left to itself (Icebridge above all)
-/// has quiet days of its own.
-const STILL_EVERY: u64 = 60;
+/// has quiet days of its own. The still day falls half way through its
+/// stretch, which must not be a season's turn
+/// ([`crate::story::SEASON_PERIODS`]), when someone leaves the player the
+/// season's gift: at 60 it always was, and no still day was ever quiet.
+const STILL_EVERY: u64 = 150;
 
 const MARS_CORNERS: &[Corner] = &[
     Corner {
