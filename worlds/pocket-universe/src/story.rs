@@ -1683,6 +1683,14 @@ const OWN_PLACE: &[(&str, &str)] = &[
     ("beacon_work", "penguin-civilization"),
 ];
 
+/// The storylets of one place that every place left alone asks too: when
+/// they lapse, the people go on with the survey and the beacon on their
+/// own, and a place's ladder of works waits on those (with
+/// `second_home`, which every place asks). A player who is there meets
+/// only their place's own; a place nobody has lately been to still
+/// begins its ladder, as before v0.29.
+const LEFT_ALONE_TOO: &[&str] = &["weather", "beacon_work"];
+
 /// The storylets two places share and the third does not: a night under
 /// the stars and a scare out on the plain or the floe are Ares's and
 /// Icebridge's, never a street's; supper together is Ares's mess and Maple
@@ -1700,9 +1708,18 @@ const NOT_IN: &[(&str, &str)] = &[
 /// every place.
 fn in_its_place(mut spec: Spec) -> Spec {
     if let Some((_, seed)) = OWN_PLACE.iter().find(|(id, _)| *id == spec.storylet.id) {
+        let here = Condition::Is(UNIVERSE, SEED, seed);
         spec.storylet
             .requires
-            .push(Condition::Is(UNIVERSE, SEED, seed));
+            .push(if LEFT_ALONE_TOO.contains(&spec.storylet.id) {
+                Condition::AnyOf(vec![
+                    here,
+                    Condition::Unmarked(HANDS_SEEN),
+                    Condition::Marked(HANDS_SEEN, HANDS_LATELY + 1),
+                ])
+            } else {
+                here
+            });
     }
     if let Some((_, seed)) = NOT_IN.iter().find(|(id, _)| *id == spec.storylet.id) {
         spec.storylet

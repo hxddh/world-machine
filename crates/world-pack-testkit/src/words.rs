@@ -9,7 +9,9 @@
 //!   and none of the [`TOP_WITHOUT_FILLER`] most said is filler;
 //! - nothing told more than [`MOST_TOLD_IN_A_WEEK`] times in any seven days,
 //!   across the cards that ask about it, the beats of the film a returning
-//!   player is shown, the notes left and written, and the moment strips;
+//!   player is shown, the notes left and written, and the moment strips (a
+//!   note is read once: on the player's return if it came while they were
+//!   away, and with what it was left for if that is told the same day);
 //! - nothing sad or unkind in days 1 to [`KIND_DAYS`];
 //! - no seam in anything the World can tell, by day 1,080;
 //! - no engine word ([`ENGINE_WORDS`]) in anything a player reads.
@@ -131,6 +133,33 @@ pub struct Telling {
     /// "card", "film", "note" or "strip".
     pub how: &'static str,
     pub what: String,
+    /// The Event told.
+    pub event: EventId,
+    /// What a note (a keepsake or a letter) was left for: the Events its
+    /// own Event names as its causes. Empty for anything else.
+    pub left_for: Vec<EventId>,
+}
+
+/// Whether `event` is a note left for the player: a keepsake or a letter.
+fn is_note(kind: &str) -> bool {
+    kind == "keepsake_left" || kind == "letter_written"
+}
+
+/// The tellings that count, of one thing's, in order: a note read the
+/// same day as what it was left for is read with it, as one telling (a
+/// keepsake from a work handed over as the work's strip is shown), not as
+/// another.
+fn counted(tellings: &[Telling]) -> Vec<&Telling> {
+    tellings
+        .iter()
+        .filter(|note| {
+            !tellings.iter().any(|told| {
+                told.day == note.day
+                    && told.event != note.event
+                    && note.left_for.contains(&told.event)
+            })
+        })
+        .collect()
 }
 
 /// What a player's years brought in words.
@@ -162,6 +191,8 @@ pub struct Words {
     went_away_at: usize,
     /// Strips of moments that came while the player was away.
     away_strips: Vec<(usize, EventId, String)>,
+    /// Notes left while the player was away, read on their return.
+    away_notes: Vec<(usize, EventId, String)>,
 }
 
 /// What `event` and its causes are about: a storylet, a festival, or
@@ -175,7 +206,7 @@ pub fn topic(world: &World, id: EventId) -> Option<String> {
         if let Some(Value::Text(festival)) = at.payload.get("festival") {
             return Some(format!("festival {festival}"));
         }
-        if lives::is_news(at) && at.kind != "letter_written" && at.kind != "keepsake_left" {
+        if lives::is_news(at) && !is_note(&at.kind) {
             let others = at
                 .payload
                 .values()
@@ -231,10 +262,17 @@ impl Words {
 
     fn tell(&mut self, world: &World, day: usize, how: &'static str, id: EventId, what: &str) {
         if let Some(topic) = topic(world, id) {
+            let left_for = world
+                .event(id)
+                .filter(|event| is_note(&event.kind))
+                .map(|event| event.caused_by.clone())
+                .unwrap_or_default();
             self.tellings.entry(topic).or_default().push(Telling {
                 day,
                 how,
                 what: what.to_string(),
+                event: id,
+                left_for,
             });
         }
     }
@@ -319,19 +357,28 @@ impl Words {
                 }
             }
         }
-        // Notes: each letter and keepsake new today.
+        // Notes: each letter and keepsake new today, kept for the return
+        // when the player is away, as strips are.
+        let mut notes = Vec::new();
         for letter in &after.letters {
             if self.letters_seen.insert(letter.moment) {
                 if let SelectionId::Event(event) = letter.moment {
-                    self.tell(world, day, "note", event, &letter.note);
+                    notes.push((event, letter.note.clone()));
                 }
             }
         }
         for kept in &after.keepsakes {
             if self.keepsakes_seen.insert(kept.moment) {
                 if let SelectionId::Event(event) = kept.moment {
-                    self.tell(world, day, "note", event, &kept.note);
+                    notes.push((event, kept.note.clone()));
                 }
+            }
+        }
+        for (event, note) in notes {
+            if away {
+                self.away_notes.push((day, event, note));
+            } else {
+                self.tell(world, day, "note", event, &note);
             }
         }
         // The film the player is shown coming back.
@@ -348,6 +395,14 @@ impl Words {
             for (on, event, title) in std::mem::take(&mut self.away_strips) {
                 if !filmed.contains(&event) {
                     self.tell(world, on.max(day), "strip", event, &title);
+                }
+            }
+            // A note left while the player was away is read on their
+            // return: in the film, when the film closes on it (its beat is
+            // the note), or else as a note.
+            for (on, event, note) in std::mem::take(&mut self.away_notes) {
+                if !filmed.contains(&event) {
+                    self.tell(world, on.max(day), "note", event, &note);
                 }
             }
         }
@@ -406,7 +461,8 @@ impl Words {
     pub fn told_too_often(&self) -> Vec<String> {
         let mut over = Vec::new();
         for (topic, tellings) in &self.tellings {
-            let mut worst: Option<&[Telling]> = None;
+            let tellings = counted(tellings);
+            let mut worst: Option<&[&Telling]> = None;
             for (at, first) in tellings.iter().enumerate() {
                 let week = tellings[at..]
                     .iter()
@@ -505,6 +561,30 @@ mod tests {
             words.filler_on_top(),
             [("Sat on the bench.".to_string(), 4)]
         );
+    }
+
+    #[test]
+    fn a_note_is_read_with_what_it_was_left_for_that_day() {
+        let telling = |day, how, event: u64, left_for: &[u64]| Telling {
+            day,
+            how,
+            what: String::new(),
+            event: EventId::new(event),
+            left_for: left_for.iter().copied().map(EventId::new).collect(),
+        };
+        let tellings = [
+            telling(21, "card", 1, &[]),
+            telling(24, "strip", 2, &[]),
+            // The keepsake handed over as the work is shown.
+            telling(24, "note", 3, &[2]),
+            // Another, a day later: told again.
+            telling(25, "note", 4, &[2]),
+        ];
+        let counted = counted(&tellings)
+            .iter()
+            .map(|telling| telling.event.0)
+            .collect::<Vec<_>>();
+        assert_eq!(counted, [1, 2, 4]);
     }
 
     #[test]

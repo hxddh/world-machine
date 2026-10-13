@@ -402,11 +402,15 @@ pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
         // it re-words gets read. What someone left or wrote the player
         // closes the return on its own, and what someone said of a deed is
         // heard as it happens. A question that came up is asked on the
-        // card, or told by how it went, never also as it came up.
+        // card, or told by how it went, never also as it came up. A day
+        // beginning and the storyteller's own marks tell nothing: they are
+        // there to be the cause of what follows, or to be remembered.
         !matches!(
             event.kind.as_str(),
             narrator::NARRATED | "keepsake_left" | "letter_written" | "reacted" | "situation_arose"
         ) && !conversation::favour::is_favour(event)
+            && !calendar::is_day_begun(event)
+            && !storylets::is_mark(event)
     }) {
         // One line a kind, and one a storylet: how a question ended is
         // told once, by the latest of it.
