@@ -466,7 +466,7 @@ pub fn day<K: Copy>(plan: &Plan<K>) -> Vec<Stop<K>> {
             .map(|(at, _)| stop(0, *at, false, Doing::Sit))
     });
     if let Some(seat) = seat {
-        let sits = !busy || seat.with.is_some() || (roll >> 7) % 3 == 0;
+        let sits = !busy || seat.with.is_some() || (roll >> 7).is_multiple_of(3);
         if sits {
             let from_hour = hour_of(&seat, SIT_FROM, roll >> 9);
             stops.push(Stop { from_hour, ..seat });
@@ -486,7 +486,7 @@ pub fn day<K: Copy>(plan: &Plan<K>) -> Vec<Stop<K>> {
         .uses
         .iter()
         .find(|(_, used)| *used == Use::Light)
-        .filter(|_| (roll >> 11) % 3 == 0)
+        .filter(|_| (roll >> 11).is_multiple_of(3))
         .map(|(at, _)| stop(0, *at, false, Doing::Gather));
     let goes_out = (seed >> 7) % 5 < 2;
     match (out, light) {
