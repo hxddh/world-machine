@@ -177,6 +177,15 @@ fn stories(session: &dyn world_host::WorldSession) -> BTreeSet<String> {
             texts.push(almanac.title);
             texts.extend(almanac.built);
         }
+        Some(StoryPage::Scene(scene)) => {
+            texts.extend(
+                scene
+                    .speech()
+                    .into_iter()
+                    .map(|(_, words)| words.to_string()),
+            );
+            texts.push(scene.caption);
+        }
         None => {}
     };
     for item in &snapshot.canvas.items {

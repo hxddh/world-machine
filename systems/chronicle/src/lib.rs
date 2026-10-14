@@ -808,7 +808,14 @@ pub fn rank(kind: MomentKind) -> u32 {
         MomentKind::WorkOpened => 5,
         MomentKind::Storm => 6,
         MomentKind::Festival => 7,
-        MomentKind::Other => 8,
+        // The kinds a scene plays as but no moment is: a moment of one is
+        // weighed as any other.
+        MomentKind::Arrival
+        | MomentKind::Quarrel
+        | MomentKind::MakingUp
+        | MomentKind::Outing
+        | MomentKind::Build
+        | MomentKind::Other => 8,
     }
 }
 

@@ -28,9 +28,10 @@ pub use mark::{
 };
 mod stories;
 pub use stories::{
-    AlmanacWire, LegendLineWire, LegendWire, MomentWire, NamedWire, PanelWire, StoryPageWire,
-    StoryRequestWire, MOST_ALMANAC_NAMES, MOST_ALMANAC_YEARS, MOST_LEGEND_LINES, MOST_PANEL_CAST,
-    MOST_PANEL_PROPS,
+    ActWire, AlmanacWire, CastWire, CueWire, LegendLineWire, LegendWire, MarkWire, MomentWire,
+    NamedWire, PanelWire, SceneScriptWire, StoryPageWire, StoryRequestWire, MOST_ALMANAC_NAMES,
+    MOST_ALMANAC_YEARS, MOST_LEGEND_LINES, MOST_PANEL_CAST, MOST_PANEL_PROPS, MOST_SCENE_CAST,
+    MOST_SCENE_CUES,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -72,7 +73,7 @@ pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V8;
 
 pub use world_projection::capability::{
     DESIGNS as CAPABILITY_DESIGNS, NAMES as CAPABILITY_NAMES, PLOTS as CAPABILITY_PLOTS,
-    STORY as CAPABILITY_STORY,
+    SCENES as CAPABILITY_SCENES, STORY as CAPABILITY_STORY,
 };
 
 /// The most a frame (one line, with its newline) may hold between a host
