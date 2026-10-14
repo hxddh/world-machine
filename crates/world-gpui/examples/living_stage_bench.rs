@@ -9,6 +9,10 @@
 //! cargo run --release -p world-gpui --example living_stage_bench -- headless --seconds 10
 //! # Noon, dusk and night, and each beside the CPU painter's frame.
 //! cargo run --release -p world-gpui --example living_stage_bench -- shots <out-dir>
+//! # The living stage as the World window draws it (S1a): looks baked
+//! # lazily as the camera pans and zooms, residents from their routines;
+//! # frame plan and pixel memory, for a display of scale `--dpr`.
+//! cargo run --release -p world-gpui --example living_stage_bench -- window --dpr 2 --seconds 40
 //! ```
 //!
 //! Options: `--world <snapshot.json>` (repeatable; default the fixtures
@@ -38,6 +42,7 @@ struct Options {
     seconds: f32,
     levels: Vec<f32>,
     size: (f32, f32),
+    dpr: f32,
 }
 
 fn options() -> Options {
@@ -50,6 +55,7 @@ fn options() -> Options {
         seconds: 10.0,
         levels: vec![1.0, 2.0, 3.0],
         size: (1280.0, 800.0),
+        dpr: 1.0,
     };
     let mut positional = 0;
     while let Some(arg) = args.next() {
@@ -58,6 +64,7 @@ fn options() -> Options {
             "--world" => options.worlds.push(PathBuf::from(value())),
             "--walkers" => options.walkers = value().parse().unwrap_or(300),
             "--seconds" => options.seconds = value().parse().unwrap_or(10.0),
+            "--dpr" => options.dpr = value().parse().unwrap_or(1.0),
             "--levels" => {
                 options.levels = value()
                     .split(',')
@@ -275,6 +282,91 @@ fn headless(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The living stage as the World window draws it, through GPUI's own
+/// drawing headless: every look baked lazily off the thread as the camera
+/// pans along the place and zooms in and out, residents where their
+/// routines put them, in real time for `--seconds`. Prints the frame plan
+/// and the pixels the stage held: at rest (zoom 1), zoomed in, and at most.
+fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    use world_gpui::diorama::stage_view::{set_display_scale, StageBench};
+    for path in &options.worlds {
+        let snapshot = Arc::new(load(path)?);
+        let name = name_of(path);
+        set_display_scale(Some(options.dpr));
+        let mut cx = HeadlessAppContext::with_platform(
+            Arc::new(NoopTextSystem::new()),
+            Arc::new(()),
+            || Some(Box::new(Plan(Arc::default())) as Box<dyn gpui::PlatformHeadlessRenderer>),
+        );
+        let bench = Rc::new(RefCell::new(None));
+        let view = {
+            let (snapshot, bench) = (snapshot.clone(), bench.clone());
+            let until = Duration::from_secs_f32(options.seconds);
+            cx.open_window(
+                size(px(options.size.0), px(options.size.1)),
+                move |_, cx: &mut App| {
+                    let view = StageBench::new(
+                        snapshot,
+                        stage::Time::Real(Instant::now()),
+                        Some(12.0),
+                        Some(until),
+                    );
+                    *bench.borrow_mut() = Some((
+                        view.stats.clone(),
+                        view.done.clone(),
+                        view.memory.clone(),
+                        view.opened.clone(),
+                    ));
+                    cx.new(|_| view)
+                },
+            )?
+        };
+        let (stats, done, memory, opened) = bench.borrow().clone().ok_or("no bench")?;
+        let started = Instant::now();
+        let mut opened_at = None;
+        let (mut at_rest, mut zoomed, mut most) = (0_usize, 0_usize, 0_usize);
+        let mut measured: Option<Instant> = None;
+        while !done.get() && started.elapsed() < Duration::from_secs(600) {
+            cx.update_window(view.into(), |_, window, _| window.refresh())?;
+            cx.run_until_parked();
+            let (bytes, peak) = memory.get();
+            most = most.max(peak);
+            if opened.get().is_some() {
+                if opened_at.is_none() {
+                    opened_at = Some(started.elapsed());
+                    measured = Some(Instant::now());
+                }
+                // The camera's cycle (StageBench::camera): zoomed in through
+                // the first half of every twenty seconds, at rest after.
+                let seconds = measured.map_or(0.0, |at| at.elapsed().as_secs_f32());
+                let phase = (seconds / 20.0).fract();
+                if (0.7..1.0).contains(&phase) {
+                    at_rest = at_rest.max(bytes);
+                } else if (0.2..0.3).contains(&phase) {
+                    zoomed = zoomed.max(bytes);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let stats = stats.borrow();
+        println!(
+            "window {name} at display scale {} ({:.0} s): first shown after {:.0} ms | {}",
+            options.dpr,
+            options.seconds,
+            opened_at.map_or(f64::NAN, |at| at.as_secs_f64() * 1000.0),
+            stats.summary()
+        );
+        println!(
+            "  pixel memory MB: at rest (zoom 1) {:.1} | zoomed in (2.2) {:.1} | most held {:.1}",
+            at_rest as f64 / 1e6,
+            zoomed as f64 / 1e6,
+            most as f64 / 1e6,
+        );
+    }
+    set_display_scale(None);
+    Ok(())
+}
+
 /// Where along the stage a window sees the most residents.
 fn busiest(baked: &Baked, zoom: f32) -> f32 {
     let view = baked.view.0 / zoom;
@@ -454,6 +546,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "bake" => bake_only(&options),
         "shots" => shots(&options),
         "headless" => headless(&options),
-        other => Err(format!("unknown mode {other}: bake, headless or shots").into()),
+        "window" => window(&options),
+        other => Err(format!("unknown mode {other}: bake, headless, window or shots").into()),
     }
 }

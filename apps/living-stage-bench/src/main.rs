@@ -23,6 +23,13 @@
 //! (device pixels a stage pixel; default the display's scale times 1,
 //! 1.5 and 2), `--size 1280x800`, `--hour H` (hold one hour instead of
 //! running through a day).
+//!
+//! `--window` runs the living stage as the World window draws it (v0.30
+//! S1a) instead: looks baked lazily off the thread as the camera pans
+//! along the place and zooms in and out, residents where their routines
+//! put them, and prints a `living-stage window:` line and the pixels the
+//! stage held. `--scale 2` bakes for a display of twice the pixels (a
+//! simulated Retina display on a 1x one).
 
 #![forbid(unsafe_code)]
 
@@ -58,6 +65,8 @@ mod window {
         levels: Option<Vec<f32>>,
         size: (f32, f32),
         hour: Option<f32>,
+        window: bool,
+        scale: Option<f32>,
     }
 
     fn options() -> Options {
@@ -69,6 +78,8 @@ mod window {
             levels: None,
             size: (1280.0, 800.0),
             hour: None,
+            window: false,
+            scale: None,
         };
         while let Some(arg) = args.next() {
             let mut value = || args.next().unwrap_or_default();
@@ -77,6 +88,8 @@ mod window {
                 "--walkers" => options.walkers = value().parse().unwrap_or(300),
                 "--seconds" => options.seconds = value().parse().unwrap_or(20.0),
                 "--hour" => options.hour = value().parse().ok(),
+                "--window" => options.window = true,
+                "--scale" => options.scale = value().parse().ok(),
                 "--levels" => {
                     options.levels = Some(
                         value()
@@ -131,6 +144,9 @@ mod window {
             .or_else(default_world)
             .ok_or("no World snapshot: pass --world <snapshot.json>")?;
         let snapshot = load(&path)?;
+        if options.window {
+            return run_window(options, snapshot);
+        }
         let application = gpui_platform::application();
         application.run(move |cx: &mut App| {
             let bounds = Bounds::centered(None, size(px(options.size.0), px(options.size.1)), cx);
@@ -215,6 +231,79 @@ mod window {
                     stats.borrow().summary(),
                     std::env::consts::OS,
                     std::env::consts::ARCH,
+                );
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        });
+        Ok(())
+    }
+
+    /// The living stage as the World window draws it: looks baked lazily,
+    /// residents from their routines, everything in depth.
+    fn run_window(
+        options: Options,
+        snapshot: ProjectionSnapshot,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use world_gpui::diorama::stage_view::{set_display_scale, StageBench};
+        let application = gpui_platform::application();
+        application.run(move |cx: &mut App| {
+            set_display_scale(options.scale);
+            let bounds = Bounds::centered(None, size(px(options.size.0), px(options.size.1)), cx);
+            let bench = StageBench::new(
+                Arc::new(snapshot.clone()),
+                stage::Time::Real(Instant::now()),
+                options.hour,
+                Some(Duration::from_secs_f32(options.seconds)),
+            );
+            let (stats, done, memory, opened) = (
+                bench.stats.clone(),
+                bench.done.clone(),
+                bench.memory.clone(),
+                bench.opened.clone(),
+            );
+            let window = cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    ..Default::default()
+                },
+                move |_, cx| cx.new(|_| bench),
+            );
+            let window = match window {
+                Ok(window) => window,
+                Err(error) => {
+                    eprintln!("living-stage: could not open a window: {error}");
+                    cx.quit();
+                    return;
+                }
+            };
+            cx.activate(true);
+            let began = Instant::now();
+            cx.spawn(async move |cx| {
+                let mut most = 0;
+                while !done.get() {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(100))
+                        .await;
+                    most = most.max(memory.get().1);
+                }
+                let display = window
+                    .update(cx, |_, window, _| window.scale_factor())
+                    .unwrap_or(0.0);
+                let (now, peak) = memory.get();
+                println!(
+                    "living-stage window: {} | display scale {display}, baked for {} | first settled after {} frames ({:.1} s) | {} {}",
+                    stats.borrow().summary(),
+                    options.scale.unwrap_or(display),
+                    opened.get().unwrap_or(0),
+                    began.elapsed().as_secs_f32() - options.seconds,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+                println!(
+                    "living-stage window pixel memory: {:.1} MB held at the end, {:.1} MB at most",
+                    now as f64 / 1e6,
+                    peak.max(most) as f64 / 1e6
                 );
                 cx.update(|cx| cx.quit());
             })
