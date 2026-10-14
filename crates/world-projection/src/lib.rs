@@ -1838,8 +1838,8 @@ pub enum GroundCover {
     Dust,
 }
 
-/// Where a person is from one hour of the day on: at a place, and whether
-/// indoors there.
+/// Where a person is from one hour of the day on: at a place, whether
+/// indoors there, what they are doing and with whom.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RoutineStop {
     /// The hour (0..24) this stop begins.
@@ -1848,6 +1848,12 @@ pub struct RoutineStop {
     /// Indoors: drawn in a lit window, or not at all, never standing
     /// outside.
     pub inside: bool,
+    /// How they stand there: sitting on a bench, carrying a load, dancing.
+    /// `None` leaves it to the app (an idle moment, or the item's own
+    /// stance).
+    pub stance: Option<Stance>,
+    /// Whom they are there with: two at the same place from the same hour.
+    pub with: Option<SelectionId>,
 }
 
 /// The stop of a day routine (sorted by `from_hour`) that holds at `hour`:

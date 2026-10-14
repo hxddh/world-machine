@@ -112,3 +112,27 @@ fn a_v023_harbour_opens_replays_and_plays_on() {
     let reopened = registry.open_archive(&after).unwrap();
     assert_eq!(reopened.snapshot(), snapshot);
 }
+
+/// Every saved harbour, opened, shows its people doing something at ten in
+/// the morning: at least six of them out working, carrying the catch,
+/// keeping a stall, sitting on a bench or with someone.
+#[test]
+fn a_lived_harbour_has_people_doing_things_at_ten() {
+    let registry = registry();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let mut fixtures = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "world"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    assert!(!fixtures.is_empty());
+    for fixture in fixtures {
+        let bytes = std::fs::read(&fixture).unwrap();
+        let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+        let session = registry.open_archive(&archive).unwrap();
+        let snapshot = session.snapshot();
+        let busy = world_pack_testkit::town::busy_at(&snapshot, 10);
+        assert!(busy >= 6, "{}: {busy} busy at ten", fixture.display());
+    }
+}

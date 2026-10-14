@@ -827,21 +827,63 @@ impl Town {
     }
 
     /// Gives someone at `home` the day `plan` makes, and stands them where
-    /// they are now, or at home.
+    /// they are now, or at home. What they would use, or did last, counts
+    /// only where it stands on the panorama: nobody walks off it to sit on
+    /// a bench that found no room.
     pub fn live(&self, item: &mut CanvasItem, home: SelectionId, plan: &Plan<SelectionId>) {
+        let placed = |at: &SelectionId| self.placed.contains_key(at);
+        let plan = Plan {
+            uses: plan
+                .uses
+                .iter()
+                .copied()
+                .filter(|(at, _)| placed(at))
+                .collect(),
+            last: plan.last.filter(|(at, _, _)| placed(at)),
+            ..plan.clone()
+        };
         item.home = Some(home);
-        item.day = crate::day(plan)
+        item.day = crate::day(&plan)
             .into_iter()
             .map(|stop| RoutineStop {
                 from_hour: stop.from_hour,
                 at: stop.at,
                 inside: stop.inside,
+                stance: stop.doing.stance().filter(|_| !stop.inside),
+                with: stop.with,
             })
             .collect();
         item.px = item
             .at
             .and_then(|at| self.placed.get(&at).copied())
             .or_else(|| self.placed.get(&home).copied());
+    }
+
+    /// What stands within `reach` of `near` that someone there might use,
+    /// nearest first: a bench to sit on, a lamp to gather under, a stall
+    /// to keep, a bed to tend. Only what is on the panorama.
+    pub fn uses_near(
+        &self,
+        items: &[CanvasItem],
+        near: SelectionId,
+        reach: f32,
+    ) -> Vec<(SelectionId, crate::Use)> {
+        let Some(from) = self.placed.get(&near).copied() else {
+            return Vec::new();
+        };
+        let mut uses = items
+            .iter()
+            .filter(|item| item.kind != CanvasItemKind::Actor)
+            .filter(|item| item.art.as_deref() != Some("scaffold"))
+            .filter_map(|item| {
+                let used = use_of(item.shape?)?;
+                let px = item.px.or_else(|| self.placed.get(&item.id).copied())?;
+                let away = (px - from).abs();
+                (away <= reach).then_some((away, item.id, used))
+            })
+            .collect::<Vec<_>>();
+        uses.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        uses.into_iter().map(|(_, id, used)| (id, used)).collect()
     }
 
     /// The stretch something placed stands on.
@@ -866,6 +908,7 @@ impl Town {
         let mut items = items;
         items.retain(|item| item.kind == CanvasItemKind::Actor || item.px.is_some());
         stagger_homecomings(&mut items);
+        keep_company(&mut items);
         let clusters = self.clusters(&items);
         CanvasProjection {
             items,
@@ -983,6 +1026,48 @@ pub fn widest_gap(canvas: &CanvasProjection) -> f32 {
         .windows(2)
         .map(|pair| pair[1] - pair[0])
         .fold(0.0, f32::max)
+}
+
+/// What a thing of a shape is good for to someone standing by it, if
+/// anything: somewhere to sit, a light, a stall, something growing.
+pub fn use_of(shape: MarkShape) -> Option<crate::Use> {
+    use crate::Use;
+    Some(match shape {
+        MarkShape::Bench | MarkShape::Well | MarkShape::Fountain => Use::Seat,
+        MarkShape::Lamp | MarkShape::Lantern => Use::Light,
+        MarkShape::Stall => Use::Stall,
+        MarkShape::Garden | MarkShape::Sprouts | MarkShape::Planter => Use::Planting,
+        _ => return None,
+    })
+}
+
+/// Someone is with someone else at a stop only while the other is there
+/// too, from the same hour: a companion whose day has them elsewhere then
+/// (or who is not on the scene) leaves them there on their own.
+pub(crate) fn keep_company(items: &mut [CanvasItem]) {
+    let days = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .map(|item| (item.id, item.day.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for item in items
+        .iter_mut()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+    {
+        for stop in &mut item.day {
+            let Some(other) = stop.with else {
+                continue;
+            };
+            let together = other != item.id
+                && days.get(&other).is_some_and(|day| {
+                    day.iter()
+                        .any(|theirs| theirs.from_hour == stop.from_hour && theirs.at == stop.at)
+                });
+            if !together {
+                stop.with = None;
+            }
+        }
+    }
 }
 
 /// At most a third of the town goes home as work ends at five

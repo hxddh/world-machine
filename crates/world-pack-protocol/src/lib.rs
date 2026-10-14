@@ -2966,12 +2966,19 @@ impl GroundCoverWire {
 
 /// Where a person is from one hour of the day on, as it crosses the
 /// boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RoutineStopWire {
     pub from_hour: u8,
     pub at: SelectionIdWire,
     #[serde(default)]
     pub inside: bool,
+    /// How they stand there. A stance this build does not know is left to
+    /// the app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stance: Option<String>,
+    /// Whom they are there with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with: Option<SelectionIdWire>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -3459,6 +3466,8 @@ impl From<&CanvasItem> for CanvasItemWire {
                     from_hour: stop.from_hour,
                     at: stop.at.into(),
                     inside: stop.inside,
+                    stance: stop.stance.map(|stance| stance.id().to_string()),
+                    with: stop.with.map(Into::into),
                 })
                 .collect(),
             built: item.built,
@@ -3533,6 +3542,8 @@ impl From<CanvasItemWire> for CanvasItem {
                         from_hour: stop.from_hour,
                         at: stop.at.into(),
                         inside: stop.inside,
+                        stance: stop.stance.as_deref().and_then(Stance::from_id),
+                        with: stop.with.map(Into::into),
                     })
                     .collect();
                 day.sort_by_key(|stop| stop.from_hour);
@@ -4274,7 +4285,7 @@ mod tests {
         };
         let mut unknown = wire.clone();
         unknown.parts[0].ink = "sparkle".into();
-        unknown.parts[0].stances = vec!["dancing".into(), "talking".into()];
+        unknown.parts[0].stances = vec!["juggling".into(), "talking".into()];
         let unknown = Drawing::from(unknown);
         assert_eq!(unknown.parts[0].ink, Ink::Wall);
         assert_eq!(unknown.parts[0].stances, vec![Stance::Talking]);

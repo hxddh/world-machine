@@ -188,11 +188,15 @@ fn harbour() -> ProjectionSnapshot {
                 from_hour: 7,
                 at: work,
                 inside: false,
+                stance: None,
+                with: None,
             },
             world_projection::RoutineStop {
                 from_hour: 21,
                 at: home,
                 inside: true,
+                stance: None,
+                with: None,
             },
         ];
     }

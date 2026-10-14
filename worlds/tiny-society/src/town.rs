@@ -822,6 +822,32 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
     // Everyone's day.
     let festival = festival_today(state);
     let square = gathering(&done_works, &items);
+    let lately = lives::lately_lived(world, LATELY * crate::persistence::WORLD_DAY_TICKS);
+    let market = market(&town);
+    let now = world.world_time();
+    let today_events = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time == now)
+        .collect::<Vec<_>>();
+    // What each of them would use near where they spend the day, and what
+    // the record says they last did, worked out before anyone is moved.
+    let mut doings = BTreeMap::new();
+    for item in items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+    {
+        let SelectionId::Entity(person) = item.id else {
+            continue;
+        };
+        let work =
+            work_of(state, person, &workplaces).filter(|work| town.placed.contains_key(work));
+        let about = about_of(person, square);
+        let uses = town.uses_near(&items, work.unwrap_or(about), NEAR);
+        let last = last_of(state, person, &lately, &today_events, market, &uses);
+        doings.insert(person, (work, about, uses, last));
+    }
     for item in items
         .iter_mut()
         .filter(|item| item.kind == CanvasItemKind::Actor)
@@ -832,22 +858,20 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         let Some(home) = home_of.get(&person).copied() else {
             continue;
         };
+        let Some((work, about, uses, last)) = doings.remove(&person) else {
+            continue;
+        };
         let plan = Plan {
             home,
-            work: work_of(state, person, &workplaces)
-                .filter(|work| town.placed.contains_key(work))
-                .map(|work| (work, false)),
-            // Out and about on the square or by the school: the east end
-            // has its fishers and the pub already.
-            about: [
-                SelectionId::Entity(BAKERY),
-                square,
-                SelectionId::Entity(SCHOOL),
-            ][(days::mix(&[person.0, 5]) % 3) as usize],
+            work: work.map(|work| (work, false)),
+            about,
             evening: Some((SelectionId::Entity(PUB), true)),
             gathering: square,
             festival,
             seed: person.0,
+            today: state.world_time() / crate::persistence::WORLD_DAY_TICKS,
+            uses,
+            last,
         };
         town.live(item, home, &plan);
     }
@@ -875,6 +899,98 @@ fn gathering(done: &[(usize, &'static Work, Option<u32>)], items: &[CanvasItem])
                 .map(|item| item.id)
         })
         .unwrap_or(SelectionId::Entity(BAKERY))
+}
+
+/// How many days back what someone did still shapes their day.
+const LATELY: u64 = 2;
+/// How far from where they spend the day someone goes to use a bench, a
+/// lamp or a stall, in screens.
+const NEAR: f32 = 0.6;
+
+/// Where someone with no work is out and about: on the square or by the
+/// school (the east end has its fishers and the pub already).
+fn about_of(person: EntityId, square: SelectionId) -> SelectionId {
+    [
+        SelectionId::Entity(BAKERY),
+        square,
+        SelectionId::Entity(SCHOOL),
+    ][(days::mix(&[person.0, 5]) % 3) as usize]
+}
+
+/// Where the catch is carried to and sold: the fish market once it
+/// stands, and otherwise outside the bakery on the square.
+fn market(town: &Town) -> SelectionId {
+    catalog()
+        .iter()
+        .position(|work| work.id == "fish_market")
+        .map(days::town::work_id)
+        .filter(|id| town.placed.contains_key(id))
+        .unwrap_or(SelectionId::Entity(BAKERY))
+}
+
+/// What a day spent on one of the harbour's activities looks like to
+/// anyone passing: a shift is work, an errand or a hand lent is carrying,
+/// a pint or a game of cards is standing about outside the pub. What is
+/// done at home is out of sight.
+fn doing_of(activity: &str) -> Option<days::Doing> {
+    use days::Doing;
+    Some(match activity {
+        "shift" | "extra" => Doing::Work,
+        "errands" | "lend_a_hand" => Doing::Carry,
+        "stall" => Doing::Keep,
+        "quay" | "knots" | "paint" => Doing::Sit,
+        "cliff_walk" => Doing::Stroll,
+        "pint" | "cards" | "chat" | "plan" => Doing::Gather,
+        "dance" => Doing::Dance,
+        _ => return None,
+    })
+}
+
+/// What the record last says someone did, as their day shows it again:
+/// a catch landed today is carried to the market; then whatever they
+/// last spent a day on (on the bench near it if there is one; at a stall
+/// only where one stands), with whoever they spent it with; and a fisher
+/// with nothing else to show carries the catch.
+fn last_of(
+    state: &WorldState,
+    person: EntityId,
+    lately: &BTreeMap<EntityId, lives::Lived>,
+    today: &[&world_core::Event],
+    market: SelectionId,
+    uses: &[(SelectionId, days::Use)],
+) -> Option<(SelectionId, days::Doing, Option<SelectionId>)> {
+    use days::{Doing, Use};
+    let landed = today.iter().any(|event| {
+        event.actor == Some(person) && matches!(event.kind.as_str(), "catch_landed" | "fish_sold")
+    });
+    if landed {
+        return Some((market, Doing::Carry, None));
+    }
+    let lived = lately.get(&person).and_then(|lived| {
+        let doing = doing_of(&lived.activity).filter(|doing| *doing != Doing::Work)?;
+        let wants = match doing {
+            Doing::Sit => Some(Use::Seat),
+            Doing::Keep => Some(Use::Stall),
+            _ => None,
+        };
+        let used = wants
+            .and_then(|wants| uses.iter().find(|(_, used)| *used == wants))
+            .map(|(at, _)| *at);
+        // A stall is kept only where one stands; nobody keeps the pub all
+        // day.
+        let at = match doing {
+            Doing::Keep => used?,
+            _ => used.unwrap_or(SelectionId::Entity(lived.place)),
+        };
+        Some((at, doing, lived.with.map(SelectionId::Entity)))
+    });
+    lived.or_else(|| {
+        (text(state, person, society_basic::JOB) == Some("fisher")).then_some((
+            market,
+            Doing::Carry,
+            None,
+        ))
+    })
 }
 
 /// How the place stands, as the bars for it measure it.
