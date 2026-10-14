@@ -49,7 +49,10 @@ impl Teller for Toy {
         (cause.kind == "storm_weathered").then(|| "after the great storm".into())
     }
     fn is_person(&self, id: EntityId) -> bool {
-        id != SQUARE
+        id.0 < SQUARE.0
+    }
+    fn scene_home(&self) -> Option<EntityId> {
+        Some(SQUARE)
     }
 }
 
@@ -382,3 +385,5 @@ fn a_short_life_is_told_from_the_festivals_it_saw() {
     };
     assert_eq!(filled_life(&toy, full.clone()), full);
 }
+
+mod scenes;

@@ -349,8 +349,7 @@ impl TinySocietyBranch {
                 let moments = moments::moments(&self.world);
                 almanac_page::almanac(&self.world, year, &moments).map(StoryPage::Almanac)
             }
-            // No scenes are staged yet.
-            StoryRequest::Scene(_) => None,
+            StoryRequest::Scene(event) => legends::scene(&self.world, event).map(StoryPage::Scene),
         }
     }
 

@@ -1492,7 +1492,7 @@ const BOND_HOLDS: i64 = 90;
 /// anyone: each is a thing people talk about, not the weather.
 const BOND_GAP: i64 = 6;
 /// Whom someone last had words with, and over what: `"<id>:<topic>"`.
-const ROW: &str = "lives.row";
+pub const ROW: &str = "lives.row";
 /// The changes in how people stand of the last [`BOND_HOLDS`] periods, on
 /// the notes, as `"<a>.<b>.<period>"` with `a` the lower id: kept this
 /// short so a World's saves and codes stay small.
