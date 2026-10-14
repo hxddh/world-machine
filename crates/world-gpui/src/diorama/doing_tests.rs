@@ -369,7 +369,7 @@ fn gatherers_outside_the_lamp_post_footprint() {
                 lamp.x
             );
             assert!(spot.y >= lamp.y, "never behind the post");
-            assert!(spot.y - lamp.y < p * 0.5);
+            assert!(spot.y - lamp.y < p, "round it, not out in front");
             // Facing it, or whoever they came with, beside them.
             let toward = match stage.doing[gatherer].with {
                 Some(with) => spot_of(&stage, with).x,
@@ -405,34 +405,13 @@ fn the_keeper_stands_behind_the_stall_in_depth() {
         keeper.y < stall.y && keeper.y > stall.y - p * 0.4,
         "just behind"
     );
-    // In depth: everything is drawn by where its foot is, the keeper's
-    // before the stall's.
+    // In the window's own plan: the keeper's picture is drawn before every
+    // picture of the stall it meets, so the counter hides their legs.
     let thing = frame
         .things
         .iter()
         .find(|thing| thing.index == staged.stall)
         .expect("drawn");
-    let (_, stall_y) = frame.at(thing.x, thing.base);
-    let person = drawn(&frame, staged.keeper);
-    let marked = |at: f32, rank: ls::Rank, who: usize, width: f32| ls::Deep {
-        at,
-        rank,
-        who,
-        items: vec![ls::Item {
-            opacity: 1.0,
-            draw: ls::Draw::Live {
-                rect: (0.0, 0.0, width, 1.0),
-                paint: std::rc::Rc::new(|_, _| {}),
-            },
-        }],
-    };
-    let order = ls::in_depth(vec![
-        marked(stall_y, ls::Rank::Thing, staged.stall, 1.0),
-        marked(person.y, ls::Rank::Person, staged.keeper, 2.0),
-    ])
-    .map(|item| item.draw.bounds().2)
-    .collect::<Vec<_>>();
-    assert_eq!(order, vec![2.0, 1.0], "the keeper drawn before the stall");
     // The carrier with their load at its side.
     assert_eq!(
         stage.doing[&staged.carrier].fixture,
@@ -441,6 +420,65 @@ fn the_keeper_stands_behind_the_stall_in_depth() {
     let carrier = drawn(&frame, staged.carrier);
     assert_eq!(carrier.stance, Stance::Carrying);
     assert!((carrier.x - frame.at(thing.x, 0.0).0).abs() > thing.w * 0.45);
+    let person = drawn(&frame, staged.keeper).clone();
+    let frame = std::sync::Arc::new(frame);
+    let mut hand = super::stage_view::Stagehand::new(1.0);
+    let (plan, ..) = hand.frame(&frame, &staged.snapshot, true);
+    let (plan, ..) = if plan.images() == 0 {
+        hand.frame(&frame, &staged.snapshot, true)
+    } else {
+        (plan, Vec::new(), Vec::new(), Default::default())
+    };
+    let mut stall_pictures = std::collections::HashSet::new();
+    let mut baked = std::collections::HashSet::new();
+    for slot in &hand.slots {
+        for (item, _, sprite) in &slot.look.things {
+            if *item == staged.stall {
+                stall_pictures.insert(std::sync::Arc::as_ptr(&sprite.image));
+            }
+        }
+        for image in slot.look.images() {
+            baked.insert(std::sync::Arc::as_ptr(&image));
+        }
+    }
+    let order = plan
+        .layers
+        .iter()
+        .flat_map(|layer| layer.draws.iter())
+        .enumerate()
+        .filter_map(|(at, draw)| match draw {
+            ls::Draw::Image { image, .. } => {
+                Some((at, std::sync::Arc::as_ptr(image), draw.bounds()))
+            }
+            ls::Draw::Live { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    // The keeper's pose: a picture no look holds, standing where they do.
+    let keeper = order
+        .iter()
+        .filter(|(_, image, _)| !baked.contains(image))
+        .filter(|(_, _, (x, y, w, h))| {
+            person.x > *x && person.x < x + w && (y + h - person.y).abs() < person.height * 0.3
+        })
+        .map(|(at, _, bounds)| (*at, *bounds))
+        .collect::<Vec<_>>();
+    assert!(!keeper.is_empty(), "the keeper's pose is drawn");
+    let mut met = 0;
+    for (at, image, (x, y, w, h)) in &order {
+        if !stall_pictures.contains(image) {
+            continue;
+        }
+        for (keeper_at, (kx, ky, kw, kh)) in &keeper {
+            if kx < &(x + w) && x < &(kx + kw) && ky < &(y + h) && y < &(ky + kh) {
+                met += 1;
+                assert!(keeper_at < at, "the keeper is drawn over the stall");
+            }
+        }
+    }
+    assert!(met > 0, "the keeper stands where the stall is");
+    // Where people are painted over the still layers (the strip, covers),
+    // the stall is painted again over its keeper.
+    assert_eq!(person.behind, Some(staged.stall));
 }
 
 /// Where everyone is and what they do is a function of the World and the
@@ -555,7 +593,7 @@ fn nobody_on_an_errand_or_at_a_fixture_is_in_a_building() {
     worlds.push(("staged".into(), staged().snapshot));
     let mut inside = Vec::new();
     for (name, snapshot) in &worlds {
-        for hour in [9, 12, 15, 19, 21] {
+        for hour in [9, 12, 15, 19, 20, 21, 22] {
             let daylight = crate::scene::daylight_at(hour);
             for into_hour in (0..3600).step_by(20) {
                 let clock = Clock {
@@ -580,4 +618,179 @@ fn nobody_on_an_errand_or_at_a_fixture_is_in_a_building() {
     }
     inside.dedup_by(|a, b| a.split(" at ").next() == b.split(" at ").next());
     assert!(inside.is_empty(), "{}", inside.join("\n"));
+}
+
+/// Every lamp on the land of the three-year town, with six gathered at it
+/// from dusk (19 to 22): each stands on open ground, in no building's
+/// footprint and never at or behind a building's foot where its picture
+/// is (v0.30 S2d round 2: a gatherer at the hill beacon read as standing
+/// on a house's wall), balanced either side of the lamp.
+#[test]
+fn every_lamp_ring_stands_on_open_ground() {
+    let base = staged().snapshot;
+    let stage = stage_at(&base, VIEW.0, VIEW.1, Clock::at(20));
+    let items = &base.canvas.items;
+    let lamps = stage
+        .things
+        .iter()
+        .filter(|spot| stage.depth_of(spot) != Depth::Water)
+        .filter(|spot| {
+            matches!(
+                items[spot.index].shape,
+                Some(MarkShape::Lamp | MarkShape::Lantern)
+            )
+        })
+        .map(|spot| spot.index)
+        .collect::<Vec<_>>();
+    assert!(lamps.len() >= 2, "{lamps:?}");
+    let people = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
+        .map(|(index, _)| index)
+        .skip(10)
+        .take(6)
+        .collect::<Vec<_>>();
+    let setting = art::Setting::from_key(base.canvas.setting.as_deref());
+    let mut wrong = Vec::new();
+    for lamp in lamps {
+        let mut snapshot = base.clone();
+        let at = snapshot.canvas.items[lamp].id;
+        for person in &people {
+            let home = snapshot.canvas.items[*person].day[0].at;
+            snapshot.canvas.items[*person].day = vec![
+                RoutineStop {
+                    from_hour: 0,
+                    at: home,
+                    inside: true,
+                    stance: None,
+                    with: None,
+                },
+                RoutineStop {
+                    from_hour: 18,
+                    at,
+                    inside: false,
+                    stance: Some(Stance::Talking),
+                    with: None,
+                },
+            ];
+        }
+        for hour in 19..=22 {
+            let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(hour));
+            let footprints = people::footprints(&stage, &snapshot);
+            let lamp_x = spot_of(&stage, lamp).x;
+            let (mut left, mut right) = (0_usize, 0_usize);
+            for spot in &stage.people {
+                if stage.doing.get(&spot.index).and_then(|what| what.fixture)
+                    != Some((lamp, Use::Ring))
+                {
+                    continue;
+                }
+                let p = stage.figure_h * spot.scale;
+                if spot.x < lamp_x {
+                    left += 1;
+                } else {
+                    right += 1;
+                }
+                let inside = footprints
+                    .iter()
+                    .any(|footprint| ls::inside(*footprint, spot.x, spot.y));
+                let on_a_wall = stage.buildings.iter().any(|building| {
+                    let (w, h) = building_size(&stage, &snapshot, building, setting);
+                    (spot.x - building.x).abs() < w / 2.0 + p * 0.25
+                        && spot.y < building.y + p * 0.3
+                        && spot.y > building.y - h - p * 0.2
+                });
+                if inside || on_a_wall {
+                    wrong.push(format!(
+                        "lamp {lamp} at {hour}h: {} at ({:.0}, {:.0})",
+                        spot.index, spot.x, spot.y
+                    ));
+                }
+            }
+            if left + right > 0 {
+                assert!(
+                    left.abs_diff(right) <= 2,
+                    "lamp {lamp} at {hour}h: {left} left, {right} right"
+                );
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Where people are painted over the still layers (the strip, covers,
+/// postcards: v0.30 S2d round 2's close-ups), a stall's keeper is hidden
+/// below its counter too: their legs leave no pixel there.
+#[test]
+fn the_keeper_s_legs_are_hidden_by_the_counter_when_painted() {
+    use gpui::prelude::*;
+    let staged = staged();
+    let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, Clock::at(11));
+    let stall = spot_of(&stage, staged.stall);
+    let living = living(
+        &stage,
+        &staged.snapshot,
+        1.0,
+        Daylight::Day,
+        &BTreeSet::new(),
+        None,
+    );
+    let frame = super::frame(
+        &staged.snapshot,
+        &stage,
+        &living,
+        Camera::around(&stage, 2.2, stall.x, VIEW.1 / 2.0),
+        1.0,
+        Daylight::Day,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(11.0);
+    let keeper = drawn(&frame, staged.keeper).clone();
+    let without = Frame {
+        people: frame
+            .people
+            .iter()
+            .filter(|person| person.index != staged.keeper)
+            .cloned()
+            .collect(),
+        ..frame.clone()
+    };
+    let picture = |frame: Frame| {
+        crate::offscreen::draw(VIEW.0, VIEW.1, move || {
+            let frame = frame.clone();
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| super::paint(&frame, bounds, window),
+            )
+            .size_full()
+            .into_any_element()
+        })
+    };
+    let (with, without) = (picture(frame), picture(without));
+    let k = with.width() as f32 / VIEW.0;
+    let (x0, x1) = (
+        ((keeper.x - keeper.height * 0.12) * k) as u32,
+        ((keeper.x + keeper.height * 0.12) * k) as u32,
+    );
+    let (y0, y1) = (
+        ((keeper.y - keeper.height * 0.3) * k) as u32,
+        (keeper.y * k) as u32,
+    );
+    let (mut differ, mut all) = (0, 0);
+    for y in y0..y1.min(with.height()) {
+        for x in x0..x1.min(with.width()) {
+            all += 1;
+            let (a, b) = (with.get_pixel(x, y).0, without.get_pixel(x, y).0);
+            if a.iter().zip(b).any(|(a, b)| a.abs_diff(b) > 6) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(all > 0);
+    assert!(
+        differ * 20 <= all,
+        "{differ} of {all} pixels of their legs show"
+    );
 }

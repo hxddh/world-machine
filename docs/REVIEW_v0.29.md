@@ -295,6 +295,16 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
 - *Goldens.* No golden picture changed: the scene's fixtures carry no stop stances, and a stop that says nothing is drawn as before. `replayed-state.digest` and the projection goldens are untouched.
 - *Left.* Close-up art review of the sitters (three on a bench read crowded at 2.2x), the ring at the beacon on the hill, and the keeper under low stall roofs. Dancing has no stop in today's saved worlds (only festival days), so it is seen in the staged close-up only.
 
+**S2d round 2 (2026-10-14): the art director's NO, answered.**
+- *The keeper behind the counter.* The window's plan already drew the keeper before the stall. The close-ups came from the painter that paints people over the still layers, where the keeper's legs showed over the counter. There the stall is now painted again over its keeper (`PersonPaint::behind`). Two tests now check it: one through the window's own plan (the keeper's pose drawn before every stall picture it meets), and one in painted pixels (no pixel of the legs below the counter). Both fail if the keeper stands in front.
+- *Nobody on a building.* Ring spots, spots beside a thing and a dance's ground are taken only on open ground: in no footprint, and never at or just behind a building's foot where its picture is. A lamp hemmed in by houses (the hill beacon) is ringed at the foot of the hill, on the line people stand. `every_lamp_ring_stands_on_open_ground` puts six at every lamp of the three-year town from 19 to 22, and the building test now covers 19 to 22.
+- *The ring.* Up to six spots a side, either side of the post and round in front of it, balanced left and right. Companions take the spot level with each other.
+- *Benches.* Sitters are 0.6 P apart (about 1.3 body widths); a bench too short for three seats two, and the third sits on a stool beside it.
+- *Dancers* move along their lane, together, to ground with nobody else within a stride.
+- *The load* is a crate half their height wide, hip to chest, outlined, with slats, in the place's wood or wicker or dark wood, whichever is furthest from their clothes in lightness.
+- *Motion strips* (`motion_strips`, ignored): a dance over six moments and an errand out and back, at the window's own zoom.
+- *The return-film test.* It failed here and on CI, on main as well as this branch: the first two frames bake the place synchronously (5.4 s and 2.8 s here, the same on main), longer than a beat, so the film went on by itself before the click. The test now puts the film back on its first beat until a frame of it is drawn with the beat still there (once the place is baked, a frame is quick), takes Next's bounds from that frame, and sets the beat with no frame drawn before the click. S2d did not slow these frames: they take the same time on main. It still fails if a click leaves the beat's clock running.
+
 ### S3. Every story is a scene
 
 Each type below plays as a staged scene of 5–10 seconds, with the camera, people and props moving. Together they cover about 80% of the events that reach the player:

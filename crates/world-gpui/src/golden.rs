@@ -970,7 +970,7 @@ fn close_ups() {
     let zoom = 2.2;
     for (name, hour, wanted) in [
         ("bench", 15.0, Stance::Sitting),
-        ("lamp", 20.0, Stance::Talking),
+        ("lamp", 21.0, Stance::Talking),
         ("stall", 11.0, Stance::Talking),
         ("carrier", 10.0, Stance::Carrying),
         ("dancers", 15.0, Stance::Dancing),
@@ -1014,20 +1014,23 @@ fn close_ups() {
             eprintln!("{prefix}{name}: nobody at it");
             continue;
         };
-        let x = stage
+        let (x, y) = stage
             .people
             .iter()
             .find(|spot| spot.index == who.index)
-            .map(|spot| spot.x)
+            .map(|spot| (spot.x, spot.y))
             .expect("on the stage");
-        let frame = snapshot_frame(
+        // Centred on them, a little above their feet: room below for the
+        // feet and the ground they stand on.
+        let (_, frame) = frame_at_clock(
             &snapshot,
             (width, height),
-            daylight,
-            hour,
+            diorama::Clock::at(hour as u8),
+            0.0,
             zoom,
-            x / stage.width,
+            (x, y - stage.figure_h * 0.3),
         );
+        let _ = daylight;
         let at = frame
             .people
             .iter()
@@ -1039,7 +1042,7 @@ fn close_ups() {
         let at = (at.0 * k, at.1 * k, at.2 * k);
         let (cw, ch) = ((at.2 * 5.0) as u32, (at.2 * 2.6) as u32);
         let left = ((at.0 - cw as f32 / 2.0).max(0.0) as u32).min(image.width().saturating_sub(cw));
-        let top = ((at.1 - at.2 * 1.9).max(0.0) as u32).min(image.height().saturating_sub(ch));
+        let top = ((at.1 - at.2 * 1.6).max(0.0) as u32).min(image.height().saturating_sub(ch));
         let crop = image::imageops::crop_imm(
             &image,
             left,
@@ -1054,6 +1057,223 @@ fn close_ups() {
             .save(dir.join(format!("{prefix}{name}-whole.png")))
             .expect("a picture");
     }
+}
+
+/// A frame of `snapshot` at `clock`, `seconds` in, the camera `zoom` on
+/// stage `x`.
+fn frame_at_clock(
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+    clock: diorama::Clock,
+    seconds: f32,
+    zoom: f32,
+    (x, y): (f32, f32),
+) -> (diorama::Stage, diorama::Frame) {
+    let stage = diorama::stage_at(snapshot, width, height, clock);
+    let daylight = crate::scene::daylight_at(u32::from(clock.hour));
+    let lives = diorama::living(
+        &stage,
+        snapshot,
+        seconds,
+        daylight,
+        &Default::default(),
+        None,
+    );
+    let frame = diorama::frame(
+        snapshot,
+        &stage,
+        &lives,
+        Camera::around(&stage, zoom, x, y),
+        seconds,
+        daylight,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(f32::from(clock.hour) + clock.into_hour / 3600.0);
+    (stage, frame)
+}
+
+/// Frames side by side, each cut to `(x, y, w, h)` in window points.
+fn strip_of(
+    frames: Vec<(diorama::Frame, (f32, f32, f32, f32))>,
+    size: (f32, f32),
+) -> image::RgbaImage {
+    let cuts = frames
+        .into_iter()
+        .map(|(frame, (x, y, w, h))| {
+            let image = draw(size.0, size.1, move || painted(frame.clone()));
+            let k = image.width() as f32 / size.0;
+            let (x, y) = ((x * k).max(0.0) as u32, (y * k).max(0.0) as u32);
+            let (w, h) = ((w * k) as u32, (h * k) as u32);
+            let (w, h) = (w.min(image.width() - x), h.min(image.height() - y));
+            image::imageops::crop_imm(&image, x, y, w, h).to_image()
+        })
+        .collect::<Vec<_>>();
+    let width = cuts.iter().map(|cut| cut.width() + 6).sum::<u32>();
+    let height = cuts.iter().map(|cut| cut.height()).max().unwrap_or(1);
+    let mut out = image::RgbaImage::from_pixel(width, height, image::Rgba([255, 255, 255, 255]));
+    let mut left = 0;
+    for cut in cuts {
+        image::imageops::overlay(&mut out, &cut, i64::from(left), 0);
+        left += cut.width() + 6;
+    }
+    out
+}
+
+/// Short strips at the window's own zoom, to judge motion by: a dance over
+/// six moments, and an errand out and back over six. Written with
+/// [`close_ups`] to `WORLD_GPUI_CLOSE_UPS`.
+#[test]
+#[ignore = "pictures: WORLD_GPUI_CLOSE_UPS=dir cargo test -p world-gpui -- --ignored motion_strips"]
+fn motion_strips() {
+    use world_projection::Stance;
+    let Some(dir) = std::env::var_os("WORLD_GPUI_CLOSE_UPS") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let size = (1100.0, 848.0);
+    let snapshot = crate::diorama::doing_tests::staged().snapshot;
+    // The dance, a fifth of a second apart.
+    let clock = diorama::Clock::at(15);
+    let (stage, first) = frame_at_clock(
+        &snapshot,
+        size,
+        clock,
+        0.0,
+        1.0,
+        (size.0 / 2.0, size.1 / 2.0),
+    );
+    let dancer = first
+        .people
+        .iter()
+        .find(|person| person.stance == Stance::Dancing)
+        .map(|person| person.index)
+        .expect("someone dancing");
+    let x = stage
+        .people
+        .iter()
+        .find(|spot| spot.index == dancer)
+        .map(|spot| spot.x)
+        .expect("on the stage");
+    let frames = (0..6)
+        .map(|step| {
+            let (_, frame) = frame_at_clock(
+                &snapshot,
+                size,
+                clock,
+                step as f32 * 0.21,
+                1.0,
+                (x, size.1 / 2.0),
+            );
+            let person = frame
+                .people
+                .iter()
+                .find(|person| person.index == dancer)
+                .expect("drawn")
+                .clone();
+            let h = person.height;
+            (
+                frame,
+                (person.x - h * 1.6, person.y - h * 1.5, h * 3.2, h * 1.75),
+            )
+        })
+        .collect::<Vec<_>>();
+    strip_of(frames, size)
+        .save(dir.join("dance-strip.png"))
+        .expect("a picture");
+    // An errand: whoever first sets off one after half past ten.
+    let at = |into_hour: f32| diorama::Clock {
+        hour: 10,
+        into_hour,
+    };
+    let mut found = None;
+    'search: for second in (1800..3600).step_by(2) {
+        let stage = diorama::stage_at(&snapshot, size.0, size.1, at(second as f32));
+        let lives = diorama::living(
+            &stage,
+            &snapshot,
+            0.0,
+            crate::scene::Daylight::Day,
+            &Default::default(),
+            None,
+        );
+        for (spot, life) in stage.people.iter().zip(&lives) {
+            if life.pose.stride.is_some() && !stage.routes.contains_key(&spot.index) {
+                found = Some((spot.index, second as f32, spot.x));
+                break 'search;
+            }
+        }
+    }
+    let (who, start, home) = found.expect("an errand within the hour");
+    // How long it is out: until they are home again.
+    let mut away = (home, home);
+    let mut end = start;
+    for second in (start as u32..3600).step_by(2) {
+        let stage = diorama::stage_at(&snapshot, size.0, size.1, at(second as f32));
+        let lives = diorama::living(
+            &stage,
+            &snapshot,
+            0.0,
+            crate::scene::Daylight::Day,
+            &Default::default(),
+            None,
+        );
+        let Some(life) = stage
+            .people
+            .iter()
+            .zip(&lives)
+            .find(|(spot, _)| spot.index == who)
+            .map(|(_, life)| *life)
+        else {
+            break;
+        };
+        away = (away.0.min(life.x), away.1.max(life.x));
+        end = second as f32;
+        if second as f32 > start + 10.0 && (life.x - home).abs() < 2.0 && life.pose.stride.is_none()
+        {
+            break;
+        }
+    }
+    let middle = (away.0 + away.1) / 2.0;
+    let frames = (0..6)
+        .map(|step| {
+            let second = start + (end - start) * step as f32 / 5.0;
+            let (_, frame) = frame_at_clock(
+                &snapshot,
+                size,
+                at(second),
+                0.0,
+                1.0,
+                (middle, size.1 / 2.0),
+            );
+            let person = frame
+                .people
+                .iter()
+                .find(|person| person.index == who)
+                .expect("drawn")
+                .clone();
+            let h = person.height;
+            let (left, _) = frame_point(&frame, away.0);
+            let (right, _) = frame_point(&frame, away.1);
+            (
+                frame,
+                (
+                    left - h,
+                    person.y - h * 1.5,
+                    right - left + h * 2.0,
+                    h * 1.75,
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    strip_of(frames, size)
+        .save(dir.join("errand-strip.png"))
+        .expect("a picture");
+}
+
+/// Where stage `x`, where people stand, is in the frame's window.
+fn frame_point(frame: &diorama::Frame, x: f32) -> (f32, f32) {
+    frame.screen_of(x)
 }
 
 /// The v0.24 bar for the whole-town view: zoomed right out, the day-1,082

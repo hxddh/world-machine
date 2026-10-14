@@ -355,6 +355,12 @@ impl Frame {
             .project((self.width, self.view_w, self.height), x, y)
     }
 
+    /// Where stage `x`, on the line people stand on, is in the window.
+    #[cfg(test)]
+    pub(crate) fn screen_of(&self, x: f32) -> (f32, f32) {
+        self.at(x, self.feet)
+    }
+
     /// The top of the quay, where the street ends and the stone begins.
     fn quay_top(&self) -> f32 {
         self.feet - self.figure_h * 0.55
@@ -652,6 +658,10 @@ pub fn frame(
                 along: life.x,
                 seat,
                 beat,
+                behind: what
+                    .fixture
+                    .filter(|(_, how)| *how == Use::Keep)
+                    .map(|(thing, _)| thing),
             }
         })
         .collect::<Vec<_>>();
