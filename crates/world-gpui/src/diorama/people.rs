@@ -501,6 +501,31 @@ pub fn living(
         })
         .collect::<Vec<_>>();
     let clear = |from: f32, to: f32, y: f32| kept_out(&footprints, from, to, y, figure_h * 0.2);
+    // Tall, thin things standing in the water in front of the shore (a tide
+    // board, a lamp on the point): nobody stands right behind one, sliced
+    // by it, but a step to its side.
+    let posts = stage
+        .things
+        .iter()
+        .filter(|spot| spot.y >= stage.front - 1.0)
+        .filter_map(|spot| {
+            let shape = items[spot.index].shape.unwrap_or(MarkShape::Parcel);
+            let tall = matches!(
+                shape,
+                MarkShape::Signpost | MarkShape::Lamp | MarkShape::Lantern | MarkShape::Flag
+            );
+            tall.then_some((spot.x, spot.w * 0.3 + figure_h * 0.25))
+        })
+        .collect::<Vec<_>>();
+    let beside_posts = |x: f32| {
+        posts.iter().fold(x, |x, (post, reach)| {
+            if (x - post).abs() < *reach {
+                post + reach * if x < *post { -1.0 } else { 1.0 }
+            } else {
+                x
+            }
+        })
+    };
     // Walking from `from` to `to`, `since` seconds of `length` in: planted
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
@@ -540,7 +565,7 @@ pub fn living(
             let item = &items[spot.index];
             let key = item.id.stable_key();
             let seed = art::seed_of(&key);
-            let home = spot.x;
+            let home = beside_posts(spot.x);
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
             let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
             // Walking over to where a turn put them.

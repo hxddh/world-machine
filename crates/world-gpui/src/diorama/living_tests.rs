@@ -445,3 +445,92 @@ fn a_new_building_or_season_is_a_new_look_and_an_hour_or_zoom_is_not() {
     fewer.canvas.items[building].px = fewer.canvas.items[building].px.map(|px| px + 40.0);
     assert_ne!(at_rest, key(&fewer, None, 12.0));
 }
+
+/// Nobody standing on a pier, a sea wall's landing or a pool in the rocks,
+/// or on the shore behind one, is hidden by it: what lies flat is ground,
+/// and every resident's picture that meets one is drawn after it (v0.30
+/// S1a's stone landing cut people off at the waist). Checked through the
+/// window's own plan, the camera on each flat thing of the three-year
+/// town, at several moments of everyone's day.
+#[test]
+fn nobody_is_hidden_by_what_they_stand_on() {
+    let snapshot = fixtures()
+        .into_iter()
+        .find(|(name, _)| name.ends_with("-day-1082"))
+        .map(|(_, snapshot)| snapshot)
+        .expect("the three-year fixture");
+    let view = (1100.0, 848.0);
+    let whole = frame_of(&snapshot, view, None, 12.0, 0.0);
+    let flats = whole
+        .things
+        .iter()
+        .filter(|thing| ls::lies_flat(thing.shape, thing.base, whole.front))
+        .map(|thing| thing.x)
+        .collect::<Vec<_>>();
+    assert!(!flats.is_empty(), "the town has a pier to stand on");
+    let mut hand = Stagehand::new(1.0);
+    let mut checked = 0;
+    for x in flats {
+        for seconds in [0.0, 7.0, 19.0, 31.0] {
+            let frame = Arc::new(frame_of(&snapshot, view, Some((1.6, x)), 12.0, seconds));
+            let (plan, ..) = hand.frame(&frame, &snapshot, true);
+            // The flat things' pictures, and every picture of the looks.
+            let mut flat = std::collections::HashSet::new();
+            let mut baked = std::collections::HashSet::new();
+            for slot in &hand.slots {
+                for (item, _, sprite) in &slot.look.things {
+                    if slot
+                        .look
+                        .anchors
+                        .get(item)
+                        .is_some_and(|anchor| anchor.flat)
+                    {
+                        flat.insert(Arc::as_ptr(&sprite.image));
+                    }
+                }
+                for image in slot.look.images() {
+                    baked.insert(Arc::as_ptr(&image));
+                }
+            }
+            let order = plan
+                .layers
+                .iter()
+                .enumerate()
+                .flat_map(|(pass, layer)| layer.draws.iter().map(move |draw| (pass, draw)))
+                .enumerate()
+                .collect::<Vec<_>>();
+            let image_of = |draw: &Draw| match draw {
+                Draw::Image { image, .. } => Some(Arc::as_ptr(image)),
+                Draw::Live { .. } => None,
+            };
+            for (at, (pass, draw)) in &order {
+                let Some(image) = image_of(draw) else {
+                    continue;
+                };
+                if !flat.contains(&image) {
+                    continue;
+                }
+                // Residents' poses are the pictures no look holds.
+                for (other_at, (other_pass, other)) in &order {
+                    let Some(pose) = image_of(other) else {
+                        continue;
+                    };
+                    if baked.contains(&pose) {
+                        continue;
+                    }
+                    let (a, b) = (draw.bounds(), other.bounds());
+                    let meets =
+                        a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3;
+                    if meets {
+                        checked += 1;
+                        assert!(
+                            (other_pass, other_at) > (pass, at),
+                            "a resident at {b:?} is drawn under the flat thing at {a:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "somebody stands on or behind a flat thing");
+}

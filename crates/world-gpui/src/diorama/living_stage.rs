@@ -247,6 +247,19 @@ pub struct Anchor {
     pub base: f32,
     pub w: f32,
     pub h: f32,
+    /// Whether it lies flat and is walked on (see [`lies_flat`]).
+    pub flat: bool,
+}
+
+/// Whether a thing of `shape` with its foot at `base` lies flat on the
+/// water for people to stand on, on a stage whose water begins at
+/// `front`: a pier, a sea wall's landing, a bridge, a pool in the rocks.
+/// It is ground, drawn under everyone, never stood in depth by its foot
+/// at the waterline: someone standing on it or on the shore behind it
+/// would be cut off at the waist (v0.30 S1a's stone landing).
+pub fn lies_flat(shape: MarkShape, base: f32, front: f32) -> bool {
+    matches!(shape, MarkShape::Pier | MarkShape::Bridge)
+        || (base >= front - 1.0 && shape == MarkShape::Fountain)
 }
 
 /// What of a place one look is baked of.
@@ -796,6 +809,7 @@ pub(crate) fn bake_look(
                 base: building.base,
                 w: building.w,
                 h: building.h,
+                flat: false,
             },
         );
         jobs.push(Box::new(move || {
@@ -855,6 +869,7 @@ pub(crate) fn bake_look(
                 base: thing.base,
                 w: thing.w,
                 h: 0.0,
+                flat: lies_flat(thing.shape, thing.base, frame.front),
             },
         );
         jobs.push(Box::new(move || {
@@ -954,7 +969,14 @@ pub(crate) fn bake_look(
                         r,
                         r * 0.85,
                         r * 0.5,
-                        smoke.opacity(0.6 * (1.0 - age) * (0.3 + 0.7 * (age * 6.0).min(1.0))),
+                        // Softened as a window softens, a puff spreads thinner
+                        // than the painter's: at night, against the dark,
+                        // that reads as fainter smoke, so it is denser there.
+                        smoke.opacity(
+                            (0.6 * if night { 1.35 } else { 1.0 })
+                                * (1.0 - age)
+                                * (0.3 + 0.7 * (age * 6.0).min(1.0)),
+                        ),
                     );
                     Some(Sprite::whole(canvas.pixmap, (-room, -room), scale))
                 })
@@ -2087,7 +2109,9 @@ pub fn plan(baked: &Baked, walkers: &Walkers, shot: &Shot) -> Plan {
             .collect()
     };
     deep.push(Deep {
-        at: baked.feet,
+        // Half a figure behind the spine: whoever stands on the shore
+        // stands over its lamps and poles.
+        at: baked.feet - baked.figure_h * 0.5,
         rank: Rank::Props,
         who: 0,
         items: both(&|look| {
@@ -2154,7 +2178,12 @@ pub fn plan(baked: &Baked, walkers: &Walkers, shot: &Shot) -> Plan {
             moving += 1;
         }
         deep.push(Deep {
-            at: anchor.base + bob,
+            // What lies flat is ground: under everyone.
+            at: if anchor.flat {
+                f32::NEG_INFINITY
+            } else {
+                anchor.base + bob
+            },
             rank: Rank::Thing,
             who: *item,
             items,

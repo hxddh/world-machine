@@ -1319,7 +1319,10 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 .collect()
         };
         deep.push(Deep {
-            at: screen_y(0.0, part.feet),
+            // Half a figure behind the spine: whoever stands on the shore
+            // stands over its lamps and poles, as the painter has them,
+            // and whoever is further back stays behind them.
+            at: screen_y(0.0, part.feet - part.figure_h * 0.5),
             rank: Rank::Props,
             who: 0,
             items: both(&|view, lens| {
@@ -1430,7 +1433,13 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             if !on_screen(thing.x, thing.w * part.camera.zoom * 1.6) {
                 continue;
             }
-            let at = screen_y(thing.x, thing.base);
+            // What lies flat (a pier, a sea wall's landing) is ground,
+            // under everyone standing on it or behind it.
+            let at = if ls::lies_flat(thing.shape, thing.base, part.front) {
+                f32::NEG_INFINITY
+            } else {
+                screen_y(thing.x, thing.base)
+            };
             let mut items = Vec::new();
             if draws_live(thing, &first.look, &part) {
                 let z = part.camera.zoom;
