@@ -346,7 +346,11 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
                     zoomed = zoomed.max(bytes);
                 }
             }
-            std::thread::sleep(Duration::from_millis(2));
+            // Straight on to the next frame, as a display that wants
+            // one at once would ask: a sleep here oversleeps by tens of
+            // milliseconds while a look bakes, and would be counted as the
+            // window's own hitch.
+            std::thread::yield_now();
         }
         let stats = stats.borrow();
         println!(

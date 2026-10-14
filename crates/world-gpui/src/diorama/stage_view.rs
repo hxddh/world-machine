@@ -523,7 +523,14 @@ struct Posed {
 
 /// How many bytes of new pictures a frame hands to the display: enough
 /// that a look arrives in a few frames, few enough that no frame hitches.
-const HAND_PER_FRAME: usize = 24 << 20;
+const HAND_PER_FRAME: usize = 4 << 20;
+
+/// And at most this many pictures a frame.
+const HAND_IMAGES_PER_FRAME: usize = 48;
+
+/// How many pictures a frame tells the display to forget: a look let go
+/// is forgotten over a few frames, never all in one.
+const FREE_PER_FRAME: usize = 64;
 
 /// How long a pose nobody has struck is kept.
 const POSE_KEPT: Duration = Duration::from_secs(20);
@@ -551,6 +558,9 @@ pub struct Stagehand {
     pub peak: usize,
     /// What each look took to bake.
     pub log: Vec<(Held, Duration, usize)>,
+    /// Pictures let go, still to be forgotten by the display, a frame's
+    /// share at a time.
+    freeing: Vec<Arc<RenderImage>>,
 }
 
 impl Default for Stagehand {
@@ -584,6 +594,7 @@ impl Stagehand {
             asked: Vec::new(),
             peak: 0,
             log: Vec::new(),
+            freeing: Vec::new(),
         }
     }
 
@@ -757,15 +768,17 @@ impl Stagehand {
     fn evict(&mut self, wants: &[Want]) -> Vec<Arc<RenderImage>> {
         let keep = keep(&self.held(), wants);
         let mut gone = Vec::new();
-        let mut at = 0;
-        self.slots.retain(|slot| {
-            let kept = keep[at];
-            at += 1;
-            if !kept {
+        let mut dropped = Vec::new();
+        for (slot, kept) in std::mem::take(&mut self.slots).into_iter().zip(keep) {
+            if kept {
+                self.slots.push(slot);
+            } else {
                 gone.extend(slot.images.iter().take(slot.handed).cloned());
+                dropped.push(slot);
             }
-            kept
-        });
+        }
+        // Tens of megabytes of pixels are freed off the window's thread.
+        let_go(dropped);
         // Poses of levels and lights no longer wanted, unused a while.
         let now = Instant::now();
         let wanted = |key: &PoseKey| {
@@ -792,6 +805,7 @@ impl Stagehand {
     fn hand_over(&mut self, now: bool) -> Vec<Arc<RenderImage>> {
         let mut out = Vec::new();
         let mut budget = HAND_PER_FRAME;
+        let mut count = HAND_IMAGES_PER_FRAME;
         for slot in &mut self.slots {
             if slot.held.ready {
                 continue;
@@ -799,7 +813,8 @@ impl Stagehand {
             if now {
                 slot.handed = slot.images.len();
             }
-            while slot.handed < slot.images.len() && budget > 0 {
+            while slot.handed < slot.images.len() && budget > 0 && count > 0 {
+                count -= 1;
                 let image = slot.images[slot.handed].clone();
                 let size = image.size(0);
                 let bytes = (size.width.0.max(0) as usize) * (size.height.0.max(0) as usize) * 4;
@@ -961,6 +976,13 @@ impl Stagehand {
         self.schedule(&wants, now);
         let ahead = self.hand_over(now);
         let gone = self.evict(&wants);
+        self.freeing.extend(gone);
+        let take = if now {
+            self.freeing.len()
+        } else {
+            self.freeing.len().min(FREE_PER_FRAME)
+        };
+        let gone = self.freeing.drain(..take).collect::<Vec<_>>();
         let (plan, shown) = plan_window(self, frame, &wants);
         self.pose_asked(now);
         // Poses asked for and baked right here are drawn this same frame.
@@ -990,6 +1012,17 @@ impl Stagehand {
             },
         )
     }
+}
+
+/// Frees `pixels` off the window's thread: freeing a look's tens of
+/// megabytes there is a frame's worth of time.
+pub(super) fn let_go<T: Send + 'static>(pixels: Vec<T>) {
+    if pixels.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("living-stage-free".into())
+        .spawn(move || drop(pixels));
 }
 
 /// Bakes one look of `snapshot` for a window `view` large.
@@ -1192,6 +1225,26 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
     // painting in place).
     let level = main.level;
     let seconds = frame.seconds;
+    // Every other look ready, nearest first: what an item a look lacks is
+    // drawn from (another level, another light) before it is drawn live.
+    let mut spares = hand
+        .slots
+        .iter()
+        .filter(|slot| slot.held.ready && slot.held.variant == Variant::Main)
+        .map(slot_view)
+        .collect::<Vec<_>>();
+    spares.sort_by_key(|view| {
+        (
+            view.light != first.light,
+            view.slot.frame.view_w != frame.view_w,
+        )
+    });
+    let spare_for = |index: usize| -> Option<(LookView, f32, Option<Arc<Look>>)> {
+        spares
+            .iter()
+            .find(|view| view.look.anchors.contains_key(&index))
+            .map(|view| (view.clone(), 1.0, None))
+    };
     let full = (0.0, 0.0, vw, vh);
     let mut items: Vec<Item> = Vec::new();
     let mut moving = 0;
@@ -1347,7 +1400,14 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             let at = screen_y(building.x, building.base);
             let baked = first.look.anchors.get(&building.index).copied();
             let mut items = Vec::new();
-            if building.moving() || baked.is_none() {
+            // The looks it is drawn from: the frame's own, or the nearest
+            // other look that holds it.
+            let sources = if baked.is_some() {
+                looks.clone()
+            } else {
+                spare_for(building.index).into_iter().collect()
+            };
+            if building.moving() || sources.is_empty() {
                 // Rising into place, springing after a click, or not in
                 // the look yet: drawn live.
                 let z = part.camera.zoom;
@@ -1368,7 +1428,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                     }),
                 });
             } else {
-                for (n, (view, opacity, _)) in looks.iter().enumerate() {
+                for (n, (view, opacity, _)) in sources.iter().enumerate() {
                     let lens = lens_of(&view.slot, part.camera, frame);
                     let Some(anchor) = view.look.anchors.get(&building.index) else {
                         continue;
@@ -1441,7 +1501,14 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 screen_y(thing.x, thing.base)
             };
             let mut items = Vec::new();
-            if draws_live(thing, &first.look, &part) {
+            let sources = if first.look.anchors.contains_key(&thing.index) {
+                looks.clone()
+            } else {
+                spare_for(thing.index).into_iter().collect()
+            };
+            if draws_live(thing, &first.look, &part)
+                && (thing.grow < 1.0 || sources.is_empty() || worn(thing, &part))
+            {
                 let z = part.camera.zoom;
                 let (x, base) = lens_first.at(thing.x, thing.base);
                 let w = thing.w * z;
@@ -1460,7 +1527,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                     }),
                 });
             } else {
-                for (view, opacity, _) in &looks {
+                for (view, opacity, _) in &sources {
                     let lens = lens_of(&view.slot, part.camera, frame);
                     let Some(anchor) = view.look.anchors.get(&thing.index) else {
                         continue;
@@ -1610,6 +1677,12 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
     )
 }
 
+/// Whether a thing wears a design whose picture is ready (a flag, a sail).
+fn worn(thing: &ThingPaint, frame: &Frame) -> bool {
+    frame.wearing.iter().any(|worn| worn.index == thing.index)
+        && frame.pictures.contains_key(&thing.index)
+}
+
 /// Whether a thing is drawn live rather than from its baked picture: it
 /// wears a design (a flag, a sail), it is rising into place, or the look
 /// does not hold it yet.
@@ -1747,9 +1820,10 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
         }
         hand.frame(&frame, snapshot, sync)
     });
-    for image in gone {
-        let _ = window.drop_image(image);
+    for image in &gone {
+        let _ = window.drop_image(image.clone());
     }
+    let_go(gone);
     LAST_PLAN.with(|last| last.set((plan.images(), plan.moving, plan.layers.len())));
     let wash = if sync {
         0.0

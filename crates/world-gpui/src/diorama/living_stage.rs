@@ -528,9 +528,14 @@ const PEOPLE_HOUR: u8 = 16;
 /// Runs `jobs` across every core, each taking the next job as it is free.
 fn across_cores<T: Send>(jobs: Vec<Box<dyn FnOnce() -> T + Send + '_>>) -> Vec<T> {
     let count = jobs.len();
+    // Every core but one: the window's own thread keeps a core to draw
+    // frames on while a look bakes (v0.30 S1a: a bake on every core
+    // stretched frames to 30 ms and more on a three-core Mac).
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(1)
+        .unwrap_or(2)
+        .saturating_sub(1)
+        .max(1)
         .min(count.max(1));
     let slots = jobs
         .into_iter()
@@ -2389,8 +2394,12 @@ impl Stats {
         let images = self.images.iter().sum::<usize>() as f64 / self.images.len().max(1) as f64;
         let moving = self.moving.iter().sum::<usize>() as f64 / self.moving.len().max(1) as f64;
         let over = self.planned.iter().filter(|ms| **ms > 8.0).count();
+        // A hitch: a frame the eye sees stop (two missed frames at 60 Hz),
+        // and one it sees as a jolt.
+        let hitches = self.between.iter().filter(|ms| **ms > 33.0).count();
+        let jolts = self.between.iter().filter(|ms| **ms > 100.0).count();
         format!(
-            "frames {} | plan ms mean {:.3} p50 {:.3} p95 {:.3} p99 {:.3} max {:.3} | over 8 ms {} | fps {:.1} | frame interval ms p50 {:.2} p95 {:.2} max {:.2} | images/frame mean {:.0} max {} | moving/frame mean {:.0} max {}",
+            "frames {} | plan ms mean {:.3} p50 {:.3} p95 {:.3} p99 {:.3} max {:.3} | over 8 ms {} | fps {:.1} | frame interval ms p50 {:.2} p95 {:.2} p99 {:.2} worst {:.2} | intervals over 33 ms {hitches}, over 100 ms {jolts} | images/frame mean {:.0} max {} | moving/frame mean {:.0} max {}",
             self.planned.len(),
             mean(&planned),
             percentile(&planned, 0.5),
@@ -2401,6 +2410,7 @@ impl Stats {
             fps,
             percentile(&between, 0.5),
             percentile(&between, 0.95),
+            percentile(&between, 0.99),
             between.last().copied().unwrap_or(0.0),
             images,
             self.images.iter().max().copied().unwrap_or(0),
