@@ -213,7 +213,7 @@ If it fails, A falls back to keeping the painter and adding moving people and sc
    - the story props (build plots, washing line, handcart, moored boat);
    - the dusk water gradient.
 
-   Re-review is pending.
+   On re-review the art director said **yes at noon, dusk and night**, with no regressions. One S1 blocker remains: a walker is drawn over the lighthouse door, because people are not depth-sorted against buildings. Water texture and clouds/birds trail S1, but must land before sign-off.
 3. *Glow.* Lit windows and lamp pools read well as layered images.
 
 Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, so S1 bakes lazily per zoom level and evicts. Second, Retina scale: it is not yet measured, and S1 adds a 2× bench run to CI.
