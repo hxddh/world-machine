@@ -469,6 +469,38 @@ pub(crate) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> 
     centres
 }
 
+/// Someone walking from `from` to `to` along their line, `since` seconds
+/// into a walk `length` long: planted steps, a lean into the walk, a coat
+/// that swings as they start and stop. Shorter, slower steps for someone
+/// who takes their time (`pace`); a load held as they go.
+pub(super) fn walking(
+    from: f32,
+    to: f32,
+    (since, length): (f32, f32),
+    pace: f32,
+    loaded: bool,
+    figure_h: f32,
+) -> Living {
+    let t = since / length.max(0.01);
+    let facing = (to - from).signum();
+    let phase = (since * 1.7 * pace.sqrt()).rem_euclid(1.0);
+    let start = 1.0 - settle(since);
+    let lean = facing * (0.05 * start + 0.018 * (phase * std::f32::consts::TAU * 2.0).sin());
+    Living {
+        x: from + (to - from) * ease(t),
+        pose: Pose {
+            stride: Some(phase),
+            bob: (phase * std::f32::consts::TAU).sin().abs() * figure_h * 0.035,
+            facing,
+            squash: 1.0 - 0.03 * (phase * std::f32::consts::TAU * 2.0).cos().max(0.0),
+            lean,
+        },
+        stance: None,
+        using: None,
+        loaded,
+    }
+}
+
 /// Where each person is this frame, `seconds` into looking at the World.
 ///
 /// Between turns everyone goes about their day. Where they stand, what
@@ -488,6 +520,23 @@ pub fn living(
     daylight: Daylight,
     pinned: &BTreeSet<SelectionId>,
     before: Option<(&Stage, &ProjectionSnapshot, f32)>,
+) -> Vec<Living> {
+    living_staged(stage, snapshot, seconds, daylight, pinned, before, None)
+}
+
+/// [`living`], with a scene playing: whoever the scene stages
+/// (`staged`, see [`super::staging`]) stands, walks and faces as it
+/// has them, and everyone else keeps their day. The stage is the one the
+/// scene was cast onto ([`super::staging::cast_on`]), so each of them
+/// stands on its line where the scene puts them.
+pub fn living_staged(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    seconds: f32,
+    daylight: Daylight,
+    pinned: &BTreeSet<SelectionId>,
+    before: Option<(&Stage, &ProjectionSnapshot, f32)>,
+    staged: Option<&super::staging::Staged>,
 ) -> Vec<Living> {
     let items = &snapshot.canvas.items;
     let figure_h = stage.figure_h;
@@ -525,25 +574,7 @@ pub fn living(
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
     let walk = |from: f32, to: f32, since: f32, length: f32, pace: f32, loaded: bool| {
-        let t = since / length.max(0.01);
-        let facing = (to - from).signum();
-        // Shorter, slower steps for someone who takes their time.
-        let phase = (since * 1.7 * pace.sqrt()).rem_euclid(1.0);
-        let start = 1.0 - settle(since);
-        let lean = facing * (0.05 * start + 0.018 * (phase * std::f32::consts::TAU * 2.0).sin());
-        Living {
-            x: from + (to - from) * ease(t),
-            pose: Pose {
-                stride: Some(phase),
-                bob: (phase * std::f32::consts::TAU).sin().abs() * figure_h * 0.035,
-                facing,
-                squash: 1.0 - 0.03 * (phase * std::f32::consts::TAU * 2.0).cos().max(0.0),
-                lean,
-            },
-            stance: None,
-            using: None,
-            loaded,
-        }
+        walking(from, to, (since, length), pace, loaded, figure_h)
     };
     // Just arrived: the coat swings on past the stop and settles back.
     let arrived = |life: Living, since: f32, facing: f32| Living {
@@ -579,6 +610,10 @@ pub fn living(
             };
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
             let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
+            // In a scene: where it has them, as it has them.
+            if let Some(cast) = staged.and_then(|staged| staged.person(spot.index)) {
+                return cast.living(breathe, pace, figure_h);
+            }
             // Walking over to where a turn put them.
             if let Some((old_stage, old_snapshot, progress)) = before {
                 if let Some(old) = old_stage.person(item.id, old_snapshot) {
@@ -734,6 +769,72 @@ pub(super) fn footprints(
         .collect()
 }
 
+/// The ground of a stage someone can stand on: what every building and
+/// thing on it covers.
+pub(super) struct Ground {
+    width: f32,
+    footprints: Vec<(f32, f32, f32, f32)>,
+    /// Each building's foot and size: (x, base, width, height).
+    boxes: Vec<(f32, f32, f32, f32)>,
+    /// Each thing, props too: (item, x, base, width).
+    things: Vec<(usize, f32, f32, f32)>,
+}
+
+impl Ground {
+    pub(super) fn of(stage: &Stage, snapshot: &ProjectionSnapshot) -> Self {
+        let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+        Self {
+            width: stage.width,
+            footprints: footprints(stage, snapshot),
+            boxes: stage
+                .buildings
+                .iter()
+                .map(|spot| {
+                    let (w, h) = super::building_size(stage, snapshot, spot, setting);
+                    (spot.x, spot.y, w, h)
+                })
+                .collect(),
+            // Every thing, props too: a pool's rail, a pier, a cart. Nobody
+            // is stood on one.
+            things: stage
+                .things
+                .iter()
+                .map(|spot| {
+                    let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
+                    (spot.index, spot.x, spot.y, w)
+                })
+                .collect(),
+        }
+    }
+
+    /// Every building's footprint (left, back, right, front).
+    pub(super) fn footprints(&self) -> &[(f32, f32, f32, f32)] {
+        &self.footprints
+    }
+
+    /// Open ground for someone `p` tall with their feet at (`x`, `y`): in
+    /// no building's footprint, nor standing at or behind a building's foot
+    /// where its picture is (they would read as on its wall), nor in a
+    /// thing standing at their depth (but `own`, the thing they use).
+    pub(super) fn open(&self, x: f32, y: f32, p: f32, own: usize) -> bool {
+        let body = p * 0.25;
+        x > body
+            && x < self.width - body
+            && self
+                .footprints
+                .iter()
+                .all(|footprint| !super::living_stage::inside(*footprint, x, y))
+            && self.boxes.iter().all(|(bx, by, w, h)| {
+                (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
+            })
+            && self.things.iter().all(|(index, tx, ty, tw)| {
+                *index == own
+                    || (x - tx).abs() >= tw / 2.0 + body * 0.6
+                    || (y - ty).abs() >= p * 0.45
+            })
+    }
+}
+
 /// How far apart, in figure heights, two people sit side by side on a
 /// bench: about 1.3 body widths, shoulders clear.
 pub(super) const SEAT_ROOM: f32 = 0.6;
@@ -877,44 +978,8 @@ pub(super) fn at_their_stops(
             }
         })
     };
-    // Open ground for someone `p` tall with their feet at (`x`, `y`): in no
-    // building's footprint, nor standing at or behind a building's foot
-    // where its picture is (they would read as on its wall), nor in a thing
-    // standing at their depth.
-    let boxes = stage
-        .buildings
-        .iter()
-        .map(|spot| {
-            let (w, h) = super::building_size(stage, snapshot, spot, setting);
-            (spot.x, spot.y, w, h)
-        })
-        .collect::<Vec<_>>();
-    // Every thing, props too: a pool's rail, a pier, a cart. Nobody is
-    // stood on one.
-    let things_at = stage
-        .things
-        .iter()
-        .map(|spot| {
-            let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
-            (spot.index, spot.x, spot.y, w)
-        })
-        .collect::<Vec<_>>();
-    let open = |x: f32, y: f32, p: f32, own: usize| {
-        let body = p * 0.25;
-        x > body
-            && x < stage.width - body
-            && footprints
-                .iter()
-                .all(|footprint| !super::living_stage::inside(*footprint, x, y))
-            && boxes.iter().all(|(bx, by, w, h)| {
-                (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
-            })
-            && things_at.iter().all(|(index, tx, ty, tw)| {
-                *index == own
-                    || (x - tx).abs() >= tw / 2.0 + body * 0.6
-                    || (y - ty).abs() >= p * 0.45
-            })
-    };
+    let ground = Ground::of(stage, snapshot);
+    let open = |x: f32, y: f32, p: f32, own: usize| ground.open(x, y, p, own);
     for (thing, mut members) in by_thing {
         let spot = *stage
             .things

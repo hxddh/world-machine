@@ -2093,6 +2093,52 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 items,
             });
         }
+        // A scene's props, live, in depth with everyone: what is held just
+        // in front of whoever holds it, bunting over everyone's heads.
+        for (n, prop) in part.scene_props().iter().enumerate() {
+            let z = part.camera.zoom;
+            let (x, foot) = lens_first.at(prop.x, prop.y);
+            let (w, h) = (prop.w * z, prop.h * z);
+            if x + w < -vw * 0.1 || x - w > vw * 1.1 {
+                continue;
+            }
+            let at = match (prop.prop, prop.held_by) {
+                (world_projection::Prop::Bunting, _) => f32::INFINITY,
+                (_, Some(_)) => foot + 0.01,
+                // Scaffolding stands just in front of what it is round.
+                (world_projection::Prop::Scaffold, _) => foot + 0.5,
+                _ => foot,
+            };
+            live_drawn += 1;
+            let rect = (
+                x - w * 0.8,
+                foot - h * 1.3 - z * 20.0,
+                w * 1.6,
+                h * 1.5 + z * 24.0,
+            );
+            let (prop, fig, setting) = (*prop, part.figure_h * z, part.setting);
+            let seconds = part.seconds;
+            deep.push(Deep {
+                at,
+                rank: Rank::Person,
+                who: usize::MAX - n,
+                items: vec![Item {
+                    opacity: 1.0,
+                    draw: live(rect, clip, move |window, (ox, oy, _, _)| {
+                        let mut tinted = Tint::new(window, light);
+                        super::staging::paint_prop(
+                            &mut tinted,
+                            &prop,
+                            (ox + x, oy + foot),
+                            z,
+                            fig,
+                            setting,
+                            seconds,
+                        );
+                    }),
+                }],
+            });
+        }
         items.extend(ls::in_depth(deep));
         // Smoke from the chimneys.
         if part.weather != Weather::Storm {
@@ -2476,6 +2522,9 @@ pub struct StageBench {
     /// What each measured frame did beside drawing, in step with
     /// `stats.planned`.
     pub tags: Rc<std::cell::RefCell<Vec<FrameTags>>>,
+    /// A scene played over and over, as a return film plays it: its cast
+    /// staged, its props out and its camera instead of the pan.
+    pub scene: Option<world_projection::MomentKind>,
     frames: usize,
 }
 
@@ -2497,6 +2546,7 @@ impl StageBench {
             opened: Rc::default(),
             bakes: Rc::default(),
             tags: Rc::default(),
+            scene: None,
             frames: 0,
         }
     }
@@ -2688,18 +2738,34 @@ impl gpui::Render for StageBench {
             .rem_euclid(24.0);
         let daylight = crate::scene::daylight_at(hour as u32);
         let laid = super::layouts_laid();
-        let stage = super::stage(&self.snapshot, w, h);
+        let mut stage = super::stage(&self.snapshot, w, h);
         let laid_out = super::layouts_laid() != laid;
-        let living = super::living(
+        // A scene, if one plays: staged as the window stages a return
+        // film's beat, every frame.
+        let staged = self
+            .scene
+            .and_then(|kind| super::staging::sample(&self.snapshot, &stage, kind))
+            .map(|script| {
+                let t = seconds.rem_euclid(script.seconds);
+                super::staging::stage_scene(&script, &stage, &self.snapshot, t)
+            });
+        if let Some(staged) = &staged {
+            stage = super::staging::cast_on(&stage, staged);
+        }
+        let living = super::living_staged(
             &stage,
             &self.snapshot,
             seconds,
             daylight,
             &Default::default(),
             None,
+            staged.as_ref(),
         );
-        let camera = Self::camera(&stage, seconds);
-        let frame = super::frame(
+        let camera = staged
+            .as_ref()
+            .and_then(|staged| staged.camera)
+            .unwrap_or_else(|| Self::camera(&stage, seconds));
+        let mut frame = super::frame(
             &self.snapshot,
             &stage,
             &living,
@@ -2710,6 +2776,9 @@ impl gpui::Render for StageBench {
             1.0,
         )
         .at_hour(hour);
+        if let Some(staged) = &staged {
+            frame = frame.dressed(staged.dress());
+        }
         let scene = living_scene(frame, &self.snapshot, window);
         let (bytes, peak) = stage_bytes(window);
         self.memory.set((bytes, peak));

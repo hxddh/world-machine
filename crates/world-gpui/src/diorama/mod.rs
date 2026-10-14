@@ -31,6 +31,7 @@ pub mod living_stage;
 mod people;
 mod scene;
 pub mod stage_view;
+pub mod staging;
 mod works;
 
 pub use interface::*;
@@ -124,6 +125,9 @@ pub struct Frame {
     /// What every thing on the stage is and where it stands, whatever the
     /// zoom, as a key: a new or moved one is a new look of the place.
     things_key: u64,
+    /// A scene playing: its props and its weather (`staging`), drawn live
+    /// over the looks, never baked into them.
+    scene: Option<std::sync::Arc<staging::Dress>>,
 }
 
 impl Frame {
@@ -763,6 +767,7 @@ pub fn frame(
         heading: None,
         standing: std::sync::Arc::new(standing),
         things_key,
+        scene: None,
     }
 }
 
@@ -876,3 +881,6 @@ mod living_tests;
 
 #[cfg(test)]
 pub(crate) mod doing_tests;
+
+#[cfg(test)]
+mod staging_tests;

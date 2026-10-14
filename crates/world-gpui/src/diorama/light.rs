@@ -601,7 +601,7 @@ pub(super) fn paint_weather(
         let x = (x0 * (width + 120.0) + y * drift) % (width + 120.0) - 60.0;
         (ox + x, oy + y)
     };
-    match frame.weather {
+    match frame.shown_weather() {
         Weather::Rain | Weather::Storm => {
             let storm = frame.weather == Weather::Storm;
             // Fine, sparse streaks: rain is seen, it does not veil the
