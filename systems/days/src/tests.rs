@@ -136,6 +136,8 @@ fn no_town_empties_at_five() {
         from_hour,
         at,
         inside,
+        stance: None,
+        with: None,
     };
     let person = |id| CanvasItem {
         id: SelectionId::Entity(EntityId::new(id)),

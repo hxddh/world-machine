@@ -295,16 +295,29 @@ fn a_place() -> ProjectionSnapshot {
             from_hour: 0,
             at: home,
             inside: true,
+            stance: None,
+            with: None,
         },
         RoutineStop {
             from_hour: 8,
             at: pub_,
             inside: false,
+            stance: Some(world_projection::Stance::Carrying),
+            with: None,
+        },
+        RoutineStop {
+            from_hour: 19,
+            at: pub_,
+            inside: false,
+            stance: Some(world_projection::Stance::Dancing),
+            with: Some(SelectionId::Entity(world_core::EntityId::new(2))),
         },
         RoutineStop {
             from_hour: 21,
             at: home,
             inside: true,
+            stance: None,
+            with: None,
         },
     ];
     let mut work = item(
@@ -361,6 +374,9 @@ fn the_place_crosses_the_wire_and_comes_back_the_same() {
         "\"home\"",
         "\"day\"",
         "\"from_hour\"",
+        "\"stance\":\"carrying\"",
+        "\"stance\":\"dancing\"",
+        "\"with\"",
         "\"built\":117",
     ] {
         assert!(json.contains(field), "{field} in {json}");
@@ -370,6 +386,27 @@ fn the_place_crosses_the_wire_and_comes_back_the_same() {
     )
     .unwrap();
     assert_eq!(back.canvas, snapshot.canvas);
+}
+
+/// A day sent before stops said what anyone was doing, or with whom,
+/// still comes in: nobody doing anything in particular, with nobody. A
+/// stance this build does not know is left to the app.
+#[test]
+fn a_day_from_before_stances_and_company_still_comes_in() {
+    let mut wire = serde_json::to_value(ProjectionSnapshotWire::from(&a_place())).unwrap();
+    wire["canvas"]["items"][0]["day"] = serde_json::json!([
+        {"from_hour": 0, "at": {"type": "entity", "id": 9}, "inside": true},
+        {"from_hour": 8, "at": {"type": "entity", "id": 4}},
+        {"from_hour": 19, "at": {"type": "entity", "id": 4}, "stance": "juggling"}
+    ]);
+    let wire: ProjectionSnapshotWire = serde_json::from_value(wire).unwrap();
+    let back = ProjectionSnapshot::try_from(wire).unwrap();
+    let day = &back.canvas.items[0].day;
+    assert_eq!(day.len(), 3);
+    assert!(day
+        .iter()
+        .all(|stop| stop.stance.is_none() && stop.with.is_none()));
+    assert!(day[0].inside && !day[1].inside);
 }
 
 #[test]
@@ -429,7 +466,7 @@ fn a_newer_pack_s_unknown_season_and_ground_and_bad_numbers_are_read_safely() {
     let day = &back.canvas.items[0].day;
     assert_eq!(
         day.iter().map(|stop| stop.from_hour).collect::<Vec<_>>(),
-        [0, 21]
+        [0, 19, 21]
     );
 }
 

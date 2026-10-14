@@ -836,6 +836,8 @@ impl Town {
                 from_hour: stop.from_hour,
                 at: stop.at,
                 inside: stop.inside,
+                stance: None,
+                with: None,
             })
             .collect();
         item.px = item
