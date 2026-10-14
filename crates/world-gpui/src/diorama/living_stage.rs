@@ -590,11 +590,27 @@ const PEOPLE_HOUR: u8 = 16;
 /// core stretched frames to 30 ms and more on a three-core Mac; S1b: on
 /// every core but one, a three-core runner still missed frames).
 pub fn bake_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(2)
-        .saturating_sub(2)
-        .max(1)
+    // Asked once: on Linux, asking reads the process's cgroup files.
+    static THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *THREADS.get_or_init(|| {
+        bake_threads_for(
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(2),
+        )
+    })
+}
+
+/// How many threads a bake runs on with `cores` cores: one on a machine of
+/// four or fewer, where the window, the display and the system share the
+/// rest (two on four cores left the display one); every core but two on a
+/// larger one.
+pub fn bake_threads_for(cores: usize) -> usize {
+    if cores <= 4 {
+        1
+    } else {
+        cores - 2
+    }
 }
 
 /// Runs `jobs` across the cores a bake may use, each taking the next job

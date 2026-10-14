@@ -325,12 +325,14 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
                         view.memory.clone(),
                         view.opened.clone(),
                         view.bakes.clone(),
+                        view.tags.clone(),
                     ));
                     cx.new(|_| view)
                 },
             )?
         };
-        let (stats, done, memory, opened, bakes) = bench.borrow().clone().ok_or("no bench")?;
+        let (stats, done, memory, opened, bakes, tags) =
+            bench.borrow().clone().ok_or("no bench")?;
         let started = Instant::now();
         let mut opened_at = None;
         let (mut at_rest, mut zoomed, mut most) = (0_usize, 0_usize, 0_usize);
@@ -379,6 +381,10 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  {}",
             world_gpui::diorama::stage_view::bake_summary(&bakes.borrow())
+        );
+        println!(
+            "  {}",
+            world_gpui::diorama::stage_view::hitch_report(&stats, &tags.borrow(), 33.4, 4.0)
         );
     }
     set_display_scale(None);
