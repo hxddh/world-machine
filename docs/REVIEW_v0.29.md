@@ -329,6 +329,62 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 - A stranger watching a 20-second clip can say what happened (4 of 5 testers).
 - Arranged outings always play.
 
+**S3c (2026-10-14): a scene staged on the living stage.** S3a–b gave every recorded Event a `SceneScript` (who walks where, props, camera, the recorded words), worked out from the record with no model. `diorama/staging.rs` plays one on the stage the window draws.
+- *Pure.* `stage_scene(script, stage, snapshot, t)` gives who stands where (position, facing, stance, a walk under way), the props out, the camera and who is saying what. It depends on the script, the stage and `t` and nothing else: no clock, no record.
+- *Marks.* Each mark is found on the stage:
+  - a place, or a person (where their part has them, or where they stand);
+  - someone's home;
+  - beside something, a step or more to its side;
+  - off the left or right edge of the scene's first view.
+
+  A mark it cannot find falls back to the scene's place. Everyone is put on open ground, using S2d's open-ground test (now `people::Ground`). That means in no building, on no thing, behind no post in the water, and clear of the props and of each other.
+- *Walks.* A walk at the start of a scene puts them there. A later one walks with the walk cycle everyone already uses (`people::walking`), along their line, stopping beside any building in the way (`kept_out`). If they need to be somewhere for their next cue, they hurry, up to twice a stroll. If even that is too slow, they set off from nearer.
+- *Facing.* A pair a mark put together (a quarrel's two) face each other. Anyone else faces the nearest of the others, else the camera's subject.
+- *Who is staged.* A cast member with no cues of their own is not drawn. Anyone cast who is indoors at that hour is brought out (`cast_on`). Everyone else keeps their day: `living_staged` takes the scene's part for its cast.
+- *Props.* Props are drawn live in depth with everyone, by `staging::paint_prop`: scaffolding and tools, bunting, a table, a cradle, a lamp, a wreath, a ribbon, a bag, a bouquet, a bench.
+  - A prop beside someone goes where they go.
+  - A ferry, shuttle, bus or sled only comes in to the edge of the view, and goes again.
+  - None of it is baked into the looks (`bake_key` is unchanged), so a scene never re-bakes the place.
+  - Rain from `Weather(Rain)` falls from its cue to the end of the scene, over a frame whose World weather is clear (`Frame::shown_weather`).
+- *Camera.* The camera eases over 1.2 s from one camera cue's view to the next, and follows a person it is on. A script's zoom maps to the window's as zoom + 0.2, from 1 to 2.2, so a long harbour never folds into a postcard mid-scene. On a building further back, the view rises to take in its roof, with the people still above the card.
+- *Tests* (`diorama/staging_tests.rs`, all on pinned clocks):
+  - positions at the start, middle and end of an arrival, a quarrel, a festival, a build, a birth, a farewell and a storm;
+  - the cast in view at each camera cue;
+  - `nobody_staged_is_in_a_building_or_on_a_prop`: every fixture, seven kinds, every quarter second;
+  - speech only as recorded, and none from a speaker who is not on the stage;
+  - only the cast with a part are staged;
+  - living takes the scene for the cast and the day for everyone else;
+  - a dressed frame bakes the same as an undressed one.
+
+**S3d (2026-10-14): the return film plays its scenes.**
+- *What plays.* A beat whose selection is a recorded Event asks the World once for `StoryRequest::Scene` (cached by revision and beat, asked as the beat begins).
+  - It holds for `script.seconds`.
+  - Its camera drives the film's camera, eased by the glide as it lands and then directly.
+  - Its cast stands and walks where it has them, with its props around them.
+  - Its Say cues are the speech bubbles, over whoever said them.
+  - The card's caption is as before.
+- *Unchanged.* A beat with no scene (no Event, or one the World stages nothing for) plays exactly as before: `BEAT_SECONDS`, the camera on `beat_box`, the beat's voice.
+- *What the player sees.* After a while away, each beat shows the event happening:
+  - the ferry comes in at the edge, someone walks off it with a bag, and the neighbours wave;
+  - two talk face to face, and one walks off home;
+  - bunting and a table go up, and everyone walks in and dances;
+  - scaffolding stands round the work, everyone works, and it comes down to a cheer;
+  - rain falls, and everyone hurries home while a lamp is lit.
+- *Tests* (`window/scene_film_tests.rs`):
+  - every beat with a scene plays it and lasts `script.seconds`, an arranged outing included; beats without one last `BEAT_SECONDS`; each scene is asked for once;
+  - in the window, a scene holds its beat past a beat's while, and the film goes on after the scene's length;
+  - only the scene's recorded words are heard.
+
+  The beat clocks are set, never waited on. A test-only `beat_clock` pins how far into a beat the pictures are.
+- *Numbers.* Headless `living_stage_bench -- window --dpr 2 --hour 12`, 30 s, 1100x848, day 1,082, three cores. Without a scene: plan p99 0.54 ms. With a festival or an arrival playing (new `--scene <kind>`, looped): p99 0.51–0.55 ms, mean 0.25 ms. With a quarrel (zoom 2): p99 0.54 ms. No interval was over 33 ms. The bar of 4 ms is met with room to spare.
+- *Pictures (for the art director, not goldens).* `WORLD_GPUI_SCENES=dir cargo test -p world-gpui -- --ignored scene_pictures` writes the start, middle and end of each of the seven kinds on the day-1,082 harbour in the World window, and a six-frame strip of one whole festival beat. They are drawn through the reference rasteriser, so there is no text. No golden picture changed, and `replayed-state.digest` was not touched.
+- *Left.*
+  - Someone who has left the World (the one who goes at a farewell long ago) is not on the canvas, so is not staged.
+  - Rain does not darken the light, only streaks.
+  - The capture's bubbles and card have no words.
+  - A "Play this" control on a moment's page is not added.
+  - Art review of the props on a real device.
+
 ### S4. One day a day
 
 - The town's day follows the real day, or follows each sitting, by the owner's choice (decision 2).
