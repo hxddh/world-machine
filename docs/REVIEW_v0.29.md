@@ -305,6 +305,12 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
 - *Motion strips* (`motion_strips`, ignored): a dance over six moments and an errand out and back, at the window's own zoom.
 - *The return-film test.* It failed here and on CI, on main as well as this branch: the first two frames bake the place synchronously (5.4 s and 2.8 s here, the same on main), longer than a beat, so the film went on by itself before the click. The test now puts the film back on its first beat until a frame of it is drawn with the beat still there (once the place is baked, a frame is quick), takes Next's bounds from that frame, and sets the beat with no frame drawn before the click. S2d did not slow these frames: they take the same time on main. It still fails if a click leaves the beat's clock running.
 
+**S2d round 3 (2026-10-14): the beacon's ring, benches, errands.**
+- *Rings only where there is room.* A ring spot must be open ground within 1.5 P of the lamp, off every thing too (a pool's rail, a pier, a cart), not only buildings. A lamp with no such ground forms no ring, and its gatherers stay where their stop stood them. So the hill beacon, hemmed in by two houses, has none, and nobody stands on the bathing pool's rail. `every_lamp_ring_stands_on_open_ground` now checks distance and props too, with a prop put down beside each lamp. It fails without the fix.
+- *Benches.* Sitters spread along the whole plank (0.62 of its width, end to end). Every bench sitter shows both legs: the far one a shade darker, behind the near one. A fourth who does not fit sits on a stool beside the bench, and the staged close-up shows one.
+- *Errands end somewhere.* An errand goes only to a thing on the walker's own ground, at least two strides off, and one they can walk to without a building in the way. They walk all the way there (someone slower takes longer), stop facing it, use it (buy at a stall, draw water, tend the beds, sit a while by a bench), and come back. With nothing to use, they call at a reachable door, talking. A baby's pram goes nowhere on its own. One of a group now and then goes too and comes back.
+- *Walks at the start of every hour (an old fault).* Someone whose stop began hours earlier walked there again from their previous stop at the start of every hour. A walk now happens only in the hour its stop begins.
+
 ### S3. Every story is a scene
 
 Each type below plays as a staged scene of 5–10 seconds, with the camera, people and props moving. Together they cover about 80% of the events that reach the player:

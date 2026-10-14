@@ -829,8 +829,11 @@ pub(super) fn lay_out(
         };
         let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
         let walk = (to_x - from_x).abs() / (figure_h * STROLL * pace);
-        let walking = before.at != now.at && clock.into_hour < walk;
-        if before.at != now.at {
+        // Only in the hour their stop begins: the hours after, they are
+        // there already (the walk was once taken again every hour).
+        let moving = before.at != now.at && now.from_hour == clock.hour;
+        let walking = moving && clock.into_hour < walk;
+        if moving {
             if walking {
                 walks.1 = walks.1.min(walk);
             } else {

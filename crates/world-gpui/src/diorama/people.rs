@@ -671,10 +671,10 @@ pub fn living(
                 using: None,
                 loaded: false,
             };
-            // Nobody wanders off from the people they are with, or from what
-            // they use, or at night.
+            // Nobody wanders off from whoever they came with, or from what
+            // they use, or at night; one of a group now and then goes on an
+            // errand and comes back to it.
             if pinned.contains(&item.id)
-                || centre.is_some()
                 || at_fixture
                 || what.with.is_some()
                 || daylight == Daylight::Night
@@ -685,9 +685,9 @@ pub fn living(
             let Some(errand) = what.errand else {
                 return still;
             };
-            // In the same while, someone slower gets less far; beside a
+            // All the way there (someone slower takes longer); beside a
             // building, never into it.
-            let away = clear(home, home + (errand.to - home) * pace.min(1.0), spot.y);
+            let away = clear(home, errand.to, spot.y);
             if (away - home).abs() < 2.0 {
                 return still;
             }
@@ -742,6 +742,13 @@ pub(super) const SEAT_ROOM: f32 = 0.6;
 /// heights (besides half the lamp's own width).
 pub(super) const RING_REACH: f32 = 0.55;
 
+/// How far from a lamp, in figure heights, anyone of its ring stands.
+pub(super) const RING_MOST: f32 = 1.5;
+
+/// How much of a bench's width, end sitter to end sitter, its sitters
+/// spread over: the whole plank, a body's half width in from each end.
+pub(super) const SEAT_SPAN: f32 = 0.62;
+
 /// The highest seat, for someone's height, their feet still on the ground
 /// (a lifeguard's chair is not sat on).
 pub(super) const SEAT_MOST: f32 = 0.6;
@@ -773,17 +780,19 @@ fn use_of(shape: MarkShape, stance: Option<Stance>) -> Option<Use> {
 }
 
 /// What someone on an errand does where it takes them, at a thing of
-/// `shape`: buys at a stall, draws water or tends the beds, rests by a
-/// bench or a fountain. None for things nobody runs an errand to.
+/// `shape`: buys at a stall, draws water or tends the beds, sits by a
+/// bench. None for things nobody runs an errand to.
 fn errand_to(shape: MarkShape) -> Option<Stance> {
     match shape {
         MarkShape::Stall => Some(Stance::Talking),
         MarkShape::Well
+        | MarkShape::Fountain
         | MarkShape::Garden
         | MarkShape::Sprouts
         | MarkShape::Planter
         | MarkShape::Postbox => Some(Stance::Working),
-        MarkShape::Bench | MarkShape::Fountain => Some(Stance::Stretching),
+        // A sit down a while by a bench, on a seat of their own.
+        MarkShape::Bench => Some(Stance::Sitting),
         _ => None,
     }
 }
@@ -880,11 +889,15 @@ pub(super) fn at_their_stops(
             (spot.x, spot.y, w, h)
         })
         .collect::<Vec<_>>();
+    // Every thing, props too: a pool's rail, a pier, a cart. Nobody is
+    // stood on one.
     let things_at = stage
         .things
         .iter()
-        .filter(|spot| stage.depth_of(spot) != Depth::Water)
-        .map(|spot| (spot.index, spot.x, spot.y, spot.w))
+        .map(|spot| {
+            let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
+            (spot.index, spot.x, spot.y, w)
+        })
         .collect::<Vec<_>>();
     let open = |x: f32, y: f32, p: f32, own: usize| {
         let body = p * 0.25;
@@ -899,7 +912,7 @@ pub(super) fn at_their_stops(
             && things_at.iter().all(|(index, tx, ty, tw)| {
                 *index == own
                     || (x - tx).abs() >= tw / 2.0 + body * 0.6
-                    || (y - ty).abs() >= p * 0.3
+                    || (y - ty).abs() >= p * 0.45
             })
     };
     for (thing, mut members) in by_thing {
@@ -931,7 +944,7 @@ pub(super) fn at_their_stops(
         }
         let seat = super::seat_height(stage, snapshot, &spot, setting);
         let seats = if seat / p <= SEAT_MOST && seat / p >= 0.2 {
-            ((w * 0.72 / (SEAT_ROOM * p)).floor() as usize + 1).clamp(1, 3)
+            ((w * SEAT_SPAN / (SEAT_ROOM * p)).floor() as usize + 1).clamp(1, 3)
         } else {
             0
         };
@@ -956,9 +969,10 @@ pub(super) fn at_their_stops(
                 Use::Seat => {
                     let along = sat as f32 - (sitting as f32 - 1.0) / 2.0;
                     sat += 1;
-                    // Evenly along the seat, a body's room apart at most.
+                    // Spread along the whole plank, end to end, at least a
+                    // body's room apart.
                     let apart = if sitting > 1 {
-                        (SEAT_ROOM * p).min(w * 0.72 / (sitting - 1) as f32)
+                        w * SEAT_SPAN / (sitting - 1) as f32
                     } else {
                         0.0
                     };
@@ -997,29 +1011,27 @@ pub(super) fn at_their_stops(
                     if matches!(placed, Some((last, _)) if with == Some(last)) {
                         slots.sort_by(|a, b| a.1.total_cmp(&b.1));
                     }
-                    // Round it where it stands; or, hemmed in there (a
-                    // beacon on the hill between the houses), at the foot
-                    // of the hill in front of it, on the line people stand.
-                    let grounds = std::iter::once((spot.y, spot.scale))
-                        .chain((spot.y < stage.feet - 1.0).then_some((stage.feet, 1.0)));
-                    let found = grounds.into_iter().find_map(|(base, scale)| {
-                        let p = figure_h * scale;
-                        let free = |x: f32, y: f32| {
-                            ringed.iter().all(|(ox, oy): &(f32, f32)| {
+                    // Round it, on open ground within a stride and a half
+                    // of it. A lamp with none (a beacon on the hill
+                    // between the houses) forms no ring: its gatherers
+                    // stay where their stop stood them.
+                    let free = |x: f32, y: f32| {
+                        (x - spot.x).abs() <= RING_MOST * p
+                            && (y - spot.y).abs() <= p
+                            && ringed.iter().all(|(ox, oy): &(f32, f32)| {
                                 let (dx, dy) = ((ox - x).abs(), (oy - y).abs());
                                 dx >= p * 0.45 || (dy >= p * 0.4 && dx >= p * 0.2)
-                            }) && open(x, y, p, thing)
-                        };
-                        [first, -first].into_iter().find_map(|side| {
-                            slots
-                                .iter()
-                                .map(|(dx, dy)| (spot.x + side * dx * reach, base + dy * p))
-                                .find(|(x, y)| free(*x, *y))
-                                .map(|at| (side, at, scale))
-                        })
+                            })
+                            && open(x, y, p, thing)
+                    };
+                    let found = [first, -first].into_iter().find_map(|side| {
+                        slots
+                            .iter()
+                            .map(|(dx, dy)| (spot.x + side * dx * reach, spot.y + dy * p))
+                            .find(|(x, y)| free(*x, *y))
+                            .map(|at| (side, at, spot.scale))
                     });
                     let Some((side, at, scale)) = found else {
-                        // No open ground near it at all: where they stood.
                         continue;
                     };
                     ring_scale = scale;
@@ -1217,10 +1229,10 @@ pub(super) fn at_their_stops(
         })
         .filter_map(|spot| Some((*spot, errand_to(items[spot.index].shape?)?)))
         .collect::<Vec<_>>();
+    // With nothing to use near, an errand calls at another door.
     let stops = stage
         .buildings
         .iter()
-        .chain(stage.things.iter())
         .map(|spot| (spot.x, spot.w))
         .collect::<Vec<_>>();
     let reach = stage.view_w * 0.4;
@@ -1228,8 +1240,12 @@ pub(super) fn at_their_stops(
         if stage.routes.contains_key(&spot.index) {
             continue;
         }
+        // A baby goes nowhere on their own (a pram stays by its people).
+        let baby = items[spot.index]
+            .look
+            .is_some_and(|look| Age::of(&look) == Age::Baby);
         let what = stage.doing.entry(spot.index).or_default();
-        if what.fixture.is_some() || what.with.is_some() {
+        if what.fixture.is_some() || what.with.is_some() || baby {
             continue;
         }
         let home = spot.x;
@@ -1238,11 +1254,15 @@ pub(super) fn at_their_stops(
             x - side * (w * 0.5 + figure_h * 0.35)
         };
         let carrier = what.stance == Some(Stance::Carrying);
+        // Somewhere they can walk to along their line, no building between.
+        let reachable = |to: f32| {
+            (kept_out(&footprints, home, to, spot.y, figure_h * 0.2) - to).abs() < figure_h * 0.3
+        };
         let fetch = came_from
             .get(&spot.index)
             .filter(|_| carrier)
             .and_then(|from| Some((*slot_x.get(from)?, stage.building_w * 0.5)))
-            .filter(|(x, _)| (x - home).abs() < reach * 1.5);
+            .filter(|(x, w)| (x - home).abs() < reach * 1.5 && reachable(beside(*x, *w)));
         what.errand = if let Some((x, w)) = fetch {
             Some(Errand {
                 to: beside(x, w),
@@ -1253,8 +1273,13 @@ pub(super) fn at_their_stops(
         } else if let Some((thing, stance)) = usable
             .iter()
             .filter(|(thing, _)| {
+                // On their own ground, so they are seen to get to it, and
+                // far enough to be seen to go.
                 let away = (thing.x - home).abs();
-                away > figure_h * 1.2 && away < reach
+                (thing.y - spot.y).abs() < figure_h * 0.6
+                    && away > figure_h * 2.0
+                    && away < reach
+                    && reachable(beside(thing.x, thing.w))
             })
             .min_by(|a, b| (a.0.x - home).abs().total_cmp(&(b.0.x - home).abs()))
         {
@@ -1265,7 +1290,7 @@ pub(super) fn at_their_stops(
                 fetch: false,
             })
         } else if stops.len() >= 2 {
-            // Over to another place, as far as the next few.
+            // Over to another door, as far as the next few, to call there.
             let seed = art::seed_of(&items[spot.index].id.stable_key());
             let nearest = stops
                 .iter()
@@ -1274,12 +1299,13 @@ pub(super) fn at_their_stops(
                 .map(|(position, _)| position)
                 .unwrap_or(0);
             let pick = (nearest + 1 + (seed as usize / 7) % (stops.len() - 1)) % stops.len();
-            let (x, w) = stops[pick];
-            let x = x.clamp(home - stage.view_w * 0.45, home + stage.view_w * 0.45);
-            Some(Errand {
-                to: beside(x, w),
+            let (x, _) = stops[pick];
+            // At the door, a step short of it, if they can walk there.
+            let to = x - (x - home).signum() * figure_h * 0.3;
+            ((x - home).abs() < stage.view_w * 0.45 && reachable(to)).then_some(Errand {
+                to,
                 at: x,
-                stance: Stance::LookingAround,
+                stance: Stance::Talking,
                 fetch: false,
             })
         } else {
@@ -2130,6 +2156,9 @@ const OWN_SEAT: f32 = 0.2;
 /// How high a drawing's knees are when it sits, before it is drawn lower
 /// (`world_projection::drop_of`), and the top of its shoes.
 const KNEE: f32 = 0.36;
+
+/// How far behind the near leg a sitter's far leg shows, in widths.
+const FAR_LEG: f32 = 0.11;
 const SHOE_TOP: f32 = 0.16;
 
 /// `drawing` sitting on a seat `seat` of their height up: everything above
@@ -2141,6 +2170,38 @@ pub(super) fn seated(drawing: &Drawing, seat: f32, bird: bool) -> Drawing {
     let lift = (seat - OWN_SEAT).max(0.0);
     let reach = (KNEE - SHOE_TOP + lift) / (KNEE - SHOE_TOP);
     let mut out = drawing.clone();
+    // The far leg, a little behind the near one and a shade darker, so
+    // both show: the drawing sits in profile with one.
+    if !bird {
+        let legs = out
+            .parts
+            .iter()
+            .position(|part| part.stances == [Stance::Sitting])
+            .unwrap_or(out.parts.len());
+        let far = out
+            .parts
+            .iter()
+            .filter(|part| part.stances == [Stance::Sitting])
+            .map(|part| {
+                let mut part = part.clone();
+                part.tone -= 0.18;
+                match &mut part.shape {
+                    DrawShape::Rect { x, .. } | DrawShape::Ellipse { x, .. } => *x -= FAR_LEG,
+                    DrawShape::Polygon { points } => {
+                        for point in points.iter_mut() {
+                            point.0 -= FAR_LEG;
+                        }
+                    }
+                    DrawShape::Line { from, to, .. } => {
+                        from.0 -= FAR_LEG;
+                        to.0 -= FAR_LEG;
+                    }
+                }
+                part
+            })
+            .collect::<Vec<_>>();
+        out.parts.splice(legs..legs, far);
+    }
     for part in &mut out.parts {
         let ys = match &part.shape {
             DrawShape::Rect { y, h, .. } => vec![*y, y + h],

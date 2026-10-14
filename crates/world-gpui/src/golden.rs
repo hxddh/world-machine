@@ -1011,7 +1011,42 @@ fn close_ups() {
                 }
         });
         let Some(who) = who else {
-            eprintln!("{prefix}{name}: nobody at it");
+            // A lamp whose gatherers form no ring (no open ground near
+            // it): the lamp itself, and where they stand instead.
+            let lamp = (name == "lamp")
+                .then(|| {
+                    first.people.iter().find_map(|person| {
+                        let stop = world_projection::stop_at(
+                            &snapshot.canvas.items[person.index].day,
+                            hour as u8,
+                        )?;
+                        stage.things.iter().find(|thing| {
+                            snapshot.canvas.items[thing.index].id == stop.at
+                                && matches!(
+                                    snapshot.canvas.items[thing.index].shape,
+                                    Some(MarkShape::Lamp | MarkShape::Lantern)
+                                )
+                        })
+                    })
+                })
+                .flatten();
+            let Some(lamp) = lamp else {
+                eprintln!("{prefix}{name}: nobody at it");
+                continue;
+            };
+            eprintln!("{prefix}{name}: no ring at the lamp at {:.0}", lamp.x);
+            let (_, frame) = frame_at_clock(
+                &snapshot,
+                (width, height),
+                diorama::Clock::at(hour as u8),
+                0.0,
+                zoom,
+                (lamp.x, lamp.y),
+            );
+            let image = draw(width, height, move || painted(frame.clone()));
+            image
+                .save(dir.join(format!("{prefix}{name}-whole.png")))
+                .expect("a picture");
             continue;
         };
         let (x, y) = stage
@@ -1020,6 +1055,16 @@ fn close_ups() {
             .find(|spot| spot.index == who.index)
             .map(|spot| (spot.x, spot.y))
             .expect("on the stage");
+        // A bench whole, its sitters and whoever sits beside it on a stool.
+        let x = match (name, fixture(who.index)) {
+            ("bench", Some(_)) => stage
+                .doing
+                .get(&who.index)
+                .and_then(|what| what.fixture)
+                .and_then(|(thing, _)| stage.things.iter().find(|spot| spot.index == thing))
+                .map_or(x, |bench| bench.x),
+            _ => x,
+        };
         // Centred on them, a little above their feet: room below for the
         // feet and the ground they stand on.
         let (_, frame) = frame_at_clock(
@@ -1040,7 +1085,8 @@ fn close_ups() {
         let image = draw(width, height, move || painted(frame.clone()));
         let k = image.width() as f32 / width;
         let at = (at.0 * k, at.1 * k, at.2 * k);
-        let (cw, ch) = ((at.2 * 5.0) as u32, (at.2 * 2.6) as u32);
+        let wide = if name == "bench" { 7.5 } else { 5.0 };
+        let (cw, ch) = ((at.2 * wide) as u32, (at.2 * 2.6) as u32);
         let left = ((at.0 - cw as f32 / 2.0).max(0.0) as u32).min(image.width().saturating_sub(cw));
         let top = ((at.1 - at.2 * 1.6).max(0.0) as u32).min(image.height().saturating_sub(ch));
         let crop = image::imageops::crop_imm(
@@ -1181,13 +1227,15 @@ fn motion_strips() {
     strip_of(frames, size)
         .save(dir.join("dance-strip.png"))
         .expect("a picture");
-    // An errand: whoever first sets off one after half past ten.
+    // An errand: whoever first sets off on one to something to use.
     let at = |into_hour: f32| diorama::Clock {
         hour: 10,
         into_hour,
     };
     let mut found = None;
-    'search: for second in (1800..3600).step_by(2) {
+    let mut was_still = std::collections::HashMap::new();
+    let mut door = None;
+    'search: for second in (0..3400).step_by(2) {
         let stage = diorama::stage_at(&snapshot, size.0, size.1, at(second as f32));
         let lives = diorama::living(
             &stage,
@@ -1198,13 +1246,34 @@ fn motion_strips() {
             None,
         );
         for (spot, life) in stage.people.iter().zip(&lives) {
-            if life.pose.stride.is_some() && !stage.routes.contains_key(&spot.index) {
-                found = Some((spot.index, second as f32, spot.x));
-                break 'search;
+            // An errand to something to use, not a call at a door.
+            let to_a_thing = stage
+                .doing
+                .get(&spot.index)
+                .and_then(|what| what.errand)
+                .is_some_and(|errand| stage.things.iter().any(|thing| thing.x == errand.at));
+            // Setting off: still at home a moment before.
+            let walking = life.pose.stride.is_some();
+            let set_off = walking && was_still.get(&spot.index) == Some(&true);
+            was_still.insert(spot.index, !walking && (life.x - spot.x).abs() < 4.0);
+            let grown = snapshot.canvas.items[spot.index]
+                .look
+                .is_some_and(|look| crate::age::Age::of(&look) != crate::age::Age::Baby);
+            if life.pose.stride.is_some()
+                && !stage.routes.contains_key(&spot.index)
+                && set_off
+                && grown
+            {
+                if to_a_thing {
+                    found = Some((spot.index, second as f32, spot.x));
+                    break 'search;
+                }
+                // A call at a door, if nobody goes to anything.
+                door = door.or(Some((spot.index, second as f32, spot.x)));
             }
         }
     }
-    let (who, start, home) = found.expect("an errand within the hour");
+    let (who, start, home) = found.or(door).expect("an errand within the hour");
     // How long it is out: until they are home again.
     let mut away = (home, home);
     let mut end = start;
@@ -1234,10 +1303,49 @@ fn motion_strips() {
             break;
         }
     }
+    // The thing it goes to, whole, in the picture.
+    let stage = diorama::stage_at(&snapshot, size.0, size.1, at(start));
+    if let Some((x, w)) = stage
+        .doing
+        .get(&who)
+        .and_then(|what| what.errand)
+        .and_then(|errand| stage.things.iter().find(|thing| thing.x == errand.at))
+        .map(|thing| (thing.x, thing.w))
+    {
+        away = (away.0.min(x - w), away.1.max(x + w));
+    }
     let middle = (away.0 + away.1) / 2.0;
+    eprintln!(
+        "errand: {} ({}) from {home:.0}, {start:.0} s to {end:.0} s, over {away:?}, to {:?}",
+        who,
+        snapshot.canvas.items[who].label,
+        stage
+            .doing
+            .get(&who)
+            .and_then(|what| what.errand)
+            .map(|errand| (
+                errand.at,
+                errand.stance,
+                stage
+                    .things
+                    .iter()
+                    .find(|thing| thing.x == errand.at)
+                    .map(|thing| snapshot.canvas.items[thing.index].art.clone())
+            ))
+    );
     let frames = (0..6)
         .map(|step| {
-            let second = start + (end - start) * step as f32 / 5.0;
+            // At home, on the way, there (twice), on the way back, home.
+            let leg = ((end - start - diorama::ERRAND_STAY - 1.5) / 2.0).max(1.0);
+            let second = start
+                + [
+                    -2.0,
+                    leg * 0.5,
+                    leg + 6.0,
+                    leg + diorama::ERRAND_STAY - 6.0,
+                    leg * 1.5 + diorama::ERRAND_STAY,
+                    end - start,
+                ][step];
             let (_, frame) = frame_at_clock(
                 &snapshot,
                 size,
@@ -1259,9 +1367,9 @@ fn motion_strips() {
                 frame,
                 (
                     left - h,
-                    person.y - h * 1.5,
+                    person.y - h * 2.4,
                     right - left + h * 2.0,
-                    h * 1.75,
+                    h * 2.7,
                 ),
             )
         })

@@ -51,6 +51,8 @@ pub(crate) struct Staged {
     pub(crate) lamp: usize,
     pub(crate) stall: usize,
     pub(crate) sitters: Vec<usize>,
+    /// A fourth who comes to sit on the bench: no room on it, a stool beside.
+    pub(crate) stool: usize,
     pub(crate) ring: Vec<usize>,
     pub(crate) keeper: usize,
     pub(crate) carrier: usize,
@@ -93,9 +95,9 @@ pub(crate) fn staged() -> Staged {
         .enumerate()
         .filter(|(_, item)| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
         .map(|(index, _)| index)
-        .take(10)
+        .take(11)
         .collect::<Vec<_>>();
-    assert_eq!(people.len(), 10);
+    assert_eq!(people.len(), 11);
     let id = |index: usize| snapshot.canvas.items[index].id;
     let plan = [
         (people[0], bench, Stance::Sitting, None),
@@ -108,6 +110,7 @@ pub(crate) fn staged() -> Staged {
         (people[7], stall, Stance::Carrying, None),
         (people[8], house, Stance::Dancing, Some(people[9])),
         (people[9], house, Stance::Dancing, Some(people[8])),
+        (people[10], bench, Stance::Sitting, None),
     ];
     let plan = plan
         .iter()
@@ -138,6 +141,7 @@ pub(crate) fn staged() -> Staged {
         lamp,
         stall,
         sitters: people[0..3].to_vec(),
+        stool: people[10],
         ring: people[3..6].to_vec(),
         keeper: people[6],
         carrier: people[7],
@@ -182,8 +186,8 @@ fn drawn(frame: &Frame, index: usize) -> &PersonPaint {
         .expect("drawn")
 }
 
-/// Whoever's day sits them on a bench sits on its seat: side by side along
-/// it, feet on the ground at its foot, hips at the top of its plank; never
+/// Whoever's day sits them on a bench sits on its seat: spread along the
+/// whole plank, both legs showing, a fourth on a stool beside it; feet on the ground at its foot, hips at the top of its plank; never
 /// a seat of their own, never floating (the art bible's §3 and §5).
 #[test]
 fn sitters_feet_on_the_seat() {
@@ -240,6 +244,9 @@ fn sitters_feet_on_the_seat() {
             lowest.abs() < 0.01,
             "the shoes on the ground, not at {lowest}"
         );
+        // Both legs: two shoes on the ground, one behind the other.
+        let shoes = bottoms.iter().filter(|bottom| bottom.abs() < 0.01).count();
+        assert!(shoes >= 2, "{shoes} shoe on the ground");
         let hips = on
             .parts
             .iter()
@@ -260,6 +267,22 @@ fn sitters_feet_on_the_seat() {
     for pair in xs.windows(2) {
         assert!(pair[1] - pair[0] >= stage.figure_h * people::SEAT_ROOM * 0.9);
     }
+    // Along the whole plank, not bunched in its middle.
+    let spread = xs.last().copied().unwrap_or(0.0) - xs.first().copied().unwrap_or(0.0);
+    assert!(
+        spread >= thing.w * 0.55,
+        "{spread} of a bench {} wide",
+        thing.w
+    );
+    // A fourth, with no room on it, sits on a stool beside it.
+    assert_eq!(
+        stage.doing[&staged.stool].fixture,
+        Some((staged.bench, Use::Beside))
+    );
+    let stool = drawn(&frame, staged.stool);
+    assert_eq!(stool.stance, Stance::Sitting);
+    assert!(stool.seat.is_none(), "a seat of their own");
+    assert!((stool.x - bench_x).abs() > thing.w * 0.45);
 }
 
 /// Two whose day has them somewhere together stand side by side, facing
@@ -621,10 +644,12 @@ fn nobody_on_an_errand_or_at_a_fixture_is_in_a_building() {
 }
 
 /// Every lamp on the land of the three-year town, with six gathered at it
-/// from dusk (19 to 22): each stands on open ground, in no building's
-/// footprint and never at or behind a building's foot where its picture
-/// is (v0.30 S2d round 2: a gatherer at the hill beacon read as standing
-/// on a house's wall), balanced either side of the lamp.
+/// from dusk (19 to 22): each of its ring stands on open ground within a
+/// stride and a half of it, in no building's footprint, never at or behind
+/// a building's foot where its picture is (v0.30 S2d round 2: a gatherer at
+/// the hill beacon read as standing on a house's wall), and on no thing,
+/// props too (round 3: the beacon's ring, moved down the hill, stood on the
+/// bathing pool's rail); balanced either side of the lamp.
 #[test]
 fn every_lamp_ring_stands_on_open_ground() {
     let base = staged().snapshot;
@@ -648,13 +673,40 @@ fn every_lamp_ring_stands_on_open_ground() {
         .enumerate()
         .filter(|(_, item)| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
         .map(|(index, _)| index)
-        .skip(10)
+        .skip(11)
         .take(6)
         .collect::<Vec<_>>();
     let setting = art::Setting::from_key(base.canvas.setting.as_deref());
     let mut wrong = Vec::new();
-    for lamp in lamps {
+    // Each lamp as it stands, and again with a prop (a cart, a pool, a
+    // crate) put down right beside it, where its ring would stand.
+    let prop = stage
+        .things
+        .iter()
+        .find(|spot| {
+            matches!(
+                items[spot.index].shape,
+                Some(
+                    MarkShape::Well | MarkShape::Planter | MarkShape::Parcel | MarkShape::Fountain
+                )
+            ) && items[spot.index].px.is_some()
+                && stage.depth_of(spot) != Depth::Water
+        })
+        .map(|spot| spot.index)
+        .expect("a prop");
+    let cases = lamps
+        .iter()
+        .flat_map(|lamp| [(*lamp, false), (*lamp, true)])
+        .collect::<Vec<_>>();
+    for (lamp, crowded) in cases {
         let mut snapshot = base.clone();
+        if crowded {
+            let lamp_item = &snapshot.canvas.items[lamp];
+            let (px, y) = (lamp_item.px.unwrap_or(0.0), lamp_item.y);
+            let item = &mut snapshot.canvas.items[prop];
+            item.px = Some(px + 0.05);
+            item.y = y;
+        }
         let at = snapshot.canvas.items[lamp].id;
         for person in &people {
             let home = snapshot.canvas.items[*person].day[0].at;
@@ -678,7 +730,7 @@ fn every_lamp_ring_stands_on_open_ground() {
         for hour in 19..=22 {
             let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(hour));
             let footprints = people::footprints(&stage, &snapshot);
-            let lamp_x = spot_of(&stage, lamp).x;
+            let (lamp_x, lamp_y) = (spot_of(&stage, lamp).x, spot_of(&stage, lamp).y);
             let (mut left, mut right) = (0_usize, 0_usize);
             for spot in &stage.people {
                 if stage.doing.get(&spot.index).and_then(|what| what.fixture)
@@ -701,9 +753,20 @@ fn every_lamp_ring_stands_on_open_ground() {
                         && spot.y < building.y + p * 0.3
                         && spot.y > building.y - h - p * 0.2
                 });
-                if inside || on_a_wall {
+                // Near it: within a stride and a half.
+                let near = (spot.x - lamp_x).abs() <= p * people::RING_MOST + 0.5
+                    && (spot.y - lamp_y).abs() <= p + 0.5;
+                // And on no thing, props too (a pool's rail, a pier).
+                let on_a_thing = stage.things.iter().any(|other| {
+                    let w = thing_width(&stage, &snapshot, other, setting).max(other.w);
+                    other.index != lamp
+                        && (spot.x - other.x).abs() < w / 2.0 + p * 0.1
+                        && (spot.y - other.y).abs() < p * 0.4
+                });
+                if inside || on_a_wall || !near || on_a_thing {
                     wrong.push(format!(
-                        "lamp {lamp} at {hour}h: {} at ({:.0}, {:.0})",
+                        "lamp {lamp} at {hour}h: {} at ({:.0}, {:.0}): in a building {inside}, \
+                         on a wall {on_a_wall}, near {near}, on a thing {on_a_thing}",
                         spot.index, spot.x, spot.y
                     ));
                 }
