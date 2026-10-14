@@ -3084,10 +3084,11 @@ impl ProjectionView {
                 cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
             )
             .child({
-                // The scene: its still layers painted off this thread
-                // and faded in, what moves drawn live.
+                // The scene: the living stage, its looks baked off this
+                // thread as the camera needs them, everyone in depth.
                 let started = Instant::now();
-                let scene = diorama::scene(frame.clone(), window);
+                let scene =
+                    diorama::stage_view::living_scene(frame.clone(), &self.snapshot, window);
                 let planned = started.elapsed();
                 scene.child(
                     canvas(

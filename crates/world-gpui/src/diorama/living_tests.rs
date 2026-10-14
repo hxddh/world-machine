@@ -1,0 +1,447 @@
+//! The living stage's own tests (v0.30 S1a): depth, the passes a frame
+//! is drawn in, which looks a window keeps, that a frame is never blank
+//! while a look is baked, and that nobody walks into a building.
+
+use super::living_stage::{self as ls, compose, in_depth, Deep, Draw, Item, Rank};
+use super::stage_view::{self as sv, Held, Stagehand, Variant, Want};
+use super::*;
+use std::sync::Arc;
+
+/// Every fixture the scene's tests have: the first Pack's town through
+/// three years, and the other Pack's places.
+fn fixtures() -> Vec<(String, ProjectionSnapshot)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut paths = std::fs::read_dir(dir)
+        .expect("the fixtures")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let json = std::fs::read_to_string(&path).ok()?;
+            let wire: world_pack_protocol::ProjectionSnapshotWire =
+                serde_json::from_str(&json).ok()?;
+            let snapshot = ProjectionSnapshot::try_from(wire).ok()?;
+            let name = path.file_stem()?.to_str()?.to_string();
+            Some((name, snapshot))
+        })
+        .collect()
+}
+
+/// The first Pack's town on day 163.
+fn day_163() -> ProjectionSnapshot {
+    fixtures()
+        .into_iter()
+        .find(|(name, _)| name.ends_with("-day-163"))
+        .map(|(_, snapshot)| snapshot)
+        .expect("the day-163 fixture")
+}
+
+/// A plain picture-less draw over `rect`, told apart by its width.
+fn draw(rect: (f32, f32, f32, f32)) -> Draw {
+    Draw::Live {
+        rect,
+        paint: std::rc::Rc::new(|_, _| {}),
+    }
+}
+
+/// Where each draw of `passes` lands in painter's order: its pass, and
+/// its place in the pass.
+fn order_of(passes: &[ls::Pass]) -> Vec<(ls::Rect, f32, usize)> {
+    passes
+        .iter()
+        .enumerate()
+        .flat_map(|(at, pass)| {
+            pass.draws
+                .iter()
+                .map(move |draw| (draw.bounds(), pass.opacity, at))
+        })
+        .collect()
+}
+
+/// Whoever stands further back is drawn first; level, the props along the
+/// spine, then buildings, things and people: so a building in front of
+/// someone hides them, and someone in front of it stands over it.
+#[test]
+fn people_buildings_and_things_are_drawn_back_to_front() {
+    let at = |at: f32, rank: Rank, who: usize, x: f32| Deep {
+        at,
+        rank,
+        who,
+        items: vec![Item {
+            opacity: 1.0,
+            draw: draw((x, 0.0, 1.0, 1.0)),
+        }],
+    };
+    // A tower whose foot is at 500, someone behind it (480), someone
+    // in front of it (520), a cart level with its foot, and the props of
+    // the spine at 500 too.
+    let order = in_depth(vec![
+        at(520.0, Rank::Person, 7, 1.0),
+        at(500.0, Rank::Thing, 3, 2.0),
+        at(500.0, Rank::Building, 9, 3.0),
+        at(480.0, Rank::Person, 8, 4.0),
+        at(500.0, Rank::Props, 0, 5.0),
+    ])
+    .map(|item| item.draw.bounds().0)
+    .collect::<Vec<_>>();
+    assert_eq!(order, vec![4.0, 5.0, 3.0, 2.0, 1.0]);
+}
+
+/// The passes a frame is composed into keep painter's order wherever two
+/// pictures overlap, and share a pass wherever they do not: a person in
+/// front of a building is drawn after it even in another pass, and two
+/// lights cross-fading show each picture once, its second light faded
+/// straight over it before whoever stands in front.
+#[test]
+fn passes_keep_painters_order_where_pictures_overlap() {
+    let building = (100.0, 0.0, 100.0, 100.0);
+    let behind = (120.0, 50.0, 10.0, 30.0);
+    let front = (150.0, 60.0, 10.0, 40.0);
+    let far = (400.0, 60.0, 10.0, 40.0);
+    let t = 0.4;
+    let items = [behind, building, front, far]
+        .into_iter()
+        .flat_map(|rect| {
+            [
+                Item {
+                    opacity: 1.0,
+                    draw: draw(rect),
+                },
+                Item {
+                    opacity: t,
+                    draw: draw(rect),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let passes = compose(items.clone());
+    let order = order_of(&passes);
+    let pass_of = |rect, opacity: f32| {
+        order
+            .iter()
+            .position(|(r, o, _)| *r == rect && *o == opacity)
+            .map(|at| (order[at].2, at))
+            .expect("drawn")
+    };
+    // Each overlapping pair keeps its order: the whole picture, its second
+    // light over it, then whatever stands in front.
+    let sequence = [behind, building, front];
+    for pair in sequence.windows(2) {
+        assert!(pass_of(pair[0], t) < pass_of(pair[1], 1.0), "{pair:?}");
+    }
+    for rect in [behind, building, front, far] {
+        assert!(pass_of(rect, 1.0) < pass_of(rect, t));
+    }
+    // The one standing alone shares the first pair of passes.
+    assert_eq!(pass_of(far, 1.0).0, 0);
+    assert_eq!(pass_of(far, t).0, 1);
+    // As many passes as the crowd is deep, not as it is many.
+    assert_eq!(passes.len(), 6);
+    // And a hundred people standing apart are two passes.
+    let crowd = (0..100)
+        .flat_map(|n| {
+            let rect = (n as f32 * 20.0, 0.0, 10.0, 30.0);
+            [
+                Item {
+                    opacity: 1.0,
+                    draw: draw(rect),
+                },
+                Item {
+                    opacity: t,
+                    draw: draw(rect),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(compose(crowd).len(), 2);
+}
+
+fn want(level: usize, light: ls::Light, view: (f32, f32)) -> Want {
+    Want {
+        key: 1,
+        level,
+        light,
+        variant: Variant::Main,
+        view,
+        shown: true,
+    }
+}
+
+fn held(key: u64, level: usize, light: ls::Light, span: Option<(f32, f32)>, ready: bool) -> Held {
+    Held {
+        key,
+        level,
+        light,
+        variant: Variant::Main,
+        span,
+        ready,
+    }
+}
+
+/// While the look a frame wants is baked, the nearest look already baked
+/// stands in for it: the other level of the same light, scaled; the World
+/// as it was before it changed; another light; and never nothing while
+/// anything of the place is ready. A close level baked around the camera
+/// stands in only where it shows what the camera sees.
+#[test]
+fn a_look_being_baked_is_stood_in_for_never_left_blank() {
+    use ls::Light::{Dusk, Noon};
+    let view = (1000.0, 1600.0);
+    let close = want(1, Noon, view);
+    // Nothing ready at all: nothing to draw (the loading wash).
+    assert_eq!(sv::choose(&[held(1, 1, Noon, None, false)], &close), None);
+    // The whole level stands in for the close one being baked.
+    let held_now = [
+        held(1, 0, Noon, None, true),
+        held(1, 1, Noon, Some((0.0, 900.0)), true),
+    ];
+    assert_eq!(sv::choose(&held_now, &close), Some(0));
+    // Once the close one shows what the camera sees, it is drawn.
+    let held_now = [
+        held(1, 0, Noon, None, true),
+        held(1, 1, Noon, Some((800.0, 2000.0)), true),
+    ];
+    assert_eq!(sv::choose(&held_now, &close), Some(1));
+    // A close look stands in for the whole one (scaled down) before a
+    // look of the World as it was, and that before another light.
+    let whole = want(0, Noon, view);
+    let held_now = [
+        held(2, 0, Noon, None, true),
+        held(1, 1, Noon, None, true),
+        held(1, 0, Dusk, None, true),
+    ];
+    assert_eq!(sv::choose(&held_now, &whole), Some(1));
+    assert_eq!(sv::choose(&held_now[..1], &whole), Some(0));
+    assert_eq!(sv::choose(&held_now[2..], &whole), Some(0));
+    // A look on its way to the display does not stand in yet.
+    assert_eq!(sv::choose(&[held(1, 0, Noon, None, false)], &whole), None);
+}
+
+/// A window keeps only the looks its camera wants, and while one is not
+/// ready, the one standing in for it; everything else is let go.
+#[test]
+fn looks_no_camera_is_near_are_let_go() {
+    use ls::Light::{Dusk, Night, Noon};
+    let view = (0.0, 1000.0);
+    let wants = [want(0, Dusk, view), want(0, Night, view)];
+    let held_now = [
+        held(1, 0, Noon, None, true),  // a light the hour has left
+        held(1, 1, Dusk, None, true),  // another level
+        held(1, 0, Dusk, None, true),  // wanted
+        held(1, 0, Night, None, true), // wanted
+        held(2, 0, Dusk, None, true),  // the World as it was
+    ];
+    assert_eq!(
+        sv::keep(&held_now, &wants),
+        vec![false, false, true, true, false]
+    );
+    // While night is on its way to the display, dusk stands in for it and
+    // the World as it was is still let go.
+    let held_now = [
+        held(1, 0, Dusk, None, true),
+        held(1, 0, Night, None, false),
+        held(2, 0, Night, None, true),
+    ];
+    assert_eq!(sv::keep(&held_now, &wants), vec![true, true, true]);
+    // The World changed: its old look stays until the new one is ready.
+    let held_now = [held(2, 0, Dusk, None, true)];
+    assert_eq!(sv::keep(&held_now, &wants[..1]), vec![true]);
+    let held_now = [held(2, 0, Dusk, None, true), held(1, 0, Dusk, None, true)];
+    assert_eq!(sv::keep(&held_now, &wants[..1]), vec![false, true]);
+    // With nothing to show, the whole level is baked before a close one.
+    let close = [want(1, Dusk, view)];
+    assert_eq!(
+        sv::next_bake(&[], false, &close).map(|want| want.level),
+        Some(0)
+    );
+    assert_eq!(sv::next_bake(&[], true, &close), None);
+    let baked = [held(1, 0, Dusk, None, true)];
+    assert_eq!(
+        sv::next_bake(&baked, false, &close).map(|want| want.level),
+        Some(1)
+    );
+}
+
+/// A frame of `snapshot` in a window `view` large, through `camera`, at
+/// `hour`, `seconds` in.
+fn frame_of(
+    snapshot: &ProjectionSnapshot,
+    view: (f32, f32),
+    camera: Option<(f32, f32)>,
+    hour: f32,
+    seconds: f32,
+) -> Frame {
+    let stage = super::stage(snapshot, view.0, view.1);
+    let daylight = crate::scene::daylight_at(hour as u32);
+    let living = super::living(
+        &stage,
+        snapshot,
+        seconds,
+        daylight,
+        &Default::default(),
+        None,
+    );
+    let camera = match camera {
+        Some((zoom, x)) => Camera::around(&stage, zoom, x, view.1 / 2.0),
+        None => Camera::around(&stage, 1.0, stage.width / 2.0, view.1 / 2.0),
+    };
+    super::frame(
+        snapshot,
+        &stage,
+        &living,
+        camera,
+        seconds,
+        daylight,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(hour)
+}
+
+/// The living stage as a window drives it, its looks baked off the
+/// thread: no frame after the first look is ready is ever blank, through
+/// a zoom in, a pan along, an hour cross-fading and the World changing;
+/// and once it settles it holds only the looks the camera wants.
+#[test]
+fn the_living_stage_is_never_blank_and_lets_go_of_what_it_no_longer_needs() {
+    let snapshot = day_163();
+    let view = (480.0, 320.0);
+    let mut hand = Stagehand::new(1.0);
+    let run = |hand: &mut Stagehand,
+               snapshot: &ProjectionSnapshot,
+               camera,
+               hour: f32,
+               until_settled: bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(240);
+        let mut frames = 0;
+        loop {
+            let frame = Arc::new(frame_of(
+                snapshot,
+                view,
+                camera,
+                hour,
+                frames as f32 * 0.016,
+            ));
+            let (plan, _, _, report) = hand.frame(&frame, snapshot, false);
+            frames += 1;
+            if hand.slots.iter().any(|slot| slot.held.ready) {
+                assert!(
+                    report.shown && plan.images() > 0,
+                    "a blank frame {frames} in"
+                );
+            }
+            if report.settled || (!until_settled && report.shown) {
+                return frames;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the stage never settled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    // Opening: the first look arrives.
+    run(&mut hand, &snapshot, None, 12.0, true);
+    assert_eq!(hand.slots.len(), 1, "one look at rest by day");
+    let at_rest = hand.bytes();
+    // Zooming in: the close level is baked around the camera, the whole
+    // one standing in meanwhile (and kept, for a pan).
+    run(&mut hand, &snapshot, Some((2.0, 600.0)), 12.0, true);
+    assert!(hand
+        .slots
+        .iter()
+        .any(|slot| slot.held.level == 1 && slot.held.span.is_some()));
+    // Panning along at that zoom, past what was baked.
+    run(&mut hand, &snapshot, Some((2.0, 1400.0)), 12.0, true);
+    // Back out: the close level is let go.
+    run(&mut hand, &snapshot, None, 12.0, true);
+    assert!(hand.slots.iter().all(|slot| slot.held.level == 0));
+    let back = hand.bytes() - hand.pose_bytes();
+    assert!(
+        back.abs_diff(at_rest) * 20 < at_rest,
+        "back to one look: {back} after {at_rest}"
+    );
+    // Dusk coming on: two lights, then one again.
+    run(&mut hand, &snapshot, None, 18.0, true);
+    assert_eq!(hand.slots.len(), 2, "two lights cross-fading");
+    run(&mut hand, &snapshot, None, 19.5, true);
+    assert_eq!(hand.slots.len(), 1, "one light again");
+    // The World changes: the old look is drawn until the new one is ready.
+    let mut grown = snapshot.clone();
+    grown.canvas.season = Some(world_projection::Season::Winter);
+    run(&mut hand, &grown, None, 19.5, true);
+    assert_eq!(hand.slots.len(), 1);
+}
+
+/// Nobody's feet are ever inside a building's footprint: wherever their
+/// routine takes them at any hour of the day, in every fixture, the
+/// residents walk beside and in front of the buildings, never through
+/// them (the art director's S1 blocker: a walker on a tower's door).
+#[test]
+fn nobody_walks_into_a_building() {
+    let view = (1100.0, 848.0);
+    let mut inside = Vec::new();
+    for (name, snapshot) in fixtures() {
+        let stage = super::stage(&snapshot, view.0, view.1);
+        let frame = frame_of(&snapshot, view, None, 12.0, 0.0);
+        let footprints = frame
+            .standing
+            .iter()
+            .map(|(_, b)| (b.index, ls::footprint(b.x, b.base, b.w, b.h)))
+            .collect::<Vec<_>>();
+        for daylight in [crate::scene::Daylight::Day, crate::scene::Daylight::Dusk] {
+            for step in 0..240 {
+                let seconds = step as f32 * 0.5;
+                let living = super::living(
+                    &stage,
+                    &snapshot,
+                    seconds,
+                    daylight,
+                    &Default::default(),
+                    None,
+                );
+                for (spot, life) in stage.people.iter().zip(&living) {
+                    for (building, footprint) in &footprints {
+                        if ls::inside(*footprint, life.x, spot.y) {
+                            inside.push(format!(
+                                "{name}: resident {} at ({:.0}, {:.0}) {seconds} s in is inside building {building} {footprint:?}",
+                                spot.index, life.x, spot.y
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    inside.dedup_by(|a, b| a.split(" at ").next() == b.split(" at ").next());
+    assert!(inside.is_empty(), "{}", inside.join("\n"));
+}
+
+/// Two worlds that differ in a building are two bake keys; the same world
+/// at another hour or zoom is the same key.
+#[test]
+fn a_new_building_or_season_is_a_new_look_and_an_hour_or_zoom_is_not() {
+    let snapshot = day_163();
+    let view = (640.0, 400.0);
+    let key = |snapshot: &ProjectionSnapshot, camera, hour| {
+        sv::bake_key(&frame_of(snapshot, view, camera, hour, 0.0))
+    };
+    let at_rest = key(&snapshot, None, 12.0);
+    assert_eq!(at_rest, key(&snapshot, None, 21.0));
+    assert_eq!(at_rest, key(&snapshot, Some((2.0, 400.0)), 12.0));
+    let mut winter = snapshot.clone();
+    winter.canvas.season = Some(world_projection::Season::Winter);
+    assert_ne!(at_rest, key(&winter, None, 12.0));
+    let mut fewer = snapshot.clone();
+    let building = fewer
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.kind == CanvasItemKind::Place && item.px.is_some())
+        .expect("a building");
+    fewer.canvas.items[building].px = fewer.canvas.items[building].px.map(|px| px + 40.0);
+    assert_ne!(at_rest, key(&fewer, None, 12.0));
+}

@@ -29,6 +29,7 @@ mod lived;
 pub mod living_stage;
 mod people;
 mod scene;
+pub mod stage_view;
 mod works;
 
 pub use interface::*;
@@ -128,6 +129,9 @@ pub struct Frame {
     /// always): what the composition holds back for a closer look comes
     /// into the frame the camera is heading for.
     standing: std::sync::Arc<Vec<(f32, BuildingPaint)>>,
+    /// What every thing on the stage is and where it stands, whatever the
+    /// zoom, as a key: a new or moved one is a new look of the place.
+    things_key: u64,
 }
 
 impl Frame {
@@ -585,6 +589,20 @@ pub fn frame(
         .map(|(_, building)| building.clone())
         .collect();
 
+    let things_key = {
+        let mut key = Key::new("things");
+        for spot in &stage.things {
+            let item = &items[spot.index];
+            key.add((spot.index, item.shape.map(|shape| shape as u8)))
+                .float(spot.x)
+                .float(spot.y)
+                .float(spot.w)
+                .add(item.art.as_deref())
+                .add(snapshot.drawing_of(item).map(|drawing| drawing.id.clone()))
+                .add(item.variant.is_some_and(|variant| variant.flip));
+        }
+        key.finish()
+    };
     let mut things = stage
         .things
         .iter()
@@ -784,6 +802,7 @@ pub fn frame(
         next: None,
         zoom_steps: Vec::new(),
         standing: std::sync::Arc::new(standing),
+        things_key,
     }
 }
 
@@ -852,3 +871,6 @@ pub(crate) mod tests;
 
 #[cfg(test)]
 mod outdoors;
+
+#[cfg(test)]
+mod living_tests;
