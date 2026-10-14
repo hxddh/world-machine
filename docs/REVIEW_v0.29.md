@@ -241,6 +241,36 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
 - *World changes.* A new building, a story prop, the season, the weather or a resize gives a new key, and the look is baked again in the background. The old look stays until the new one is ready, and anything it lacks is drawn live meanwhile.
 - *Left for S1b/S1c.* Delete the tiles, rough painting and paint-ahead queues. Re-bake only the affected sprites instead of the whole look. Add the closer stage camera. Run CI's scale-2 and macOS numbers on a real Retina Mac.
 
+**S1b (2026-10-14): the frame-time bar, and the tile painter's World-window path deleted.** CI's macOS runner had measured S1a's window at scale 1 (plan p99 4.4 ms, 7 intervals over 33 ms) and scale 2 (plan p99 10.0 ms, 33 frames over 8 ms, 16 intervals over 33 ms). The bar for 120 Hz: plan p99 at most 4 ms at scale 2, and no interval over 33 ms once the place first shows.
+- *Where the window's thread went.* A profile of the headless window bench (callgrind, its thread alone) put a quarter of each frame in laying the World out again, a tenth in cloning the frame (every resident and their drawing), and more in formatting the ladder's keys as strings and searching every sprite of a look for each building. Bakes on every core but one still competed with it on a three-core machine, and a pan along the close level baked the whole stretch again.
+- *Fixes.*
+  - A World is laid out once, and again only when the canvas, the drawings, the size or the hour changes or someone sets off or arrives. Layouts share one copy of the World.
+  - A frame no longer clones itself, finds each item's sprites by item, and keys the ladder without formatting.
+  - A bake leaves two cores free (the window's and the display's). A look waits for a short batch of poses. On a machine with few cores, poses wait for a look unless someone has none.
+  - A look baked again takes every piece that is the same from the look before. Of the same World, that is each land tile, column of props, building and thing still in the cut. Of a changed World, it is each building and thing whose paint, and whatever stands in front of it, is unchanged. Its pictures are already with the display. It equals a fresh bake pixel for pixel (`a_look_baked_again_is_the_same_as_one_baked_from_nothing`).
+- *Numbers.* Headless (`living_stage_bench -- window`), 40 s, the day-1,082 harbour at 1100x848, pinned to three of this box's four cores, two runs each:
+
+  | | Plan mean (ms) | Plan p99 (ms) |
+  |---|---|---|
+  | Through a day, scale 1 | 1.11–1.12 → 0.51–0.53 | 2.0–2.1 → 1.1–1.2 |
+  | Through a day, scale 2 | 1.16–1.20 → 0.55–0.58 | 2.4–2.7 → 1.4–1.6 |
+  | Noon, scale 1 | 1.03–1.07 → 0.42–0.44 | 1.8–1.9 → 0.8 |
+  | Noon, scale 2 | 1.05–1.09 → 0.45–0.46 | 1.9–2.1 → 0.9 |
+
+  Before: four runs of each. After: two. Intervals over 33 ms are 0–2 a run, before and after, and frames over 8 ms 1–11. On this VM they land in any phase of a frame, including a layout kept or a plan of 50 µs. They are stalls of the machine, not work.
+  - A pan along the close level takes 135 of the 186 pictures of its next look from the one before. The re-bake drops from about 0.9 s to 0.3–0.4 s.
+  - The most pixel memory held at noon, scale 2, rises from 142 to 165 MB, because the look a bake takes from is kept until it is done.
+  - Both benchmarks now print the bar as a line, and what each bake took from before, so CI's macOS run shows whether the bar is met. That run is the judge; this box has no Metal.
+- *Deleted.* About 3,200 lines:
+  - the scene element that painted the still layers off the window's thread and faded them in;
+  - the rough painting and its flat stand-ins, and the count of how much of it showed (the frame log keeps the columns, at 0, for the harness);
+  - painting ahead of the camera (where it heads, the next return beat, a zoom step away) and the Frame fields that fed it;
+  - the painter's priorities, opening allowance and measured hand-over cost.
+- *Kept, and why.* The strip, covers, postcards and goldens still paint a frame's still layers in place, a tile at a time (`interface::paint`), with the same pieces as before. Moving them onto the living stage's bake would re-bless every golden picture without an art review. So no golden picture changed, and `replayed-state.digest` was not touched.
+  - Tests of the deleted path went with it: the scene's arrival and fade, rough never over sharp paint, a new look's fade, the boil settling zoomed out, landing on sharp paint, and the tile painter's frame-time benchmark.
+  - The zoom control's test keeps its checks of the zoom itself.
+- *Left for S1c.* The closer stage camera. The bar judged on CI's macOS run and a real Retina Mac. The live drawing that remains each frame (clouds, the ridge, ground light) as baked layers if the Mac's numbers still need it.
+
 ### S2. Residents who move
 
 - Six to eight animated verbs: walk, carry, sit, work, wave, gather or dance.
