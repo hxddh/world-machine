@@ -121,3 +121,26 @@ fn v023_places_open_replay_and_play_on() {
         );
     }
 }
+
+/// Every saved place, opened, shows its people doing something at ten in
+/// the morning: at least six of them out working, carrying, keeping a
+/// stall, sitting on a bench or with someone.
+#[test]
+fn a_lived_place_has_people_doing_things_at_ten() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let mut fixtures = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "world"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    assert!(!fixtures.is_empty());
+    for fixture in fixtures {
+        let bytes = std::fs::read(&fixture).unwrap();
+        let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+        let universe = PocketUniverse::resume_archive(&archive).unwrap();
+        let snapshot = universe.projection_snapshot();
+        let busy = world_pack_testkit::town::busy_at(&snapshot, 10);
+        assert!(busy >= 6, "{}: {busy} busy at ten", fixture.display());
+    }
+}

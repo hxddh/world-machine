@@ -137,8 +137,28 @@ pub(crate) fn stance_of(world: &World, id: EntityId, work: Option<EntityId>) -> 
                 && event.targets.first() == Some(&here)
                 && !matches!(event.payload.get("turnout"), Some(Value::Text(turnout)) if turnout == "thin")
         });
+    // What they did today shows too: a catch landed is carried up from
+    // the boat, and a day spent dancing is still being danced.
+    let did_today = |kinds: &[&str], activity: Option<&str>| {
+        world
+            .events()
+            .iter()
+            .rev()
+            .take_while(|event| event.world_time == now)
+            .any(|event| {
+                event.actor == Some(id)
+                    && kinds.contains(&event.kind.as_str())
+                    && activity.is_none_or(|activity| {
+                        matches!(event.payload.get("activity"), Some(Value::Text(done)) if done == activity)
+                    })
+            })
+    };
     if celebrating {
         Some(Stance::Celebrating)
+    } else if did_today(&["catch_landed", "fish_sold"], None) {
+        Some(Stance::Carrying)
+    } else if did_today(&["lived"], Some("dance")) {
+        Some(Stance::Dancing)
     } else if Some(here) == work {
         Some(Stance::Working)
     } else {

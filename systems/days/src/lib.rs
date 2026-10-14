@@ -244,16 +244,72 @@ pub fn households<K: Ord + Copy>(
     homes
 }
 
-/// Where someone is from one hour of the day on.
+/// What someone is doing at a stop, as far as anyone looking on can tell.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Doing {
+    /// At home, out of sight.
+    #[default]
+    Rest,
+    /// At their work.
+    Work,
+    /// Keeping a stall or a counter.
+    Keep,
+    /// Sitting: on a bench, a wall, a step.
+    Sit,
+    /// Standing about with others: outside the pub, under a lamp.
+    Gather,
+    /// Carrying something from one place to another.
+    Carry,
+    /// Out and about with nothing in particular to do.
+    Stroll,
+    /// Dancing.
+    Dance,
+}
+
+impl Doing {
+    /// How someone doing this stands, as the scene draws them: `None`
+    /// leaves it to the app (an idle moment, or nobody to see).
+    pub fn stance(self) -> Option<world_projection::Stance> {
+        use world_projection::Stance;
+        match self {
+            Doing::Rest | Doing::Stroll => None,
+            Doing::Work => Some(Stance::Working),
+            Doing::Keep | Doing::Gather => Some(Stance::Talking),
+            Doing::Sit => Some(Stance::Sitting),
+            Doing::Carry => Some(Stance::Carrying),
+            Doing::Dance => Some(Stance::Dancing),
+        }
+    }
+}
+
+/// What a thing standing near someone is good for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Use {
+    /// Somewhere to sit: a bench, a wall.
+    Seat,
+    /// A light people gather under after dark.
+    Light,
+    /// A stall or a counter someone keeps.
+    Stall,
+    /// Something growing that wants tending.
+    Planting,
+}
+
+/// Where someone is from one hour of the day on, what they are doing there
+/// and with whom.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stop<K> {
     pub from_hour: u8,
     pub at: K,
     pub inside: bool,
+    pub doing: Doing,
+    /// Whom they are there with: someone whose day has the same stop from
+    /// the same hour.
+    pub with: Option<K>,
 }
 
 /// What a person's day is made of.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Plan<K> {
     pub home: K,
     /// Where they spend the working day, and whether indoors there.
@@ -268,6 +324,14 @@ pub struct Plan<K> {
     /// Something of the person's own, so that no two keep quite the same
     /// hours.
     pub seed: u64,
+    /// The day it is, in the World's own days: what someone does with an
+    /// hour to spare changes from one day to the next.
+    pub today: u64,
+    /// The things near them they might use, nearest first.
+    pub uses: Vec<(K, Use)>,
+    /// What the record last says they did: where, doing what, and with
+    /// whom. They do it again today, at its hour.
+    pub last: Option<(K, Doing, Option<K>)>,
 }
 
 /// The earliest anyone knocks off work: five, or six for the rest.
@@ -278,54 +342,188 @@ pub const FESTIVAL_FROM: u8 = 17;
 /// The hour a festival ends and everyone goes home.
 pub const FESTIVAL_UNTIL: u8 = 23;
 
+/// The hour (or the one after) a load is carried over of a morning.
+pub const CARRY_FROM: u8 = 10;
+/// The hour (or the one after) someone sits down of an afternoon.
+pub const SIT_FROM: u8 = 14;
+/// The hour (or the one after) people gather under a light, or meet
+/// someone of an evening.
+pub const DUSK: u8 = 19;
+
+/// A day being put together: each stop begins later than the one before,
+/// and a stop begun at the same hour as the last replaces it.
+struct Hours<K>(Vec<Stop<K>>);
+
+impl<K: Copy> Hours<K> {
+    fn push(&mut self, stop: Stop<K>) {
+        match self.0.last() {
+            Some(last) if last.from_hour == stop.from_hour => {
+                self.0.pop();
+                self.0.push(stop);
+            }
+            Some(last) if last.from_hour > stop.from_hour => {}
+            _ => self.0.push(stop),
+        }
+    }
+}
+
 /// A person's day, sorted by hour: at home until seven or eight, at work
 /// (or about the place) by day, out of an evening now and then, and home
 /// again by nine or ten. On a festival everyone is at the gathering from
-/// five until eleven.
+/// five until eleven, dancing.
+///
+/// What the record last says they did comes round again at its hour: a
+/// load carried of a morning, a stall kept all day, a bench of an
+/// afternoon, the pub or a dance of an evening. Someone they did it with
+/// is there with them, from the same hour (that hour is the day's, not
+/// either one's own). A bench near them gets sitters of an afternoon, and a
+/// light gathers people after dark.
+///
+/// The day is a pure function of the plan: the same person on the same day
+/// always keeps the same hours, and none of it is ever recorded.
 pub fn day<K: Copy>(plan: &Plan<K>) -> Vec<Stop<K>> {
     let seed = mix(&[plan.seed, 0xda75]);
-    let home = |from_hour| Stop {
+    // Today's coins: one of the person's own, and one every pair shares.
+    let roll = mix(&[plan.seed, plan.today, 0x5e47]);
+    let shared = mix(&[plan.today, 0x9a15]);
+    let stop = |from_hour, at, inside, doing| Stop {
         from_hour,
-        at: plan.home,
-        inside: true,
+        at,
+        inside,
+        doing,
+        with: None,
     };
-    let mut stops = vec![home(0)];
+    let home = |from_hour| stop(from_hour, plan.home, true, Doing::Rest);
+    let mut stops = Hours(vec![home(0)]);
     let rises = 7 + (seed % 2) as u8;
-    match plan.work {
-        Some((work, inside)) => stops.push(Stop {
-            from_hour: rises,
-            at: work,
-            inside,
-        }),
-        None => stops.push(Stop {
-            from_hour: rises + 2,
-            at: plan.about,
-            inside: false,
-        }),
-    }
+    let working = match plan.work {
+        Some((work, inside)) => stop(rises, work, inside, Doing::Work),
+        None => stop(rises + 2, plan.about, false, Doing::Stroll),
+    };
     if plan.festival {
-        stops.push(Stop {
-            from_hour: FESTIVAL_FROM,
-            at: plan.gathering,
-            inside: false,
-        });
+        stops.push(working);
+        stops.push(stop(FESTIVAL_FROM, plan.gathering, false, Doing::Dance));
         stops.push(home(FESTIVAL_UNTIL));
-        return stops;
+        return stops.0;
     }
+
+    // What the record last says, again today: at its place, out of doors,
+    // with whoever they did it with, from an hour the two share.
+    let last = plan.last.map(|(at, doing, with)| Stop {
+        from_hour: 0,
+        at,
+        inside: false,
+        doing,
+        with,
+    });
+    let hour_of = |last: &Stop<K>, from: u8, own: u64| {
+        from + if last.with.is_some() {
+            shared % 2
+        } else {
+            own % 2
+        } as u8
+    };
+
+    // The working day: a stall kept all day long; and for someone with no
+    // work, a stall or a planting near them to see to, or the place to
+    // wander.
+    let working = match last.filter(|last| last.doing == Doing::Keep) {
+        Some(keeps) => Stop {
+            from_hour: rises,
+            ..keeps
+        },
+        None if plan.work.is_none() => {
+            let mut chores = vec![working];
+            chores.extend(plan.uses.iter().filter_map(|(at, used)| match used {
+                Use::Stall => Some(stop(rises + 2, *at, false, Doing::Keep)),
+                Use::Planting => Some(stop(rises + 2, *at, false, Doing::Work)),
+                _ => None,
+            }));
+            chores[((roll >> 3) % chores.len() as u64) as usize]
+        }
+        None => working,
+    };
+    let busy = working.doing != Doing::Stroll;
+    stops.push(working);
+
+    // A load carried over of a morning, and back to work after.
+    if let Some(carry) = last.filter(|last| last.doing == Doing::Carry) {
+        let from_hour = hour_of(&carry, CARRY_FROM, roll >> 5);
+        stops.push(Stop { from_hour, ..carry });
+        stops.push(Stop {
+            from_hour: from_hour + 1,
+            ..working
+        });
+    }
+
+    // A sit of an afternoon: on the bench the record says, or the nearest
+    // seat. Anyone without work to do sits a while; someone at work now
+    // and then takes an hour's break.
+    let seat = last.filter(|last| last.doing == Doing::Sit).or_else(|| {
+        plan.uses
+            .iter()
+            .find(|(_, used)| *used == Use::Seat)
+            .map(|(at, _)| stop(0, *at, false, Doing::Sit))
+    });
+    if let Some(seat) = seat {
+        let sits = !busy || seat.with.is_some() || (roll >> 7).is_multiple_of(3);
+        if sits {
+            let from_hour = hour_of(&seat, SIT_FROM, roll >> 9);
+            stops.push(Stop { from_hour, ..seat });
+            stops.push(Stop {
+                from_hour: from_hour + if busy { 1 } else { 2 },
+                ..working
+            });
+        }
+    }
+
+    // The evening.
     let knocks_off = KNOCK_OFF + ((seed >> 3) % 2) as u8;
+    let back = 21 + ((seed >> 11) % 2) as u8;
+    let out =
+        last.filter(|last| matches!(last.doing, Doing::Gather | Doing::Dance | Doing::Stroll));
+    let light = plan
+        .uses
+        .iter()
+        .find(|(_, used)| *used == Use::Light)
+        .filter(|_| (roll >> 11).is_multiple_of(3))
+        .map(|(at, _)| stop(0, *at, false, Doing::Gather));
     let goes_out = (seed >> 7) % 5 < 2;
-    match plan.evening.filter(|_| goes_out) {
-        Some((evening, inside)) => {
+    match (out, light) {
+        // Out with someone: home first, and out together after dark until
+        // an hour the two share.
+        (Some(out), _) if out.with.is_some() => {
+            stops.push(home(knocks_off));
+            stops.push(Stop {
+                from_hour: hour_of(&out, DUSK, 0),
+                ..out
+            });
+            stops.push(home(21 + ((shared >> 3) % 2) as u8));
+        }
+        (Some(out), _) => {
             stops.push(Stop {
                 from_hour: knocks_off + 1,
-                at: evening,
-                inside,
+                ..out
             });
-            stops.push(home(21 + ((seed >> 11) % 2) as u8));
+            stops.push(home(back));
         }
-        None => stops.push(home(knocks_off)),
+        (None, Some(light)) => {
+            stops.push(home(knocks_off));
+            stops.push(Stop {
+                from_hour: DUSK + ((roll >> 13) % 2) as u8,
+                ..light
+            });
+            stops.push(home(back.max(DUSK + 2)));
+        }
+        (None, None) => match plan.evening.filter(|_| goes_out) {
+            Some((evening, inside)) => {
+                stops.push(stop(knocks_off + 1, evening, inside, Doing::Gather));
+                stops.push(home(back));
+            }
+            None => stops.push(home(knocks_off)),
+        },
     }
-    stops
+    stops.0
 }
 
 /// The stop of a day that holds at `hour`: the last begun by then, or the

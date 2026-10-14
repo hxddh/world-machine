@@ -5297,6 +5297,64 @@ pub fn lack_by(state: &WorldState, person: EntityId, need: Need, by: i64) -> Sta
     bounded(state, person, need.key().into(), by, 0)
 }
 
+/// What someone last did with a day: the activity's id, where, and with
+/// whom.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lived {
+    pub activity: String,
+    pub place: EntityId,
+    pub with: Option<EntityId>,
+}
+
+/// What each person last did with a day, within `span` of world time. A
+/// day spent with someone is theirs too, unless they have done something
+/// else since. Read from the record only, so it is the same for the same
+/// history.
+pub fn lately_lived(world: &World, span: u64) -> BTreeMap<EntityId, Lived> {
+    let since = world.world_time().saturating_sub(span);
+    let recent = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| event.kind == "lived")
+        .collect::<Vec<_>>();
+    let mut lately = BTreeMap::new();
+    for event in recent.into_iter().rev() {
+        let (Some(person), Some(Value::Text(activity)), Some(Value::Entity(place))) = (
+            event.actor,
+            event.payload.get("activity"),
+            event.payload.get("place"),
+        ) else {
+            continue;
+        };
+        let with = event
+            .targets
+            .first()
+            .copied()
+            .filter(|with| *with != person);
+        lately.insert(
+            person,
+            Lived {
+                activity: activity.clone(),
+                place: *place,
+                with,
+            },
+        );
+        if let Some(with) = with {
+            lately.insert(
+                with,
+                Lived {
+                    activity: activity.clone(),
+                    place: *place,
+                    with: Some(person),
+                },
+            );
+        }
+    }
+    lately
+}
+
 /// What someone said about their day today, if they have lived it yet.
 pub fn said_today(world: &World, person: EntityId) -> Option<String> {
     let now = world.world_time();

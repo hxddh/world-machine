@@ -29,10 +29,14 @@ pub enum Stance {
     Sitting,
     /// A hand raised in greeting: when the player clicks on them.
     Waving,
+    /// Something held in both arms: a crate of fish, a basket, a sack.
+    Carrying,
+    /// Dancing, at a festival or a gathering.
+    Dancing,
 }
 
 impl Stance {
-    pub const ALL: [Stance; 9] = [
+    pub const ALL: [Stance; 11] = [
         Stance::Standing,
         Stance::Walking,
         Stance::Working,
@@ -42,6 +46,8 @@ impl Stance {
         Stance::Stretching,
         Stance::Sitting,
         Stance::Waving,
+        Stance::Carrying,
+        Stance::Dancing,
     ];
 
     /// What someone does with an idle moment, in turn.
@@ -63,6 +69,19 @@ impl Stance {
             Stance::Stretching => "stretching",
             Stance::Sitting => "sitting",
             Stance::Waving => "waving",
+            Stance::Carrying => "carrying",
+            Stance::Dancing => "dancing",
+        }
+    }
+
+    /// The stance a drawing with no parts of this stance's own draws it
+    /// in: carrying as working (arms forward), dancing as celebrating
+    /// (arms up). Every other stance is its own.
+    pub fn drawn_as(self) -> Stance {
+        match self {
+            Stance::Carrying => Stance::Working,
+            Stance::Dancing => Stance::Celebrating,
+            other => other,
         }
     }
 
@@ -270,7 +289,9 @@ impl DrawPart {
 
     /// Whether it shows in a stance.
     pub fn shows_in(&self, stance: Stance) -> bool {
-        self.stances.is_empty() || self.stances.contains(&stance)
+        self.stances.is_empty()
+            || self.stances.contains(&stance)
+            || self.stances.contains(&stance.drawn_as())
     }
 
     /// Whether it shows in a stance and a mood.

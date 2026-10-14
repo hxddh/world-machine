@@ -738,11 +738,15 @@ pub(crate) fn three_years() -> ProjectionSnapshot {
                 from_hour: 7,
                 at: entity(100 + (id * 5) % 48),
                 inside: false,
+                stance: None,
+                with: None,
             },
             world_projection::RoutineStop {
                 from_hour: 21,
                 at: entity(100 + id * 2),
                 inside: id % 5 != 0,
+                stance: None,
+                with: None,
             },
         ];
         items.push(person);
@@ -990,11 +994,15 @@ fn people_keep_to_their_day_and_are_indoors_at_night() {
                 from_hour: 8,
                 at: work,
                 inside: false,
+                stance: None,
+                with: None,
             },
             world_projection::RoutineStop {
                 from_hour: 21,
                 at: home,
                 inside: true,
+                stance: None,
+                with: None,
             },
         ];
     }
@@ -1800,11 +1808,15 @@ fn a_kept_layout_is_the_one_laid_out_afresh() {
                 from_hour: 8,
                 at: work,
                 inside: false,
+                stance: None,
+                with: None,
             },
             world_projection::RoutineStop {
                 from_hour: 21,
                 at: home,
                 inside: true,
+                stance: None,
+                with: None,
             },
         ];
     }
