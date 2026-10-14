@@ -29,7 +29,11 @@
 //! along the place and zooms in and out, residents where their routines
 //! put them, and prints a `living-stage window:` line and the pixels the
 //! stage held. `--scale 2` bakes for a display of twice the pixels (a
-//! simulated Retina display on a 1x one).
+//! simulated Retina display on a 1x one). It ends with what came with each
+//! interval between frames over `--hitch-ms` (default 33.4: two frames at
+//! 60 Hz) and each plan over 4 ms: a bake beside it, a look shown, pictures
+//! handed to the display or forgotten, the World laid out again, something
+//! drawn live.
 
 #![forbid(unsafe_code)]
 
@@ -67,6 +71,7 @@ mod window {
         hour: Option<f32>,
         window: bool,
         scale: Option<f32>,
+        hitch_ms: f64,
     }
 
     fn options() -> Options {
@@ -80,6 +85,7 @@ mod window {
             hour: None,
             window: false,
             scale: None,
+            hitch_ms: 33.4,
         };
         while let Some(arg) = args.next() {
             let mut value = || args.next().unwrap_or_default();
@@ -90,6 +96,7 @@ mod window {
                 "--hour" => options.hour = value().parse().ok(),
                 "--window" => options.window = true,
                 "--scale" => options.scale = value().parse().ok(),
+                "--hitch-ms" => options.hitch_ms = value().parse().unwrap_or(33.4),
                 "--levels" => {
                     options.levels = Some(
                         value()
@@ -256,12 +263,13 @@ mod window {
                 options.hour,
                 Some(Duration::from_secs_f32(options.seconds)),
             );
-            let (stats, done, memory, opened, bakes) = (
+            let (stats, done, memory, opened, bakes, tags) = (
                 bench.stats.clone(),
                 bench.done.clone(),
                 bench.memory.clone(),
                 bench.opened.clone(),
                 bench.bakes.clone(),
+                bench.tags.clone(),
             );
             let window = cx.open_window(
                 WindowOptions {
@@ -310,6 +318,15 @@ mod window {
                 println!(
                     "living-stage window {}",
                     world_gpui::diorama::stage_view::bake_summary(&bakes.borrow())
+                );
+                println!(
+                    "living-stage window {}",
+                    world_gpui::diorama::stage_view::hitch_report(
+                        &stats.borrow(),
+                        &tags.borrow(),
+                        options.hitch_ms,
+                        4.0,
+                    )
                 );
                 cx.update(|cx| cx.quit());
             })

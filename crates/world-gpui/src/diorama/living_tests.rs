@@ -265,6 +265,129 @@ fn looks_no_camera_is_near_are_let_go() {
     );
 }
 
+/// A frame does one thing at a time with the looks on their way to the
+/// display: it shows a look whose pictures the display has, or hands more
+/// pictures over, or tells the display to forget pictures let go; never
+/// a look shown on the frame that copies its last pictures. Forgetting
+/// is put off only while a little is waiting.
+#[test]
+fn a_frame_shows_a_look_or_hands_pictures_over_never_both() {
+    use sv::{chores, Chores};
+    assert_eq!(
+        chores(true, true, 10),
+        Chores {
+            swap: true,
+            upload: false,
+            release: 0
+        }
+    );
+    assert_eq!(
+        chores(false, true, 10),
+        Chores {
+            swap: false,
+            upload: true,
+            release: 0
+        }
+    );
+    assert_eq!(
+        chores(false, false, 10),
+        Chores {
+            swap: false,
+            upload: false,
+            release: 10
+        }
+    );
+    // A long queue to forget is forgotten a share a frame regardless.
+    let long = chores(false, true, 10_000);
+    assert!(long.upload && long.release > 0 && long.release < 10_000);
+    assert!(chores(true, false, 10_000).release > 0);
+    assert_eq!(chores(false, false, 0), Chores::default());
+}
+
+/// How much a frame hands to the display follows how fast the display
+/// takes pictures (about a millisecond's worth, within bounds), halves
+/// after a frame that came late, and grows back gradually.
+#[test]
+fn the_upload_budget_follows_the_display_and_backs_off_after_a_late_frame() {
+    use sv::UploadBudget;
+    let mut budget = UploadBudget::default();
+    assert_eq!(budget.bytes, UploadBudget::FIRST);
+    // A fast display: the most, reached a quarter a frame at a time.
+    let mut last = budget.bytes;
+    for _ in 0..40 {
+        budget.adapt(4 << 20, 0.2, Some(8.3));
+        assert!(budget.bytes <= last + last / 4 + 1);
+        last = budget.bytes;
+    }
+    assert_eq!(budget.bytes, UploadBudget::MOST);
+    // A late frame (four times the usual): half as much next.
+    budget.adapt(0, 0.0, Some(40.0));
+    assert_eq!(budget.bytes, UploadBudget::MOST / 2);
+    // A slow display: about a millisecond's worth, never below the least.
+    let mut slow = UploadBudget::default();
+    for _ in 0..40 {
+        slow.adapt(3 << 20, 2.0, Some(16.7));
+    }
+    let ms = (3 << 20) as f64 / 2.0 * UploadBudget::SPEND_MS;
+    assert!((slow.bytes as f64 - ms).abs() < ms * 0.05, "{}", slow.bytes);
+    let mut slowest = UploadBudget::default();
+    for _ in 0..40 {
+        slowest.adapt(1 << 20, 400.0, Some(16.7));
+    }
+    assert_eq!(slowest.bytes, UploadBudget::LEAST);
+    // A display that is always slow (twenty frames a second) is not late.
+    let mut steady = UploadBudget::default();
+    for _ in 0..40 {
+        steady.adapt(4 << 20, 0.2, Some(48.0));
+    }
+    assert_eq!(steady.bytes, UploadBudget::MOST);
+    // Nor one that slows for good: soon its new pace is the usual one.
+    for _ in 0..30 {
+        budget.adapt(4 << 20, 0.2, Some(16.7));
+    }
+    for _ in 0..30 {
+        budget.adapt(4 << 20, 0.2, Some(40.0));
+    }
+    assert_eq!(budget.bytes, UploadBudget::MOST);
+}
+
+/// A bake takes one thread on a machine of four cores or fewer, and
+/// leaves two cores free on a larger one.
+#[test]
+fn a_bake_takes_one_thread_on_a_small_machine() {
+    for cores in 1..=4 {
+        assert_eq!(ls::bake_threads_for(cores), 1);
+    }
+    assert_eq!(ls::bake_threads_for(6), 4);
+    assert_eq!(ls::bake_threads_for(16), 14);
+}
+
+/// The light an hour fades into is baked ahead, before its fade begins,
+/// and only then: never at noon or late at dusk.
+#[test]
+fn the_next_light_is_baked_before_its_fade_begins() {
+    use ls::Light::{Dusk, Night, Noon};
+    let camera = Camera {
+        x: 500.0,
+        y: 400.0,
+        zoom: 1.0,
+        fold: 0.0,
+    };
+    let lights = |hour: f32| {
+        sv::wants(1, (1000.0, 1000.0), camera, None, hour)
+            .into_iter()
+            .map(|want| (want.light, want.shown))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lights(12.0), vec![(Noon, true)]);
+    // Before dusk's fade (16.5): dusk ahead, not shown.
+    assert_eq!(lights(16.0), vec![(Noon, true), (Dusk, false)]);
+    assert_eq!(lights(17.0), vec![(Noon, true), (Dusk, true)]);
+    assert_eq!(lights(19.5), vec![(Dusk, true)]);
+    assert_eq!(lights(20.0), vec![(Dusk, true), (Night, false)]);
+    assert_eq!(lights(4.6), vec![(Night, true), (Noon, false)]);
+}
+
 /// A frame of `snapshot` in a window `view` large, through `camera`, at
 /// `hour`, `seconds` in.
 fn frame_of(

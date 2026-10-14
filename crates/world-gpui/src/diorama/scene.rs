@@ -402,6 +402,7 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     if let Some(stage) = found {
         return stage;
     }
+    LAID_OUT.with(|count| count.set(count.get() + 1));
     let (stage, walks) = lay_out(snapshot, width, height, clock);
     LAID.with(|laid| {
         let mut laid = laid.borrow_mut();
@@ -428,6 +429,16 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         laid.truncate(LAID_KEPT);
     });
     stage
+}
+
+thread_local! {
+    static LAID_OUT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has laid a World out rather than use a
+/// layout it kept.
+pub fn layouts_laid() -> u64 {
+    LAID_OUT.with(|count| count.get())
 }
 
 /// How many layouts a thread keeps: a window's World, how it stood before
