@@ -225,7 +225,9 @@ jobs:
       # The living stage as the World window draws it (v0.30 S1a): looks
       # baked lazily as the camera pans and zooms, residents from their
       # routines, at the runner's display scale and baked for a Retina
-      # display (scale 2) on it: frame plan and pixel memory.
+      # display (scale 2) on it: frame plan and pixel memory, the S1b bar
+      # for 120 Hz (plan p99 at most 4 ms, no interval over 33 ms once the
+      # place shows) and what the looks baked again took from before.
       - name: Run the World window's living stage at display scale 1 and 2
         run: |
           set -o pipefail
@@ -233,7 +235,7 @@ jobs:
             cargo run --locked --release -p living-stage-bench -- --window --scale "$scale" --seconds 40 | tee "living-stage-window-$scale.txt"
           done
           {
-            echo '### Living stage in the World window (S1a): frame plan and pixel memory'
+            echo '### Living stage in the World window (S1a, S1b): frame plan, the 120 Hz bar and pixel memory'
             echo
             echo '```'
             cat living-stage-window-1.txt living-stage-window-2.txt
