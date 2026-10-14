@@ -250,12 +250,28 @@ pub fn wants(
     if level >= SPANNED_FROM {
         out.push(ahead(main(a, 0, view)));
     }
-    let (_, soon, _) = Light::blend(hour + 0.25);
-    if soon != a && !(fading && soon == b) {
-        out.push(ahead(main(soon, level, view)));
+    // The lights of a while ahead, the one the hour fades into first: baked
+    // before the fade begins, so it is ready on its first frame rather
+    // than baked and handed over while the fade runs.
+    let (soon_a, soon_b, soon_t) = Light::blend(hour + LIGHT_AHEAD);
+    for soon in [soon_a, soon_b] {
+        let fades = soon == soon_a || soon_t > 0.002;
+        if fades
+            && soon != a
+            && !(fading && soon == b)
+            && !out
+                .iter()
+                .any(|want| want.light == soon && want.level == level)
+        {
+            out.push(ahead(main(soon, level, view)));
+        }
     }
     out
 }
+
+/// How far ahead of the hour (in hours) the next light is baked: long
+/// enough for a look to bake and reach the display before its fade.
+pub const LIGHT_AHEAD: f32 = 0.75;
 
 /// Where a level is baked: around the middle of what the camera sees, for
 /// a level baked around the camera, or all of the stage.
@@ -537,16 +553,123 @@ struct Posed {
     used: Instant,
 }
 
-/// How many bytes of new pictures a frame hands to the display: enough
-/// that a look arrives in a few frames, few enough that no frame hitches.
-const HAND_PER_FRAME: usize = 4 << 20;
-
-/// And at most this many pictures a frame.
+/// At most this many pictures a frame hands to the display.
 const HAND_IMAGES_PER_FRAME: usize = 48;
 
 /// How many pictures a frame tells the display to forget: a look let go
-/// is forgotten over a few frames, never all in one.
-const FREE_PER_FRAME: usize = 64;
+/// is forgotten over a few frames, never all in one (64 a frame came to
+/// several milliseconds of a frame's plan).
+const FREE_PER_FRAME: usize = 24;
+
+/// Past this many pictures waiting to be forgotten, a frame forgets its
+/// share even while it hands pictures over.
+const FREE_BACKLOG: usize = FREE_PER_FRAME * 4;
+
+/// How many bytes of new pictures a frame hands to the display: enough
+/// that a look arrives in well under a second, few enough that handing
+/// them over (a copy into the display's memory on the window's thread)
+/// takes about a millisecond on this machine. It learns how fast the
+/// display takes pictures from the frames that handed some, and halves
+/// after a frame that came late, growing back after.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UploadBudget {
+    /// The bytes the next frame may hand over.
+    pub bytes: usize,
+    /// How fast the display has taken pictures, in bytes a millisecond.
+    rate: Option<f64>,
+    /// The usual time between frames, in milliseconds.
+    usual: Option<f64>,
+}
+
+impl Default for UploadBudget {
+    fn default() -> Self {
+        Self {
+            bytes: Self::FIRST,
+            rate: None,
+            usual: None,
+        }
+    }
+}
+
+impl UploadBudget {
+    /// The most a frame hands over, however fast the display.
+    pub const MOST: usize = 2 << 20;
+    /// Until the place first shows settled.
+    pub const OPENING: usize = 4 << 20;
+    /// The least: a look still arrives within a second or two.
+    pub const LEAST: usize = 512 << 10;
+    /// Before anything is measured.
+    pub const FIRST: usize = 1 << 20;
+    /// The time a frame may spend handing pictures over, in milliseconds.
+    pub const SPEND_MS: f64 = 1.0;
+
+    /// Learns from a frame: the bytes it handed over and how long that
+    /// took (milliseconds), and the time since the frame before it.
+    pub fn adapt(&mut self, handed: usize, took_ms: f64, interval_ms: Option<f64>) {
+        // Only a handover large enough to time says how fast it goes.
+        if handed >= 64 << 10 && took_ms > 0.01 {
+            let rate = handed as f64 / took_ms;
+            self.rate = Some(self.rate.map_or(rate, |old| old * 0.7 + rate * 0.3));
+        }
+        let mut bytes = self.rate.map_or(Self::FIRST as f64, |rate| {
+            (rate * Self::SPEND_MS).clamp(Self::LEAST as f64, Self::MOST as f64)
+        }) as usize;
+        if let Some(interval) = interval_ms {
+            let usual = self.usual.unwrap_or(interval);
+            if interval > 20.0 && interval > usual * 1.8 {
+                // A late frame: hand over less for a while.
+                bytes = (self.bytes / 2).max(Self::LEAST).min(bytes);
+            } else {
+                // Growing back a quarter a frame, no faster.
+                bytes = bytes.min(self.bytes + self.bytes / 4);
+            }
+            // A display that slows for good (a window behind others, a
+            // slower refresh) is soon usual, and no longer late.
+            self.usual = Some(usual * 0.9 + interval.min(usual * 3.0) * 0.1);
+        }
+        self.bytes = bytes.clamp(Self::LEAST, Self::MOST);
+    }
+}
+
+/// What one frame does with the looks on their way to the display, one
+/// thing at a time, so that no frame both shows a new look for the first
+/// time and copies pictures to the display, or forgets them: `swap` shows
+/// a look whose pictures the display now all has, `upload` hands more
+/// over, `release` is how many pictures let go it tells the display to
+/// forget.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Chores {
+    pub swap: bool,
+    pub upload: bool,
+    pub release: usize,
+}
+
+/// A frame's chores: with a look all handed over (`complete`), showing
+/// it; else with pictures or poses waiting (`waiting`), handing them
+/// over; else forgetting pictures let go (`freeing` of them). Forgetting
+/// is put off only while fewer than [`FREE_BACKLOG`] wait.
+pub fn chores(complete: bool, waiting: bool, freeing: usize) -> Chores {
+    let release = freeing.min(FREE_PER_FRAME);
+    if complete {
+        Chores {
+            swap: true,
+            upload: false,
+            release: if freeing > FREE_BACKLOG { release } else { 0 },
+        }
+    } else if waiting {
+        Chores {
+            swap: false,
+            upload: true,
+            release: if freeing > FREE_BACKLOG { release } else { 0 },
+        }
+    } else {
+        Chores {
+            swap: false,
+            upload: false,
+            release,
+        }
+    }
+}
 
 /// What a frame of the living stage did, beside drawing: for telling what
 /// a late frame or a slow plan came with.
@@ -604,8 +727,17 @@ pub struct Stagehand {
     freeing: Vec<Arc<RenderImage>>,
     /// The bytes of its looks' pictures, until it takes or lets go of one.
     held_bytes: Option<usize>,
-    /// What the last frame did beside drawing.
+    /// Poses baked, waiting their turn to be handed to the display.
+    arriving: Vec<Pose>,
+    /// How much a frame hands to the display.
+    pub budget: UploadBudget,
+    /// When the last frame was, and what it did.
+    last_frame: Option<Instant>,
     pub tags: FrameTags,
+    /// How many items the last plan drew, for the next to start with room.
+    items_hint: usize,
+    /// Whether the stage has settled once since the window opened.
+    opened: bool,
 }
 
 impl Default for Stagehand {
@@ -641,7 +773,12 @@ impl Stagehand {
             log: Vec::new(),
             freeing: Vec::new(),
             held_bytes: None,
+            arriving: Vec::new(),
+            budget: UploadBudget::default(),
+            last_frame: None,
             tags: FrameTags::default(),
+            items_hint: 0,
+            opened: false,
         }
     }
 
@@ -723,17 +860,35 @@ impl Stagehand {
             .as_ref()
             .and_then(|posing| posing.out.lock().ok().and_then(|mut out| out.take()));
         if let Some(posed) = posed {
-            let now = Instant::now();
-            for (key, sprite) in posed {
-                // Drawn, and so handed to the display, this frame.
-                if let Some(sprite) = &sprite {
-                    self.tags.uploaded += 1;
-                    self.tags.uploaded_bytes += sprite.bytes();
-                }
-                self.poses.insert(key, Posed { sprite, used: now });
-            }
+            // Handed to the display a frame's share at a time, like a look.
+            self.arriving.extend(posed);
             self.posing = None;
         }
+    }
+
+    /// Takes in poses waiting their turn, up to `budget` bytes of them
+    /// (at least one), returning the bytes and how many came with a
+    /// picture. Each is drawn, and so handed to the display, this frame.
+    fn admit_poses(&mut self, budget: &mut usize, count: &mut usize) -> (usize, usize) {
+        let now = Instant::now();
+        let (mut bytes, mut pictures) = (0, 0);
+        while let Some((_, sprite)) = self.arriving.last() {
+            let size = sprite.as_ref().map_or(0, Sprite::bytes);
+            if *count == 0 || (size > *budget && pictures > 0) {
+                break;
+            }
+            let Some((key, sprite)) = self.arriving.pop() else {
+                break;
+            };
+            if sprite.is_some() {
+                pictures += 1;
+                *count -= 1;
+            }
+            bytes += size;
+            *budget = budget.saturating_sub(size);
+            self.poses.insert(key, Posed { sprite, used: now });
+        }
+        (bytes, pictures)
     }
 
     /// Holds a look just baked, not yet ready until the display has it.
@@ -972,34 +1127,105 @@ impl Stagehand {
     /// Hands the next share of each look on its way to the display, up to
     /// a frame's worth of bytes, returning those pictures; a look all of
     /// whose pictures the display has is ready.
-    fn hand_over(&mut self, now: bool) -> Vec<Arc<RenderImage>> {
+    ///
+    /// A look all of whose pictures were handed over on earlier frames is
+    /// shown on a frame that hands nothing over (see [`chores`]); right
+    /// here (`now`), everything is handed over and shown at once.
+    fn hand_over(&mut self, now: bool, chores: Chores) -> Vec<Arc<RenderImage>> {
         let mut out = Vec::new();
-        let mut budget = HAND_PER_FRAME;
+        if now {
+            for slot in &mut self.slots {
+                slot.handed = slot.images.len();
+                slot.held.ready = true;
+            }
+            let stamp = Instant::now();
+            for (key, sprite) in self.arriving.drain(..) {
+                self.poses.insert(
+                    key,
+                    Posed {
+                        sprite,
+                        used: stamp,
+                    },
+                );
+            }
+            return out;
+        }
+        if chores.swap {
+            for slot in &mut self.slots {
+                if !slot.held.ready && slot.handed >= slot.images.len() {
+                    slot.held.ready = true;
+                    self.tags.swapped = true;
+                }
+            }
+            return out;
+        }
+        if !chores.upload {
+            return out;
+        }
+        // Until the place first shows settled (the loading wash, then
+        // everyone's first poses), as fast as the display takes them.
+        let mut budget = if !self.opened {
+            UploadBudget::OPENING
+        } else {
+            self.budget.bytes
+        };
         let mut count = HAND_IMAGES_PER_FRAME;
+        let mut full = false;
         for slot in &mut self.slots {
-            if slot.held.ready {
+            if slot.held.ready || full {
                 continue;
             }
-            if now {
-                slot.handed = slot.images.len();
-            }
-            while slot.handed < slot.images.len() && budget > 0 && count > 0 {
-                count -= 1;
+            while slot.handed < slot.images.len() && count > 0 {
                 let image = slot.images[slot.handed].clone();
                 let size = image.size(0);
                 let bytes = (size.width.0.max(0) as usize) * (size.height.0.max(0) as usize) * 4;
+                // A picture larger than what is left waits for the next
+                // frame, unless it is the frame's first.
+                if bytes > budget && self.tags.uploaded > 0 {
+                    full = true;
+                    break;
+                }
+                count -= 1;
                 budget = budget.saturating_sub(bytes.max(1));
                 self.tags.uploaded += 1;
                 self.tags.uploaded_bytes += bytes;
                 out.push(image);
                 slot.handed += 1;
             }
-            if slot.handed >= slot.images.len() {
-                slot.held.ready = true;
-                self.tags.swapped |= !now;
-            }
         }
+        // Then poses, at least one a frame: a resident with none is drawn
+        // live meanwhile, which costs the window's thread more.
+        let (bytes, pictures) = self.admit_poses(&mut budget, &mut count);
+        self.tags.uploaded += pictures;
+        self.tags.uploaded_bytes += bytes;
         out
+    }
+
+    /// Whether a look's pictures are all with the display, not shown yet.
+    fn complete(&self) -> bool {
+        self.slots
+            .iter()
+            .any(|slot| !slot.held.ready && slot.handed >= slot.images.len())
+    }
+
+    /// Whether pictures or poses wait to be handed to the display.
+    fn uploads_waiting(&self) -> bool {
+        !self.arriving.is_empty()
+            || self
+                .slots
+                .iter()
+                .any(|slot| !slot.held.ready && slot.handed < slot.images.len())
+    }
+
+    /// Learns from what handing pictures over took on the frame before
+    /// (`handed` bytes in `took_ms`), timed where they were drawn.
+    pub fn learn_upload(&mut self, handed: usize, took_ms: f64) {
+        let now = Instant::now();
+        let interval = self
+            .last_frame
+            .map(|last| now.duration_since(last).as_secs_f64() * 1000.0);
+        self.last_frame = Some(now);
+        self.budget.adapt(handed, took_ms, interval);
     }
 
     /// The look to draw for `want`, if any is ready.
@@ -1021,6 +1247,7 @@ impl Stagehand {
                 .posing
                 .as_ref()
                 .is_some_and(|posing| posing.keys.contains(&key))
+            && !self.arriving.iter().any(|(arriving, _)| *arriving == key)
         {
             self.asked.push((key, person.clone()));
         }
@@ -1163,13 +1390,14 @@ impl Stagehand {
             wants
         };
         self.schedule(&wants, now);
-        let ahead = self.hand_over(now);
+        let chores = chores(self.complete(), self.uploads_waiting(), self.freeing.len());
+        let ahead = self.hand_over(now, chores);
         let gone = self.evict(&wants);
         self.freeing.extend(gone);
         let take = if now {
             self.freeing.len()
         } else {
-            self.freeing.len().min(FREE_PER_FRAME)
+            chores.release.min(self.freeing.len())
         };
         let gone = self.freeing.drain(..take).collect::<Vec<_>>();
         self.tags.released = gone.len();
@@ -1189,8 +1417,13 @@ impl Stagehand {
             .all(|want| held.iter().any(|h| h.ready && h.answers(want)))
             && self.baking.is_none()
             && self.asked.is_empty()
-            && self.posing.is_none();
-        let waiting = !settled || held.iter().any(|h| !h.ready);
+            && self.posing.is_none()
+            && self.arriving.is_empty();
+        self.opened |= settled;
+        let waiting = !settled
+            || held.iter().any(|h| !h.ready)
+            || !self.arriving.is_empty()
+            || !self.freeing.is_empty();
         self.tags.baking = if self.baking.is_some() {
             ls::bake_threads()
         } else {
@@ -1451,7 +1684,9 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             .map(|view| (view.clone(), 1.0, None))
     };
     let full = (0.0, 0.0, vw, vh);
-    let mut items: Vec<Item> = Vec::new();
+    // Room for as many items as the last frame drew: growing the list a
+    // piece at a time copies it again and again.
+    let mut items: Vec<Item> = Vec::with_capacity(hand.items_hint + hand.items_hint / 8);
     let mut moving = 0;
     let mut live_drawn = 0;
     // The frame itself unless it folds into rows: a frame is every
@@ -1875,6 +2110,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
         }
     }
     hand.tags.live += live_drawn;
+    hand.items_hint = items.len();
     (
         Plan {
             layers: ls::compose(items),
@@ -2036,6 +2272,11 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
             // Another display: every look is baked again at its scale.
             *hand = Stagehand::new(dpr);
         }
+        let (handed, took) = HANDED
+            .with(|handed| handed.take())
+            .filter(|(window, ..)| *window == id)
+            .map_or((0, 0.0), |(_, bytes, took)| (bytes, took));
+        hand.learn_upload(handed, took);
         let out = hand.frame(&frame, snapshot, sync);
         LAST_TAGS.with(|last| last.set(hand.tags));
         out
@@ -2062,7 +2303,20 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
         root = root.child(
             gpui::canvas(
                 |_, _, _| (),
-                move |bounds, _, window, _| ls::warm(&ahead, bounds, window),
+                move |bounds, _, window, _| {
+                    // Timed, for how much the next frames hand over.
+                    let began = Instant::now();
+                    ls::warm(&ahead, bounds, window);
+                    let took = began.elapsed().as_secs_f64() * 1000.0;
+                    let bytes = ahead
+                        .iter()
+                        .map(|image| {
+                            let size = image.size(0);
+                            (size.width.0.max(0) as usize) * (size.height.0.max(0) as usize) * 4
+                        })
+                        .sum();
+                    HANDED.with(|handed| handed.set(Some((id, bytes, took))));
+                },
             )
             .absolute()
             .size_full(),
@@ -2131,6 +2385,9 @@ thread_local! {
     /// What the last frame of the living stage on this thread did beside
     /// drawing.
     static LAST_TAGS: std::cell::Cell<FrameTags> = std::cell::Cell::new(FrameTags::default());
+    /// The pictures the last frame handed to the display: in which
+    /// window, their bytes, and how long that took (milliseconds).
+    static HANDED: std::cell::Cell<Option<(u64, usize, f64)>> = const { std::cell::Cell::new(None) };
 }
 
 /// What the last frame of the living stage on this thread did beside
