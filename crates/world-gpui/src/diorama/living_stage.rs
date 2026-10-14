@@ -70,7 +70,7 @@ impl Light {
         }
     }
 
-    fn daylight(self) -> Daylight {
+    pub(crate) fn daylight(self) -> Daylight {
         match self {
             Light::Noon => Daylight::Day,
             Light::Dusk => Daylight::Dusk,
@@ -118,7 +118,7 @@ impl Sprite {
     /// A sprite of `pixmap`, whose top-left is the stage point `origin` at
     /// `scale` device pixels a stage pixel, cut to what it paints. Nothing
     /// if it paints nothing.
-    fn cropped(pixmap: sk::Pixmap, origin: (f32, f32), scale: f32) -> Option<Self> {
+    pub(crate) fn cropped(pixmap: sk::Pixmap, origin: (f32, f32), scale: f32) -> Option<Self> {
         let (pixmap, (dx, dy)) = crop(pixmap)?;
         Some(Self::whole(
             pixmap,
@@ -213,8 +213,8 @@ pub struct Look {
     /// Buildings, back to front, each by its item.
     pub buildings: Vec<(usize, Sprite)>,
     /// Lit windows' halos and their pools of light, each in one of
-    /// [`GLOW_GROUPS`] flickering together.
-    pub glow: Vec<(usize, Sprite)>,
+    /// [`GLOW_GROUPS`] flickering together, by the building they are of.
+    pub glow: Vec<(usize, usize, Sprite)>,
     /// Things, back to front, each by its item and whether it rides the
     /// swell.
     pub things: Vec<(usize, bool, Sprite)>,
@@ -232,6 +232,57 @@ pub struct Look {
     /// strip from the water's edge to the foot of the stage, the same all
     /// the way across, stretched to the window's width.
     pub water: Option<Sprite>,
+    /// What of the place it was baked of.
+    pub cut: Cut,
+    /// Where each building and thing stood as it was baked, by item: its
+    /// middle, its foot and how wide it was (a building's height too).
+    pub anchors: std::collections::HashMap<usize, Anchor>,
+}
+
+/// Where a building or thing stood as it was baked: its middle, its foot,
+/// how wide and how tall (0 for a thing).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub x: f32,
+    pub base: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// What of a place one look is baked of.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cut {
+    /// Only what stands over this stretch of the stage (from, to, in
+    /// stage pixels), or all of it. A close zoom level is baked around the
+    /// camera only: the whole of a long place that close is hundreds of
+    /// megabytes.
+    pub span: Option<(f32, f32)>,
+    /// Every resident's poses (the benchmark's walkers), or none (the
+    /// World window bakes the poses its residents strike as it needs them).
+    pub people: bool,
+    /// Only the land, its field fading in at the top: a nearer row of a
+    /// folded postcard, which runs on from the row behind with no seam.
+    pub fold_land: bool,
+}
+
+impl Cut {
+    /// All of the place, everyone's poses with it.
+    pub const WHOLE: Cut = Cut {
+        span: None,
+        people: true,
+        fold_land: false,
+    };
+
+    /// Whether something reaching from stage `x0` to `x1` is in the cut.
+    pub fn holds(&self, x0: f32, x1: f32) -> bool {
+        self.span.is_none_or(|(from, to)| x1 >= from && x0 <= to)
+    }
+
+    /// Whether the cut shows all of the stage from `x0` to `x1`.
+    pub fn covers(&self, x0: f32, x1: f32) -> bool {
+        self.span
+            .is_none_or(|(from, to)| x0 >= from - 0.5 && x1 <= to + 0.5)
+    }
 }
 
 impl Look {
@@ -243,7 +294,7 @@ impl Look {
             .chain(&self.shadows)
             .chain(&self.back)
             .chain(self.buildings.iter().map(|(_, sprite)| sprite))
-            .chain(self.glow.iter().map(|(_, sprite)| sprite))
+            .chain(self.glow.iter().map(|(_, _, sprite)| sprite))
             .chain(self.things.iter().map(|(_, _, sprite)| sprite))
             .chain(&self.front)
             .chain(self.people.iter().flat_map(|poses| {
@@ -281,7 +332,10 @@ impl Look {
                 "buildings",
                 self.buildings.iter().map(|(_, sprite)| sprite).collect(),
             ),
-            of("glow", self.glow.iter().map(|(_, sprite)| sprite).collect()),
+            of(
+                "glow",
+                self.glow.iter().map(|(_, _, sprite)| sprite).collect(),
+            ),
             of(
                 "things",
                 self.things.iter().map(|(_, _, sprite)| sprite).collect(),
@@ -313,6 +367,11 @@ impl Look {
 
     pub fn bytes(&self) -> usize {
         self.sprites().map(Sprite::bytes).sum()
+    }
+
+    /// Every image of it.
+    pub fn images(&self) -> Vec<Arc<RenderImage>> {
+        self.sprites().map(|sprite| sprite.image.clone()).collect()
     }
 }
 
@@ -411,6 +470,43 @@ impl Baked {
     pub fn walking_looks(&self) -> usize {
         self.residents.len().min(WALKING_LOOKS)
     }
+
+    /// The ground every building stands on (see [`footprint`]).
+    pub fn footprints(&self) -> Vec<(f32, f32, f32, f32)> {
+        self.looks
+            .first()
+            .map(|look| {
+                look.anchors
+                    .values()
+                    .filter(|anchor| anchor.h > 0.0)
+                    .map(|anchor| footprint(anchor.x, anchor.base, anchor.w, anchor.h))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// A lane for someone walking the whole stage with their feet at `feet`,
+/// kept within `(least, most)`: as near it as it can be without crossing
+/// any of `footprints` (every building's ground).
+pub fn free_lane(footprints: &[(f32, f32, f32, f32)], feet: f32, (least, most): (f32, f32)) -> f32 {
+    let clear = |y: f32| {
+        footprints
+            .iter()
+            .all(|(_, back, _, front)| y <= *back || y >= *front)
+    };
+    if clear(feet) {
+        return feet;
+    }
+    // Just in front of or just behind whatever it would cross, the nearest
+    // that is clear and in bounds.
+    let mut edges = footprints
+        .iter()
+        .flat_map(|(_, back, _, front)| [*back - 0.5, *front + 0.5])
+        .filter(|y| *y >= least && *y <= most && clear(*y))
+        .collect::<Vec<_>>();
+    edges.sort_by(|a, b| (a - feet).abs().total_cmp(&(b - feet).abs()));
+    edges.first().copied().unwrap_or(feet)
 }
 
 /// The hour the stage puts people where they are: out and about.
@@ -554,7 +650,7 @@ pub fn bake(
     for level in levels {
         for (light, frame, living) in &frames {
             let started = Instant::now();
-            let look = bake_look(frame, &stage, living, *light, *level, view);
+            let look = bake_look(frame, &stage, living, *light, *level, view, Cut::WHOLE);
             stats.push(BakeStat {
                 light: *light,
                 scale: *level,
@@ -591,39 +687,43 @@ pub fn bake(
     }
 }
 
-/// Bakes one light at one scale.
-fn bake_look(
+/// Bakes one light at one scale, of what `cut` holds.
+pub(crate) fn bake_look(
     frame: &Frame,
     stage: &Stage,
     living: &[Living],
     light: Light,
     scale: f32,
     (vw, vh): (f32, f32),
+    cut: Cut,
 ) -> Look {
     type Job<'a> = Box<dyn FnOnce() -> Vec<Piece> + Send + 'a>;
     let mut jobs: Vec<Job> = Vec::new();
     let tint = frame.light();
+    let whole = !cut.fold_land;
     // The sky, soft all over: a third of the display's resolution.
-    jobs.push(Box::new(move || {
-        let s = (scale * SKY_RES).max(0.5);
-        let Some(mut canvas) = Canvas::new(
-            (vw * s).ceil() as u32,
-            (vh * s).ceil() as u32,
-            s,
-            (0.0, 0.0),
-        ) else {
-            return Vec::new();
-        };
-        paint_sky_on(&mut canvas, (0, 0), frame, vw, vh);
-        vec![Piece::Sky(Sprite::whole(canvas.pixmap, (0.0, 0.0), s))]
-    }));
+    if whole {
+        jobs.push(Box::new(move || {
+            let s = (scale * SKY_RES).max(0.5);
+            let Some(mut canvas) = Canvas::new(
+                (vw * s).ceil() as u32,
+                (vh * s).ceil() as u32,
+                s,
+                (0.0, 0.0),
+            ) else {
+                return Vec::new();
+            };
+            paint_sky_on(&mut canvas, (0, 0), frame, vw, vh);
+            vec![Piece::Sky(Sprite::whole(canvas.pixmap, (0.0, 0.0), s))]
+        }));
+    }
     // The far hills, in strips a texture wide.
     let band = Band::of(frame, vw, vh);
     let hill_scale = (scale * 0.5).max(1.0);
     let tall = band.above + band.below;
     let strip = 1024.0 / hill_scale;
     let mut x0 = 0.0;
-    while x0 < band.w {
+    while whole && x0 < band.w {
         let w = strip.min(band.w - x0);
         let band = Band::of(frame, vw, vh);
         jobs.push(Box::new(move || {
@@ -648,7 +748,11 @@ fn bake_look(
     // in its own tiles (each a pixel larger all round, shown cut to its
     // own square so neighbours blend real pixels where they meet).
     let land_scale = scale * 0.5;
-    let tiles = tiles_of_stage(frame, Layer::Land, land_scale);
+    let tile_w = TILE as f32 / land_scale;
+    let tiles = tiles_of_stage(frame, Layer::Land, land_scale)
+        .into_iter()
+        .filter(|(column, _)| cut.holds(*column as f32 * tile_w, (*column + 1) as f32 * tile_w))
+        .collect::<Vec<_>>();
     for chunk in tiles.chunks(8) {
         let chunk = chunk.to_vec();
         jobs.push(Box::new(move || {
@@ -680,11 +784,24 @@ fn bake_look(
     }
     // Each building: its shadow (soft, at the land's resolution), its lit
     // sprite, and in a lit hour the halo of its windows.
-    for building in frame.buildings.iter().filter(|b| !b.moving()) {
+    let mut anchors = std::collections::HashMap::new();
+    let reach_of = |w: f32, h: f32| w * 0.72 + h * 1.1;
+    for building in frame.buildings.iter().filter(|b| {
+        whole && !b.moving() && cut.holds(b.x - reach_of(b.w, b.h), b.x + reach_of(b.w, b.h))
+    }) {
+        anchors.insert(
+            building.index,
+            Anchor {
+                x: building.x,
+                base: building.base,
+                w: building.w,
+                h: building.h,
+            },
+        );
         jobs.push(Box::new(move || {
             let mut out = Vec::new();
             let (w, h) = (building.w, building.h);
-            let reach = w * 0.72 + h * 1.1;
+            let reach = reach_of(w, h);
             let (left, top) = (building.x - reach, building.base - h * 0.2);
             if let Some(mut canvas) = Canvas::new(
                 (reach * 2.0 * land_scale).ceil() as u32,
@@ -726,7 +843,20 @@ fn bake_look(
         }));
     }
     // Things, lit as the live layer lights them.
-    for thing in &frame.things {
+    for thing in frame
+        .things
+        .iter()
+        .filter(|t| whole && cut.holds(t.x - t.w, t.x + t.w))
+    {
+        anchors.insert(
+            thing.index,
+            Anchor {
+                x: thing.x,
+                base: thing.base,
+                w: thing.w,
+                h: 0.0,
+            },
+        );
         jobs.push(Box::new(move || {
             bake_thing(frame, thing, scale, tint)
                 .map(|sprite| {
@@ -753,7 +883,9 @@ fn bake_look(
     let side = 384.0 / scale;
     let columns = (frame.width / side).ceil() as i32;
     let rows = ((vh - top) / side).ceil() as i32;
-    for column in 0..columns {
+    for column in (0..columns)
+        .filter(|column| whole && cut.holds(*column as f32 * side, (*column + 1) as f32 * side))
+    {
         jobs.push(Box::new(move || {
             let mut out = Vec::new();
             for row in 0..rows {
@@ -780,7 +912,7 @@ fn bake_look(
     }
     // People: every resident standing each way, and the first few walking.
     let mut nth = 0;
-    for (spot, _) in stage.people.iter().zip(living) {
+    for (spot, _) in stage.people.iter().zip(living).filter(|_| cut.people) {
         let Some(person) = frame.people.iter().find(|p| p.index == spot.index) else {
             continue;
         };
@@ -795,73 +927,77 @@ fn bake_look(
         }));
     }
     // A chimney's puff through its life, and a glint on the water.
-    jobs.push(Box::new(move || {
-        let night = frame.daylight == Daylight::Night;
-        let smoke = if night {
-            art::hex(0x8a90a0)
-        } else {
-            art::hex(0xcfcbc6)
-        };
-        let w = frame.building_h.max(1.0) * 0.8;
-        let puffs = (0..PUFF_STAGES)
-            .filter_map(|stage| {
-                let age = (stage as f32 + 0.5) / PUFF_STAGES as f32;
-                let r = w * (0.045 + age * 0.08);
-                let room = r * 1.8;
-                let mut canvas = Canvas::new(
-                    (room * 2.0 * scale).ceil() as u32,
-                    (room * 2.0 * scale).ceil() as u32,
-                    scale,
-                    (-room, -room),
-                )?;
-                canvas.window_soft = true;
-                canvas.soft(
-                    0.0,
-                    0.0,
-                    r,
-                    r * 0.85,
-                    r * 0.5,
-                    smoke.opacity(0.6 * (1.0 - age) * (0.3 + 0.7 * (age * 6.0).min(1.0))),
-                );
-                Some(Sprite::whole(canvas.pixmap, (-room, -room), scale))
-            })
-            .collect::<Vec<_>>();
-        let mut out = vec![Piece::Puffs(puffs)];
-        let shimmer = gpui::white().opacity(if night { 0.12 } else { 0.3 });
-        if let Some(mut canvas) = Canvas::new(
-            (40.0 * scale).ceil() as u32,
-            (6.0 * scale).ceil() as u32,
-            scale,
-            (-20.0, -3.0),
-        ) {
-            canvas.window_soft = true;
-            canvas.soft(0.0, 0.0, 13.0, 1.2, 1.5, shimmer);
-            out.push(Piece::Glint(Sprite::whole(
-                canvas.pixmap,
-                (-20.0, -3.0),
+    if whole {
+        jobs.push(Box::new(move || {
+            let night = frame.daylight == Daylight::Night;
+            let smoke = if night {
+                art::hex(0x8a90a0)
+            } else {
+                art::hex(0xcfcbc6)
+            };
+            let w = frame.building_h.max(1.0) * 0.8;
+            let puffs = (0..PUFF_STAGES)
+                .filter_map(|stage| {
+                    let age = (stage as f32 + 0.5) / PUFF_STAGES as f32;
+                    let r = w * (0.045 + age * 0.08);
+                    let room = r * 1.8;
+                    let mut canvas = Canvas::new(
+                        (room * 2.0 * scale).ceil() as u32,
+                        (room * 2.0 * scale).ceil() as u32,
+                        scale,
+                        (-room, -room),
+                    )?;
+                    canvas.window_soft = true;
+                    canvas.soft(
+                        0.0,
+                        0.0,
+                        r,
+                        r * 0.85,
+                        r * 0.5,
+                        smoke.opacity(0.6 * (1.0 - age) * (0.3 + 0.7 * (age * 6.0).min(1.0))),
+                    );
+                    Some(Sprite::whole(canvas.pixmap, (-room, -room), scale))
+                })
+                .collect::<Vec<_>>();
+            let mut out = vec![Piece::Puffs(puffs)];
+            let shimmer = gpui::white().opacity(if night { 0.12 } else { 0.3 });
+            if let Some(mut canvas) = Canvas::new(
+                (40.0 * scale).ceil() as u32,
+                (6.0 * scale).ceil() as u32,
                 scale,
-            )));
-        }
-        // The light on the water: the same all the way across, so a strip
-        // a few pixels wide, at the land's resolution.
-        let deep = vh - frame.front;
-        if frame.water && deep > 1.0 {
-            let s = land_scale.max(0.5);
-            let wide = WATER_STRIP as f32 / s;
-            if let Some(mut canvas) =
-                Canvas::new(WATER_STRIP, (deep * s).ceil() as u32, s, (0.0, frame.front))
-            {
-                if paint_dusk_water(&mut canvas, frame, -wide, wide * 3.0, frame.front, vh) > 0.0 {
-                    out.push(Piece::Water(Sprite::whole(
-                        canvas.pixmap,
-                        (0.0, frame.front),
-                        s,
-                    )));
+                (-20.0, -3.0),
+            ) {
+                canvas.window_soft = true;
+                canvas.soft(0.0, 0.0, 13.0, 1.2, 1.5, shimmer);
+                out.push(Piece::Glint(Sprite::whole(
+                    canvas.pixmap,
+                    (-20.0, -3.0),
+                    scale,
+                )));
+            }
+            // The light on the water: the same all the way across, so a strip
+            // a few pixels wide, at the land's resolution.
+            let deep = vh - frame.front;
+            if frame.water && deep > 1.0 {
+                let s = land_scale.max(0.5);
+                let wide = WATER_STRIP as f32 / s;
+                if let Some(mut canvas) =
+                    Canvas::new(WATER_STRIP, (deep * s).ceil() as u32, s, (0.0, frame.front))
+                {
+                    if paint_dusk_water(&mut canvas, frame, -wide, wide * 3.0, frame.front, vh)
+                        > 0.0
+                    {
+                        out.push(Piece::Water(Sprite::whole(
+                            canvas.pixmap,
+                            (0.0, frame.front),
+                            s,
+                        )));
+                    }
                 }
             }
-        }
-        out
-    }));
+            out
+        }));
+    }
     let mut look = Look {
         light,
         scale,
@@ -878,6 +1014,8 @@ fn bake_look(
         puffs: Vec::new(),
         glint: None,
         water: None,
+        cut,
+        anchors,
     };
     let mut people = Vec::new();
     let mut buildings = Vec::new();
@@ -925,6 +1063,7 @@ fn bake_look(
             }
             Some((
                 group,
+                at.1,
                 Sprite::cropped(halo.pixmap, halo.origin, halo.scale)?,
             ))
         })
@@ -1397,6 +1536,7 @@ impl Walkers {
         let count = (in_view as f32 * baked.width / baked.view.0.max(1.0)).ceil() as usize;
         let p = baked.figure_h;
         let spine = (baked.front - baked.feet).max(p * 0.2);
+        let footprints = baked.footprints();
         Self(
             (0..count)
                 .map(|n| {
@@ -1408,7 +1548,13 @@ impl Walkers {
                         look: n % looks,
                         from: hash(2) * baked.width,
                         speed: p * STROLL * pace * if hash(3) < 0.5 { -1.0 } else { 1.0 },
-                        lane: -p * 0.3 + (spine * 0.8 + p * 0.3) * hash(4),
+                        // A walker crosses the whole stage in their lane, so it
+                        // keeps clear of every building's ground.
+                        lane: free_lane(
+                            &footprints,
+                            baked.feet - p * 0.3 + (spine * 0.8 + p * 0.3) * hash(4),
+                            (baked.feet - p * 0.3, baked.front),
+                        ) - baked.feet,
                         phase: hash(5),
                     }
                 })
@@ -1457,14 +1603,6 @@ impl View {
             y: self.y.clamp(half_h, (vh - half_h).max(half_h)),
         }
     }
-
-    fn at(&self, baked: &Baked, x: f32, y: f32) -> (f32, f32) {
-        let (vw, vh) = baked.view;
-        (
-            (x - self.x) * self.zoom + vw / 2.0,
-            (y - self.y) * self.zoom + vh / 2.0,
-        )
-    }
 }
 
 /// What one frame of the living stage shows.
@@ -1477,16 +1615,53 @@ pub struct Shot {
     pub dpr: f32,
 }
 
-/// One image drawn: where on screen (in points, from the scene's corner),
-/// and the part of that shown.
+/// Something one frame draws: a baked picture where on screen (in
+/// points, from the scene's corner) and the part of that shown, or
+/// something drawn live within `rect` (a building rising into place, a
+/// design on its cloth, the haze between a postcard's rows).
 #[derive(Clone)]
-pub struct Draw {
-    pub image: Arc<RenderImage>,
-    pub rect: Rect,
-    pub clip: Option<Rect>,
+pub enum Draw {
+    Image {
+        image: Arc<RenderImage>,
+        rect: Rect,
+        clip: Option<Rect>,
+    },
+    Live {
+        rect: Rect,
+        paint: Rc<LiveDraw>,
+    },
 }
 
-/// Images drawn together at one opacity: one pass.
+/// Live drawing: the window, and the scene's top-left corner and size.
+pub type LiveDraw = dyn Fn(&mut Window, Rect);
+
+impl Draw {
+    pub fn image(image: Arc<RenderImage>, rect: Rect, clip: Option<Rect>) -> Self {
+        Draw::Image { image, rect, clip }
+    }
+
+    /// What of the screen it can touch.
+    pub fn bounds(&self) -> Rect {
+        match self {
+            Draw::Image { rect, clip, .. } => clip.map_or(*rect, |clip| intersection(*rect, clip)),
+            Draw::Live { rect, .. } => *rect,
+        }
+    }
+}
+
+/// Where two rectangles meet (nothing wide if they do not).
+pub(crate) fn intersection(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.max(b.0), a.1.max(b.1));
+    let (x1, y1) = ((a.0 + a.2).min(b.0 + b.2), (a.1 + a.3).min(b.1 + b.3));
+    (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+}
+
+/// Whether two rectangles overlap.
+fn meets(a: &Rect, b: &Rect) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// Everything drawn together at one opacity: one pass.
 #[derive(Clone, Default)]
 pub struct Pass {
     pub opacity: f32,
@@ -1508,8 +1683,335 @@ impl Plan {
     }
 }
 
-/// Works out one frame of the living stage: every image it draws, back to
-/// front, a layer per light where two lights cross-fade.
+/// One picture of a frame, in painter's order, drawn at `opacity`.
+#[derive(Clone)]
+pub struct Item {
+    pub opacity: f32,
+    pub draw: Draw,
+}
+
+/// Puts `items`, in painter's order, into as few passes as keeps that
+/// order (GPUI has no per-image opacity: a pass is a layer at one).
+///
+/// Each item goes into the first pass at its opacity that comes no
+/// earlier than the last pass holding anything it overlaps: so whatever
+/// it overlaps is drawn before it, exactly as if every item were drawn one
+/// by one in order. Two lights cross-fading are then each picture drawn
+/// whole in the first light and its second light faded straight over it,
+/// before anything in front of it: nobody shows through whoever stands in
+/// front of them, and pictures that do not overlap share their passes, so
+/// a frame has as many passes as its crowd is deep, not as it is many.
+pub fn compose(items: impl IntoIterator<Item = Item>) -> Vec<Pass> {
+    // Each pass, and the box around everything in it.
+    let mut passes: Vec<(Pass, Rect)> = Vec::new();
+    for item in items {
+        if item.opacity <= 0.001 {
+            continue;
+        }
+        let rect = item.draw.bounds();
+        if rect.2 <= 0.0 || rect.3 <= 0.0 {
+            continue;
+        }
+        let floor = passes
+            .iter()
+            .rposition(|(pass, bounds)| {
+                meets(bounds, &rect) && pass.draws.iter().any(|draw| meets(&draw.bounds(), &rect))
+            })
+            .unwrap_or(0);
+        let at = passes[floor..]
+            .iter()
+            .position(|(pass, _)| pass.opacity == item.opacity)
+            .map(|at| at + floor);
+        match at {
+            Some(at) => {
+                let (pass, bounds) = &mut passes[at];
+                *bounds = union(*bounds, rect);
+                pass.draws.push(item.draw);
+            }
+            None => passes.push((
+                Pass {
+                    opacity: item.opacity,
+                    draws: vec![item.draw],
+                },
+                rect,
+            )),
+        }
+    }
+    passes.into_iter().map(|(pass, _)| pass).collect()
+}
+
+/// The box around two rectangles.
+fn union(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+    let (x1, y1) = ((a.0 + a.2).max(b.0 + b.2), (a.1 + a.3).max(b.1 + b.3));
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+/// What stands on the stage at a depth: the props along the spine, a
+/// building, a thing or a person, with the pictures it draws (in both
+/// lights, its glow, a design it wears).
+pub struct Deep {
+    /// Where its foot stands: further down is nearer.
+    pub at: f32,
+    /// Which comes first where two stand level: [`Rank`].
+    pub rank: Rank,
+    /// Who or what it is, so the same stage draws in the same order every
+    /// frame and in every light.
+    pub who: usize,
+    pub items: Vec<Item>,
+}
+
+/// What a deep thing is, in the order things standing level are drawn:
+/// the props along the spine, then buildings, things, people.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Rank {
+    Props,
+    Building,
+    Thing,
+    Person,
+}
+
+/// Everything standing on the stage, back to front: whatever stands
+/// further back first, so a building in front of someone hides them and
+/// someone in front of it stands over it (the S0 spike drew everyone over
+/// every building: a walker on a tower's door).
+pub fn in_depth(mut deep: Vec<Deep>) -> impl Iterator<Item = Item> {
+    deep.sort_by(|a, b| {
+        a.at.total_cmp(&b.at)
+            .then(a.rank.cmp(&b.rank))
+            .then(a.who.cmp(&b.who))
+    });
+    deep.into_iter().flat_map(|deep| deep.items)
+}
+
+/// A camera on the stage as a window of `view` sees it: what of the stage
+/// it shows, and where a stage rectangle lands on screen.
+#[derive(Clone, Copy, Debug)]
+pub struct Lens {
+    pub x: f32,
+    pub y: f32,
+    pub zoom: f32,
+    pub view: (f32, f32),
+}
+
+impl Lens {
+    /// The stage it shows: left, top, right, bottom.
+    pub fn seen(&self) -> (f32, f32, f32, f32) {
+        let (vw, vh) = self.view;
+        (
+            self.x - vw / (2.0 * self.zoom),
+            self.y - vh / (2.0 * self.zoom),
+            self.x + vw / (2.0 * self.zoom),
+            self.y + vh / (2.0 * self.zoom),
+        )
+    }
+
+    /// Where a stage point lands on screen.
+    pub fn at(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            (x - self.x) * self.zoom + self.view.0 / 2.0,
+            (y - self.y) * self.zoom + self.view.1 / 2.0,
+        )
+    }
+
+    /// Where a stage rectangle lands on screen, if it is in view.
+    pub fn place(&self, rect: Rect) -> Option<Rect> {
+        let (left, top, right, bottom) = self.seen();
+        if rect.0 > right || rect.0 + rect.2 < left || rect.1 > bottom || rect.1 + rect.3 < top {
+            return None;
+        }
+        let (x, y) = self.at(rect.0, rect.1);
+        Some((x, y, rect.2 * self.zoom, rect.3 * self.zoom))
+    }
+
+    /// A sprite standing on the stage, drawn where it is, if in view.
+    pub fn draw(&self, sprite: &Sprite) -> Option<Draw> {
+        Some(Draw::image(
+            sprite.image.clone(),
+            self.place(sprite.rect)?,
+            sprite.clip.and_then(|clip| self.place(clip)),
+        ))
+    }
+
+    /// A sprite standing on the stage, moved by (`dx`, `dy`) stage pixels
+    /// and grown `k` times about (`ax`, `ay`), if in view.
+    pub fn draw_moved(
+        &self,
+        sprite: &Sprite,
+        (dx, dy): (f32, f32),
+        k: f32,
+        (ax, ay): (f32, f32),
+    ) -> Option<Draw> {
+        let (x, y, w, h) = sprite.rect;
+        let rect = (ax + (x - ax) * k + dx, ay + (y - ay) * k + dy, w * k, h * k);
+        Some(Draw::image(sprite.image.clone(), self.place(rect)?, None))
+    }
+}
+
+/// The far hills of `look`, in the band of a frame `baked`-like: they
+/// move a share of the camera's pan, and stand on the horizon wherever the
+/// camera has it.
+pub(crate) fn hill_draws(
+    look: &Look,
+    band: (f32, f32, f32, f32),
+    lens: &Lens,
+    horizon: f32,
+) -> Vec<Draw> {
+    let (vw, _) = lens.view;
+    let (_, _, pad, above) = band;
+    let pan = lens.x - vw / 2.0;
+    let bx = -pad - pan * HILLS;
+    let squash = lens.zoom.clamp(0.45, 1.0);
+    let by = lens.at(0.0, horizon).1 - above * squash;
+    look.hills
+        .iter()
+        .filter_map(|sprite| {
+            let x = bx + sprite.rect.0;
+            (x < vw && x + sprite.rect.2 > 0.0).then(|| {
+                Draw::image(
+                    sprite.image.clone(),
+                    (x, by + sprite.rect.1, sprite.rect.2, sprite.rect.3 * squash),
+                    None,
+                )
+            })
+        })
+        .collect()
+}
+
+/// The land of `look` in view, the light on the water stretched across
+/// it, and glints drifting on the water `seconds` in (counted in
+/// `moving`).
+fn land_draws(look: &Look, lens: &Lens, front: f32, seconds: f32, moving: &mut usize) -> Vec<Draw> {
+    let mut out = look
+        .land
+        .iter()
+        .filter_map(|sprite| lens.draw(sprite))
+        .collect::<Vec<_>>();
+    out.extend(water_draws(look, lens, front, seconds, moving));
+    out
+}
+
+/// The light on the water of `look` stretched across the view, and
+/// glints drifting on the water `seconds` in (counted in `moving`).
+pub(crate) fn water_draws(
+    look: &Look,
+    lens: &Lens,
+    front: f32,
+    seconds: f32,
+    moving: &mut usize,
+) -> Vec<Draw> {
+    let (left, _, right, _) = lens.seen();
+    let vh = lens.view.1;
+    let mut out = Vec::new();
+    // The light on the water, stretched across the window: its middle
+    // half only, so the strip's edges (which the display blends with
+    // whatever picture it packed beside them) are stretched off the
+    // window, never across it.
+    if let Some(water) = &look.water {
+        let (_, y, _, h) = water.rect;
+        let span = right - left + 4.0;
+        if let Some(rect) = lens.place((left - 2.0 - span * 0.5, y, span * 2.0, h)) {
+            out.push(Draw::image(
+                water.image.clone(),
+                rect,
+                lens.place((left - 2.0, y, span, h)),
+            ));
+        }
+    }
+    // Glints drifting on the water.
+    if let Some(glint) = &look.glint {
+        for n in 0..48 {
+            let row = n / 8;
+            let x = left
+                + ((seconds * (6.0 + row as f32) + n as f32 * 137.0)
+                    .rem_euclid(right - left + 80.0))
+                - 40.0;
+            let y = front + 14.0 + row as f32 * (vh - front) / 6.5;
+            let pulse = 0.6 + 0.4 * (seconds * 1.1 + n as f32).sin();
+            let (gx, gy, gw, gh) = glint.rect;
+            if let Some(rect) = lens.place((x + gx * pulse, y + gy, gw * pulse, gh)) {
+                *moving += 1;
+                out.push(Draw::image(glint.image.clone(), rect, None));
+            }
+        }
+    }
+    out
+}
+
+/// Smoke from every chimney of `chimneys` (pot x, y and size): puffs
+/// rising, spreading and thinning, carried by the wind `blow`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn smoke_draws(
+    look: &Look,
+    lens: &Lens,
+    chimneys: &[(f32, f32, f32)],
+    building_w: f32,
+    blow: f32,
+    seconds: f32,
+    moving: &mut usize,
+) -> Vec<Draw> {
+    let mut out = Vec::new();
+    if look.puffs.is_empty() || lens.zoom < 0.6 {
+        return out;
+    }
+    let (left, _, right, _) = lens.seen();
+    let h = building_w * 1.1;
+    for (n, (px, py, size)) in chimneys.iter().enumerate() {
+        if *px < left - h || *px > right + h {
+            continue;
+        }
+        for puff in 0..5 {
+            let age = (seconds * 0.3 + puff as f32 * 0.2 + n as f32 * 0.37) % 1.0;
+            let rise = ease(age) * h * 0.55 * size;
+            let drift = age * age * blow * building_w * 0.35 * size;
+            let stage = ((age * PUFF_STAGES as f32) as usize).min(PUFF_STAGES - 1);
+            let Some(sprite) = look.puffs.get(stage) else {
+                continue;
+            };
+            let (x, y, w, hh) = sprite.rect;
+            if let Some(rect) = lens.place((
+                px + drift + x * size,
+                py - rise + y * size,
+                w * size,
+                hh * size,
+            )) {
+                *moving += 1;
+                out.push(Draw::image(sprite.image.clone(), rect, None));
+            }
+        }
+    }
+    out
+}
+
+/// How a building's lit windows flicker, by its group, `seconds` in.
+pub fn flicker(group: usize, seconds: f32) -> f32 {
+    let g = group as f32;
+    0.86 + 0.14 * (seconds * (1.7 + g * 0.6) + g * 2.1).sin()
+}
+
+/// The ground a building stands on, as (left, back, right, front) in
+/// stage pixels, for one standing at `x` with its foot at `base`, `w`
+/// wide and `h` tall: its width, and back from its front a share of its
+/// height. Nobody's feet are ever inside it: they would be inside the
+/// building (the art director's S1 blocker, a walker on a tower's
+/// door).
+pub fn footprint(x: f32, base: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+    (x - w * 0.45, base - h * FOOTPRINT_DEPTH, x + w * 0.45, base)
+}
+
+/// How far back from its front a building's ground reaches, as a share of
+/// its height.
+pub const FOOTPRINT_DEPTH: f32 = 0.22;
+
+/// Whether feet at (`x`, `y`) stand inside a footprint.
+pub fn inside(footprint: (f32, f32, f32, f32), x: f32, y: f32) -> bool {
+    let (left, back, right, front) = footprint;
+    x > left && x < right && y > back && y < front
+}
+
+/// Works out one frame of the benchmark's living stage: every image it
+/// draws, back to front, two lights cross-fading where the hour falls
+/// between them, and everything standing on the stage drawn in depth.
 pub fn plan(baked: &Baked, walkers: &Walkers, shot: &Shot) -> Plan {
     let view = shot.view.kept(baked);
     let level = baked.level_for(view.zoom * shot.dpr);
@@ -1524,376 +2026,248 @@ pub fn plan(baked: &Baked, walkers: &Walkers, shot: &Shot) -> Plan {
         .then(|| baked.look(level, b))
         .flatten();
     let (vw, vh) = baked.view;
-    let z = view.zoom;
-    let left = view.x - vw / (2.0 * z);
-    let right = view.x + vw / (2.0 * z);
-    let top = view.y - vh / (2.0 * z);
-    let bottom = view.y + vh / (2.0 * z);
-    let on_stage = |rect: Rect| -> Option<Rect> {
-        if rect.0 > right || rect.0 + rect.2 < left || rect.1 > bottom || rect.1 + rect.3 < top {
-            return None;
-        }
-        let (x, y) = view.at(baked, rect.0, rect.1);
-        Some((x, y, rect.2 * z, rect.3 * z))
+    let lens = Lens {
+        x: view.x,
+        y: view.y,
+        zoom: view.zoom,
+        view: baked.view,
     };
-    let stage_draw = |sprite: &Sprite| -> Option<Draw> {
-        Some(Draw {
-            image: sprite.image.clone(),
-            rect: on_stage(sprite.rect)?,
-            clip: sprite.clip.and_then(on_stage),
-        })
-    };
-    let mut plan = Plan::default();
-    let mut moving = 0;
+    let (left, _, right, _) = lens.seen();
     let seconds = shot.seconds;
     let p = baked.figure_h;
-    let plain = |draws: Vec<Draw>| draws.into_iter().map(|draw| (0, draw)).collect::<Vec<_>>();
-    // Each kind of layer, for one look: what it draws, each by who or what
-    // it is (the same in every light) for the layers whose pictures stand
-    // in front of one another.
-    let layers_of = |look: &Look, kind: usize, moving: &mut usize| -> Vec<(usize, Draw)> {
-        match kind {
-            0 => plain(
-                look.sky
-                    .iter()
-                    .map(|sprite| Draw {
-                        image: sprite.image.clone(),
-                        rect: (0.0, 0.0, vw, vh),
-                        clip: None,
-                    })
-                    .collect(),
-            ),
-            1 => {
-                // The far hills move a third as fast as the camera, and
-                // stand on the horizon wherever the camera has it.
-                let (_, _, pad, above) = baked.band;
-                let pan = view.x - vw / 2.0;
-                let bx = -pad - pan * HILLS;
-                let squash = z.clamp(0.45, 1.0);
-                let by = view.at(baked, 0.0, baked.horizon).1 - above * squash;
-                plain(
-                    look.hills
-                        .iter()
-                        .filter_map(|sprite| {
-                            let x = bx + sprite.rect.0;
-                            (x < vw && x + sprite.rect.2 > 0.0).then(|| Draw {
-                                image: sprite.image.clone(),
-                                rect: (
-                                    x,
-                                    by + sprite.rect.1,
-                                    sprite.rect.2,
-                                    sprite.rect.3 * squash,
-                                ),
-                                clip: None,
-                            })
-                        })
-                        .collect(),
-                )
-            }
-            2 => {
-                let mut out = look.land.iter().filter_map(stage_draw).collect::<Vec<_>>();
-                // The light on the water, stretched across the window: its
-                // middle half only, so the strip's edges (which the display
-                // blends with whatever picture it packed beside them) are
-                // stretched off the window, never across it.
-                if let Some(water) = &look.water {
-                    let (_, y, _, h) = water.rect;
-                    let span = right - left + 4.0;
-                    if let Some(rect) = on_stage((left - 2.0 - span * 0.5, y, span * 2.0, h)) {
-                        out.push(Draw {
-                            image: water.image.clone(),
-                            rect,
-                            clip: on_stage((left - 2.0, y, span, h)),
-                        });
-                    }
-                }
-                // Glints drifting on the water.
-                if let Some(glint) = &look.glint {
-                    for n in 0..48 {
-                        let row = n / 8;
-                        let x = left
-                            + ((seconds * (6.0 + row as f32) + n as f32 * 137.0)
-                                .rem_euclid(right - left + 80.0))
-                            - 40.0;
-                        let y = baked.front + 14.0 + row as f32 * (vh - baked.front) / 6.5;
-                        let pulse = 0.6 + 0.4 * (seconds * 1.1 + n as f32).sin();
-                        let (gx, gy, gw, gh) = glint.rect;
-                        if let Some(rect) = on_stage((x + gx * pulse, y + gy, gw * pulse, gh)) {
-                            *moving += 1;
-                            out.push(Draw {
-                                image: glint.image.clone(),
-                                rect,
-                                clip: None,
-                            });
-                        }
-                    }
-                }
-                plain(out)
-            }
-            3 => plain(look.shadows.iter().filter_map(stage_draw).collect()),
-            4 => plain(look.back.iter().filter_map(stage_draw).collect()),
-            5 => look
-                .buildings
-                .iter()
-                .filter_map(|(item, sprite)| Some((*item, stage_draw(sprite)?)))
-                .collect(),
-            6 => look
-                .things
-                .iter()
-                .enumerate()
-                .filter_map(|(n, (item, boat, sprite))| {
-                    if !*boat {
-                        return Some((*item, stage_draw(sprite)?));
-                    }
-                    // Riding the swell.
-                    let seed = n as f32 * 1.37;
-                    let bob = (seconds * 1.3 + seed).sin() * 2.0
-                        + (seconds * 0.7 + seed * 0.3).sin() * 1.2;
-                    let drift = (seconds * 0.21 + seed).sin() * 3.0;
-                    let (x, y, w, h) = sprite.rect;
-                    let draw = Draw {
-                        image: sprite.image.clone(),
-                        rect: on_stage((x + drift, y + bob, w, h))?,
-                        clip: None,
-                    };
-                    *moving += 1;
-                    Some((*item, draw))
-                })
-                .collect(),
-            7 => {
-                // People: residents where the stage has them and everyone
-                // walking, nearest last.
-                let mut people: Vec<(f32, usize, Draw)> = Vec::new();
-                for (n, resident) in baked.residents.iter().enumerate() {
-                    let Some(sprite) = look
-                        .people
-                        .get(resident.look)
-                        .and_then(|poses| poses.stand[resident.facing].as_ref())
-                    else {
-                        continue;
-                    };
-                    let k = resident.scale;
-                    let (x, y, w, h) = sprite.rect;
-                    if let Some(rect) =
-                        on_stage((resident.x + x * k, resident.y + y * k, w * k, h * k))
-                    {
-                        people.push((
-                            resident.y,
-                            n,
-                            Draw {
-                                image: sprite.image.clone(),
-                                rect,
-                                clip: None,
-                            },
-                        ));
-                    }
-                }
-                for (n, walker) in walkers.0.iter().enumerate() {
-                    let (x, facing, step) = Walkers::at(walker, seconds, baked.width, p);
-                    if x < left - p || x > right + p {
-                        continue;
-                    }
-                    let Some(sprite) = look
-                        .people
-                        .get(walker.look)
-                        .and_then(|poses| poses.walk[facing].get(step))
-                    else {
-                        continue;
-                    };
-                    let feet = baked.feet + walker.lane;
-                    let (sx, sy, w, h) = sprite.rect;
-                    if let Some(rect) = on_stage((x + sx, feet + sy, w, h)) {
-                        *moving += 1;
-                        people.push((
-                            feet,
-                            baked.residents.len() + n,
-                            Draw {
-                                image: sprite.image.clone(),
-                                rect,
-                                clip: None,
-                            },
-                        ));
-                    }
-                }
-                // Nearest last; level with each other, in the same order in
-                // every light.
-                people.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-                people
-                    .into_iter()
-                    .map(|(_, who, draw)| (who, draw))
-                    .collect()
-            }
-            8 => {
-                // Smoke from every chimney: puffs rising, spreading and
-                // thinning, carried by the wind.
-                let mut out = Vec::new();
-                if look.puffs.is_empty() || z < 0.6 {
-                    return out;
-                }
-                let h = baked.building_w * 1.1;
-                for (n, (px, py, size)) in baked.chimneys.iter().enumerate() {
-                    if *px < left - h || *px > right + h {
-                        continue;
-                    }
-                    for puff in 0..5 {
-                        let age = (seconds * 0.3 + puff as f32 * 0.2 + n as f32 * 0.37) % 1.0;
-                        let rise = ease(age) * h * 0.55 * size;
-                        let drift = age * age * baked.blow * baked.building_w * 0.35 * size;
-                        let stage = ((age * PUFF_STAGES as f32) as usize).min(PUFF_STAGES - 1);
-                        let Some(sprite) = look.puffs.get(stage) else {
-                            continue;
-                        };
-                        let (x, y, w, hh) = sprite.rect;
-                        if let Some(rect) = on_stage((
-                            px + drift + x * size,
-                            py - rise + y * size,
-                            w * size,
-                            hh * size,
-                        )) {
-                            *moving += 1;
-                            out.push((
-                                0,
-                                Draw {
-                                    image: sprite.image.clone(),
-                                    rect,
-                                    clip: None,
-                                },
-                            ));
-                        }
-                    }
-                }
-                out
-            }
-            _ => plain(look.front.iter().filter_map(stage_draw).collect()),
+    let mut moving = 0;
+    // Each look and how much of it shows over what is before it.
+    let looks = std::iter::once((first, 1.0))
+        .chain(second.map(|second| (second, t)))
+        .collect::<Vec<_>>();
+    let mut items = Vec::new();
+    let mut flat = |draws_of: &mut dyn FnMut(&Look) -> Vec<Draw>| {
+        for (look, opacity) in &looks {
+            items.extend(draws_of(look).into_iter().map(|draw| Item {
+                opacity: *opacity,
+                draw,
+            }));
         }
     };
-    let strip = |draws: Vec<(usize, Draw)>| draws.into_iter().map(|(_, draw)| draw).collect();
-    // Back to front; the glow goes over the buildings (kind 5), in its own
-    // flickering groups, and under the things in front of them (a stall's
-    // roof, a cart), which it never shines through.
-    for kind in 0..=9 {
-        let draws = layers_of(first, kind, &mut moving);
-        match second {
-            // Buildings, things and people stand in front of one another:
-            // a layer of them fading in over another would show each
-            // through the one in front (ghosts in a crowd), so each is
-            // drawn whole in the first light and its second light faded
-            // in over it before anyone in front of it is drawn.
-            Some(second) if (5..=7).contains(&kind) => {
-                let over = layers_of(second, kind, &mut moving);
-                plan.layers.extend(cross_fade(draws, over, t));
-            }
-            Some(second) => {
-                plan.layers.push(Pass {
-                    opacity: 1.0,
-                    draws: strip(draws),
-                });
-                let draws = layers_of(second, kind, &mut moving);
-                plan.layers.push(Pass {
-                    opacity: t,
-                    draws: strip(draws),
-                });
-            }
-            None => plan.layers.push(Pass {
-                opacity: 1.0,
-                draws: strip(draws),
-            }),
-        }
-        if kind == 5 {
-            for (look, share) in [
-                (Some(first), 1.0 - if second.is_some() { t } else { 0.0 }),
-                (second, t),
-            ] {
-                let Some(look) = look else { continue };
-                for group in 0..GLOW_GROUPS {
-                    let g = group as f32;
-                    let flicker = 0.86 + 0.14 * (seconds * (1.7 + g * 0.6) + g * 2.1).sin();
-                    let draws = look
-                        .glow
-                        .iter()
-                        .filter(|(at, _)| *at == group)
-                        .filter_map(|(_, sprite)| stage_draw(sprite))
-                        .collect::<Vec<_>>();
-                    if !draws.is_empty() {
-                        plan.layers.push(Pass {
-                            opacity: share * flicker,
-                            draws,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    plan.layers
-        .retain(|layer| !layer.draws.is_empty() && layer.opacity > 0.001);
-    plan.moving = moving;
-    plan
-}
-
-/// Two lights of pictures that stand in front of one another (`first`
-/// and `second`, back to front, each by who or what it is), the second
-/// faded in by `t`, as passes: every picture drawn once whole in the
-/// first light and once in the second at `t` straight over it, before
-/// anything in front of it is drawn. So each shows once, opaque, its
-/// light between the two, and nothing behind it shows through.
-///
-/// Pictures that do not overlap share a pair of passes, so a frame has as
-/// many passes as its crowd is deep, not as it is many.
-fn cross_fade(first: Vec<(usize, Draw)>, second: Vec<(usize, Draw)>, t: f32) -> Vec<Pass> {
-    let mut over = second
-        .into_iter()
-        .collect::<std::collections::HashMap<_, _>>();
-    let meets = |a: &Rect, b: &Rect| {
-        a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
-    };
-    let mut passes: Vec<Pass> = Vec::new();
-    // The pair being filled: the first light's pass and the second's.
-    let (mut whole, mut faded): (Vec<Draw>, Vec<Draw>) = (Vec::new(), Vec::new());
-    let mut flush = |whole: &mut Vec<Draw>, faded: &mut Vec<Draw>| {
-        passes.push(Pass {
-            opacity: 1.0,
-            draws: std::mem::take(whole),
-        });
-        passes.push(Pass {
-            opacity: t,
-            draws: std::mem::take(faded),
-        });
-    };
-    for (key, draw) in first {
-        let fade = over.remove(&key);
-        // In front of something already faded in this pair: it must be
-        // drawn after that, so a new pair begins.
-        let rects = [Some(draw.rect), fade.as_ref().map(|fade| fade.rect)];
-        if rects
+    flat(&mut |look| {
+        look.sky
             .iter()
-            .flatten()
-            .any(|rect| faded.iter().any(|done| meets(rect, &done.rect)))
-        {
-            flush(&mut whole, &mut faded);
+            .map(|sprite| Draw::image(sprite.image.clone(), (0.0, 0.0, vw, vh), None))
+            .collect()
+    });
+    flat(&mut |look| hill_draws(look, baked.band, &lens, baked.horizon));
+    let mut counted = false;
+    flat(&mut |look| {
+        let mut count = 0;
+        let draws = land_draws(look, &lens, baked.front, seconds, &mut count);
+        if !counted {
+            moving += count;
+            counted = true;
         }
-        whole.push(draw);
-        faded.extend(fade);
+        draws
+    });
+    flat(&mut |look| {
+        look.shadows
+            .iter()
+            .filter_map(|sprite| lens.draw(sprite))
+            .collect()
+    });
+    // Everything standing on the stage, in depth: the props along the
+    // spine, buildings with their glow, things, residents and walkers.
+    let mut deep = Vec::new();
+    let both = |of: &dyn Fn(&Look) -> Vec<Draw>| -> Vec<Item> {
+        looks
+            .iter()
+            .flat_map(|(look, opacity)| {
+                of(look).into_iter().map(|draw| Item {
+                    opacity: *opacity,
+                    draw,
+                })
+            })
+            .collect()
+    };
+    deep.push(Deep {
+        at: baked.feet,
+        rank: Rank::Props,
+        who: 0,
+        items: both(&|look| {
+            look.back
+                .iter()
+                .filter_map(|sprite| lens.draw(sprite))
+                .collect()
+        }),
+    });
+    let shares = [1.0 - if second.is_some() { t } else { 0.0 }, t];
+    for (item, sprite) in &first.buildings {
+        let Some(anchor) = first.anchors.get(item) else {
+            continue;
+        };
+        let mut items = both(&|look| {
+            look.buildings
+                .iter()
+                .filter(|(other, _)| other == item)
+                .filter_map(|(_, sprite)| lens.draw(sprite))
+                .collect()
+        });
+        if items.is_empty() && lens.draw(sprite).is_none() {
+            continue;
+        }
+        for (n, (look, _)) in looks.iter().enumerate() {
+            for (group, _, halo) in look.glow.iter().filter(|(_, of, _)| of == item) {
+                if let Some(draw) = lens.draw(halo) {
+                    items.push(Item {
+                        opacity: shares[n] * flicker(*group, seconds),
+                        draw,
+                    });
+                }
+            }
+        }
+        deep.push(Deep {
+            at: anchor.base,
+            rank: Rank::Building,
+            who: *item,
+            items,
+        });
     }
-    // What only the second light has (a picture of nothing in the first).
-    faded.extend(over.into_values());
-    flush(&mut whole, &mut faded);
-    passes
+    for (n, (item, boat, _)) in first.things.iter().enumerate() {
+        let Some(anchor) = first.anchors.get(item) else {
+            continue;
+        };
+        // Riding the swell.
+        let (drift, bob) = if *boat {
+            let seed = n as f32 * 1.37;
+            (
+                (seconds * 0.21 + seed).sin() * 3.0,
+                (seconds * 1.3 + seed).sin() * 2.0 + (seconds * 0.7 + seed * 0.3).sin() * 1.2,
+            )
+        } else {
+            (0.0, 0.0)
+        };
+        let items = both(&|look| {
+            look.things
+                .iter()
+                .filter(|(other, _, _)| other == item)
+                .filter_map(|(_, _, sprite)| lens.draw_moved(sprite, (drift, bob), 1.0, (0.0, 0.0)))
+                .collect()
+        });
+        if *boat && !items.is_empty() {
+            moving += 1;
+        }
+        deep.push(Deep {
+            at: anchor.base + bob,
+            rank: Rank::Thing,
+            who: *item,
+            items,
+        });
+    }
+    // Residents where the stage has them, standing.
+    for (n, resident) in baked.residents.iter().enumerate() {
+        let k = resident.scale;
+        let items = both(&|look| {
+            look.people
+                .get(resident.look)
+                .and_then(|poses| poses.stand[resident.facing].as_ref())
+                .and_then(|sprite| lens.draw_moved(sprite, (resident.x, resident.y), k, (0.0, 0.0)))
+                .into_iter()
+                .collect()
+        });
+        deep.push(Deep {
+            at: resident.y,
+            rank: Rank::Person,
+            who: n,
+            items,
+        });
+    }
+    // Walkers, each in their lane.
+    for (n, walker) in walkers.0.iter().enumerate() {
+        let (x, facing, step) = Walkers::at(walker, seconds, baked.width, p);
+        if x < left - p || x > right + p {
+            continue;
+        }
+        let feet = baked.feet + walker.lane;
+        let items = both(&|look| {
+            look.people
+                .get(walker.look)
+                .and_then(|poses| poses.walk[facing].get(step))
+                .and_then(|sprite| lens.draw_moved(sprite, (x, feet), 1.0, (0.0, 0.0)))
+                .into_iter()
+                .collect()
+        });
+        if !items.is_empty() {
+            moving += 1;
+        }
+        deep.push(Deep {
+            at: feet,
+            rank: Rank::Person,
+            who: baked.residents.len() + n,
+            items,
+        });
+    }
+    items.extend(in_depth(deep));
+    let mut smoke = 0;
+    for (look, opacity) in &looks {
+        let mut count = 0;
+        items.extend(
+            smoke_draws(
+                look,
+                &lens,
+                &baked.chimneys,
+                baked.building_w,
+                baked.blow,
+                seconds,
+                &mut count,
+            )
+            .into_iter()
+            .map(|draw| Item {
+                opacity: *opacity,
+                draw,
+            }),
+        );
+        smoke = smoke.max(count);
+    }
+    moving += smoke;
+    for (look, opacity) in &looks {
+        items.extend(
+            look.front
+                .iter()
+                .filter_map(|sprite| lens.draw(sprite))
+                .map(|draw| Item {
+                    opacity: *opacity,
+                    draw,
+                }),
+        );
+    }
+    Plan {
+        layers: compose(items),
+        moving,
+    }
 }
 
 /// Draws one layer of a plan in `bounds`.
 pub fn paint_layer(layer: &Pass, bounds: gpui::Bounds<gpui::Pixels>, window: &mut Window) {
     let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
     let at = |(x, y, w, h): Rect| Bounds::new(point(px(ox + x), px(oy + y)), size(px(w), px(h)));
+    let scene = (
+        ox,
+        oy,
+        f32::from(bounds.size.width),
+        f32::from(bounds.size.height),
+    );
     for draw in &layer.draws {
-        let clip = draw.clip.map(at).unwrap_or(bounds).intersect(&bounds);
-        let _ = window.paint_image(
-            clip,
-            at(draw.rect),
-            Corners::default(),
-            draw.image.clone(),
-            0,
-            false,
-        );
+        match draw {
+            Draw::Image { image, rect, clip } => {
+                let clip = clip.map(at).unwrap_or(bounds).intersect(&bounds);
+                let _ = window.paint_image(
+                    clip,
+                    at(*rect),
+                    Corners::default(),
+                    image.clone(),
+                    0,
+                    false,
+                );
+            }
+            Draw::Live { paint, .. } => paint(window, scene),
+        }
     }
 }
 

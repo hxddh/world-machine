@@ -538,35 +538,8 @@ pub fn frame(
         .map(|spot| {
             let item = &items[spot.index];
             let shape = item.shape.unwrap_or_default();
-            // As wide as it stands, as tall as its depth has it: something
-            // wide stands a little lower and a tower taller.
-            // One squeezed into a narrow gap keeps its proportions.
-            let squeezed = (spot.w / (stage.building_w * spot.scale).max(1.0)).min(1.0);
-            let (w, h) = (spot.w, stage.height_of(spot, shape) * squeezed);
-            // A Pack's own drawing keeps its own proportions, no wider
-            // than a building's place allows.
             let drawing = snapshot.drawing_of(item).cloned();
-            let (w, h) = match &drawing {
-                Some(drawing) => {
-                    let w = (h * drawing.aspect).min(spot.w * 1.25);
-                    (w, w / drawing.aspect)
-                }
-                None => (w, h),
-            };
-            // On the ladder: as tall as it stands beside a grown-up at its
-            // depth (crate::ladder), whatever room its spot was given.
-            let p = stage.figure_h * spot.scale;
-            let (w, h) = match &drawing {
-                Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
-                None => ladder::Subject::Building(shape, setting, art_of(item)).sized(p, spot.w),
-            }
-            // Never much wider than the room its place was given: in a
-            // narrow gap it keeps its proportions, a little smaller.
-            .map(|(lw, lh)| {
-                let fit = (spot.w * ROOM / lw.max(1.0)).min(1.0);
-                (lw * fit, lh * fit)
-            })
-            .unwrap_or((w, h));
+            let (w, h) = building_size(stage, snapshot, spot, setting);
             let least = stage.shown_from.get(&spot.index).copied().unwrap_or(0.0);
             let paint = BuildingPaint {
                 index: spot.index,
@@ -812,6 +785,49 @@ pub fn frame(
         zoom_steps: Vec::new(),
         standing: std::sync::Arc::new(standing),
     }
+}
+
+/// How wide and tall the building on `spot` is drawn: as wide as it
+/// stands and as tall as its depth has it, a Pack's drawing in its own
+/// proportions, and on the ladder beside a grown-up at its depth, never
+/// much wider than the room its place was given.
+pub(crate) fn building_size(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> (f32, f32) {
+    let item = &snapshot.canvas.items[spot.index];
+    let shape = item.shape.unwrap_or_default();
+    let drawing = snapshot.drawing_of(item);
+    // As wide as it stands, as tall as its depth has it: something
+    // wide stands a little lower and a tower taller.
+    // One squeezed into a narrow gap keeps its proportions.
+    let squeezed = (spot.w / (stage.building_w * spot.scale).max(1.0)).min(1.0);
+    let (w, h) = (spot.w, stage.height_of(spot, shape) * squeezed);
+    // A Pack's own drawing keeps its own proportions, no wider
+    // than a building's place allows.
+    let (w, h) = match drawing {
+        Some(drawing) => {
+            let w = (h * drawing.aspect).min(spot.w * 1.25);
+            (w, w / drawing.aspect)
+        }
+        None => (w, h),
+    };
+    // On the ladder: as tall as it stands beside a grown-up at its
+    // depth (crate::ladder), whatever room its spot was given.
+    let p = stage.figure_h * spot.scale;
+    match drawing {
+        Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+        None => ladder::Subject::Building(shape, setting, art_of(item)).sized(p, spot.w),
+    }
+    // Never much wider than the room its place was given: in a
+    // narrow gap it keeps its proportions, a little smaller.
+    .map(|(lw, lh)| {
+        let fit = (spot.w * ROOM / lw.max(1.0)).min(1.0);
+        (lw * fit, lh * fit)
+    })
+    .unwrap_or((w, h))
 }
 
 /// How far past the room its spot gives it something on the ladder may
