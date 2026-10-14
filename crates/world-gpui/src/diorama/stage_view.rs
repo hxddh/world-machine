@@ -297,6 +297,8 @@ pub struct PoseKey {
     pub right: bool,
     pub step: Option<u8>,
     pub carrying: bool,
+    /// On a bench: how high its seat is for their height, in twentieths.
+    pub seat: Option<u8>,
     pub level: usize,
     pub light: Light,
 }
@@ -317,11 +319,19 @@ impl PoseKey {
             stance: person.stance,
             mood: person.mood,
             right: person.pose.facing >= 0.0,
-            step: person.pose.stride.map(|stride| {
-                ((stride.rem_euclid(1.0) * ls::WALK_FRAMES as f32) as u8)
-                    .min(ls::WALK_FRAMES as u8 - 1)
-            }),
+            // A step of a walk, or a beat of a dance.
+            step: person
+                .pose
+                .stride
+                .map(|stride| {
+                    ((stride.rem_euclid(1.0) * ls::WALK_FRAMES as f32) as u8)
+                        .min(ls::WALK_FRAMES as u8 - 1)
+                })
+                .or(person.beat),
             carrying: person.carrying.is_some(),
+            seat: person
+                .seat
+                .map(|seat| (seat * 20.0).round().clamp(0.0, 255.0) as u8),
             level,
             light,
         }
@@ -340,7 +350,8 @@ pub(super) fn bake_pose(
     let height = frame.figure_h * person.figure.age.height();
     let facing = if key.right { 1.0 } else { -1.0 };
     let tau = std::f32::consts::TAU;
-    let pose = match key.step {
+    let dancing = key.stance == world_projection::Stance::Dancing;
+    let pose = match key.step.filter(|_| !dancing) {
         Some(step) => {
             let phase = step as f32 / ls::WALK_FRAMES as f32;
             art::Pose {
@@ -362,6 +373,8 @@ pub(super) fn bake_pose(
         height,
         pose,
         glow: None,
+        seat: key.seat.map(|seat| seat as f32 / 20.0),
+        beat: key.step.filter(|_| dancing),
         ..person.clone()
     };
     let room = height * 0.8;

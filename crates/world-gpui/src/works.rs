@@ -312,7 +312,26 @@ pub fn paint_thing(
 }
 
 /// How wide a thing from the library is drawn, for the width of its spot.
-const THING_SCALE: f32 = 0.8;
+pub const THING_SCALE: f32 = 0.8;
+
+/// How high a seat from the library is, as a share of its box's height:
+/// the top of the plank someone sits on.
+pub fn seat_of(art: Art) -> f32 {
+    match art.key() {
+        "park-bench" => 0.57,
+        "picnic-table" => 0.52,
+        "picnic-tables" => 0.46,
+        "driftwood-bench" | "memorial-bench" => 0.48,
+        "mooring-bench" | "fishing-hole-bench" => 0.38,
+        "metal-bench" => 0.54,
+        "crater-bench" | "rover-seat" => 0.52,
+        "ice-bench" => 0.6,
+        "crate-seat" => 0.74,
+        "aurora-seat" => 0.4,
+        "lookout-seat" => 0.66,
+        _ => 0.5,
+    }
+}
 
 /// Paints `art` in the box `w` by `h` standing on (`x`, `base`), keeping
 /// its own proportions: as tall as the box allows, centred on its foot.

@@ -561,15 +561,8 @@ pub fn frame(
             } else {
                 0.0
             };
-            // On the ladder: as tall as it stands beside a grown-up at its
-            // depth, whatever room its spot was given.
-            let p = stage.figure_h * spot.scale;
             let drawing = snapshot.drawing_of(item).cloned();
-            let w = match &drawing {
-                Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
-                None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
-            }
-            .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3));
+            let w = thing_width(stage, snapshot, spot, setting);
             ThingPaint {
                 index: spot.index,
                 x: spot.x,
@@ -609,31 +602,56 @@ pub fn frame(
             // Nearer is a little bigger.
             let near = spot.scale;
             let figure = Figure::of(&item.id.stable_key(), item.look);
+            let height = stage.figure_h * z * near * figure.age.height();
+            let what = stage.doing.get(&spot.index).copied().unwrap_or_default();
+            // Walking beats everything (with a load, carrying it); a wave
+            // beats what an errand has them do, which beats what their stop
+            // this hour says they do there, which beats what the Pack says
+            // (talking, celebrating, working), which beats an idle moment.
+            let stop = what
+                .stance
+                .filter(|stance| !matches!(stance, Stance::Standing | Stance::Walking));
+            let stance = match (life.pose.stride, life.stance, life.using, stop, item.stance) {
+                (Some(_), ..) if life.loaded => Stance::Carrying,
+                (Some(_), ..) => Stance::Walking,
+                (None, Some(Stance::Waving), ..) => Stance::Waving,
+                (None, _, Some(using), ..) => using,
+                (None, _, None, Some(stop), _) => stop,
+                (None, _, None, None, Some(pack)) if pack != Stance::Standing => pack,
+                (None, Some(idle), ..) => idle,
+                _ => Stance::Standing,
+            };
+            // On a bench, sitting on its seat: how high it is for their
+            // height. Their own seat otherwise.
+            let drawing = snapshot.drawing_of(item).cloned();
+            let seat = what
+                .fixture
+                .filter(|(_, how)| *how == Use::Seat && stance == Stance::Sitting)
+                .filter(|_| drawing.is_some() || figure.bird)
+                .and_then(|(thing, _)| stage.things.iter().find(|spot| spot.index == thing))
+                .map(|bench| seat_height(stage, snapshot, bench, setting) * z / height.max(1.0));
+            // A dance in four beats, everyone on a beat of their own.
+            let seed = art::seed_of(&item.id.stable_key());
+            let beat = (stance == Stance::Dancing)
+                .then(|| ((seconds * 2.4 + (seed % 13) as f32 * 0.31).max(0.0) as u32 % 4) as u8);
             PersonPaint {
                 index: spot.index,
                 x,
                 y,
-                height: stage.figure_h * z * near * figure.age.height(),
+                height,
                 figure,
                 pose: Pose {
                     bob: life.pose.bob * z,
                     ..life.pose
                 },
                 glow: glow_of(item),
-                drawing: snapshot.drawing_of(item).cloned(),
-                // Walking beats everything; a wave beats what the Pack says;
-                // what the Pack says (talking, celebrating, working) beats an
-                // idle moment.
-                stance: match (life.pose.stride, life.stance, item.stance) {
-                    (Some(_), _, _) => Stance::Walking,
-                    (None, Some(Stance::Waving), _) => Stance::Waving,
-                    (None, _, Some(pack)) if pack != Stance::Standing => pack,
-                    (None, Some(idle), _) => idle,
-                    _ => Stance::Standing,
-                },
+                drawing,
+                stance,
                 mood: item.mood.unwrap_or_default(),
                 carrying: None,
                 along: life.x,
+                seat,
+                beat,
             }
         })
         .collect::<Vec<_>>();
@@ -781,6 +799,45 @@ pub(crate) fn building_size(
     .unwrap_or((w, h))
 }
 
+/// How wide the thing on `spot` is drawn, in stage pixels: on the ladder,
+/// as tall as it stands beside a grown-up at its depth, whatever room its
+/// spot was given.
+pub(crate) fn thing_width(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> f32 {
+    let item = &snapshot.canvas.items[spot.index];
+    let shape = item.shape.unwrap_or(MarkShape::Parcel);
+    let p = stage.figure_h * spot.scale;
+    match snapshot.drawing_of(item) {
+        Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+        None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
+    }
+    .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3))
+}
+
+/// How high above its foot the seat of the bench on `spot` is, in stage
+/// pixels, as it is drawn: the top of the plank someone sits on.
+pub(crate) fn seat_height(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> f32 {
+    let item = &snapshot.canvas.items[spot.index];
+    let w = thing_width(stage, snapshot, spot, setting);
+    match snapshot.drawing_of(item) {
+        Some(drawing) => w / drawing.aspect.max(0.1) * 0.5,
+        None => match art_of(item).or_else(|| crate::works::kit(setting, MarkShape::Bench)) {
+            Some(art) => w * crate::works::THING_SCALE * art.tall() * crate::works::seat_of(art),
+            // The plain bench (`art::paint_thing`): its seat's top.
+            None => w * 0.34 * 0.62,
+        },
+    }
+}
+
 /// How far past the room its spot gives it something on the ladder may
 /// reach: a building, and a thing a little more (its spot is narrower
 /// than what it is drawn as).
@@ -806,3 +863,6 @@ mod outdoors;
 
 #[cfg(test)]
 mod living_tests;
+
+#[cfg(test)]
+pub(crate) mod doing_tests;

@@ -395,7 +395,7 @@ impl Outings {
                         facing: here.facing,
                         ..Pose::default()
                     },
-                    stance: None,
+                    ..Living::default()
                 }
             })
             .collect()

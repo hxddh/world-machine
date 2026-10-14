@@ -179,6 +179,54 @@ pub struct Stage {
     pub shown_from: BTreeMap<usize, f32>,
     /// How full the street is, 0 to 1: a young place's rows stand forward.
     pub grown: f32,
+    /// What each person out of doors is doing where their day has them
+    /// this hour, as the record says, by item index: how they stand, whom
+    /// with, what they use there, and the errand they run from there.
+    pub doing: BTreeMap<usize, Doing>,
+    /// The clock it was laid out at (the minute and second kept up to
+    /// date), and the World's day: an errand is a function of these.
+    pub clock: Clock,
+    pub day: u64,
+}
+
+/// What someone out of doors is doing at the stop their day has them at
+/// this hour: presentation of what the record says (`RoutineStop`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Doing {
+    /// How the stop says they stand there, once arrived.
+    pub stance: Option<Stance>,
+    /// Who they are there with (an item index), when both are out there.
+    pub with: Option<usize>,
+    /// The thing they use there (an item index) and how they stand to it.
+    pub fixture: Option<(usize, Use)>,
+    /// An errand out from where they stand, and back.
+    pub errand: Option<Errand>,
+    /// Carrying a load on their way to or from where they carry it.
+    pub loaded: bool,
+}
+
+/// How someone stands to the thing they use at a stop.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Use {
+    /// On a bench's seat, its seat `0..1` along it.
+    Seat,
+    /// One of a ring round a lamp, facing in.
+    Ring,
+    /// Behind a stall, keeping it.
+    Keep,
+    /// At its side: beside a stall with a load, on a stool by a well.
+    Beside,
+}
+
+/// An errand: out to stand at `to` (a stage x beside what they go to),
+/// doing `stance` there, and back; `fetch` carries a load back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Errand {
+    pub to: f32,
+    /// Where what they go to stands, for facing it.
+    pub at: f32,
+    pub stance: Stance,
+    pub fetch: bool,
 }
 
 impl Stage {
@@ -328,6 +376,11 @@ impl Clock {
     pub fn now() -> Self {
         match crate::scene::pinned_hour() {
             Some(hour) => Self::at(hour as u8),
+            // A test's stage is of one moment, whenever it runs: where
+            // everyone is, errands too, never hangs on the clock.
+            #[cfg(test)]
+            None => Self::at(12),
+            #[cfg(not(test))]
             None => {
                 let (hour, into_hour) = crate::scene::clock();
                 Self {
@@ -396,6 +449,7 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         for (_, since) in stage.routes.values_mut() {
             *since = clock.into_hour;
         }
+        stage.clock = clock;
         laid.insert(0, kept);
         Some(stage)
     });
@@ -756,6 +810,10 @@ pub(super) fn lay_out(
     let mut inside = Vec::new();
     let mut leaving = BTreeMap::<usize, (usize, f32)>::new();
     let mut walks = (0.0_f32, f32::INFINITY);
+    // What everyone out of doors is doing there, and where those who carry
+    // a load there came from.
+    let mut doing = BTreeMap::<usize, Doing>::new();
+    let mut came_from = BTreeMap::<usize, usize>::new();
     for (index, item) in items.iter().enumerate() {
         if item.kind != CanvasItemKind::Actor {
             continue;
@@ -781,8 +839,29 @@ pub(super) fn lay_out(
         }
         if walking {
             leaving.insert(index, (from, clock.into_hour));
+            let carried =
+                |stop: &world_projection::RoutineStop| stop.stance == Some(Stance::Carrying);
+            doing.insert(
+                index,
+                Doing {
+                    loaded: carried(&now) || carried(&before),
+                    ..Doing::default()
+                },
+            );
         } else if now.inside {
             inside.push((index, to));
+        } else {
+            doing.insert(
+                index,
+                Doing {
+                    stance: now.stance,
+                    with: now.with.and_then(|id| index_of.get(&id).copied()),
+                    ..Doing::default()
+                },
+            );
+            if from != to {
+                came_from.insert(index, from);
+            }
         }
     }
     // A place of a keeper or two (a new place, its first night) is never shown
@@ -874,7 +953,14 @@ pub(super) fn lay_out(
     // People stand on the quay in front of wherever they are, in a group
     // round it, pairs side by side.
     let spacing = figure_h * 0.62;
-    let pairs = pairs(snapshot);
+    // Those the Pack draws together, and those whose day has them
+    // somewhere together this hour.
+    let mut pairs = pairs(snapshot);
+    for (person, what) in &doing {
+        if let Some(with) = what.with.filter(|with| person < with) {
+            pairs.push((items[*person].id, items[with].id));
+        }
+    }
     let mut wanted = Vec::new();
     let mut hosted = BTreeMap::<usize, Vec<usize>>::new();
     let mut loose = Vec::new();
@@ -1035,7 +1121,14 @@ pub(super) fn lay_out(
         plots: plots_on(snapshot, view_w, height, (building_w, grown)),
         shown_from,
         grown,
+        doing,
+        clock,
+        day: snapshot.world_time,
     };
+    let mut stage = stage;
+    // Those who use something where they are stand to it: on a bench, round
+    // a lamp, behind a stall; companions together; and everyone's errand.
+    super::people::at_their_stops(&mut stage, snapshot, &came_from, &slot_x);
     (stage, walks)
 }
 

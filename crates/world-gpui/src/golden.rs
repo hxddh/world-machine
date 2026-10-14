@@ -939,6 +939,123 @@ fn composition_pictures() {
     }
 }
 
+/// Close pictures of residents at what their day has them doing (v0.30
+/// S2d), to look at rather than check: sitters on a bench, a ring at a lamp
+/// after dusk, a stall's keeper, a carrier and a dancing pair, in the
+/// three-year town with a day of its residents rewritten
+/// (`doing_tests::staged`), or in the World `WORLD_GPUI_SNAPSHOT` names
+/// (whatever its day has). Written to the folder `WORLD_GPUI_CLOSE_UPS`
+/// names, cut to the window round each.
+#[test]
+#[ignore = "pictures: WORLD_GPUI_CLOSE_UPS=dir cargo test -p world-gpui -- --ignored close_ups"]
+fn close_ups() {
+    use world_projection::Stance;
+    let Some(dir) = std::env::var_os("WORLD_GPUI_CLOSE_UPS") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let (snapshot, prefix) = match std::env::var_os("WORLD_GPUI_SNAPSHOT") {
+        Some(path) => {
+            let json = std::fs::read_to_string(path).expect("the snapshot");
+            let wire: world_pack_protocol::ProjectionSnapshotWire =
+                serde_json::from_str(&json).expect("a wire snapshot");
+            (
+                ProjectionSnapshot::try_from(wire).expect("a snapshot"),
+                "world-",
+            )
+        }
+        None => (crate::diorama::doing_tests::staged().snapshot, "staged-"),
+    };
+    let (width, height) = (1100.0, 848.0);
+    let zoom = 2.2;
+    for (name, hour, wanted) in [
+        ("bench", 15.0, Stance::Sitting),
+        ("lamp", 20.0, Stance::Talking),
+        ("stall", 11.0, Stance::Talking),
+        ("carrier", 10.0, Stance::Carrying),
+        ("dancers", 15.0, Stance::Dancing),
+    ] {
+        let daylight = crate::scene::daylight_at(hour as u32);
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+        let lives = diorama::living(&stage, &snapshot, 0.0, daylight, &Default::default(), None);
+        let first = diorama::frame(
+            &snapshot,
+            &stage,
+            &lives,
+            Camera::whole(&stage),
+            0.0,
+            daylight,
+            &Glows::new(),
+            1.0,
+        );
+        let fixture = |index: usize| {
+            stage
+                .doing
+                .get(&index)
+                .and_then(|what| what.fixture)
+                .map(|(thing, how)| (snapshot.canvas.items[thing].shape, how))
+        };
+        let who = first.people.iter().find(|person| {
+            person.stance == wanted
+                && match name {
+                    "bench" => {
+                        fixture(person.index).is_some_and(|(_, how)| how == diorama::Use::Seat)
+                    }
+                    "lamp" => {
+                        fixture(person.index).is_some_and(|(_, how)| how == diorama::Use::Ring)
+                    }
+                    "stall" => {
+                        fixture(person.index).is_some_and(|(_, how)| how == diorama::Use::Keep)
+                    }
+                    _ => true,
+                }
+        });
+        let Some(who) = who else {
+            eprintln!("{prefix}{name}: nobody at it");
+            continue;
+        };
+        let x = stage
+            .people
+            .iter()
+            .find(|spot| spot.index == who.index)
+            .map(|spot| spot.x)
+            .expect("on the stage");
+        let frame = snapshot_frame(
+            &snapshot,
+            (width, height),
+            daylight,
+            hour,
+            zoom,
+            x / stage.width,
+        );
+        let at = frame
+            .people
+            .iter()
+            .find(|person| person.index == who.index)
+            .map(|person| (person.x, person.y, person.height))
+            .expect("in the close frame");
+        let image = draw(width, height, move || painted(frame.clone()));
+        let k = image.width() as f32 / width;
+        let at = (at.0 * k, at.1 * k, at.2 * k);
+        let (cw, ch) = ((at.2 * 5.0) as u32, (at.2 * 2.6) as u32);
+        let left = ((at.0 - cw as f32 / 2.0).max(0.0) as u32).min(image.width().saturating_sub(cw));
+        let top = ((at.1 - at.2 * 1.9).max(0.0) as u32).min(image.height().saturating_sub(ch));
+        let crop = image::imageops::crop_imm(
+            &image,
+            left,
+            top,
+            cw.min(image.width()),
+            ch.min(image.height()),
+        )
+        .to_image();
+        crop.save(dir.join(format!("{prefix}{name}.png")))
+            .expect("a picture");
+        image
+            .save(dir.join(format!("{prefix}{name}-whole.png")))
+            .expect("a picture");
+    }
+}
+
 /// The v0.24 bar for the whole-town view: zoomed right out, the day-1,082
 /// harbour is a postcard that fills the window, by day and at night. The
 /// town stands from under a third of the way down to the water at the

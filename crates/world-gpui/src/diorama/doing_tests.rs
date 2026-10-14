@@ -1,0 +1,583 @@
+//! What residents are seen doing where their day has them (v0.30 S2d):
+//! sitting on a bench's seat, a ring round a lamp at dusk, a keeper behind
+//! the stall, companions together, a load carried and a dance; errands as
+//! a function of the World and the clock; and nobody's feet in a building.
+
+use super::living_stage as ls;
+use super::*;
+use world_projection::RoutineStop;
+
+/// The fixture `name` (from `tests/fixtures`).
+fn fixture(name: &str) -> ProjectionSnapshot {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(format!("{name}.json"));
+    let json = std::fs::read_to_string(path).expect("the fixture");
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(&json).expect("a snapshot");
+    ProjectionSnapshot::try_from(wire).expect("a snapshot")
+}
+
+/// Every fixture the scene's tests have.
+fn fixtures() -> Vec<(String, ProjectionSnapshot)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut names = std::fs::read_dir(dir)
+        .expect("the fixtures")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension()? == "json").then(|| path.file_stem()?.to_str().map(String::from))?
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+        .into_iter()
+        .map(|name| {
+            let snapshot = fixture(&name);
+            (name, snapshot)
+        })
+        .collect()
+}
+
+const VIEW: (f32, f32) = (1100.0, 848.0);
+
+/// The three-year town with a day of its residents rewritten from
+/// eight in the morning: three on the bench, three round a lamp (two of
+/// them together), one keeping a stall and one carrying a load to it, and
+/// two dancing together in front of a house. What the record would say
+/// (`RoutineStop`), so the stage reads it as it reads a Pack's.
+pub(crate) struct Staged {
+    pub(crate) snapshot: ProjectionSnapshot,
+    pub(crate) bench: usize,
+    pub(crate) lamp: usize,
+    pub(crate) stall: usize,
+    pub(crate) sitters: Vec<usize>,
+    pub(crate) ring: Vec<usize>,
+    pub(crate) keeper: usize,
+    pub(crate) carrier: usize,
+    pub(crate) dancers: (usize, usize),
+}
+
+pub(crate) fn staged() -> Staged {
+    let mut snapshot = fixtures()
+        .into_iter()
+        .find(|(name, _)| name.ends_with("-day-1082"))
+        .map(|(_, snapshot)| snapshot)
+        .expect("the three-year fixture");
+    let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(12));
+    let items = &snapshot.canvas.items;
+    let on_land = |shapes: &[MarkShape]| {
+        stage
+            .things
+            .iter()
+            .filter(|spot| stage.depth_of(spot) != Depth::Water)
+            .filter(|spot| !stage.shown_from.contains_key(&spot.index))
+            .find(|spot| {
+                items[spot.index]
+                    .shape
+                    .is_some_and(|shape| shapes.contains(&shape))
+            })
+            .map(|spot| spot.index)
+            .expect("one on the land")
+    };
+    let bench = on_land(&[MarkShape::Bench]);
+    let lamp = on_land(&[MarkShape::Lamp, MarkShape::Lantern]);
+    let stall = on_land(&[MarkShape::Stall]);
+    let house = stage
+        .buildings
+        .iter()
+        .find(|spot| items[spot.index].shape == Some(MarkShape::House))
+        .map(|spot| spot.index)
+        .expect("a house");
+    let people = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
+        .map(|(index, _)| index)
+        .take(10)
+        .collect::<Vec<_>>();
+    assert_eq!(people.len(), 10);
+    let id = |index: usize| snapshot.canvas.items[index].id;
+    let plan = [
+        (people[0], bench, Stance::Sitting, None),
+        (people[1], bench, Stance::Sitting, None),
+        (people[2], bench, Stance::Sitting, None),
+        (people[3], lamp, Stance::Talking, Some(people[4])),
+        (people[4], lamp, Stance::Talking, Some(people[3])),
+        (people[5], lamp, Stance::Talking, None),
+        (people[6], stall, Stance::Talking, None),
+        (people[7], stall, Stance::Carrying, None),
+        (people[8], house, Stance::Dancing, Some(people[9])),
+        (people[9], house, Stance::Dancing, Some(people[8])),
+    ];
+    let plan = plan
+        .iter()
+        .map(|(person, at, stance, with)| (*person, id(*at), *stance, with.map(id)))
+        .collect::<Vec<_>>();
+    for (person, at, stance, with) in plan {
+        let home = snapshot.canvas.items[person].day[0].at;
+        snapshot.canvas.items[person].day = vec![
+            RoutineStop {
+                from_hour: 0,
+                at: home,
+                inside: true,
+                stance: None,
+                with: None,
+            },
+            RoutineStop {
+                from_hour: 8,
+                at,
+                inside: false,
+                stance: Some(stance),
+                with,
+            },
+        ];
+    }
+    Staged {
+        snapshot,
+        bench,
+        lamp,
+        stall,
+        sitters: people[0..3].to_vec(),
+        ring: people[3..6].to_vec(),
+        keeper: people[6],
+        carrier: people[7],
+        dancers: (people[8], people[9]),
+    }
+}
+
+/// The frame a window draws of `snapshot` at `clock`, `seconds` in, the
+/// camera on stage `x`.
+fn frame_at(snapshot: &ProjectionSnapshot, clock: Clock, x: f32, seconds: f32) -> (Stage, Frame) {
+    let stage = stage_at(snapshot, VIEW.0, VIEW.1, clock);
+    let daylight = crate::scene::daylight_at(u32::from(clock.hour));
+    let living = living(&stage, snapshot, seconds, daylight, &BTreeSet::new(), None);
+    let camera = Camera::around(&stage, 1.0, x, VIEW.1 / 2.0);
+    let frame = frame(
+        snapshot,
+        &stage,
+        &living,
+        camera,
+        seconds,
+        daylight,
+        &Glows::new(),
+        1.0,
+    );
+    (stage, frame)
+}
+
+fn spot_of(stage: &Stage, index: usize) -> Spot {
+    *stage
+        .things
+        .iter()
+        .chain(&stage.people)
+        .find(|spot| spot.index == index)
+        .expect("on the stage")
+}
+
+fn drawn(frame: &Frame, index: usize) -> &PersonPaint {
+    frame
+        .people
+        .iter()
+        .find(|person| person.index == index)
+        .expect("drawn")
+}
+
+/// Whoever's day sits them on a bench sits on its seat: side by side along
+/// it, feet on the ground at its foot, hips at the top of its plank; never
+/// a seat of their own, never floating (the art bible's §3 and §5).
+#[test]
+fn sitters_feet_on_the_seat() {
+    let staged = staged();
+    let clock = Clock::at(15);
+    let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+    let bench = spot_of(&stage, staged.bench);
+    let (stage, frame) = frame_at(&staged.snapshot, clock, bench.x, 3.0);
+    let setting = art::Setting::from_key(staged.snapshot.canvas.setting.as_deref());
+    let seat = seat_height(&stage, &staged.snapshot, &bench, setting);
+    let thing = frame
+        .things
+        .iter()
+        .find(|thing| thing.index == staged.bench)
+        .expect("the bench drawn");
+    let (bench_x, bench_base) = frame.at(thing.x, thing.base);
+    let mut xs = Vec::new();
+    for sitter in &staged.sitters {
+        let what = stage.doing[sitter];
+        assert_eq!(what.fixture, Some((staged.bench, Use::Seat)));
+        let person = drawn(&frame, *sitter);
+        assert_eq!(person.stance, Stance::Sitting);
+        // Feet at the bench's foot, just in front of it.
+        assert!(
+            (person.y - bench_base).abs() <= 1.0,
+            "feet at {} and the bench's foot at {bench_base}",
+            person.y
+        );
+        // Along the seat.
+        assert!(
+            (person.x - bench_x).abs() <= thing.w * 0.4,
+            "{} off the bench at {bench_x}",
+            person.x
+        );
+        // The seat's height, for theirs.
+        let ratio = person.seat.expect("on the bench's seat");
+        assert!((ratio * person.height - seat).abs() < 1.0);
+        xs.push(person.x);
+        // Drawn on it: the shoes on the ground, the hips on the plank.
+        let drawing = person.drawing.as_ref().expect("a drawing");
+        let on = super::people::seated(drawing, ratio, false);
+        let drop = world_projection::drop_of(Stance::Sitting);
+        let bottoms = on
+            .parts
+            .iter()
+            .filter(|part| part.shows_in(Stance::Sitting))
+            .filter_map(|part| match &part.shape {
+                world_projection::DrawShape::Rect { y, .. } => Some(*y - drop),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let lowest = bottoms.iter().copied().fold(f32::MAX, f32::min);
+        assert!(
+            lowest.abs() < 0.01,
+            "the shoes on the ground, not at {lowest}"
+        );
+        let hips = on
+            .parts
+            .iter()
+            .filter(|part| part.stances == [Stance::Sitting])
+            .filter_map(|part| match &part.shape {
+                world_projection::DrawShape::Rect { y, h, .. } if *y + *h > 0.36 + ratio - 0.2 => {
+                    Some(*y - drop)
+                }
+                _ => None,
+            })
+            .fold(f32::MIN, f32::max);
+        assert!(
+            (hips - ratio).abs() < 0.05,
+            "hips at {hips}, the seat at {ratio}"
+        );
+    }
+    xs.sort_by(f32::total_cmp);
+    for pair in xs.windows(2) {
+        assert!(pair[1] - pair[0] >= stage.figure_h * people::SEAT_ROOM * 0.9);
+    }
+}
+
+/// Two whose day has them somewhere together stand side by side, facing
+/// each other, talking round a lamp or dancing.
+#[test]
+fn pairs_adjacent_and_facing() {
+    let staged = staged();
+    for (hour, (a, b)) in [(15, staged.dancers), (20, (staged.ring[0], staged.ring[1]))] {
+        let clock = Clock::at(hour);
+        let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+        let daylight = crate::scene::daylight_at(hour as u32);
+        let at = |index: usize| {
+            stage
+                .people
+                .iter()
+                .position(|spot| spot.index == index)
+                .expect("out")
+        };
+        for seconds in [0.0, 13.0, 41.0] {
+            let lives = living(
+                &stage,
+                &staged.snapshot,
+                seconds,
+                daylight,
+                &BTreeSet::new(),
+                None,
+            );
+            let (la, lb) = (lives[at(a)], lives[at(b)]);
+            let (sa, sb) = (stage.people[at(a)], stage.people[at(b)]);
+            assert_eq!(stage.doing[&a].with, Some(b));
+            let apart = (la.x - lb.x).abs();
+            assert!(
+                apart <= stage.figure_h * people::TOGETHER * 1.6 && apart > stage.figure_h * 0.3,
+                "{apart} apart at {hour}"
+            );
+            assert!((sa.y - sb.y).abs() < stage.figure_h * 0.5);
+            assert_eq!(
+                la.pose.facing.signum(),
+                (lb.x - la.x).signum(),
+                "facing each other"
+            );
+            assert_eq!(
+                lb.pose.facing.signum(),
+                (la.x - lb.x).signum(),
+                "facing each other"
+            );
+        }
+    }
+    // The dancers dance, a beat at a time.
+    let (_, frame) = frame_at(&staged.snapshot, Clock::at(15), 0.0, 2.0);
+    let beats = (0..8)
+        .map(|step| {
+            let (_, frame) = frame_at(&staged.snapshot, Clock::at(15), 0.0, step as f32 * 0.21);
+            drawn(&frame, staged.dancers.0).beat
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(drawn(&frame, staged.dancers.0).stance, Stance::Dancing);
+    assert!(beats.len() >= 3, "{beats:?}");
+}
+
+/// After dusk those gathered at a lamp stand round it in a ring, either
+/// side and a little in front, facing it, never in its post nor hidden
+/// behind it.
+#[test]
+fn gatherers_outside_the_lamp_post_footprint() {
+    let staged = staged();
+    for hour in [19, 20, 21] {
+        let clock = Clock::at(hour);
+        let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+        let lamp = spot_of(&stage, staged.lamp);
+        let (stage, frame) = frame_at(&staged.snapshot, clock, lamp.x, 5.0);
+        let setting = art::Setting::from_key(staged.snapshot.canvas.setting.as_deref());
+        let w = thing_width(&stage, &staged.snapshot, &lamp, setting);
+        let p = stage.figure_h * lamp.scale;
+        // The post, and a body's half width round it.
+        let post = w * 0.2 + p * 0.2;
+        let daylight = crate::scene::daylight_at(hour as u32);
+        let lives = living(
+            &stage,
+            &staged.snapshot,
+            5.0,
+            daylight,
+            &BTreeSet::new(),
+            None,
+        );
+        for gatherer in &staged.ring {
+            assert_eq!(
+                stage.doing[gatherer].fixture,
+                Some((staged.lamp, Use::Ring))
+            );
+            let at = stage
+                .people
+                .iter()
+                .position(|spot| spot.index == *gatherer)
+                .expect("out");
+            let (spot, life) = (stage.people[at], lives[at]);
+            assert!(
+                (life.x - lamp.x).abs() > post,
+                "{} in the post at {}",
+                life.x,
+                lamp.x
+            );
+            assert!(
+                (life.x - lamp.x).abs() < p * 2.0,
+                "{} far from the lamp at {}",
+                life.x,
+                lamp.x
+            );
+            assert!(spot.y >= lamp.y, "never behind the post");
+            assert!(spot.y - lamp.y < p * 0.5);
+            // Facing it, or whoever they came with, beside them.
+            let toward = match stage.doing[gatherer].with {
+                Some(with) => spot_of(&stage, with).x,
+                None => lamp.x,
+            };
+            assert_eq!(
+                life.pose.facing.signum(),
+                (toward - life.x).signum(),
+                "facing in"
+            );
+            assert_eq!(drawn(&frame, *gatherer).stance, Stance::Talking);
+        }
+    }
+}
+
+/// A stall's keeper stands behind it, drawn before it so its counter hides
+/// their legs; whoever brings it a load stands at its side with it.
+#[test]
+fn the_keeper_stands_behind_the_stall_in_depth() {
+    let staged = staged();
+    let clock = Clock::at(11);
+    let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+    let stall = spot_of(&stage, staged.stall);
+    let (stage, frame) = frame_at(&staged.snapshot, clock, stall.x, 1.0);
+    assert_eq!(
+        stage.doing[&staged.keeper].fixture,
+        Some((staged.stall, Use::Keep))
+    );
+    let keeper = spot_of(&stage, staged.keeper);
+    let p = stage.figure_h * stall.scale;
+    assert!((keeper.x - stall.x).abs() < p * 0.2);
+    assert!(
+        keeper.y < stall.y && keeper.y > stall.y - p * 0.4,
+        "just behind"
+    );
+    // In depth: everything is drawn by where its foot is, the keeper's
+    // before the stall's.
+    let thing = frame
+        .things
+        .iter()
+        .find(|thing| thing.index == staged.stall)
+        .expect("drawn");
+    let (_, stall_y) = frame.at(thing.x, thing.base);
+    let person = drawn(&frame, staged.keeper);
+    let marked = |at: f32, rank: ls::Rank, who: usize, width: f32| ls::Deep {
+        at,
+        rank,
+        who,
+        items: vec![ls::Item {
+            opacity: 1.0,
+            draw: ls::Draw::Live {
+                rect: (0.0, 0.0, width, 1.0),
+                paint: std::rc::Rc::new(|_, _| {}),
+            },
+        }],
+    };
+    let order = ls::in_depth(vec![
+        marked(stall_y, ls::Rank::Thing, staged.stall, 1.0),
+        marked(person.y, ls::Rank::Person, staged.keeper, 2.0),
+    ])
+    .map(|item| item.draw.bounds().2)
+    .collect::<Vec<_>>();
+    assert_eq!(order, vec![2.0, 1.0], "the keeper drawn before the stall");
+    // The carrier with their load at its side.
+    assert_eq!(
+        stage.doing[&staged.carrier].fixture,
+        Some((staged.stall, Use::Beside))
+    );
+    let carrier = drawn(&frame, staged.carrier);
+    assert_eq!(carrier.stance, Stance::Carrying);
+    assert!((carrier.x - frame.at(thing.x, 0.0).0).abs() > thing.w * 0.45);
+}
+
+/// Where everyone is and what they do is a function of the World and the
+/// clock: the same snapshot at the same moment is the same town whatever
+/// `seconds` says (which only breathes and turns heads), errands included,
+/// and over an hour errands do take people out and back.
+#[test]
+fn living_is_a_function_of_snapshot_and_clock() {
+    let staged = staged();
+    let mut moved = 0;
+    for into_hour in (0..3600).step_by(30) {
+        let clock = Clock {
+            hour: 10,
+            into_hour: into_hour as f32,
+        };
+        let stage = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+        let again = stage_at(&staged.snapshot, VIEW.0, VIEW.1, clock);
+        assert_eq!(stage, again);
+        let at = |seconds: f32| {
+            living(
+                &stage,
+                &staged.snapshot,
+                seconds,
+                Daylight::Day,
+                &BTreeSet::new(),
+                None,
+            )
+        };
+        let (a, b) = (at(2.0), at(37.0));
+        assert_eq!(a, at(2.0));
+        for ((one, other), spot) in a.iter().zip(&b).zip(&stage.people) {
+            assert!(
+                (one.x - other.x).abs() <= 6.0,
+                "{} moved with seconds",
+                spot.index
+            );
+            assert_eq!(one.pose.stride.is_some(), other.pose.stride.is_some());
+            assert_eq!((one.using, one.loaded), (other.using, other.loaded));
+            if (one.x - spot.x).abs() > stage.figure_h {
+                moved += 1;
+            }
+        }
+    }
+    assert!(moved > 0, "nobody ran an errand all hour");
+    // A pure function of who, the day, the hour and how far into it.
+    let errand = |day, hour, into| people::errand_at(0x5eed, day, hour, into, 12.0);
+    assert_eq!(errand(4, 10, 700.0), errand(4, 10, 700.0));
+    let busy = (0..3600)
+        .filter(|second| errand(4, 10, *second as f32).is_some())
+        .count();
+    assert!(busy > 300 && busy < 2400, "{busy} s of the hour on errands");
+    assert_ne!(
+        (0..3600)
+            .map(|second| errand(4, 10, second as f32).is_some())
+            .collect::<Vec<_>>(),
+        (0..3600)
+            .map(|second| errand(5, 10, second as f32).is_some())
+            .collect::<Vec<_>>(),
+        "another day, other errands"
+    );
+    // Never over an hour's end.
+    for hour in 0..24 {
+        assert!(errand(4, hour, 3597.0).is_none() && errand(4, hour, 3599.9).is_none());
+    }
+}
+
+/// Carrying shows a load in the arms, and a dance moves from beat to beat.
+#[test]
+fn a_load_is_carried_and_a_dance_has_beats() {
+    let staged = staged();
+    let (_, frame) = frame_at(&staged.snapshot, Clock::at(11), 0.0, 1.0);
+    let carrier = drawn(&frame, staged.carrier).clone();
+    let picture = |person: &PersonPaint| {
+        let mut canvas = painter::Canvas::new(80, 120, 1.0, (-40.0, -110.0)).expect("a canvas");
+        paint_person_body(&mut canvas, &frame, person, (0.0, 0.0), [1.0, 1.0, 1.0]);
+        canvas.pixmap.data().to_vec()
+    };
+    let carrying = picture(&PersonPaint {
+        height: 90.0,
+        ..carrier.clone()
+    });
+    let working = picture(&PersonPaint {
+        height: 90.0,
+        stance: Stance::Working,
+        ..carrier.clone()
+    });
+    assert_ne!(carrying, working, "a load in the arms");
+    let dancer = PersonPaint {
+        height: 90.0,
+        stance: Stance::Dancing,
+        ..carrier
+    };
+    let beats = (0..4)
+        .map(|beat| {
+            picture(&PersonPaint {
+                beat: Some(beat),
+                ..dancer.clone()
+            })
+        })
+        .collect::<Vec<_>>();
+    for pair in beats.windows(2) {
+        assert_ne!(pair[0], pair[1], "each beat its own");
+    }
+}
+
+/// Nobody's feet are ever inside a building's footprint: not on an errand
+/// at any moment of the hour, nor on a bench, round a lamp or behind a
+/// stall, in every fixture at every hour of the day and the evening.
+#[test]
+fn nobody_on_an_errand_or_at_a_fixture_is_in_a_building() {
+    let mut worlds = fixtures();
+    worlds.push(("staged".into(), staged().snapshot));
+    let mut inside = Vec::new();
+    for (name, snapshot) in &worlds {
+        for hour in [9, 12, 15, 19, 21] {
+            let daylight = crate::scene::daylight_at(hour);
+            for into_hour in (0..3600).step_by(20) {
+                let clock = Clock {
+                    hour: hour as u8,
+                    into_hour: into_hour as f32,
+                };
+                let stage = stage_at(snapshot, VIEW.0, VIEW.1, clock);
+                let footprints = people::footprints(&stage, snapshot);
+                let lives = living(&stage, snapshot, 4.0, daylight, &BTreeSet::new(), None);
+                for (spot, life) in stage.people.iter().zip(&lives) {
+                    for footprint in &footprints {
+                        if ls::inside(*footprint, life.x, spot.y) {
+                            inside.push(format!(
+                                "{name}: resident {} at ({:.0}, {:.0}) at {hour}h{into_hour}s is in {footprint:?}",
+                                spot.index, life.x, spot.y
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    inside.dedup_by(|a, b| a.split(" at ").next() == b.split(" at ").next());
+    assert!(inside.is_empty(), "{}", inside.join("\n"));
+}
