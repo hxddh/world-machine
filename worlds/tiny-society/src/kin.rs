@@ -234,6 +234,11 @@ pub(crate) static KIN: Kin = Kin {
 /// How someone looks, their age as well: a child of the harbour in a mix
 /// of their parents' colouring, and everyone as old as they are.
 pub(crate) fn look(state: &WorldState, id: EntityId) -> Option<Look> {
+    look_at(state, id, state.world_time())
+}
+
+/// How someone looked at a world time, their age then on it.
+pub(crate) fn look_at(state: &WorldState, id: EntityId, at: u64) -> Option<Look> {
     let mut look = crate::talk::look(id)?;
     let parents = lives::parents(state, id);
     if let [a, b] = parents.as_slice() {
@@ -244,13 +249,13 @@ pub(crate) fn look(state: &WorldState, id: EntityId) -> Option<Look> {
         look.skin = second.and_then(|look| look.skin).or(look.skin);
         look.carries = None;
     }
-    with_age(state, id, look)
+    with_age_at(state, id, look, at)
 }
 
-/// A look with someone's age on it.
-pub(crate) fn with_age(state: &WorldState, id: EntityId, mut look: Look) -> Option<Look> {
+/// A look with someone's age at a world time on it.
+fn with_age_at(state: &WorldState, id: EntityId, mut look: Look, at: u64) -> Option<Look> {
     let cast = crate::life::cast();
-    if let Some((stage, grey, stoop)) = lives::looks_of(state, &cast, id) {
+    if let Some((stage, grey, stoop)) = lives::looks_at(state, &cast, id, at) {
         look.age = Some(stage_of(stage));
         look.grey = grey;
         look.stoop = stoop;

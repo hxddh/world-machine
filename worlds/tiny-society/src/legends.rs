@@ -168,8 +168,8 @@ impl Teller for Harbour<'_> {
         Some(crate::HARBOR)
     }
 
-    fn look(&self, id: EntityId) -> Option<Look> {
-        crate::kin::look(self.0.state(), id)
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        crate::kin::look_at(self.0.state(), id, at)
     }
 
     fn transport(&self) -> Option<Prop> {

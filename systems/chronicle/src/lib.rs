@@ -84,10 +84,11 @@ pub trait Teller {
     fn scene_home(&self) -> Option<EntityId> {
         None
     }
-    /// How someone looks, so a scene draws them as themselves, even once
-    /// they have left or died.
-    fn look(&self, id: EntityId) -> Option<Look> {
-        let _ = id;
+    /// How someone looked at a world time (the time of a scene's Event),
+    /// so a scene draws them as they were then, even once they have grown
+    /// up, left or died.
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        let _ = (id, at);
         None
     }
     /// How people come and go here (a ferry, a shuttle), shown at an

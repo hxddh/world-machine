@@ -193,7 +193,7 @@ pub fn scene(teller: &impl Teller, id: EventId) -> Option<SceneScript> {
     let mut script = script(&beat(teller, event));
     for (who, look) in &mut script.cast {
         if let SelectionId::Entity(id) = who {
-            *look = teller.look(*id);
+            *look = teller.look(*id, event.world_time);
         }
     }
     Some(script)

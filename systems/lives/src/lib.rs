@@ -25,8 +25,8 @@ mod voice;
 
 pub mod generations;
 pub use generations::{
-    age_of, awaiting_memorial, born_here, children, grown, grown_here, lives_with, looks_of,
-    memorial_request, parents, Kin, KinWords, Memorial, Stage,
+    age_at, age_of, awaiting_memorial, born_here, children, grown, grown_here, lives_with,
+    looks_at, looks_of, memorial_request, parents, Kin, KinWords, Memorial, Stage,
 };
 
 mod answers;
