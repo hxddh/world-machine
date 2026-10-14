@@ -1357,7 +1357,7 @@ pub(super) fn paint_garlands(
 }
 
 /// Where a street's lamps stand, in stage pixels, when its Pack says.
-fn street_lamps(frame: &Frame) -> Vec<f32> {
+pub(super) fn street_lamps(frame: &Frame) -> Vec<f32> {
     frame
         .look
         .as_ref()
@@ -1366,7 +1366,7 @@ fn street_lamps(frame: &Frame) -> Vec<f32> {
 }
 
 /// What a street's lamps glow: the Pack's own colour, or sodium orange.
-fn street_glow(frame: &Frame) -> Hsla {
+pub(super) fn street_glow(frame: &Frame) -> Hsla {
     match frame.look.as_ref().and_then(|look| look.glow) {
         Some(glow) => art::hex(glow),
         None => art::hex(0xffc96b),

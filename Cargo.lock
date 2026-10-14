@@ -3186,6 +3186,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "living-stage-bench"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui_platform",
+ "serde_json",
+ "world-gpui",
+ "world-pack-protocol",
+ "world-projection",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

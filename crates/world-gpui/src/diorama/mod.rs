@@ -26,6 +26,7 @@ mod ground;
 mod interface;
 mod light;
 mod lived;
+pub mod living_stage;
 mod people;
 mod scene;
 mod works;
