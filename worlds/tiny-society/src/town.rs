@@ -848,6 +848,9 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
             gathering: square,
             festival,
             seed: person.0,
+            today: state.world_time() / crate::persistence::WORLD_DAY_TICKS,
+            uses: Vec::new(),
+            last: None,
         };
         town.live(item, home, &plan);
     }

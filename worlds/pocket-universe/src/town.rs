@@ -969,6 +969,9 @@ pub(crate) fn lay_out(
             gathering,
             festival,
             seed: person.0,
+            today: state.world_time() / crate::BACKGROUND_PERIOD,
+            uses: Vec::new(),
+            last: None,
         };
         town.live(item, home, &plan);
     }

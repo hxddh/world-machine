@@ -158,18 +158,7 @@ pub fn outdoors(snapshot: &ProjectionSnapshot, hour: u8) -> f32 {
         .collect::<Vec<_>>();
     let out = people
         .iter()
-        .filter(|item| {
-            let day = item
-                .day
-                .iter()
-                .map(|stop| days::Stop {
-                    from_hour: stop.from_hour,
-                    at: stop.at,
-                    inside: stop.inside,
-                })
-                .collect::<Vec<_>>();
-            days::stop_at(&day, hour).is_some_and(|stop| !stop.inside)
-        })
+        .filter(|item| world_projection::stop_at(&item.day, hour).is_some_and(|stop| !stop.inside))
         .count();
     out as f32 / people.len().max(1) as f32
 }
