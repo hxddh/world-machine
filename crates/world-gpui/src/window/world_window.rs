@@ -2094,41 +2094,6 @@ impl ProjectionView {
         }
     }
 
-    /// The return film's next beat, after the one being told: where the
-    /// camera will go next, and what it will be about, painted ahead once
-    /// the beat on screen is sharp.
-    fn next_beat_view(&self, stage: &Stage) -> Option<(Camera, (f32, f32, f32, f32))> {
-        let index = self.retelling? + 1;
-        let beat = *self.snapshot.briefing.as_ref()?.beats().get(index)?;
-        let subject = beat_box(&self.snapshot, stage, beat)?;
-        Some((Camera::on(stage, subject), subject))
-    }
-
-    /// What the moment is about, as a box on the stage: whatever the return
-    /// film's beat is about, or whoever the player is talking to (Find
-    /// lands on them). The scene paints it first, sharp, before the camera
-    /// settles on it.
-    fn subject(&self, stage: &Stage) -> Option<(f32, f32, f32, f32)> {
-        let boxes = match self.current_beat() {
-            Some(beat) => return beat_box(&self.snapshot, stage, beat),
-            None => {
-                let who = self.looking.asking?;
-                let index = self
-                    .snapshot
-                    .canvas
-                    .items
-                    .iter()
-                    .position(|item| item.id == who)?;
-                vec![stage.frame_of(index)?]
-            }
-        };
-        let (x0, y0, x1, y1) = boxes.iter().fold(
-            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
-            |(x0, y0, x1, y1), (x, y, w, h)| (x0.min(*x), y0.min(*y), x1.max(x + w), y1.max(y + h)),
-        );
-        (!boxes.is_empty()).then_some((x0, y0, x1 - x0, y1 - y0))
-    }
-
     /// Where the camera is now, moving toward where it was last sent.
     fn camera(&mut self, stage: &Stage, window: &Window) -> Camera {
         let whole = Camera::whole(stage);
@@ -2357,27 +2322,6 @@ impl ProjectionView {
             self.looking.pan,
             self.looking.zoom_on,
         )
-    }
-
-    /// Where one press of the zoom control (or + and −) would take the
-    /// camera now, closer and further: none while it is on its way, held
-    /// on someone or a return beat, or dragged, and none at either end of
-    /// its travel. The scene paints them ahead (see
-    /// [`diorama::Frame::zooming_to`]).
-    fn zoom_steps(&self, stage: &Stage, camera: Camera) -> Vec<Camera> {
-        if self.current_beat().is_some()
-            || self.looking.asking.is_some()
-            || self.looking.drag.is_some()
-            || self.looking.glide.moving(Instant::now())
-        {
-            return Vec::new();
-        }
-        let middle = (stage.view_w / 2.0, stage.height / 2.0);
-        [1.0 / ZOOM_STEP, ZOOM_STEP]
-            .into_iter()
-            .filter_map(|factor| zoomed(stage, camera, self.view_zoom(), factor, middle))
-            .map(|zoomed| free_view(stage, zoomed.zoom, Some(zoomed.pan), zoomed.on))
-            .collect()
     }
 
     /// What the scene lights up now, and in what colour.
@@ -2977,17 +2921,10 @@ impl ProjectionView {
             rising,
         )
         .stilled(still);
-        // Where the camera is going, and what the moment is about: painted
-        // first, so the camera arrives on sharp paint; and where the return
-        // film goes next, painted ahead.
+        // Where the camera is going: its look is baked ahead.
         if let Some(to) = self.looking.glide.to {
-            frame = frame.heading_to(to, self.subject(&stage));
+            frame = frame.heading_to(to);
         }
-        if let Some((camera, subject)) = self.next_beat_view(&stage) {
-            frame = frame.next_to(camera, subject);
-        }
-        // And where a press of the zoom control would take it.
-        frame = frame.zooming_to(self.zoom_steps(&stage, camera));
         frame.bounce(&self.snapshot, &poked);
         // What a turn just built rises into place.
         if let Some(before) = &self.before_turn {
@@ -3044,85 +2981,81 @@ impl ProjectionView {
 
         self.dress_frame(&mut frame);
 
-        let mut root = div()
-            .id("world-stage")
-            .relative()
-            .size_full()
-            .overflow_hidden()
-            .track_focus(&focus)
-            .on_key_down(
-                cx.listener(|this, event: &KeyDownEvent, window, cx| {
+        let mut root =
+            div()
+                .id("world-stage")
+                .relative()
+                .size_full()
+                .overflow_hidden()
+                .track_focus(&focus)
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     this.on_key(event, window, cx)
-                }),
-            )
-            .on_scroll_wheel(
-                cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
-                    this.on_wheel(event, window, cx)
-                }),
-            )
-            .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
-                this.on_pinch(event, window, cx)
-            }))
-            // Dragging pans along the place.
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
-                    this.drag_from(f32::from(event.position.x))
-                }),
-            )
-            .on_mouse_move(
-                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                    if event.pressed_button == Some(gpui::MouseButton::Left) {
-                        this.drag_to(f32::from(event.position.x), window, cx);
-                    } else if this.looking.drag.is_some() {
-                        this.drag_end();
-                    }
-                }),
-            )
-            .on_mouse_up(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
-            )
-            .child({
-                // The scene: the living stage, its looks baked off this
-                // thread as the camera needs them, everyone in depth.
-                let started = Instant::now();
-                let scene =
-                    diorama::stage_view::living_scene(frame.clone(), &self.snapshot, window);
-                let planned = started.elapsed();
-                scene.child(
-                    canvas(
-                        |_, _, _| (),
-                        move |_, _, _, _| frame_log(planned + crate::painter::take_frame_time()),
-                    )
-                    .absolute()
-                    .size_0(),
+                }))
+                .on_scroll_wheel(
+                    cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                        this.on_wheel(event, window, cx)
+                    }),
                 )
-            })
-            // Clicking the open ground puts away whatever is open.
-            .child(
-                div()
-                    .id("world-ground")
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
-                        if this.just_dragged() || this.on_a_control(event.position(), window) {
-                            return;
+                .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
+                    this.on_pinch(event, window, cx)
+                }))
+                // Dragging pans along the place.
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
+                        this.drag_from(f32::from(event.position.x))
+                    }),
+                )
+                .on_mouse_move(
+                    cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                        if event.pressed_button == Some(gpui::MouseButton::Left) {
+                            this.drag_to(f32::from(event.position.x), window, cx);
+                        } else if this.looking.drag.is_some() {
+                            this.drag_end();
                         }
-                        if !this.place_on_ground(event.position(), window, cx) {
-                            let marking = &mut this.looking.marking;
-                            if marking.design.is_none() {
-                                marking.card = None;
-                                marking.offers = None;
-                                marking.naming = None;
-                                marking.plot_focus = None;
+                    }),
+                )
+                .on_mouse_up(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
+                )
+                .child({
+                    // The scene: the living stage, its looks baked off this
+                    // thread as the camera needs them, everyone in depth.
+                    let started = Instant::now();
+                    let scene =
+                        diorama::stage_view::living_scene(frame.clone(), &self.snapshot, window);
+                    let planned = started.elapsed();
+                    scene.child(
+                        canvas(|_, _, _| (), move |_, _, _, _| frame_log(planned))
+                            .absolute()
+                            .size_0(),
+                    )
+                })
+                // Clicking the open ground puts away whatever is open.
+                .child(
+                    div()
+                        .id("world-ground")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                            if this.just_dragged() || this.on_a_control(event.position(), window) {
+                                return;
                             }
-                            this.look_away(cx);
-                        }
-                    })),
-            );
+                            if !this.place_on_ground(event.position(), window, cx) {
+                                let marking = &mut this.looking.marking;
+                                if marking.design.is_none() {
+                                    marking.card = None;
+                                    marking.offers = None;
+                                    marking.naming = None;
+                                    marking.plot_focus = None;
+                                }
+                                this.look_away(cx);
+                            }
+                        })),
+                );
 
         // Nothing is named before it is painted (the art bible's §6).
         let painted = diorama::painted(window);
@@ -5991,13 +5924,13 @@ mod tests {
         SelectionId::from_stable_key("entity-7").expect("an entity key")
     }
 
-    /// The views the scene paints ahead of time for the zoom control are
-    /// exactly where a press of it takes the camera (the tiles of another
-    /// view would be no use): all the way out into the folded postcard of
-    /// a three-year World and all the way back in, and none past either
-    /// end of the zoom's travel.
+    /// The zoom control takes the camera all the way out into the folded
+    /// postcard of a three-year World and all the way back in, a press at
+    /// a time, and no further either way. (Until v0.30 S1b it also held
+    /// the views the tile painter painted ahead for it to where a press
+    /// goes; the living stage paints nothing ahead.)
     #[test]
-    fn the_zoom_steps_painted_ahead_are_where_the_zoom_control_goes() {
+    fn the_zoom_control_goes_into_the_postcard_and_back() {
         let snapshot = crate::diorama::tests::three_years();
         let stage = diorama::stage_at(&snapshot, 1100.0, 848.0, diorama::Clock::at(12));
         let mut view = ProjectionView::new(snapshot);
@@ -6005,21 +5938,23 @@ mod tests {
         let middle = (stage.view_w / 2.0, stage.height / 2.0);
         let mut camera = Camera::whole(&stage);
         let mut folded = 0;
+        let mut stopped = 0;
         for factor in [1.0 / ZOOM_STEP; 5].into_iter().chain([ZOOM_STEP; 9]) {
-            let steps = view.zoom_steps(&stage, camera);
-            let ahead = steps
-                .iter()
-                .find(|step| (step.zoom > camera.zoom) == (factor > 1.0))
-                .copied();
+            let before = camera;
             let moved = view.zoom_at(&stage, camera, factor, middle);
-            assert_eq!(moved, ahead.is_some(), "{camera:?} by {factor}: {steps:?}");
             if moved {
                 camera = view.free_target(&stage);
-                assert_eq!(Some(camera), ahead, "{factor}");
+                assert!(
+                    (camera.zoom > before.zoom) == (factor > 1.0),
+                    "{before:?} by {factor}: {camera:?}"
+                );
                 folded += usize::from(camera.fold > 0.0);
+            } else {
+                stopped += 1;
             }
         }
         assert!(folded >= 2, "the zoom went into the folded postcard");
+        assert!(stopped >= 1, "the zoom stops at the end of its travel");
         assert!(
             (camera.zoom - diorama::ZOOM_MOST).abs() < 1e-4,
             "{camera:?}"

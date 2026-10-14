@@ -23,8 +23,10 @@
 //!   once, and stand in depth with the buildings and things: someone
 //!   behind a building is hidden by it, someone in front stands over it.
 //!
-//! The tile painter (`interface::scene`) still paints the strip, covers,
-//! postcards and the golden pictures; the World window no longer uses it.
+//! The strip, covers, postcards and the golden pictures are still painted
+//! a tile at a time, right where they are drawn (`interface::paint`); the
+//! tiles painted off the window's thread, their rough stand-in and what
+//! was painted ahead of the camera went with S1b.
 //!
 //! Presentation only, like the rest of the diorama: it reads a snapshot
 //! and never anything the World records.

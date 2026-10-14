@@ -9,18 +9,19 @@
 //! *is* comes from the Pack (`CanvasItem::at`, or the stop of their day for
 //! the hour), and a turn that moves them is walked.
 //!
-//! The scene is a lit paper-and-paint diorama. What stands still (the sky,
-//! the hills fading into it, the ground, and the buildings with their
-//! light, shadows and lit windows) is painted on the CPU by [`painter`]
-//! into images, kept until the hour, the weather, the season, the zoom or
-//! the size changes. Whatever moves (people, boats, smoke, clouds, rain) is
-//! drawn live over them every frame.
-
+//! The scene is a lit paper-and-paint diorama, everything in it painted on
+//! the CPU by [`painter`]'s brush. In the World window it is the living
+//! stage ([`stage_view`], [`living_stage`]): the place baked into sprites
+//! a look at a time and composited by GPUI every frame, everyone in depth.
+//! The strip, covers, postcards and the golden pictures paint its still
+//! layers right where they are drawn, a tile at a time, and whatever moves
+//! (people, boats, smoke, clouds, rain) live over them.
 //!
-//! The code is in five parts: [`scene`] (the stage, the camera and the
+//! The code is in these parts: [`scene`] (the stage, the camera and the
 //! land), [`people`], [`works`] (buildings, things and designs), [`light`]
-//! (the hour, the sky and the weather) and [`interface`] (the still layers
-//! as GPUI shows them, and the scene element).
+//! (the hour, the sky and the weather), [`interface`] (the still layers
+//! painted in place, and what a window asks of how its scene is painted),
+//! and the living stage.
 
 mod ground;
 mod interface;
@@ -113,18 +114,9 @@ pub struct Frame {
     /// Bunting strung between two buildings, by their items.
     garlands: Vec<(usize, usize)>,
     /// Where the camera is going while it glides there (a return film's
-    /// beat, Find, a card closing), so what it will see is painted, sharp,
-    /// before it arrives; and what the moment is about, a box in stage
-    /// pixels, painted first of all.
+    /// beat, Find, a card closing): the living stage bakes the look it
+    /// will see there ahead of it.
     heading: Option<Camera>,
-    subject: Option<(f32, f32, f32, f32)>,
-    /// Where the camera will go after that (the return film's next beat),
-    /// and what it will be about: painted ahead, behind everything else.
-    next: Option<(Camera, (f32, f32, f32, f32))>,
-    /// Where one press of the zoom control would take the camera, closer
-    /// and further: where such a view folds into a postcard, painted ahead
-    /// while the camera is still, so a zoom lands on sharp paint.
-    zoom_steps: Vec<Camera>,
     /// Every building on the stage with the zoom it shows from (0 for
     /// always): what the composition holds back for a closer look comes
     /// into the frame the camera is heading for.
@@ -191,26 +183,9 @@ impl Frame {
         self
     }
 
-    /// The same frame with the camera on its way to `camera`, and the
-    /// moment's subject (a box in stage pixels): painted first, before
-    /// the camera settles there.
-    pub fn heading_to(mut self, camera: Camera, subject: Option<(f32, f32, f32, f32)>) -> Self {
+    /// The same frame with the camera on its way to `camera`.
+    pub fn heading_to(mut self, camera: Camera) -> Self {
         self.heading = Some(camera);
-        self.subject = subject;
-        self
-    }
-
-    /// The same frame knowing where the camera goes after this (the return
-    /// film's next beat) and what it will be about there.
-    pub fn next_to(mut self, camera: Camera, subject: (f32, f32, f32, f32)) -> Self {
-        self.next = Some((camera, subject));
-        self
-    }
-
-    /// The same frame knowing where a press of the zoom control would take
-    /// the camera, closer and further (none at the end of its travel).
-    pub fn zooming_to(mut self, steps: Vec<Camera>) -> Self {
-        self.zoom_steps = steps;
         self
     }
 
@@ -219,50 +194,10 @@ impl Frame {
         self.heading.filter(|to| *to != self.camera)
     }
 
-    /// The moment's subject, a box in stage pixels.
-    pub(crate) fn subject(&self) -> Option<(f32, f32, f32, f32)> {
-        self.subject
-    }
-
-    /// The same frame seen through `camera`: what the composition keeps
-    /// back for a closer look is in it as the camera's zoom has it, and
-    /// everything else as this frame has it.
-    pub(crate) fn seen_from(&self, camera: Camera) -> Frame {
-        let mut seen = self.clone();
-        seen.camera = camera;
-        seen.heading = None;
-        seen.next = None;
-        seen.zoom_steps = Vec::new();
-        seen.buildings = self
-            .standing
-            .iter()
-            .filter(|(least, _)| camera.zoom + 1e-4 >= *least)
-            .map(|(_, building)| {
-                self.buildings
-                    .iter()
-                    .find(|now| now.index == building.index)
-                    .unwrap_or(building)
-                    .clone()
-            })
-            .collect();
-        seen
-    }
-
     /// The same frame `seconds` into looking, for the boil.
     pub fn at_seconds(mut self, seconds: f32) -> Self {
         self.seconds = seconds;
         self
-    }
-
-    /// How wide and tall the window onto the stage is.
-    #[cfg(test)]
-    pub(crate) fn width_of_view(&self) -> f32 {
-        self.view_w
-    }
-
-    #[cfg(test)]
-    pub(crate) fn height_of_view(&self) -> f32 {
-        self.height
     }
 
     /// Which drawing of the boil the still things show (see
@@ -798,9 +733,6 @@ pub fn frame(
         pictures: BTreeMap::new(),
         garlands: Vec::new(),
         heading: None,
-        subject: None,
-        next: None,
-        zoom_steps: Vec::new(),
         standing: std::sync::Arc::new(standing),
         things_key,
     }

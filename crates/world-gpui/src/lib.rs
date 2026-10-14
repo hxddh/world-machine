@@ -1,6 +1,6 @@
 // No `unsafe` in the shipped renderer. The tests time the window's thread
-// by its own CPU time through two libc calls (`golden.rs`, and
-// `painter::thread_cpu`), each allowed where it stands.
+// by its own CPU time through a libc call (`painter::thread_cpu`), allowed
+// where it stands.
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(test, deny(unsafe_code))]
 
@@ -10,7 +10,6 @@ pub mod brush;
 pub mod design;
 pub mod diorama;
 #[cfg(test)]
-#[allow(unsafe_code)]
 mod golden;
 pub mod hand;
 pub mod i18n;

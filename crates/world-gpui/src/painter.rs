@@ -989,20 +989,10 @@ struct Cache {
     /// How long painting has taken, for a look at the frame time.
     painted: Duration,
     paints: u32,
-    /// Bytes of pictures new to the display handed over this frame, and
-    /// how long drawing the still layers has taken in it.
+    /// Bytes of pictures new to the display handed over this frame.
     fresh: usize,
-    drawing: Duration,
-    /// What handing a new picture to the display costs on this machine,
-    /// in nanoseconds a byte, as measured over the last frames (none yet).
-    cost: Option<f32>,
-    /// Whether the window being drawn is still opening, under its loading
-    /// wash.
-    opening: bool,
-    /// When the last frame began, and this frame's whole share of new
-    /// pictures (bytes).
+    /// When the last frame began.
     began: Option<Instant>,
-    whole: usize,
     /// How far apart frames have come lately, smoothed.
     apart: Duration,
 }
@@ -1054,73 +1044,6 @@ pub fn cached(
         );
     });
     Some(image)
-}
-
-/// Work that paints one picture, to be run on any of the painter's threads.
-pub type Painting<'a> = Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'a>;
-
-/// The images for many keys at once; those not kept are painted together,
-/// across the painter's threads.
-pub fn cached_all<'a>(
-    window: &mut gpui::Window,
-    wanted: Vec<(u64, Painting<'a>)>,
-) -> Vec<Option<Arc<RenderImage>>> {
-    let id = window_id(window);
-    let now = Instant::now();
-    let mut found = Vec::with_capacity(wanted.len());
-    let mut missing = Vec::new();
-    CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        for (slot, (key, paint)) in wanted.into_iter().enumerate() {
-            match cache.entries.get_mut(&key) {
-                Some(entry) => {
-                    entry.used = now;
-                    found.push(Some(entry.image.clone()));
-                }
-                None => {
-                    found.push(None);
-                    missing.push((slot, key, paint));
-                }
-            }
-        }
-    });
-    if missing.is_empty() {
-        return found;
-    }
-    let started = Instant::now();
-    let (slots, jobs): (Vec<_>, Vec<_>) = missing
-        .into_iter()
-        .map(|(slot, key, paint)| {
-            (
-                (slot, key),
-                Box::new(move || paint().map(|pixmap| (pixmap.data().len(), image_of(pixmap))))
-                    as Box<dyn FnOnce() -> Option<(usize, Arc<RenderImage>)> + Send + 'a>,
-            )
-        })
-        .unzip();
-    let painted = parallel(jobs);
-    CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        cache.painted += started.elapsed();
-        for ((slot, key), made) in slots.into_iter().zip(painted) {
-            let Some((bytes, image)) = made else {
-                continue;
-            };
-            cache.paints += 1;
-            cache.entries.insert(
-                key,
-                Entry {
-                    image: image.clone(),
-                    window: id,
-                    used: now,
-                    bytes,
-                    ready: now,
-                },
-            );
-            found[slot] = Some(image);
-        }
-    });
-    found
 }
 
 /// Lets go of this window's images that have not been shown for a while,
@@ -1841,11 +1764,8 @@ pub fn fade_down(pixmap: &mut sk::Pixmap, from: f32, to: f32) {
 /// threads, and what they paint is picked up on the window's thread the
 /// next time it looks. Nothing on the window's thread waits for a picture.
 struct Pool {
-    /// Work waiting for a painter: what the camera needs to show anything
-    /// at all first (the rough painting of the place, the sky and the
-    /// hills), then the rest, then what is painted ahead of time (a view
-    /// the camera may go to next), each in the order asked.
-    queue: std::sync::Mutex<(VecDeque<Job>, VecDeque<Job>, VecDeque<Job>)>,
+    /// Work waiting for a painter, in the order asked.
+    queue: std::sync::Mutex<VecDeque<Job>>,
     ready: std::sync::Condvar,
     /// What has been asked for and not yet painted, by the thread that
     /// asked, and when it was last asked for: work nobody still wants is
@@ -1889,12 +1809,7 @@ fn pool() -> &'static Pool {
                             return;
                         };
                         loop {
-                            if let Some(job) = queue
-                                .0
-                                .pop_front()
-                                .or_else(|| queue.1.pop_front())
-                                .or_else(|| queue.2.pop_front())
-                            {
+                            if let Some(job) = queue.pop_front() {
                                 break job;
                             }
                             queue = match pool.ready.wait(queue) {
@@ -1981,56 +1896,21 @@ fn pick_up() {
     });
 }
 
-/// How many bytes of new pictures one frame hands to the display at most:
-/// about six tiles.
+/// How many bytes of new pictures one frame hands to the display: about
+/// six tiles of a still layer, or a few designs' pictures.
 const BUDGET_PER_FRAME: usize = 3 << 19;
-/// And at least: half a tile (and always one picture, however big).
-const LEAST_PER_FRAME: usize = 1 << 17;
-/// And while the window is opening under its loading wash, at least four
-/// tiles, and as many as twice the usual time allows, up to sixteen.
-const OPENING_PER_FRAME: usize = 1 << 20;
-/// How long a frame may spend handing new pictures to the display: the
-/// copy into the display's memory is the window thread's own work, so it
-/// is budgeted in time, measured on this machine, not in bytes.
-const HANDOFF: Duration = Duration::from_micros(2500);
-/// What handing over a byte is taken to cost before it is measured, in
-/// nanoseconds: a slow machine's.
-const FIRST_COST: f32 = 4.0;
-
-/// Says whether the window about to be drawn is still opening (under its
-/// loading wash): then its frames may hand over a little more at once.
-pub fn opening(yes: bool) {
-    CACHE.with(|cache| cache.borrow_mut().opening = yes);
-}
 
 /// Begins a frame of a window that paints off its thread: new pictures are
-/// handed to the display a frame's share at a time, as many as it can
-/// copy in [`HANDOFF`] by what the frames before measured. `limit` false
+/// handed to the display a frame's share at a time. `limit` false
 /// (painting right here) hands over everything at once.
 pub fn begin_frame(limit: bool) {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        // What the last frame's new pictures cost, if it had enough of
-        // them to tell.
-        if cache.fresh >= 1 << 17 && limit {
-            let sample = cache.drawing.as_nanos() as f32 / cache.fresh as f32;
-            // Quick to learn a machine is slow, slow to trust it is fast:
-            // one frame over its budget is a hitch, one under it only
-            // shows a tile a frame later.
-            let cost = match cache.cost {
-                Some(cost) if sample > cost => sample,
-                Some(cost) => cost * 0.9 + sample * 0.1,
-                None => sample.max(FIRST_COST),
-            };
-            cache.cost = Some(cost.clamp(0.05, 100.0));
-        }
         cache.fresh = 0;
-        cache.drawing = Duration::ZERO;
-        let cost = cache.cost.unwrap_or(FIRST_COST);
         // Where frames come slowly anyway (a software renderer drawing a
         // few a second), a frame may hand over as much as the same share
-        // of its time allows: what a frame at sixty a second hands over in
-        // [`HANDOFF`] is about an eighth of its time. Never less than that.
+        // of its time allows: what a frame at sixty a second hands over is
+        // about an eighth of its time. Never less than that.
         let now = Instant::now();
         let gap = cache
             .began
@@ -2042,34 +1922,17 @@ pub fn begin_frame(limit: bool) {
         // larger share and a hitch of its own.
         let apart = cache.apart.mul_f32(0.85) + gap.mul_f32(0.15);
         cache.apart = apart;
-        let roomy = if apart > SLOW_RENDERER {
-            HANDOFF.max(apart.min(gap).mul_f32(HANDOFF_SHARE))
+        let wider = if apart > SLOW_RENDERER {
+            (apart.min(gap).mul_f32(HANDOFF_SHARE).as_secs_f32() / HANDOFF.as_secs_f32()).max(1.0)
         } else {
-            HANDOFF
+            1.0
         };
-        let wider = roomy.as_secs_f32() / HANDOFF.as_secs_f32();
-        // While the window is still opening (its loading wash over
-        // everything, nothing yet to see move), a frame may take a little
-        // more: the place arrives sooner, and no hitch can be seen.
-        let (least, most, time) = if cache.opening {
-            (
-                OPENING_PER_FRAME,
-                OPENING_PER_FRAME * 4,
-                (HANDOFF * 2).max(roomy),
-            )
-        } else {
-            (
-                LEAST_PER_FRAME,
-                (BUDGET_PER_FRAME as f32 * wider) as usize,
-                roomy,
-            )
-        };
-        let whole = ((time.as_nanos() as f32 / cost) as usize).clamp(least, most);
-        cache.whole = whole;
-        cache.budget = limit.then_some(whole);
+        cache.budget = limit.then_some((BUDGET_PER_FRAME as f32 * wider) as usize);
     });
 }
 
+/// How long a frame at sixty a second spends handing new pictures over.
+const HANDOFF: Duration = Duration::from_micros(2500);
 /// The share of the time between frames a frame may spend handing new
 /// pictures to the display, where frames come slowly anyway.
 const HANDOFF_SHARE: f32 = 0.12;
@@ -2079,55 +1942,12 @@ const SLOW_RENDERER: Duration = Duration::from_millis(60);
 /// waking after a while is not a slow renderer).
 const SLOW_FRAME: Duration = Duration::from_millis(250);
 
-/// Lifts this frame's share: what a layer with nothing to show at all was
-/// just painted for is handed over at once, however much (a window's first
-/// frame, or its first at a new size, where a hitch cannot be seen).
-pub fn unlimit() {
-    CACHE.with(|cache| cache.borrow_mut().budget = None);
-}
-
-/// Whether this frame's share of new pictures has at least half of it left:
-/// what is handed over ahead of being seen (the tiles a pan reaches next)
-/// waits for what is seen now.
-pub fn to_spare() -> bool {
-    CACHE.with(|cache| {
-        let cache = cache.borrow();
-        match cache.budget {
-            Some(left) => left * 2 >= cache.whole,
-            None => true,
-        }
-    })
-}
-
-#[cfg(test)]
-thread_local! {
-    /// In tests, how many bytes of new pictures this thread has handed to
-    /// the display in all.
-    pub(crate) static HANDED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Adds to how long drawing the still layers took this frame: what new
-/// pictures cost to hand over is measured from it.
-pub fn note_drawing(took: Duration) {
-    CACHE.with(|cache| cache.borrow_mut().drawing += took);
-}
-
 /// What is known of a picture: painted (an image, or nothing to show), and
 /// since when.
 #[derive(Clone)]
 pub enum Ready {
     Image(Arc<RenderImage>, Instant),
     Empty,
-}
-
-/// As [`ready`], handed to the display whatever is left of this frame's
-/// share: a small picture the frame cannot do without (the rough painting
-/// of what the camera sees).
-pub fn ready_now(key: u64) -> Option<Ready> {
-    let budget = CACHE.with(|cache| cache.borrow_mut().budget.take());
-    let ready = ready(key);
-    CACHE.with(|cache| cache.borrow_mut().budget = budget);
-    ready
 }
 
 /// The picture for `key` if it is painted, without painting it.
@@ -2150,8 +1970,6 @@ pub fn ready(key: u64) -> Option<Ready> {
                     *left = left.saturating_sub(entry.bytes);
                 }
                 cache.fresh += entry.bytes;
-                #[cfg(test)]
-                HANDED.with(|handed| handed.set(handed.get() + entry.bytes));
                 cache.handed.insert(key);
             }
             entry.used = now;
@@ -2184,16 +2002,6 @@ pub fn painted(key: u64) -> bool {
     })
 }
 
-/// Whether the picture for `key` has been handed to the display (or came
-/// out empty and has nothing to hand), so drawing it costs this frame
-/// nothing new.
-pub fn handed(key: u64) -> bool {
-    CACHE.with(|cache| {
-        let cache = cache.borrow();
-        cache.handed.contains(&key) || cache.empty.contains_key(&key)
-    })
-}
-
 /// Asks for the picture for `key` to be painted by `paint` off the
 /// window's thread, unless it is painted or under way already; or, when
 /// `now` is set, paints it right here.
@@ -2201,48 +2009,6 @@ pub fn want(
     window: &gpui::Window,
     key: u64,
     now: bool,
-    paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
-) {
-    ask(window, key, now, false, paint)
-}
-
-/// As [`want`], ahead of everything asked for without `first`: what the
-/// window needs to show anything at all of what the camera sees.
-pub fn ask(
-    window: &gpui::Window,
-    key: u64,
-    now: bool,
-    first: bool,
-    paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
-) {
-    let priority = if first {
-        Priority::First
-    } else {
-        Priority::Normal
-    };
-    ask_as(window, key, now, priority, paint)
-}
-
-/// How soon a picture asked for off the window's thread is painted.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Priority {
-    /// What the window needs to show anything at all of what the camera
-    /// sees, or where it is going.
-    First,
-    /// Everything else the camera sees, or will see next.
-    Normal,
-    /// Ahead of time, only when nothing else waits: a view the camera
-    /// may go to (one press of the zoom control away). Never ahead of
-    /// anything asked for otherwise, so it never delays what is seen.
-    Later,
-}
-
-/// As [`ask`], at `priority`.
-pub fn ask_as(
-    window: &gpui::Window,
-    key: u64,
-    now: bool,
-    priority: Priority,
     paint: Box<dyn FnOnce() -> Option<sk::Pixmap> + Send + 'static>,
 ) {
     if painted(key) {
@@ -2289,17 +2055,12 @@ pub fn ask_as(
         .unwrap_or(false);
     if fresh {
         if let Ok(mut queue) = pool.queue.lock() {
-            let job = Job {
+            queue.push_back(Job {
                 key,
                 window: id,
                 thread: std::thread::current().id(),
                 paint,
-            };
-            match priority {
-                Priority::First => queue.0.push_back(job),
-                Priority::Normal => queue.1.push_back(job),
-                Priority::Later => queue.2.push_back(job),
-            }
+            });
             pool.ready.notify_one();
         }
     }
@@ -2309,19 +2070,7 @@ pub fn ask_as(
 /// than off the window's thread: in tests (so a picture is whole the first
 /// time it is drawn), or when `WORLD_GPUI_PAINT_SYNC` is set.
 pub fn synchronous() -> bool {
-    !ASYNC_HERE.with(|here| here.get())
-        && (cfg!(test) || std::env::var_os("WORLD_GPUI_PAINT_SYNC").is_some())
-}
-
-thread_local! {
-    /// A test on this thread wants painting off the thread, as the app has it.
-    static ASYNC_HERE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Paints off this thread even in a test: for testing just that.
-#[cfg(test)]
-pub(crate) fn paint_elsewhere(yes: bool) {
-    ASYNC_HERE.with(|here| here.set(yes));
+    cfg!(test) || std::env::var_os("WORLD_GPUI_PAINT_SYNC").is_some()
 }
 
 /// Whether the painter's threads have nothing left to do for this thread.
@@ -2337,20 +2086,6 @@ pub(crate) fn idle() -> bool {
             .lock()
             .map(|done| done.iter().all(|(thread, _)| *thread != here))
             .unwrap_or(true)
-}
-
-thread_local! {
-    static FRAME_TIME: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
-}
-
-/// Adds to how long drawing this frame has taken on the window's thread.
-pub fn note_frame(took: Duration) {
-    FRAME_TIME.with(|time| time.set(time.get() + took));
-}
-
-/// How long drawing has taken on the window's thread since last asked.
-pub fn take_frame_time() -> Duration {
-    FRAME_TIME.with(|time| time.replace(Duration::ZERO))
 }
 
 /// A thin ink line under whatever is painted: every pixel with nothing
@@ -2387,20 +2122,6 @@ pub fn ground_line(pixmap: &mut sk::Pixmap, reach: usize, strength: f32) {
             }
         }
     }
-}
-
-/// In tests, the longest a named part has taken at once.
-pub(crate) fn slowest(name: &'static str, took: Duration) {
-    #[cfg(test)]
-    {
-        let mut profile = profile()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let entry = profile.entry(name).or_default();
-        *entry = (*entry).max(took);
-    }
-    #[cfg(not(test))]
-    let _ = (name, took);
 }
 
 /// The error function, closely enough for a blur's fall (Abramowitz and
