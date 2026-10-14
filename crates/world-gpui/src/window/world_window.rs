@@ -60,7 +60,7 @@ pub(crate) fn pace(visible: bool, active: bool, still: bool) -> Pace {
 /// How long each thing someone says stays over them, and how long a beat
 /// of a return plays before the next.
 const LINE_SECONDS: f32 = 4.6;
-const BEAT_SECONDS: f32 = 5.2;
+pub(super) const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How many letters the drawer shows, newest first.
 pub(crate) const LETTERS_SHOWN: usize = 12;
@@ -398,6 +398,9 @@ pub(crate) enum Caret {
     Left,
 }
 
+/// The scene a return beat plays, as the World staged it.
+pub(crate) type BeatScene = std::rc::Rc<world_projection::SceneScript>;
+
 /// Presentation state: what the player is looking at, never what the
 /// World is.
 #[derive(Default)]
@@ -419,6 +422,14 @@ pub(crate) struct Looking {
     pub(crate) asking: Option<SelectionId>,
     pub(crate) answered: Option<(usize, Instant)>,
     pub(crate) beat_at: Option<Instant>,
+    /// The scene the return film's beat plays, asked for once a beat (by
+    /// the World's revision and the beat's index): none for a beat that is
+    /// no recorded Event, or one the World stages no scene for.
+    pub(crate) scene: Option<((u64, usize), Option<BeatScene>)>,
+    /// A test's clock for the beat: how far into it, whatever the wall
+    /// clock says.
+    #[cfg(test)]
+    pub(crate) beat_clock: Option<f32>,
     /// The camera's glide toward what it is sent to look at.
     pub(crate) glide: Glide,
     pub(crate) focus: Option<gpui::FocusHandle>,
@@ -2095,7 +2106,7 @@ impl ProjectionView {
     }
 
     /// Where the camera is now, moving toward where it was last sent.
-    fn camera(&mut self, stage: &Stage, window: &Window) -> Camera {
+    fn camera(&mut self, stage: &Stage, window: &Window, scene: Option<Camera>) -> Camera {
         let whole = Camera::whole(stage);
         // Whoever was being talked to is put away (Esc, the close button,
         // the drawer, a page): the camera stays where it is, never jumping
@@ -2110,11 +2121,15 @@ impl ProjectionView {
         } else if self.looking.asking.is_some() && self.current_beat().is_none() {
             self.looking.held = self.looking.camera_now.or(Some(whole));
         }
-        // A return looks at whatever its beat is about.
-        let target = self
-            .current_beat()
-            .and_then(|beat| beat_box(&self.snapshot, stage, beat))
-            .map(|subject| Camera::on(stage, subject))
+        // A return looks where its beat's scene looks, or else at
+        // whatever its beat is about.
+        let target = scene
+            .filter(|_| self.current_beat().is_some())
+            .or_else(|| {
+                self.current_beat()
+                    .and_then(|beat| beat_box(&self.snapshot, stage, beat))
+                    .map(|subject| Camera::on(stage, subject))
+            })
             // Talking to someone, the camera moves in on them.
             .or_else(|| {
                 let who = self.looking.asking?;
@@ -2647,6 +2662,9 @@ impl ProjectionView {
                     .arrived(Bound::Beat(index), Instant::now())
             });
         let film_painted = diorama::view_painted(window) && arrived;
+        // A beat that is a recorded Event plays its scene, for as long as
+        // the scene plays; any other beat is told for a beat's while.
+        let beat_seconds = self.beat_seconds();
         if self.retelling.is_some() {
             if self.looking.beat_at.is_none() || !film_painted {
                 self.looking.beat_at = Some(Instant::now());
@@ -2658,7 +2676,7 @@ impl ProjectionView {
                 // never came).
                 window.request_animation_frame();
             }
-            if since(self.looking.beat_at) > BEAT_SECONDS {
+            if self.beat_clock() > beat_seconds {
                 self.step_retelling(cx);
             }
         }
@@ -2746,7 +2764,21 @@ impl ProjectionView {
         let daylight = scene::daylight_now();
 
         let film_painted = self.keep_books(window, &stage, cx);
-        let camera = self.camera(&stage, window);
+        // The beat's scene, as far in as its clock (held at its start until
+        // the camera is there and the place painted): its cast put on the
+        // stage where it has them, everyone else about their day.
+        let staged = self.played_scene().map(|script| {
+            diorama::staging::stage_scene(
+                &script,
+                &stage,
+                &self.snapshot,
+                self.beat_clock().min(script.seconds),
+            )
+        });
+        if let Some(staged) = &staged {
+            stage = diorama::staging::cast_on(&stage, staged);
+        }
+        let camera = self.camera(&stage, window, staged.as_ref().and_then(|s| s.camera));
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
@@ -2791,6 +2823,13 @@ impl ProjectionView {
         } else if let Some((who, text, age)) = self.favour_line() {
             let length = LINE_SECONDS * speech_pages(&text).len() as f32;
             Some((who, text, age, true, length))
+        } else if let Some(staged) = staged.as_ref().filter(|_| self.retelling.is_some()) {
+            // A scene says only what its script records, by whoever said it.
+            staged
+                .bubble
+                .clone()
+                .filter(|_| film_painted)
+                .map(|(who, text, age)| (who, text, age, true, f32::MAX))
         } else if self.retelling.is_some() {
             beat_voice.filter(|_| film_painted).map(|voice| {
                 (
@@ -2885,7 +2924,7 @@ impl ProjectionView {
                 since(self.looking.turn_at) / diorama::WALK_SECONDS,
             )
         });
-        let mut living = diorama::living(
+        let mut living = diorama::living_staged(
             &stage,
             &self.snapshot,
             seconds,
@@ -2894,6 +2933,7 @@ impl ProjectionView {
             before
                 .as_ref()
                 .map(|(stage, snapshot, progress)| (stage, *snapshot, *progress)),
+            staged.as_ref(),
         );
         let poked = self
             .looking
@@ -2921,6 +2961,9 @@ impl ProjectionView {
             rising,
         )
         .stilled(still);
+        if let Some(staged) = &staged {
+            frame = frame.dressed(staged.dress());
+        }
         // Where the camera is going: its look is baked ahead.
         if let Some(to) = self.looking.glide.to {
             frame = frame.heading_to(to);
@@ -6186,7 +6229,7 @@ mod tests {
     /// A World whose snapshot never changes, for the window tests.
     /// The place on its 1,082nd day, three years built.
     fn day_1082() -> ProjectionSnapshot {
-        crate::diorama::tests::harbour_1082()
+        crate::diorama::tests::real_1082()
     }
 
     struct Still(ProjectionSnapshot);

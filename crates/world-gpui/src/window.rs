@@ -18,6 +18,8 @@ mod drawer;
 mod farewell;
 mod glide;
 mod marking;
+#[cfg(test)]
+mod scene_film_tests;
 mod stories;
 #[cfg(test)]
 mod walk;
@@ -217,6 +219,62 @@ impl ProjectionView {
         self.snapshot.briefing.as_ref()?.beats().get(index).copied()
     }
 
+    /// The scene the return film's beat plays, if the World stages one:
+    /// asked of the World once a beat, as the beat begins, and kept.
+    fn beat_scene(&mut self) -> Option<std::rc::Rc<world_projection::SceneScript>> {
+        let index = self.retelling?;
+        let key = (self.revision, index);
+        if self.looking.scene.as_ref().map(|(at, _)| *at) != Some(key) {
+            let event = match self.current_beat().and_then(|beat| beat.selection) {
+                Some(SelectionId::Event(event)) => Some(event),
+                _ => None,
+            };
+            let script = event
+                .and_then(|event| {
+                    self.controller
+                        .as_mut()?
+                        .story(world_projection::StoryRequest::Scene(event))
+                })
+                .and_then(|page| match page {
+                    world_projection::StoryPage::Scene(script) if script.seconds > 0.0 => {
+                        Some(std::rc::Rc::new(script))
+                    }
+                    _ => None,
+                });
+            self.looking.scene = Some((key, script));
+        }
+        self.played_scene()
+    }
+
+    /// How far into the beat being told: since its clock started (held at
+    /// its start until the camera is there and the place painted).
+    fn beat_clock(&self) -> f32 {
+        #[cfg(test)]
+        if let Some(clock) = self.looking.beat_clock {
+            return clock;
+        }
+        self.looking
+            .beat_at
+            .map_or(0.0, |at| at.elapsed().as_secs_f32())
+    }
+
+    /// How long the beat being told lasts: its scene's length, or a beat's
+    /// while for a beat with no scene.
+    fn beat_seconds(&mut self) -> f32 {
+        self.beat_scene()
+            .map_or(world_window::BEAT_SECONDS, |script| script.seconds)
+    }
+
+    /// The scene the beat being told plays, once asked for.
+    fn played_scene(&self) -> Option<std::rc::Rc<world_projection::SceneScript>> {
+        let index = self.retelling?;
+        self.looking
+            .scene
+            .as_ref()
+            .filter(|(at, _)| *at == (self.revision, index))
+            .and_then(|(_, script)| script.clone())
+    }
+
     /// The return film's next beat, however it is asked for (the Next
     /// button, a key, or the beat's own time running out): its clock starts
     /// again, so every beat is told for its full time.
@@ -232,6 +290,8 @@ impl ProjectionView {
             .retelling
             .map(|index| index + 1)
             .filter(|index| *index < count);
+        // Its scene asked for now, not on a frame.
+        self.beat_scene();
         cx.notify();
     }
 
