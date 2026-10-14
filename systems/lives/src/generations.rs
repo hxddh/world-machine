@@ -233,8 +233,14 @@ pub fn born_period(state: &WorldState, kin: &Kin, person: EntityId) -> i64 {
 
 /// Someone's age in the Pack's years.
 pub fn age_of(state: &WorldState, cast: &Cast, kin: &Kin, person: EntityId) -> u64 {
-    let now = period(state, cast) as i64;
-    ((now - born_period(state, kin, person)).max(0) / kin.year.max(1) as i64) as u64
+    age_at(state, cast, kin, person, state.world_time())
+}
+
+/// Someone's age in the Pack's years at a world time: a scene of an old
+/// Event draws them as they were then, not as they are now.
+pub fn age_at(state: &WorldState, cast: &Cast, kin: &Kin, person: EntityId, at: u64) -> u64 {
+    let then = (at / cast.period.max(1)) as i64;
+    ((then - born_period(state, kin, person)).max(0) / kin.year.max(1) as i64) as u64
 }
 
 /// How far through life someone of `age` is.
@@ -255,9 +261,19 @@ pub fn stage_at(kin: &Kin, age: u64) -> Stage {
 /// How someone looks their age: their stage, whether their hair is grey,
 /// and whether they stoop.
 pub fn looks_of(state: &WorldState, cast: &Cast, person: EntityId) -> Option<(Stage, bool, bool)> {
+    looks_at(state, cast, person, state.world_time())
+}
+
+/// How someone looked their age at a world time.
+pub fn looks_at(
+    state: &WorldState,
+    cast: &Cast,
+    person: EntityId,
+    at: u64,
+) -> Option<(Stage, bool, bool)> {
     let kin = cast.kin?;
     state.entity(person)?;
-    let age = age_of(state, cast, kin, person);
+    let age = age_at(state, cast, kin, person, at);
     Some((stage_at(kin, age), age >= kin.grey_at, age >= kin.stoop_at))
 }
 

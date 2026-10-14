@@ -162,8 +162,8 @@ impl Teller for Place<'_> {
         Some(crate::moments::Place.home())
     }
 
-    fn look(&self, id: EntityId) -> Option<Look> {
-        crate::kin::look(self.0, id)
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        crate::kin::look_at(self.0, id, at)
     }
 
     fn transport(&self) -> Option<Prop> {

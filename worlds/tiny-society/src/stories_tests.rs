@@ -372,6 +372,7 @@ fn scenes_replay_identically() {
     let reopened = reopened.branch();
     let beats = scene_beats(world);
     let mut kinds = BTreeMap::<&str, usize>::new();
+    let mut births = 0;
     for id in &beats {
         let scene = crate::legends::scene(world, *id).unwrap();
         assert_eq!(crate::legends::scene(&replayed, *id).as_ref(), Some(&scene));
@@ -394,9 +395,21 @@ fn scenes_replay_identically() {
             scene.cast.iter().all(|(_, look)| look.is_some()),
             "{scene:?}"
         );
+        // Drawn as they were at the Event, not as they are now: a birth
+        // shows its baby however old the child is today.
+        if scene.kind == world_projection::MomentKind::Birth {
+            assert!(
+                scene.cast.iter().any(|(_, look)| look
+                    .as_ref()
+                    .is_some_and(|look| look.age == Some(world_projection::AgeStage::Baby))),
+                "{scene:?}"
+            );
+            births += 1;
+        }
         *kinds.entry(scene.kind.id()).or_default() += 1;
     }
     eprintln!("{} scenes: {kinds:?}", beats.len());
+    assert!(births > 0, "no birth scene to check");
     for kind in ["arrival", "quarrel", "festival", "build", "outing"] {
         assert!(kinds.contains_key(kind), "no {kind} scene in {kinds:?}");
     }
