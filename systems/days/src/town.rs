@@ -859,6 +859,33 @@ impl Town {
             .or_else(|| self.placed.get(&home).copied());
     }
 
+    /// What stands within `reach` of `near` that someone there might use,
+    /// nearest first: a bench to sit on, a lamp to gather under, a stall
+    /// to keep, a bed to tend. Only what is on the panorama.
+    pub fn uses_near(
+        &self,
+        items: &[CanvasItem],
+        near: SelectionId,
+        reach: f32,
+    ) -> Vec<(SelectionId, crate::Use)> {
+        let Some(from) = self.placed.get(&near).copied() else {
+            return Vec::new();
+        };
+        let mut uses = items
+            .iter()
+            .filter(|item| item.kind != CanvasItemKind::Actor)
+            .filter(|item| item.art.as_deref() != Some("scaffold"))
+            .filter_map(|item| {
+                let used = use_of(item.shape?)?;
+                let px = item.px.or_else(|| self.placed.get(&item.id).copied())?;
+                let away = (px - from).abs();
+                (away <= reach).then_some((away, item.id, used))
+            })
+            .collect::<Vec<_>>();
+        uses.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        uses.into_iter().map(|(_, id, used)| (id, used)).collect()
+    }
+
     /// The stretch something placed stands on.
     pub fn stretch_of(&self, id: SelectionId) -> Option<usize> {
         self.placed
@@ -999,6 +1026,19 @@ pub fn widest_gap(canvas: &CanvasProjection) -> f32 {
         .windows(2)
         .map(|pair| pair[1] - pair[0])
         .fold(0.0, f32::max)
+}
+
+/// What a thing of a shape is good for to someone standing by it, if
+/// anything: somewhere to sit, a light, a stall, something growing.
+pub fn use_of(shape: MarkShape) -> Option<crate::Use> {
+    use crate::Use;
+    Some(match shape {
+        MarkShape::Bench | MarkShape::Well | MarkShape::Fountain => Use::Seat,
+        MarkShape::Lamp | MarkShape::Lantern => Use::Light,
+        MarkShape::Stall => Use::Stall,
+        MarkShape::Garden | MarkShape::Sprouts | MarkShape::Planter => Use::Planting,
+        _ => return None,
+    })
 }
 
 /// Someone is with someone else at a stop only while the other is there

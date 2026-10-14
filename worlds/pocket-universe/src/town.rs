@@ -947,6 +947,22 @@ pub(crate) fn lay_out(
         );
     }
     let evening_inside = place != Place::Ice;
+    // What each of them would use near where they spend the day, and what
+    // the record says they last did, worked out before anyone is moved.
+    let lately = lives::lately_lived(world, LATELY * crate::BACKGROUND_PERIOD);
+    let mut doings = BTreeMap::new();
+    for item in items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+    {
+        let SelectionId::Entity(person) = item.id else {
+            continue;
+        };
+        let near = day_place.get(&person).copied().unwrap_or(gathering);
+        let uses = town.uses_near(&items, near, NEAR);
+        let last = last_of(person, &lately, &uses);
+        doings.insert(person, (uses, last));
+    }
     for item in items
         .iter_mut()
         .filter(|item| item.kind == CanvasItemKind::Actor)
@@ -961,6 +977,7 @@ pub(crate) fn lay_out(
         let child = is_child(state, person);
         let work = spends.filter(|_| !child);
         let about = spends.filter(|_| child).unwrap_or(gathering);
+        let (uses, last) = doings.remove(&person).unwrap_or_default();
         let plan = Plan {
             home,
             work: work.map(|work| (work, false)),
@@ -970,8 +987,8 @@ pub(crate) fn lay_out(
             festival,
             seed: person.0,
             today: state.world_time() / crate::BACKGROUND_PERIOD,
-            uses: Vec::new(),
-            last: None,
+            uses,
+            last,
         };
         town.live(item, home, &plan);
     }
@@ -988,6 +1005,60 @@ pub(crate) fn lay_out(
     );
     canvas.look = Some(look(place));
     canvas
+}
+
+/// How many periods back what someone did still shapes their day.
+const LATELY: u64 = 2;
+/// How far from where they spend the day someone goes to use a bench, a
+/// lamp or a stall, in screens.
+const NEAR: f32 = 0.6;
+
+/// What a day spent on one of the places' activities looks like to anyone
+/// passing: a shift or the repairs are work, a paper round or ice blocks
+/// hauled are carrying, the yard sale or the trader is a stall kept, the
+/// rink, the band or the slide is dancing. What is done at home is out of
+/// sight.
+fn doing_of(activity: &str) -> Option<days::Doing> {
+    use days::Doing;
+    Some(match activity {
+        "maintenance" | "repairs" | "harvest" | "experiment" | "shift" | "lawns" | "old_car"
+        | "fishing" => Doing::Work,
+        "paper_round" | "bridge_work" | "sort_fish" => Doing::Carry,
+        "yard_sale" | "trade" => Doing::Keep,
+        "dome_view" | "chess" | "message_home" | "telescope" | "aurora" => Doing::Sit,
+        "survey" | "rim_walk" | "drive" | "diving" => Doing::Stroll,
+        "records" | "supper" | "teach" | "arcade" | "diner" | "radio_show" | "lanterns"
+        | "huddle" | "gossip" | "tales" | "council" => Doing::Gather,
+        "rink" | "band" | "slide" | "song" => Doing::Dance,
+        _ => return None,
+    })
+}
+
+/// What someone's last day, as the record has it, shows again today:
+/// where (on the bench or at the stall near it, if there is one), doing
+/// what, and with whom. A day of plain work is just their work.
+fn last_of(
+    person: EntityId,
+    lately: &BTreeMap<EntityId, lives::Lived>,
+    uses: &[(SelectionId, days::Use)],
+) -> Option<(SelectionId, days::Doing, Option<SelectionId>)> {
+    use days::{Doing, Use};
+    let lived = lately.get(&person)?;
+    let doing = doing_of(&lived.activity).filter(|doing| *doing != Doing::Work)?;
+    let wants = match doing {
+        Doing::Sit => Some(Use::Seat),
+        Doing::Keep => Some(Use::Stall),
+        _ => None,
+    };
+    let used = wants
+        .and_then(|wants| uses.iter().find(|(_, used)| *used == wants))
+        .map(|(at, _)| *at);
+    // A stall is kept only where one stands, never a whole building.
+    let at = match doing {
+        Doing::Keep => used?,
+        _ => used.unwrap_or(SelectionId::Entity(lived.place)),
+    };
+    Some((at, doing, lived.with.map(SelectionId::Entity)))
 }
 
 /// How each place looks beyond its scenery (the art director's v0.29

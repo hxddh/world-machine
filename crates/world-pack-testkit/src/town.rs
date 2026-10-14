@@ -162,3 +162,30 @@ pub fn outdoors(snapshot: &ProjectionSnapshot, hour: u8) -> f32 {
         .count();
     out as f32 / people.len().max(1) as f32
 }
+
+/// How many of the people on the scene are visibly doing something at an
+/// hour: out of doors there, and working, sitting, keeping a stall,
+/// carrying, dancing or with someone, rather than standing idle.
+pub fn busy_at(snapshot: &ProjectionSnapshot, hour: u8) -> usize {
+    use world_projection::Stance;
+    snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .filter_map(|item| world_projection::stop_at(&item.day, hour))
+        .filter(|stop| !stop.inside)
+        .filter(|stop| {
+            stop.with.is_some()
+                || stop.stance.is_some_and(|stance| {
+                    !matches!(
+                        stance,
+                        Stance::Standing
+                            | Stance::Walking
+                            | Stance::LookingAround
+                            | Stance::Stretching
+                    )
+                })
+        })
+        .count()
+}
