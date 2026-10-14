@@ -548,6 +548,31 @@ const HAND_IMAGES_PER_FRAME: usize = 48;
 /// is forgotten over a few frames, never all in one.
 const FREE_PER_FRAME: usize = 64;
 
+/// What a frame of the living stage did, beside drawing: for telling what
+/// a late frame or a slow plan came with.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FrameTags {
+    /// Threads baking a look (and one more for poses) while it was drawn.
+    pub baking: usize,
+    /// A look baked off the thread was taken in.
+    pub arrived: bool,
+    /// A look was shown for the first time.
+    pub swapped: bool,
+    /// Pictures handed to the display (looks' and poses'), and their bytes.
+    pub uploaded: usize,
+    pub uploaded_bytes: usize,
+    /// Pictures the display was told to forget.
+    pub released: usize,
+    /// Buildings, things and people drawn live for want of a picture, and
+    /// people drawn in another of their poses meanwhile.
+    pub live: usize,
+    pub stand_ins: usize,
+    /// The World was laid out again.
+    pub laid_out: bool,
+    /// Images the frame drew.
+    pub images: usize,
+}
+
 /// How long a pose nobody has struck is kept.
 const POSE_KEPT: Duration = Duration::from_secs(20);
 
@@ -579,6 +604,8 @@ pub struct Stagehand {
     freeing: Vec<Arc<RenderImage>>,
     /// The bytes of its looks' pictures, until it takes or lets go of one.
     held_bytes: Option<usize>,
+    /// What the last frame did beside drawing.
+    pub tags: FrameTags,
 }
 
 impl Default for Stagehand {
@@ -614,6 +641,7 @@ impl Stagehand {
             log: Vec::new(),
             freeing: Vec::new(),
             held_bytes: None,
+            tags: FrameTags::default(),
         }
     }
 
@@ -687,6 +715,7 @@ impl Stagehand {
         if let Some(baked) = done {
             if let Some(baking) = self.baking.take() {
                 self.take(baking.held, baking.view, baked, baking.started.elapsed());
+                self.tags.arrived = true;
             }
         }
         let posed = self
@@ -696,6 +725,11 @@ impl Stagehand {
         if let Some(posed) = posed {
             let now = Instant::now();
             for (key, sprite) in posed {
+                // Drawn, and so handed to the display, this frame.
+                if let Some(sprite) = &sprite {
+                    self.tags.uploaded += 1;
+                    self.tags.uploaded_bytes += sprite.bytes();
+                }
                 self.poses.insert(key, Posed { sprite, used: now });
             }
             self.posing = None;
@@ -955,11 +989,14 @@ impl Stagehand {
                 let size = image.size(0);
                 let bytes = (size.width.0.max(0) as usize) * (size.height.0.max(0) as usize) * 4;
                 budget = budget.saturating_sub(bytes.max(1));
+                self.tags.uploaded += 1;
+                self.tags.uploaded_bytes += bytes;
                 out.push(image);
                 slot.handed += 1;
             }
             if slot.handed >= slot.images.len() {
                 slot.held.ready = true;
+                self.tags.swapped |= !now;
             }
         }
         out
@@ -987,6 +1024,7 @@ impl Stagehand {
         {
             self.asked.push((key, person.clone()));
         }
+        self.tags.stand_ins += 1;
         // Theirs in another pose meanwhile: the same light and facing
         // first, standing before a step of a walk, the same level.
         self.poses
@@ -1095,6 +1133,7 @@ impl Stagehand {
         snapshot: &ProjectionSnapshot,
         now: bool,
     ) -> (Plan, Vec<Arc<RenderImage>>, Vec<Arc<RenderImage>>, Report) {
+        self.tags = FrameTags::default();
         self.sit(frame, snapshot);
         self.collect();
         let wants = wants(
@@ -1133,6 +1172,7 @@ impl Stagehand {
             self.freeing.len().min(FREE_PER_FRAME)
         };
         let gone = self.freeing.drain(..take).collect::<Vec<_>>();
+        self.tags.released = gone.len();
         let (plan, shown) = plan_window(self, frame, &wants);
         self.pose_asked(now);
         // Poses asked for and baked right here are drawn this same frame.
@@ -1151,6 +1191,12 @@ impl Stagehand {
             && self.asked.is_empty()
             && self.posing.is_none();
         let waiting = !settled || held.iter().any(|h| !h.ready);
+        self.tags.baking = if self.baking.is_some() {
+            ls::bake_threads()
+        } else {
+            0
+        } + usize::from(self.posing.is_some());
+        self.tags.images = plan.images();
         (
             plan,
             ahead,
@@ -1407,6 +1453,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
     let full = (0.0, 0.0, vw, vh);
     let mut items: Vec<Item> = Vec::new();
     let mut moving = 0;
+    let mut live_drawn = 0;
     // The frame itself unless it folds into rows: a frame is every
     // resident with their drawing, and cloning it was a tenth of a
     // frame's work.
@@ -1579,6 +1626,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             if building.moving() || sources.is_empty() {
                 // Rising into place, springing after a click, or not in
                 // the look yet: drawn live.
+                live_drawn += 1;
                 let z = part.camera.zoom;
                 let (x, base) = lens_first.at(building.x, building.base);
                 let (w, h) = (building.w * z, building.h * z);
@@ -1670,6 +1718,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             if draws_live(thing, &first.look, &part)
                 && (thing.grow < 1.0 || sources.is_empty() || worn(thing, &part))
             {
+                live_drawn += 1;
                 let z = part.camera.zoom;
                 let (x, base) = lens_first.at(thing.x, thing.base);
                 let w = thing.w * z;
@@ -1745,6 +1794,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             }
             if !posed && items.is_empty() {
                 // Nobody's pose is baked yet: drawn live, as the painter has them.
+                live_drawn += 1;
                 let person = person.clone();
                 let h = person.height;
                 let rect = (person.x - h, person.y - h * 1.5, h * 2.0, h * 1.6);
@@ -1824,6 +1874,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             });
         }
     }
+    hand.tags.live += live_drawn;
     (
         Plan {
             layers: ls::compose(items),
@@ -1985,7 +2036,9 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
             // Another display: every look is baked again at its scale.
             *hand = Stagehand::new(dpr);
         }
-        hand.frame(&frame, snapshot, sync)
+        let out = hand.frame(&frame, snapshot, sync);
+        LAST_TAGS.with(|last| last.set(hand.tags));
+        out
     });
     for image in &gone {
         let _ = window.drop_image(image.clone());
@@ -2075,6 +2128,18 @@ pub fn last_plan() -> (usize, usize, usize) {
 }
 
 thread_local! {
+    /// What the last frame of the living stage on this thread did beside
+    /// drawing.
+    static LAST_TAGS: std::cell::Cell<FrameTags> = std::cell::Cell::new(FrameTags::default());
+}
+
+/// What the last frame of the living stage on this thread did beside
+/// drawing (the World laid out again is the caller's to tell).
+pub fn last_tags() -> FrameTags {
+    LAST_TAGS.with(|last| last.get())
+}
+
+thread_local! {
     /// The display scale the living stage bakes for, if not the window's
     /// own: a benchmark on a 1x display baking as a Retina one would.
     static DISPLAY_SCALE: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
@@ -2112,6 +2177,9 @@ pub struct StageBench {
     pub opened: Rc<std::cell::Cell<Option<usize>>>,
     /// The looks baked, as the stage logs them.
     pub bakes: Rc<std::cell::RefCell<Vec<BakeLog>>>,
+    /// What each measured frame did beside drawing, in step with
+    /// `stats.planned`.
+    pub tags: Rc<std::cell::RefCell<Vec<FrameTags>>>,
     frames: usize,
 }
 
@@ -2132,6 +2200,7 @@ impl StageBench {
             memory: Rc::default(),
             opened: Rc::default(),
             bakes: Rc::default(),
+            tags: Rc::default(),
             frames: 0,
         }
     }
@@ -2160,6 +2229,149 @@ pub fn bake_summary(log: &[BakeLog]) -> String {
     )
 }
 
+/// What a frame did, as a log has it in a few words: `-` for nothing.
+pub fn tags_line(tags: &FrameTags) -> String {
+    let mut out = Vec::new();
+    if tags.baking > 0 {
+        out.push(format!("bake x{}", tags.baking));
+    }
+    if tags.arrived {
+        out.push("arrived".to_string());
+    }
+    if tags.swapped {
+        out.push("swap".to_string());
+    }
+    if tags.uploaded > 0 {
+        out.push(format!(
+            "upload {} ({:.1} MB)",
+            tags.uploaded,
+            tags.uploaded_bytes as f64 / 1e6
+        ));
+    }
+    if tags.released > 0 {
+        out.push(format!("release {}", tags.released));
+    }
+    if tags.live > 0 {
+        out.push(format!("live {}", tags.live));
+    }
+    if tags.stand_ins > 0 {
+        out.push(format!("stand-ins {}", tags.stand_ins));
+    }
+    if tags.laid_out {
+        out.push("layout".to_string());
+    }
+    if out.is_empty() {
+        "-".to_string()
+    } else {
+        out.join(", ")
+    }
+}
+
+/// The likeliest cause among what a frame and the frame before did, most
+/// specific first: a look shown, pictures handed over or forgotten, a
+/// look taken in, the World laid out again, something drawn live, a bake
+/// beside it, or none of these.
+pub fn cause_of(this: &FrameTags, before: &FrameTags) -> &'static str {
+    let either = |of: &dyn Fn(&FrameTags) -> bool| of(this) || of(before);
+    if either(&|tags| tags.swapped) {
+        "swap"
+    } else if either(&|tags| tags.uploaded > 0) {
+        "upload"
+    } else if either(&|tags| tags.released > 0) {
+        "release"
+    } else if either(&|tags| tags.arrived) {
+        "arrived"
+    } else if either(&|tags| tags.laid_out) {
+        "layout"
+    } else if either(&|tags| tags.live > 0) {
+        "live"
+    } else if either(&|tags| tags.baking > 0) {
+        "bake"
+    } else {
+        "none"
+    }
+}
+
+/// The causes in the order [`cause_of`] tries them.
+const CAUSES: [&str; 8] = [
+    "swap", "upload", "release", "arrived", "layout", "live", "bake", "none",
+];
+
+/// Lines telling what came with each late frame (an interval between
+/// frames over `interval_ms`) and each slow plan (over `plan_ms`): how
+/// many of each had each likeliest cause, and the five worst with what
+/// that frame and the one before did. `tags` is in step with
+/// `stats.planned`; an interval is laid to the frame it follows.
+pub fn hitch_report(
+    stats: &ls::Stats,
+    tags: &[FrameTags],
+    interval_ms: f64,
+    plan_ms: f64,
+) -> String {
+    let none = FrameTags::default();
+    let at = |frame: usize| tags.get(frame).unwrap_or(&none);
+    let before = |frame: usize| frame.checked_sub(1).map_or(&none, at);
+    let section = |name: String, late: Vec<(usize, f64)>| -> String {
+        let mut counts = [0usize; CAUSES.len()];
+        for (frame, _) in &late {
+            let cause = cause_of(at(*frame), before(*frame));
+            if let Some(index) = CAUSES.iter().position(|known| *known == cause) {
+                counts[index] += 1;
+            }
+        }
+        let mut out = format!(
+            "{name}: {} — {}",
+            late.len(),
+            CAUSES
+                .iter()
+                .zip(counts)
+                .map(|(cause, count)| format!("{cause} {count}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let mut worst = late;
+        worst.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (frame, ms) in worst.into_iter().take(5) {
+            out.push_str(&format!(
+                "\n    {ms:.1} ms at frame {frame}: [{}] after [{}]",
+                tags_line(at(frame)),
+                tags_line(before(frame)),
+            ));
+        }
+        out
+    };
+    // The interval from frame n to frame n + 1 is frame n's to answer for.
+    let late = stats
+        .between
+        .iter()
+        .enumerate()
+        .filter(|(_, ms)| **ms > interval_ms)
+        .map(|(frame, ms)| (frame, *ms))
+        .collect();
+    let slow = stats
+        .planned
+        .iter()
+        .enumerate()
+        .filter(|(_, ms)| **ms > plan_ms)
+        .map(|(frame, ms)| (frame, *ms))
+        .collect();
+    let frames = tags.len().max(1) as f64;
+    let share = |of: &dyn Fn(&FrameTags) -> bool| {
+        100.0 * tags.iter().filter(|tags| of(tags)).count() as f64 / frames
+    };
+    format!(
+        "{}\n  {}\n  of all frames: bake {:.0}%, upload {:.0}%, swap {:.0}%, release {:.0}%, live {:.0}%, layout {:.0}%",
+        section(format!("hitches (intervals over {interval_ms:.1} ms)"), late),
+        section(format!("slow plans (over {plan_ms:.1} ms)"), slow),
+        share(&|tags| tags.baking > 0),
+        share(&|tags| tags.uploaded > 0),
+        share(&|tags| tags.swapped),
+        share(&|tags| tags.released > 0),
+        share(&|tags| tags.live > 0),
+        share(&|tags| tags.laid_out),
+    )
+}
+
 impl gpui::Render for StageBench {
     fn render(
         &mut self,
@@ -2179,7 +2391,9 @@ impl gpui::Render for StageBench {
             .unwrap_or(12.0 + seconds * 24.0 / 40.0)
             .rem_euclid(24.0);
         let daylight = crate::scene::daylight_at(hour as u32);
+        let laid = super::layouts_laid();
         let stage = super::stage(&self.snapshot, w, h);
+        let laid_out = super::layouts_laid() != laid;
         let living = super::living(
             &stage,
             &self.snapshot,
@@ -2227,6 +2441,10 @@ impl gpui::Render for StageBench {
             let (images, moving, _) = last_plan();
             stats.images.push(images);
             stats.moving.push(moving);
+            self.tags.borrow_mut().push(FrameTags {
+                laid_out,
+                ..last_tags()
+            });
         }
         let finished = self.until.zip(match &self.time {
             ls::Time::Real(began) => Some(began.elapsed()),
