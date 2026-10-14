@@ -972,18 +972,24 @@ pub(super) fn paint_flag_pole(
 }
 
 /// Designs worn by places: a shop's hanging sign, a home's quilt out on
-/// the line by day or over a lit sill at night.
+/// the line by day or over a lit sill at night. Only the one at item
+/// `only`, if one is named.
 pub(super) fn paint_worn_places(
     window: &mut dyn Brush,
     frame: &Frame,
     screen: &dyn Fn(f32, f32) -> (f32, f32),
     light: [f32; 3],
+    only: Option<usize>,
 ) {
     let t = frame.seconds;
     let z = frame.camera.zoom;
     let blow = wind(frame);
     let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
-    for worn in &frame.wearing {
+    for worn in frame
+        .wearing
+        .iter()
+        .filter(|worn| only.is_none_or(|index| worn.index == index))
+    {
         let Some(building) = frame.buildings.iter().find(|b| b.index == worn.index) else {
             continue;
         };

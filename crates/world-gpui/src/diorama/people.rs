@@ -488,6 +488,44 @@ pub fn living(
         .map(|spot| spot.x)
         .collect::<Vec<_>>();
     let figure_h = stage.figure_h;
+    // The ground every building stands on: nobody's walk ever goes into
+    // one (the art director's S1 blocker, a walker on a tower's
+    // door), so a walk toward or past one stops beside it.
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+    let footprints = stage
+        .buildings
+        .iter()
+        .map(|spot| {
+            let (w, h) = super::building_size(stage, snapshot, spot, setting);
+            super::living_stage::footprint(spot.x, spot.y, w, h)
+        })
+        .collect::<Vec<_>>();
+    let clear = |from: f32, to: f32, y: f32| kept_out(&footprints, from, to, y, figure_h * 0.2);
+    // Tall, thin things standing in the water in front of the shore (a tide
+    // board, a lamp on the point): nobody stands right behind one, sliced
+    // by it, but a step to its side.
+    let posts = stage
+        .things
+        .iter()
+        .filter(|spot| spot.y >= stage.front - 1.0)
+        .filter_map(|spot| {
+            let shape = items[spot.index].shape.unwrap_or(MarkShape::Parcel);
+            let tall = matches!(
+                shape,
+                MarkShape::Signpost | MarkShape::Lamp | MarkShape::Lantern | MarkShape::Flag
+            );
+            tall.then_some((spot.x, spot.w * 0.3 + figure_h * 0.25))
+        })
+        .collect::<Vec<_>>();
+    let beside_posts = |x: f32| {
+        posts.iter().fold(x, |x, (post, reach)| {
+            if (x - post).abs() < *reach {
+                post + reach * if x < *post { -1.0 } else { 1.0 }
+            } else {
+                x
+            }
+        })
+    };
     // Walking from `from` to `to`, `since` seconds of `length` in: planted
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
@@ -527,12 +565,16 @@ pub fn living(
             let item = &items[spot.index];
             let key = item.id.stable_key();
             let seed = art::seed_of(&key);
-            let home = spot.x;
+            let home = beside_posts(spot.x);
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
             let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
             // Walking over to where a turn put them.
             if let Some((old_stage, old_snapshot, progress)) = before {
                 if let Some(old) = old_stage.person(item.id, old_snapshot) {
+                    let old = Spot {
+                        x: clear(home, old.x, spot.y),
+                        ..old
+                    };
                     if (old.x - home).abs() > 2.0 {
                         let since = progress * WALK_SECONDS;
                         if progress < 1.0 {
@@ -551,6 +593,7 @@ pub fn living(
             }
             // On the way to where their day has them this hour.
             if let Some((from, since)) = stage.routes.get(&spot.index) {
+                let from = &clear(home, *from, spot.y);
                 let length = (home - from).abs() / (figure_h * STROLL * pace);
                 if *since < length {
                     return walk(*from, home, *since, length, pace);
@@ -613,6 +656,8 @@ pub fn living(
             let away = away.clamp(home - stage.view_w * 0.45, home + stage.view_w * 0.45);
             // In the same while, someone slower gets less far.
             let away = home + (away - home) * pace.min(1.0);
+            // Beside a building, never into it.
+            let away = clear(home, away, spot.y);
             let leg = period * 0.08;
             match phase {
                 p if (0.60..0.68).contains(&p) => walk(home, away, into - period * 0.60, leg, pace),
@@ -633,6 +678,25 @@ pub fn living(
             }
         })
         .collect()
+}
+
+/// Where a walk along the line `y` from `from` toward `to` ends so that
+/// it goes into none of `footprints` (left, back, right, front): stopped
+/// `room` short of the first it would enter. A walk that starts inside
+/// one is let be.
+pub fn kept_out(footprints: &[(f32, f32, f32, f32)], from: f32, to: f32, y: f32, room: f32) -> f32 {
+    let mut to = to;
+    for (left, back, right, front) in footprints {
+        if y <= *back || y >= *front || (from > *left && from < *right) {
+            continue;
+        }
+        if from <= *left && to > *left - room {
+            to = to.min(left - room).max(from.min(to));
+        } else if from >= *right && to < *right + room {
+            to = to.max(right + room).min(from.max(to));
+        }
+    }
+    to
 }
 
 /// A person as drawn this frame, in screen pixels.
@@ -805,8 +869,6 @@ pub(super) fn paint_live(
     let z = frame.camera.zoom;
     let night = frame.daylight == Daylight::Night;
     let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
-    let (across, high) = sun_at(frame.hour);
-    let day = sun_out(frame.weather) && high > 0.02 && !night;
     let screen = |x: f32, y: f32| {
         let (sx, sy) = frame.at(x, y);
         (ox + sx, oy + sy)
@@ -814,10 +876,6 @@ pub(super) fn paint_live(
     let seen = |x: f32, reach: f32| {
         let sx = frame.at(x, 0.0).0;
         sx + reach >= 0.0 && sx - reach <= width
-    };
-    let contact = {
-        let [r, g, b] = shadow_ink(frame.hour);
-        Hsla::from(gpui::Rgba { r, g, b, a: 1.0 }).opacity(if night { 0.3 } else { 0.25 })
     };
 
     // The sea moves: short bright lines drifting and fading.
@@ -891,39 +949,7 @@ pub(super) fn paint_live(
         if !seen(building.x, building.w * z) {
             continue;
         }
-        let (x, base) = screen(building.x, building.base);
-        let (w, h) = (building.w * z, building.h * z);
-        let grow = ease(building.grow);
-        window.soft(x, base, w * 0.56 * grow, h * 0.05, h * 0.06, contact);
-        let mut tinted = Tint::new(window, light);
-        let mut hand = crate::hand::Hand::new(&mut tinted, frame.boil(), frame.setting.inks());
-        let facing = if building.flip { -1.0 } else { 1.0 };
-        let mut posed = Xform::about(
-            &mut hand,
-            (x, base),
-            facing * building.squash.0 * (0.7 + 0.3 * grow),
-            building.squash.1 * grow,
-            0.0,
-        );
-        match &building.drawing {
-            Some(drawing) => art::paint_drawing(
-                &mut posed,
-                x,
-                base,
-                w,
-                h,
-                drawing,
-                &Inks::of_place(&building.palette).lit(lit),
-                Stance::Standing,
-                world_projection::Mood::Content,
-                0.0,
-                0.0,
-                1.0,
-            ),
-            None => {
-                art::paint_building(&mut posed, x, base, w, h, building.shape, &building.palette)
-            }
-        }
+        paint_building_live(window, frame, building, &screen, light);
     }
 
     // A chimney smokes: puffs rising, spreading and thinning, carried by
@@ -993,7 +1019,7 @@ pub(super) fn paint_live(
             );
         }
     }
-    paint_worn_places(window, frame, &screen, light);
+    paint_worn_places(window, frame, &screen, light, None);
 
     // A harbour lived in whatever is built: washing, a cart, rowboats.
     super::lived::paint_lived_in(window, frame, &screen, &seen, light);
@@ -1009,167 +1035,7 @@ pub(super) fn paint_live(
         if !seen(thing.x, thing.w * z) {
             continue;
         }
-        let (x, base) = screen(thing.x, thing.base);
-        let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
-        if let Some(glow) = thing.glow {
-            window.soft(
-                x,
-                base,
-                w * 0.8,
-                w * 0.16,
-                w * 0.12,
-                ground_glow(glow, 0.35),
-            );
-        }
-        if thing.shape == MarkShape::Boat {
-            // A darker patch of water under the hull.
-            window.soft(
-                x,
-                base + w * 0.04,
-                w * 0.5,
-                w * 0.06,
-                w * 0.06,
-                contact.opacity(0.12),
-            );
-        } else {
-            contact_shadow(window, frame.hour, x, base, w * 0.9);
-        }
-        let worn = frame
-            .wearing
-            .iter()
-            .find(|worn| worn.index == thing.index)
-            .and_then(|worn| Some((worn.wear, frame.pictures.get(&thing.index)?)));
-        match worn {
-            Some((Wear::Flag, picture)) => {
-                paint_flag_pole(window, picture, x, base, w, t, wind(frame), light);
-                continue;
-            }
-            Some((Wear::Quilt, picture)) => {
-                let (qw, qh) = mark::cloth_size(Wear::Quilt, w);
-                mark::paint_quilt_line(
-                    window,
-                    picture,
-                    x,
-                    base - qh * 1.5,
-                    base,
-                    qw,
-                    qh,
-                    t,
-                    wind(frame),
-                );
-                continue;
-            }
-            _ => {}
-        }
-        let mut tinted = Tint::new(window, light);
-        let mut under = Under {
-            inner: &mut tinted,
-            most: if lit {
-                1.0
-            } else {
-                sky_luma(&frame.scenery) * WALLS_UNDER_SKY
-            },
-        };
-        // Over the screen's accent budget: quieted toward the place's own
-        // colours.
-        let mut muted = Mute {
-            inner: &mut under,
-            toward: art::hex(frame.setting.place_paints().neutral()),
-            share: if thing.muted { 0.7 } else { 0.0 },
-        };
-        let mut facing = Xform::about(
-            &mut muted,
-            (x, base),
-            if thing.flip { -1.0 } else { 1.0 },
-            1.0,
-            0.0,
-        );
-        let mut rolled = Xform::turned(&mut facing, (x, base), thing.roll);
-        match &thing.drawing {
-            Some(drawing) => art::paint_drawing(
-                &mut rolled,
-                x,
-                base,
-                w,
-                w / drawing.aspect,
-                drawing,
-                &Inks::of_place(&thing.palette),
-                Stance::Standing,
-                world_projection::Mood::Content,
-                thing.sway * 0.3,
-                0.0,
-                1.0,
-            ),
-            None => art::paint_thing(
-                &mut rolled,
-                x,
-                base,
-                w,
-                thing.shape,
-                &thing.palette,
-                thing.sway,
-            ),
-        }
-        match worn {
-            Some((Wear::Sail, picture)) => {
-                // A taller mast, and the sail on it, filling.
-                let h = w * 0.55;
-                let mast = x - w * 0.2;
-                let (sw, sh) = mark::cloth_size(Wear::Sail, w);
-                let top = base - h * 0.78 - sh;
-                {
-                    let mut tinted = Tint::new(window, light);
-                    let mut rolled = Xform::turned(&mut tinted, (x, base), thing.roll);
-                    art::line(
-                        &mut rolled,
-                        (mast, base - h * 0.4),
-                        (mast, top - h * 0.12),
-                        2.0,
-                        art::hex(0x6b4a33),
-                    );
-                    art::line(
-                        &mut rolled,
-                        (mast, base - h * 0.78),
-                        (mast + sw * 1.02, base - h * 0.78),
-                        1.6,
-                        art::hex(0x6b4a33),
-                    );
-                }
-                mark::paint_sail(
-                    window,
-                    picture,
-                    mast + 1.0,
-                    top,
-                    sw,
-                    sh,
-                    t,
-                    wind(frame),
-                    thing.roll,
-                    base,
-                );
-            }
-            Some((Wear::Sign, picture)) => {
-                // A board hung from a post beside the stall.
-                let post = x + w * 0.46;
-                let tall = w * 0.8;
-                {
-                    let mut tinted = Tint::new(window, light);
-                    tinted.rect(post - 1.2, base - tall, 2.4, tall, 1.0, art::hex(0x5b4636));
-                }
-                let (bw, bh) = mark::cloth_size(Wear::Sign, w * 1.4);
-                mark::paint_sign(
-                    window,
-                    picture,
-                    post,
-                    base - tall + 2.0,
-                    bw,
-                    bh,
-                    1.0,
-                    (t * 1.1 + thing.index as f32).sin() * 0.5,
-                );
-            }
-            _ => {}
-        }
+        paint_thing_live(window, frame, thing, &screen, light);
     }
 
     // A street's poles, wires and parked cars, between its buildings and
@@ -1191,90 +1057,12 @@ pub(super) fn paint_live(
     );
     // People: a soft shadow where they stand, a longer one away from a
     // sun that is out, and themselves.
-    let long = 0.22 + 0.9 * (1.0 - high.max(0.0)).powi(2);
-    let away = if across < 0.0 { 1.0 } else { -1.0 };
     for person in &frame.people {
-        let (x, y) = (ox + person.x, oy + person.y);
+        let x = ox + person.x;
         if x + person.height < ox || x - person.height > ox + width {
             continue;
         }
-        if let Some(glow) = person.glow {
-            let breathe = 0.9 + 0.1 * (t * 2.4).sin();
-            window.soft(
-                x,
-                y,
-                person.height * 0.8 * breathe,
-                person.height * 0.2 * breathe,
-                person.height * 0.14,
-                ground_glow(glow, 0.45),
-            );
-        }
-        // Lifted off the ground in a hop, the shadow shrinks and fades.
-        let lift = (person.pose.bob / person.height.max(1.0) * 4.0).clamp(0.0, 0.6);
-        if day {
-            let reach = person.height * long * 0.8;
-            window.soft(
-                x + away * reach * 0.5,
-                y + person.height * 0.015,
-                person.height * 0.1 + reach * 0.5,
-                person.height * 0.035,
-                person.height * 0.05,
-                gpui::black().opacity(0.1 * (1.0 - lift)),
-            );
-        }
-        window.soft(
-            x,
-            y,
-            person.height * 0.2 * (1.0 - lift * 0.4),
-            person.height * 0.045,
-            person.height * 0.05,
-            contact.opacity(1.0 - lift),
-        );
-        let mut lit_by = Tint::new(window, light);
-        // By day nobody's whites are lighter than the sky (the value bands).
-        let mut tinted = Under {
-            inner: &mut lit_by,
-            most: if lit {
-                1.0
-            } else {
-                sky_luma(&frame.scenery) * WALLS_UNDER_SKY
-            },
-        };
-        // Someone sitting sits on something (art's, B).
-        if person.stance == Stance::Sitting && !person.figure.bird {
-            crate::setting::paint_seat(
-                &mut tinted,
-                frame.setting,
-                x,
-                y,
-                person.height,
-                person.pose.facing,
-            );
-        }
-        age::paint_person(
-            &mut tinted,
-            x,
-            y,
-            person.height,
-            &person.figure,
-            person.drawing.as_ref(),
-            person.stance,
-            person.mood,
-            person.pose,
-        );
-        if let Some(baby) = &person.carrying {
-            let grown = person.height / person.figure.age.height().max(0.1);
-            age::paint_bundle(
-                &mut tinted,
-                x,
-                y,
-                grown,
-                person.pose.facing,
-                person.pose.bob,
-                baby,
-                &person.figure,
-            );
-        }
+        paint_person_live(window, frame, person, (ox, oy), light);
     }
     // The lighthouse's lamp, the brightest point on the land.
     paint_beacons(window, frame, &screen, &seen);
@@ -1284,6 +1072,361 @@ pub(super) fn paint_live(
     paint_framing_strip(window, frame, ox, width, &screen, light);
     for (x, y, r, tone) in &frame.bonds {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
+    }
+}
+
+/// The ink of the soft shadow at someone's feet, for the hour.
+pub(super) fn contact_ink(frame: &Frame) -> Hsla {
+    let [r, g, b] = shadow_ink(frame.hour);
+    let night = frame.daylight == Daylight::Night;
+    Hsla::from(gpui::Rgba { r, g, b, a: 1.0 }).opacity(if night { 0.3 } else { 0.25 })
+}
+
+/// A building springing after a click, or rising just built, drawn live
+/// where `screen` puts it, lit by `light`.
+pub(super) fn paint_building_live(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    building: &BuildingPaint,
+    screen: &dyn Fn(f32, f32) -> (f32, f32),
+    light: [f32; 3],
+) {
+    let z = frame.camera.zoom;
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    let contact = contact_ink(frame);
+    let (x, base) = screen(building.x, building.base);
+    let (w, h) = (building.w * z, building.h * z);
+    let grow = ease(building.grow);
+    window.soft(x, base, w * 0.56 * grow, h * 0.05, h * 0.06, contact);
+    let mut tinted = Tint::new(window, light);
+    let mut hand = crate::hand::Hand::new(&mut tinted, frame.boil(), frame.setting.inks());
+    let facing = if building.flip { -1.0 } else { 1.0 };
+    let mut posed = Xform::about(
+        &mut hand,
+        (x, base),
+        facing * building.squash.0 * (0.7 + 0.3 * grow),
+        building.squash.1 * grow,
+        0.0,
+    );
+    match &building.drawing {
+        Some(drawing) => art::paint_drawing(
+            &mut posed,
+            x,
+            base,
+            w,
+            h,
+            drawing,
+            &Inks::of_place(&building.palette).lit(lit),
+            Stance::Standing,
+            world_projection::Mood::Content,
+            0.0,
+            0.0,
+            1.0,
+        ),
+        None => art::paint_building(&mut posed, x, base, w, h, building.shape, &building.palette),
+    }
+}
+
+/// A thing drawn live where `screen` puts it, lit by `light`: a cart, a
+/// parcel, a boat riding the swell, and the design it wears.
+pub(super) fn paint_thing_live(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    thing: &ThingPaint,
+    screen: &dyn Fn(f32, f32) -> (f32, f32),
+    light: [f32; 3],
+) {
+    let t = frame.seconds;
+    let z = frame.camera.zoom;
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    let contact = contact_ink(frame);
+    let (x, base) = screen(thing.x, thing.base);
+    let w = thing.w * z * (0.6 + 0.4 * ease(thing.grow));
+    if let Some(glow) = thing.glow {
+        window.soft(
+            x,
+            base,
+            w * 0.8,
+            w * 0.16,
+            w * 0.12,
+            ground_glow(glow, 0.35),
+        );
+    }
+    if thing.shape == MarkShape::Boat {
+        // A darker patch of water under the hull.
+        window.soft(
+            x,
+            base + w * 0.04,
+            w * 0.5,
+            w * 0.06,
+            w * 0.06,
+            contact.opacity(0.12),
+        );
+    } else {
+        contact_shadow(window, frame.hour, x, base, w * 0.9);
+    }
+    let worn = frame
+        .wearing
+        .iter()
+        .find(|worn| worn.index == thing.index)
+        .and_then(|worn| Some((worn.wear, frame.pictures.get(&thing.index)?)));
+    match worn {
+        Some((Wear::Flag, picture)) => {
+            paint_flag_pole(window, picture, x, base, w, t, wind(frame), light);
+            return;
+        }
+        Some((Wear::Quilt, picture)) => {
+            let (qw, qh) = mark::cloth_size(Wear::Quilt, w);
+            mark::paint_quilt_line(
+                window,
+                picture,
+                x,
+                base - qh * 1.5,
+                base,
+                qw,
+                qh,
+                t,
+                wind(frame),
+            );
+            return;
+        }
+        _ => {}
+    }
+    let mut tinted = Tint::new(window, light);
+    let mut under = Under {
+        inner: &mut tinted,
+        most: if lit {
+            1.0
+        } else {
+            sky_luma(&frame.scenery) * WALLS_UNDER_SKY
+        },
+    };
+    // Over the screen's accent budget: quieted toward the place's own
+    // colours.
+    let mut muted = Mute {
+        inner: &mut under,
+        toward: art::hex(frame.setting.place_paints().neutral()),
+        share: if thing.muted { 0.7 } else { 0.0 },
+    };
+    let mut facing = Xform::about(
+        &mut muted,
+        (x, base),
+        if thing.flip { -1.0 } else { 1.0 },
+        1.0,
+        0.0,
+    );
+    let mut rolled = Xform::turned(&mut facing, (x, base), thing.roll);
+    match &thing.drawing {
+        Some(drawing) => art::paint_drawing(
+            &mut rolled,
+            x,
+            base,
+            w,
+            w / drawing.aspect,
+            drawing,
+            &Inks::of_place(&thing.palette),
+            Stance::Standing,
+            world_projection::Mood::Content,
+            thing.sway * 0.3,
+            0.0,
+            1.0,
+        ),
+        None => art::paint_thing(
+            &mut rolled,
+            x,
+            base,
+            w,
+            thing.shape,
+            &thing.palette,
+            thing.sway,
+        ),
+    }
+    match worn {
+        Some((Wear::Sail, picture)) => {
+            // A taller mast, and the sail on it, filling.
+            let h = w * 0.55;
+            let mast = x - w * 0.2;
+            let (sw, sh) = mark::cloth_size(Wear::Sail, w);
+            let top = base - h * 0.78 - sh;
+            {
+                let mut tinted = Tint::new(window, light);
+                let mut rolled = Xform::turned(&mut tinted, (x, base), thing.roll);
+                art::line(
+                    &mut rolled,
+                    (mast, base - h * 0.4),
+                    (mast, top - h * 0.12),
+                    2.0,
+                    art::hex(0x6b4a33),
+                );
+                art::line(
+                    &mut rolled,
+                    (mast, base - h * 0.78),
+                    (mast + sw * 1.02, base - h * 0.78),
+                    1.6,
+                    art::hex(0x6b4a33),
+                );
+            }
+            mark::paint_sail(
+                window,
+                picture,
+                mast + 1.0,
+                top,
+                sw,
+                sh,
+                t,
+                wind(frame),
+                thing.roll,
+                base,
+            );
+        }
+        Some((Wear::Sign, picture)) => {
+            // A board hung from a post beside the stall.
+            let post = x + w * 0.46;
+            let tall = w * 0.8;
+            {
+                let mut tinted = Tint::new(window, light);
+                tinted.rect(post - 1.2, base - tall, 2.4, tall, 1.0, art::hex(0x5b4636));
+            }
+            let (bw, bh) = mark::cloth_size(Wear::Sign, w * 1.4);
+            mark::paint_sign(
+                window,
+                picture,
+                post,
+                base - tall + 2.0,
+                bw,
+                bh,
+                1.0,
+                (t * 1.1 + thing.index as f32).sin() * 0.5,
+            );
+        }
+        _ => {}
+    }
+}
+
+/// Someone drawn live, in the scene whose top-left is (`ox`, `oy`): a
+/// soft shadow where they stand, a longer one away from a sun that is out,
+/// and themselves, lit by `light`.
+pub(super) fn paint_person_live(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    person: &PersonPaint,
+    (ox, oy): (f32, f32),
+    light: [f32; 3],
+) {
+    paint_person_ground(window, frame, person, (ox, oy));
+    let contact = contact_ink(frame);
+    let (x, y) = (ox + person.x, oy + person.y);
+    // Lifted off the ground in a hop, the shadow shrinks and fades.
+    let lift = (person.pose.bob / person.height.max(1.0) * 4.0).clamp(0.0, 0.6);
+    window.soft(
+        x,
+        y,
+        person.height * 0.2 * (1.0 - lift * 0.4),
+        person.height * 0.045,
+        person.height * 0.05,
+        contact.opacity(1.0 - lift),
+    );
+    paint_person_body(window, frame, person, (x, y), light);
+}
+
+/// What someone throws on the ground, in the scene whose top-left is
+/// (`ox`, `oy`): the glow under them if they are lit up, and by day a
+/// longer shadow away from a sun that is out (not the soft shadow at
+/// their feet).
+pub(super) fn paint_person_ground(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    person: &PersonPaint,
+    (ox, oy): (f32, f32),
+) {
+    let t = frame.seconds;
+    let night = frame.daylight == Daylight::Night;
+    let (across, high) = sun_at(frame.hour);
+    let day = sun_out(frame.weather) && high > 0.02 && !night;
+    let long = 0.22 + 0.9 * (1.0 - high.max(0.0)).powi(2);
+    let away = if across < 0.0 { 1.0 } else { -1.0 };
+    let (x, y) = (ox + person.x, oy + person.y);
+    if let Some(glow) = person.glow {
+        let breathe = 0.9 + 0.1 * (t * 2.4).sin();
+        window.soft(
+            x,
+            y,
+            person.height * 0.8 * breathe,
+            person.height * 0.2 * breathe,
+            person.height * 0.14,
+            ground_glow(glow, 0.45),
+        );
+    }
+    // Lifted off the ground in a hop, the shadow shrinks and fades.
+    let lift = (person.pose.bob / person.height.max(1.0) * 4.0).clamp(0.0, 0.6);
+    if day {
+        let reach = person.height * long * 0.8;
+        window.soft(
+            x + away * reach * 0.5,
+            y + person.height * 0.015,
+            person.height * 0.1 + reach * 0.5,
+            person.height * 0.035,
+            person.height * 0.05,
+            gpui::black().opacity(0.1 * (1.0 - lift)),
+        );
+    }
+}
+
+/// Someone themselves, their feet at (`x`, `y`) and `person.height` tall,
+/// as they stand, lit by `light`: their seat if they sit, and a baby in
+/// their arms.
+pub(super) fn paint_person_body(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    person: &PersonPaint,
+    (x, y): (f32, f32),
+    light: [f32; 3],
+) {
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    let mut lit_by = Tint::new(window, light);
+    // By day nobody's whites are lighter than the sky (the value bands).
+    let mut tinted = Under {
+        inner: &mut lit_by,
+        most: if lit {
+            1.0
+        } else {
+            sky_luma(&frame.scenery) * WALLS_UNDER_SKY
+        },
+    };
+    // Someone sitting sits on something (art's, B).
+    if person.stance == Stance::Sitting && !person.figure.bird {
+        crate::setting::paint_seat(
+            &mut tinted,
+            frame.setting,
+            x,
+            y,
+            person.height,
+            person.pose.facing,
+        );
+    }
+    age::paint_person(
+        &mut tinted,
+        x,
+        y,
+        person.height,
+        &person.figure,
+        person.drawing.as_ref(),
+        person.stance,
+        person.mood,
+        person.pose,
+    );
+    if let Some(baby) = &person.carrying {
+        let grown = person.height / person.figure.age.height().max(0.1);
+        age::paint_bundle(
+            &mut tinted,
+            x,
+            y,
+            grown,
+            person.pose.facing,
+            person.pose.bob,
+            baby,
+            &person.figure,
+        );
     }
 }
 

@@ -231,6 +231,16 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
 - 120 Hz on a real Mac.
 - The art director's free-play sign-off, on a real device.
 
+**S1a (2026-10-14): the World window draws the living stage.** Both Packs' places go through it (`diorama/stage_view.rs`); the tile painter still paints the strip, covers, postcards and goldens, and is deleted in S1b.
+- *Lazy looks.* A look is one zoom level (1x or 2x the display's scale) in one light. It is baked off the window's thread when the camera needs it. The close level is baked only around the camera. While a look bakes or is handed to the display, the nearest baked look stands in, scaled. Looks no camera is near are let go.
+- *Memory and frame plan.* The headless `living_stage_bench -- window` run, 40 s of panning and zooming at 1100x848 on this 4-core box:
+  - Day 1,082 at display scale 2: 59 MB at rest (zoom 1), 147 MB zoomed in to 2.2x, 147 MB at most. The spike's full bake was 400–680 MB.
+  - At scale 1: 21, 45 and 45 MB.
+  - Plan: mean 1.2 ms, p95 1.6 ms, 13 frames over 8 ms in 40 s.
+- *Depth.* Buildings, things, people and the props along the spine are drawn back to front by where each stands. Residents' visits and walks stop beside a building's footprint, never inside it (`nobody_walks_into_a_building` checks every fixture).
+- *World changes.* A new building, a story prop, the season, the weather or a resize gives a new key, and the look is baked again in the background. The old look stays until the new one is ready, and anything it lacks is drawn live meanwhile.
+- *Left for S1b/S1c.* Delete the tiles, rough painting and paint-ahead queues. Re-bake only the affected sprites instead of the whole look. Add the closer stage camera. Run CI's scale-2 and macOS numbers on a real Retina Mac.
+
 ### S2. Residents who move
 
 - Six to eight animated verbs: walk, carry, sit, work, wave, gather or dance.

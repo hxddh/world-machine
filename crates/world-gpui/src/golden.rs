@@ -2727,3 +2727,29 @@ fn look_at_the_town() {
         }
     }
 }
+
+/// The World window over the first Pack's town on day 1 and day 1,082 at noon, dusk
+/// and night, saved under `WORLD_GPUI_WINDOW_SHOTS` (a directory) to look
+/// at: `cargo test -p world-gpui world_window_shots -- --ignored`.
+#[test]
+#[ignore]
+fn world_window_shots() {
+    let Some(dir) = std::env::var_os("WORLD_GPUI_WINDOW_SHOTS") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let _ = std::fs::create_dir_all(&dir);
+    for (name, snapshot) in [("day1", town_on(1)), ("day1082", town_on(1082))] {
+        for hour in [12, 19, 23] {
+            crate::scene::pin_hour(Some(hour));
+            let started = std::time::Instant::now();
+            let image = world_window(&snapshot, (1100.0, 848.0), false);
+            eprintln!(
+                "{name} at {hour}: {:.0} ms",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+            let _ = image.save(dir.join(format!("{name}-h{hour}.png")));
+        }
+    }
+    crate::scene::pin_hour(None);
+}

@@ -1749,7 +1749,30 @@ pub(super) fn forget_windows(gone: &[u64]) {
     });
     WASHED.with(|washed| washed.borrow_mut().retain(|window| !gone.contains(window)));
     ZOOMS.with(|zooms| zooms.borrow_mut().retain(|view, _| !gone.contains(&view.0)));
+    super::stage_view::forget(&gone);
     painter::forget_windows(&gone);
+}
+
+/// What the living stage drew in `window` this frame, for everything that
+/// asks how the scene is painted (the welcome, the return film's words,
+/// the frame log): whether any of the place was `shown` (only before a
+/// window's first look is ready is it not, under the loading wash), and
+/// whether it had `settled` on every look it wants. The living stage has
+/// no rough painting and no flat stand-ins: once shown, nothing in view
+/// is unpainted, and wherever the camera heads is shown at once (by the
+/// nearest look baked until its own is).
+pub(super) fn note_stage(window: &Window, frame: &Frame, shown: bool, settled: bool) {
+    let id = window_id(window);
+    if !painter::synchronous() {
+        forget_closed(id);
+    }
+    UNPAINTED.with(|counts| counts.borrow_mut().insert(id, usize::from(!shown)));
+    SETTLED.with(|kept| kept.borrow_mut().insert(id, shown && settled));
+    ROUGH_SEEN.with(|seen| seen.borrow_mut().insert(id, (0.0, 0.0)));
+    SHARP_BEFORE.with(|before| before.borrow_mut().insert(id, shown));
+    if let Some(to) = frame.heading() {
+        HEADING_READY.with(|kept| kept.borrow_mut().insert(id, (to, shown)));
+    }
 }
 
 /// A window's bookkeeping is let go a while after it last drew (it has
@@ -2374,7 +2397,7 @@ pub fn scene(frame: Frame, window: &mut Window) -> gpui::Div {
 /// view's area. The release screenshot harness reads it to find any
 /// unfinished frame shown at a high moment, the rough painting on a
 /// subject after a camera move, and a frame of another World.
-fn log_frame(window: &Window, wash: f32, frame: &Frame) {
+pub(super) fn log_frame(window: &Window, wash: f32, frame: &Frame) {
     use std::io::Write;
     thread_local! {
         static LOG: std::cell::RefCell<Option<(std::fs::File, std::time::Instant)>> =
@@ -2473,7 +2496,7 @@ pub(super) const WASH_FADE: f32 = 0.3;
 /// (`all_shown`), then less and less over [`WASH_FADE`], or at once when
 /// everything is held still. A window washes only as it opens: once its
 /// place has been seen, a resize or a new hour never washes it again.
-fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
+pub(super) fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
     let id = window_id(window);
     PAINTED.with(|seen| {
         let mut seen = seen.borrow_mut();
