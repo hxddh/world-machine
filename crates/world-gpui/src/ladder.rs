@@ -95,7 +95,7 @@ pub fn of_plain(shape: MarkShape, building: bool) -> Rung {
 /// shares of the box's width and height. A bench drawn in a box 1 wide
 /// paints 0.8 across; a parcel's box is mostly air above it.
 fn reach(subject: &Subject) -> (f32, f32) {
-    static REACH: OnceLock<Mutex<HashMap<String, (f32, f32)>>> = OnceLock::new();
+    static REACH: OnceLock<Mutex<HashMap<ReachKey, (f32, f32)>>> = OnceLock::new();
     let key = subject.key();
     if let Some(found) = REACH
         .get_or_init(Default::default)
@@ -115,6 +115,21 @@ fn reach(subject: &Subject) -> (f32, f32) {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(key, measured);
     measured
+}
+
+/// What a measured reach is kept under: what is sized, and how it is
+/// drawn (the library's art by its key, or a plain shape).
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ReachKey {
+    Thing(Option<DrawnKey>),
+    Building(u8, Option<DrawnKey>),
+    Drawing(String, u32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum DrawnKey {
+    Art(&'static str),
+    Plain(u8),
 }
 
 /// What is being sized: a thing (drawn by its width), or a building
@@ -138,18 +153,21 @@ impl Subject<'_> {
         }
     }
 
-    fn key(&self) -> String {
+    /// What it is measured as: asked for every item of every frame, so
+    /// it is built without formatting a string.
+    fn key(&self) -> ReachKey {
         // The library's keys and the plain shapes' names can coincide, so
         // each says which it is.
-        let drawn = match self.drawn() {
-            Some(Drawn::Art(art)) => format!("art:{}", art.key()),
-            Some(Drawn::Plain(shape)) => format!("plain:{shape:?}"),
-            None => String::new(),
-        };
+        let drawn = self.drawn().map(|drawn| match drawn {
+            Drawn::Art(art) => DrawnKey::Art(art.key()),
+            Drawn::Plain(shape) => DrawnKey::Plain(shape as u8),
+        });
         match self {
-            Subject::Thing(..) => format!("thing:{drawn}"),
-            Subject::Building(shape, ..) => format!("building:{shape:?}:{drawn}"),
-            Subject::Drawing(drawing) => format!("drawing:{}:{}", drawing.id, drawing.aspect),
+            Subject::Thing(..) => ReachKey::Thing(drawn),
+            Subject::Building(shape, ..) => ReachKey::Building(*shape as u8, drawn),
+            Subject::Drawing(drawing) => {
+                ReachKey::Drawing(drawing.id.clone(), drawing.aspect.to_bits())
+            }
         }
     }
 

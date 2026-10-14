@@ -375,7 +375,87 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
 /// where the Pack put them. Then [`compose`] sees that nothing stands on
 /// anything else. The same World at the same hour always lays out the
 /// same.
+///
+/// A window lays its World out every frame, and laying it out was a
+/// quarter of a frame's work: the last few layouts are kept, and one is
+/// used again while the World (its canvas and drawings), the size and the
+/// hour are the same and nobody has set off or arrived since.
 pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: Clock) -> Stage {
+    thread_local! {
+        static LAID: std::cell::RefCell<Vec<Laid>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    let found = LAID.with(|laid| {
+        let mut laid = laid.borrow_mut();
+        let at = laid
+            .iter()
+            .position(|kept| kept.serves(snapshot, width, height, clock))?;
+        let kept = laid.remove(at);
+        let mut stage = kept.stage.clone();
+        // Everyone on their way set off as the hour began: how far into it
+        // they are is the clock's.
+        for (_, since) in stage.routes.values_mut() {
+            *since = clock.into_hour;
+        }
+        laid.insert(0, kept);
+        Some(stage)
+    });
+    if let Some(stage) = found {
+        return stage;
+    }
+    let (stage, walks) = lay_out(snapshot, width, height, clock);
+    LAID.with(|laid| {
+        let mut laid = laid.borrow_mut();
+        laid.insert(
+            0,
+            Laid {
+                canvas: snapshot.canvas.clone(),
+                drawings: snapshot.drawings.clone(),
+                size: (width.to_bits(), height.to_bits()),
+                hour: clock.hour,
+                walks,
+                stage: stage.clone(),
+            },
+        );
+        laid.truncate(LAID_KEPT);
+    });
+    stage
+}
+
+/// How many layouts a thread keeps: a window's World, how it stood before
+/// the last turn, and a strip's or a cover's.
+const LAID_KEPT: usize = 4;
+
+/// A layout kept: what it was of, and between which moments of the hour
+/// (seconds into it) everyone walking then is still walking and nobody
+/// else is.
+struct Laid {
+    canvas: world_projection::CanvasProjection,
+    drawings: Vec<Drawing>,
+    size: (u32, u32),
+    hour: u8,
+    walks: (f32, f32),
+    stage: Stage,
+}
+
+impl Laid {
+    fn serves(&self, snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: Clock) -> bool {
+        self.size == (width.to_bits(), height.to_bits())
+            && self.hour == clock.hour
+            && clock.into_hour >= self.walks.0
+            && clock.into_hour < self.walks.1
+            && self.canvas == snapshot.canvas
+            && self.drawings == snapshot.drawings
+    }
+}
+
+/// Lays a World out (see [`stage_at`]), with the stretch of the hour the
+/// layout holds for: from the last arrival before `clock` to the next.
+pub(super) fn lay_out(
+    snapshot: &ProjectionSnapshot,
+    width: f32,
+    height: f32,
+    clock: Clock,
+) -> (Stage, (f32, f32)) {
     let items = &snapshot.canvas.items;
     let view_w = width.max(120.0);
     let height = height.max(90.0);
@@ -651,6 +731,7 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     // Who is indoors this hour, and who is still on their way somewhere.
     let mut inside = Vec::new();
     let mut leaving = BTreeMap::<usize, (usize, f32)>::new();
+    let mut walks = (0.0_f32, f32::INFINITY);
     for (index, item) in items.iter().enumerate() {
         if item.kind != CanvasItemKind::Actor {
             continue;
@@ -667,6 +748,13 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
         let walk = (to_x - from_x).abs() / (figure_h * STROLL * pace);
         let walking = before.at != now.at && clock.into_hour < walk;
+        if before.at != now.at {
+            if walking {
+                walks.1 = walks.1.min(walk);
+            } else {
+                walks.0 = walks.0.max(walk);
+            }
+        }
         if walking {
             leaving.insert(index, (from, clock.into_hour));
         } else if now.inside {
@@ -902,7 +990,7 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         .filter_map(|(person, (from, since))| Some((person, (*slot_x.get(&from)?, since))))
         .collect();
 
-    Stage {
+    let stage = Stage {
         width,
         height,
         view_w,
@@ -923,7 +1011,8 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
         plots: plots_on(snapshot, view_w, height, (building_w, grown)),
         shown_from,
         grown,
-    }
+    };
+    (stage, walks)
 }
 
 /// The quay's row, as [`compose`] keys rows (the Pack's `y` in hundredths).

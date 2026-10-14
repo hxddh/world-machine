@@ -1774,3 +1774,54 @@ fn print_painted_heights() {
         eprintln!("HEIGHT {p:5.2} {name} {label}");
     }
 }
+
+/// A layout kept and used again (v0.30 S1b: a window lays its World out
+/// every frame) is always the one laid out afresh: through an hour of
+/// people setting off and arriving, for two Worlds side by side, and for
+/// a World changed under the same size and hour.
+#[test]
+fn a_kept_layout_is_the_one_laid_out_afresh() {
+    let mut snapshot = harbour();
+    let (home, work) = (entity(101), entity(102));
+    for index in 5..snapshot.canvas.items.len() {
+        snapshot.canvas.items[index].day = vec![
+            world_projection::RoutineStop {
+                from_hour: 8,
+                at: work,
+                inside: false,
+            },
+            world_projection::RoutineStop {
+                from_hour: 21,
+                at: home,
+                inside: true,
+            },
+        ];
+    }
+    let mut changed = snapshot.clone();
+    changed.canvas.items[1].x += 0.1;
+    let walking = stage_at(
+        &snapshot,
+        1100.0,
+        848.0,
+        Clock {
+            hour: 8,
+            into_hour: 0.5,
+        },
+    );
+    assert!(!walking.routes.is_empty(), "someone on their way");
+    for hour in [7_u8, 8, 9, 18, 21, 23] {
+        let mut into_hour = 0.0;
+        while into_hour < 3600.0 {
+            for world in [&snapshot, &changed] {
+                let clock = Clock { hour, into_hour };
+                let kept = stage_at(world, 1100.0, 848.0, clock);
+                let (fresh, _) = lay_out(world, 1100.0, 848.0, clock);
+                assert!(
+                    kept == fresh,
+                    "the layout kept at {hour}h {into_hour} s is not the one laid out afresh"
+                );
+            }
+            into_hour += 0.75;
+        }
+    }
+}
