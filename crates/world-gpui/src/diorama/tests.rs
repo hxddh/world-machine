@@ -982,9 +982,20 @@ fn a_panorama_puts_things_at_their_px_and_the_camera_keeps_to_it() {
 /// that moves them, on their way.
 #[test]
 fn people_keep_to_their_day_and_are_indoors_at_night() {
-    let mut snapshot = harbour();
-    let (home, work) = (entity(101), entity(102));
-    for index in 5..snapshot.canvas.items.len() {
+    let mut snapshot = three_years();
+    let places = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Place)
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    // Everyone's day between the first place and the last.
+    let (home, work) = (places[0], places[places.len() - 1]);
+    for index in 0..snapshot.canvas.items.len() {
+        if snapshot.canvas.items[index].kind != CanvasItemKind::Actor {
+            continue;
+        }
         snapshot.canvas.items[index].day = vec![
             world_projection::RoutineStop {
                 from_hour: 8,
@@ -1798,7 +1809,13 @@ fn a_kept_layout_is_the_one_laid_out_afresh() {
         ];
     }
     let mut changed = snapshot.clone();
-    changed.canvas.items[1].x += 0.1;
+    let moved = changed
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.kind == CanvasItemKind::Place)
+        .expect("a place");
+    changed.canvas.items[moved].x += 0.05;
     let walking = stage_at(
         &snapshot,
         1100.0,
@@ -1810,8 +1827,11 @@ fn a_kept_layout_is_the_one_laid_out_afresh() {
     );
     assert!(!walking.routes.is_empty(), "someone on their way");
     for hour in [7_u8, 8, 9, 18, 21, 23] {
-        let mut into_hour = 0.0;
-        while into_hour < 3600.0 {
+        // Closely through the first minutes, when people arrive, then on.
+        let moments = (0..240)
+            .map(|step| step as f32 * 2.5)
+            .chain((2..12).map(|step| step as f32 * 300.0));
+        for into_hour in moments {
             for world in [&snapshot, &changed] {
                 let clock = Clock { hour, into_hour };
                 let kept = stage_at(world, 1100.0, 848.0, clock);
@@ -1821,7 +1841,6 @@ fn a_kept_layout_is_the_one_laid_out_afresh() {
                     "the layout kept at {hour}h {into_hour} s is not the one laid out afresh"
                 );
             }
-            into_hour += 0.75;
         }
     }
 }
