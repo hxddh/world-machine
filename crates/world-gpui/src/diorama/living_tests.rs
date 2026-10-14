@@ -534,3 +534,146 @@ fn nobody_is_hidden_by_what_they_stand_on() {
     }
     assert!(checked > 0, "somebody stands on or behind a flat thing");
 }
+
+/// Bakes the look of `snapshot` in `light` at a device pixel a stage
+/// pixel over `span` (all of it if none), taking from `before`.
+fn bake_over(
+    snapshot: &ProjectionSnapshot,
+    view: (f32, f32),
+    light: ls::Light,
+    span: Option<(f32, f32)>,
+    before: Option<&ls::Look>,
+) -> ls::Look {
+    let (frame, stage) = sv::prepare(snapshot, view, light, false);
+    let cut = ls::Cut {
+        span,
+        people: false,
+        fold_land: false,
+    };
+    let world = sv::bake_key(&frame);
+    ls::bake_look(
+        &frame,
+        &stage,
+        &[],
+        (light, 1.0),
+        view,
+        cut,
+        (world, before),
+    )
+}
+
+/// Every sprite of a look, layer by layer: its layer, where it stands,
+/// its item (if any) and its pixels.
+fn pixels_of(look: &ls::Look) -> Vec<(&'static str, String, Vec<u8>)> {
+    let of = |name: &'static str, tag: String, sprite: &ls::Sprite| {
+        (
+            name,
+            format!("{tag} {:?} {:?}", sprite.rect, sprite.clip),
+            sprite.image.as_bytes(0).unwrap_or_default().to_vec(),
+        )
+    };
+    let mut out = Vec::new();
+    for (name, sprites) in [
+        ("sky", &look.sky),
+        ("hills", &look.hills),
+        ("land", &look.land),
+        ("shadows", &look.shadows),
+        ("back", &look.back),
+        ("front", &look.front),
+        ("puffs", &look.puffs),
+    ] {
+        out.extend(sprites.iter().map(|sprite| of(name, String::new(), sprite)));
+    }
+    out.extend(
+        look.buildings
+            .iter()
+            .map(|(item, sprite)| of("building", item.to_string(), sprite)),
+    );
+    out.extend(
+        look.glow
+            .iter()
+            .map(|(group, item, sprite)| of("halo", format!("{item} {group}"), sprite)),
+    );
+    out.extend(
+        look.things
+            .iter()
+            .map(|(item, boat, sprite)| of("thing", format!("{item} {boat}"), sprite)),
+    );
+    out.extend(
+        look.glint
+            .iter()
+            .map(|sprite| of("glint", String::new(), sprite)),
+    );
+    out.extend(
+        look.water
+            .iter()
+            .map(|sprite| of("water", String::new(), sprite)),
+    );
+    out
+}
+
+/// How many of `look`'s pictures are `before`'s own.
+fn taken_from(look: &ls::Look, before: &ls::Look) -> usize {
+    let theirs = before
+        .images()
+        .iter()
+        .map(Arc::as_ptr)
+        .collect::<std::collections::HashSet<_>>();
+    look.images()
+        .iter()
+        .filter(|image| theirs.contains(&Arc::as_ptr(image)))
+        .count()
+}
+
+/// A look baked again takes what is the same from the look baked before
+/// and is, pixel for pixel, the look baked from nothing (v0.30 S1b): the
+/// camera moved on along a close level (the same World, another stretch
+/// of it), and the World changed (a building moved along, every halo in
+/// front of or behind it taken out again). By day and at night, when
+/// what stands in front of a lit building is cut out of its halo.
+#[test]
+fn a_look_baked_again_is_the_same_as_one_baked_from_nothing() {
+    let snapshot = day_163();
+    let view = (480.0, 320.0);
+    let width = super::stage(&snapshot, view.0, view.1).width;
+    let mut moved = snapshot.clone();
+    let building = moved
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.kind == CanvasItemKind::Place && item.px.is_some())
+        .expect("a building");
+    moved.canvas.items[building].px = moved.canvas.items[building].px.map(|px| px + 0.05);
+    for light in [ls::Light::Noon, ls::Light::Night] {
+        // Along a close level: from one stretch to the next, overlapping.
+        let first = Some((0.0, width * 0.6));
+        let next = Some((width * 0.3, width * 0.9));
+        let before = bake_over(&snapshot, view, light, first, None);
+        let again = bake_over(&snapshot, view, light, next, Some(&before));
+        let fresh = bake_over(&snapshot, view, light, next, None);
+        assert!(
+            taken_from(&again, &before) * 3 > again.count(),
+            "{light:?}: a pan takes most of the look from before ({} of {})",
+            taken_from(&again, &before),
+            again.count()
+        );
+        assert!(
+            pixels_of(&again) == pixels_of(&fresh),
+            "{light:?}: a pan baked again is not the look baked from nothing"
+        );
+        assert_eq!(again.anchors, fresh.anchors);
+        // The World changed: a building moved along.
+        let before = bake_over(&snapshot, view, light, None, None);
+        let again = bake_over(&moved, view, light, None, Some(&before));
+        let fresh = bake_over(&moved, view, light, None, None);
+        assert!(
+            taken_from(&again, &before) > 0,
+            "{light:?}: what did not change is taken from before"
+        );
+        assert!(
+            pixels_of(&again) == pixels_of(&fresh),
+            "{light:?}: a World changed baked again is not the look baked from nothing"
+        );
+        assert_eq!(again.anchors, fresh.anchors);
+    }
+}

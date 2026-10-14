@@ -34,6 +34,7 @@
 use super::*;
 use gpui::{div, prelude::*, RenderImage};
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -237,6 +238,40 @@ pub struct Look {
     /// Where each building and thing stood as it was baked, by item: its
     /// middle, its foot and how wide it was (a building's height too).
     pub anchors: std::collections::HashMap<usize, Anchor>,
+    /// What it was baked of, piece by piece, and where each piece's
+    /// sprites are: so a look baked again (the camera moved on, the World
+    /// changed) takes from it whatever is the same.
+    pub of: Pieces,
+}
+
+/// What a look was baked of, and where its pieces are in it.
+#[derive(Default)]
+pub struct Pieces {
+    /// The World it was baked of (its bake key), or 0.
+    pub world: u64,
+    /// Everything of the frame a building's or thing's own sprite is
+    /// painted from besides itself: the light, the scale, the place's
+    /// colours and the hour, the weather and the season, the stage's lines.
+    pub level: u64,
+    /// Each building and thing baked, by item: what it is (all of its
+    /// paint), and for a building in a lit hour what stands in front of it
+    /// (whose shapes are taken out of its halo).
+    items: HashMap<usize, (u64, u64)>,
+    /// Each item's sprites, by item: its buildings', halos', things' and
+    /// shadows' places in the look.
+    by_item: HashMap<usize, [Vec<usize>; 4]>,
+    /// Each land tile baked, by column and row, and its place in the look
+    /// (none: it painted nothing).
+    land: HashMap<(i32, i32), Option<usize>>,
+    /// Each column of the props baked, and its places in the look, behind
+    /// and in front.
+    props: HashMap<i32, (Vec<usize>, Vec<usize>)>,
+}
+
+impl Pieces {
+    fn of(&self, item: usize, kind: usize) -> &[usize] {
+        self.by_item.get(&item).map_or(&[], |all| &all[kind])
+    }
 }
 
 /// Where a building or thing stood as it was baked: its middle, its foot,
@@ -299,6 +334,29 @@ impl Cut {
 }
 
 impl Look {
+    /// The sprites of the building `item`.
+    pub fn building_sprites(&self, item: usize) -> impl Iterator<Item = &Sprite> {
+        self.of.of(item, 0).iter().map(|at| &self.buildings[*at].1)
+    }
+
+    /// The halos of the building `item`, each with its flickering group.
+    pub fn halos(&self, item: usize) -> impl Iterator<Item = (usize, &Sprite)> {
+        self.of.of(item, 1).iter().map(|at| {
+            let (group, _, halo) = &self.glow[*at];
+            (*group, halo)
+        })
+    }
+
+    /// The sprites of the thing `item`.
+    pub fn thing_sprites(&self, item: usize) -> impl Iterator<Item = &Sprite> {
+        self.of.of(item, 2).iter().map(|at| &self.things[*at].2)
+    }
+
+    /// The shadows of the building `item`.
+    fn shadows_of(&self, item: usize) -> impl Iterator<Item = &Sprite> {
+        self.of.of(item, 3).iter().map(|at| &self.shadows[*at])
+    }
+
     fn sprites(&self) -> impl Iterator<Item = &Sprite> {
         self.sky
             .iter()
@@ -525,18 +583,24 @@ pub fn free_lane(footprints: &[(f32, f32, f32, f32)], feet: f32, (least, most): 
 /// The hour the stage puts people where they are: out and about.
 const PEOPLE_HOUR: u8 = 16;
 
-/// Runs `jobs` across every core, each taking the next job as it is free.
-fn across_cores<T: Send>(jobs: Vec<Box<dyn FnOnce() -> T + Send + '_>>) -> Vec<T> {
-    let count = jobs.len();
-    // Every core but one: the window's own thread keeps a core to draw
-    // frames on while a look bakes (v0.30 S1a: a bake on every core
-    // stretched frames to 30 ms and more on a three-core Mac).
-    let threads = std::thread::available_parallelism()
+/// How many threads a bake runs on: every core but two. The window's own
+/// thread keeps a core to plan frames on while a look bakes, and the
+/// display (its compositor and driver) another (v0.30 S1a: a bake on every
+/// core stretched frames to 30 ms and more on a three-core Mac; S1b: on
+/// every core but one, a three-core runner still missed frames).
+pub fn bake_threads() -> usize {
+    std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2)
-        .saturating_sub(1)
+        .saturating_sub(2)
         .max(1)
-        .min(count.max(1));
+}
+
+/// Runs `jobs` across the cores a bake may use, each taking the next job
+/// as it is free.
+fn across_cores<T: Send>(jobs: Vec<Box<dyn FnOnce() -> T + Send + '_>>) -> Vec<T> {
+    let count = jobs.len();
+    let threads = bake_threads().min(count.max(1));
     let slots = jobs
         .into_iter()
         .map(|job| std::sync::Mutex::new(Some(job)))
@@ -571,9 +635,12 @@ fn across_cores<T: Send>(jobs: Vec<Box<dyn FnOnce() -> T + Send + '_>>) -> Vec<T
 enum Piece {
     Sky(Sprite),
     Hills(Sprite),
-    Land(Sprite),
-    Shadow(Sprite),
-    Back(Sprite),
+    /// A land tile, by column and row.
+    Land((i32, i32), Sprite),
+    /// A building's shadow, by its item.
+    Shadow(usize, Sprite),
+    /// The props behind, by column.
+    Back(i32, Sprite),
     /// A building: how far forward it stands, its item, its sprite.
     /// In a lit hour with its pixels kept, to hide the halos behind it.
     Building((f32, usize), Sprite, Option<Raw>),
@@ -581,10 +648,17 @@ enum Piece {
     /// in its flickering group: not yet a sprite, so what stands in front
     /// of the building can be taken out of it.
     Glow((f32, usize), usize, Raw),
+    /// A halo taken from the look baked before, what stands in front of
+    /// it already taken out.
+    Halo((f32, usize), usize, Sprite),
+    /// A building's pixels, painted again only to hide the halos behind
+    /// it (its sprite taken from the look baked before).
+    Mask((f32, usize), Raw),
     /// A thing: how far forward it stands, its item, whether it rides the
     /// swell, its sprite.
     Thing((f32, usize), bool, Sprite),
-    Front(Sprite),
+    /// The props in front, by column.
+    Front(i32, Sprite),
     Person(usize, Box<Poses>),
     Puffs(Vec<Sprite>),
     Glint(Sprite),
@@ -668,7 +742,15 @@ pub fn bake(
     for level in levels {
         for (light, frame, living) in &frames {
             let started = Instant::now();
-            let look = bake_look(frame, &stage, living, *light, *level, view, Cut::WHOLE);
+            let look = bake_look(
+                frame,
+                &stage,
+                living,
+                (*light, *level),
+                view,
+                Cut::WHOLE,
+                (0, None),
+            );
             stats.push(BakeStat {
                 light: *light,
                 scale: *level,
@@ -706,21 +788,48 @@ pub fn bake(
 }
 
 /// Bakes one light at one scale, of what `cut` holds.
+///
+/// `world` is the bake key of the World `frame` is of, and `before` a
+/// look baked earlier of the same light at the same scale: whatever of it
+/// is the same is taken from it rather than painted again (its pictures
+/// are already with the display, too). Of the same World, every piece
+/// still in the cut (the camera moved on along a close level); of another
+/// (a building built, a thing placed), each building and thing that has
+/// not changed, nor anything standing in front of it. The look is the
+/// same, pixel for pixel, as one baked from nothing.
 pub(crate) fn bake_look(
     frame: &Frame,
     stage: &Stage,
     living: &[Living],
-    light: Light,
-    scale: f32,
+    (light, scale): (Light, f32),
     (vw, vh): (f32, f32),
     cut: Cut,
+    (world, before): (u64, Option<&Look>),
 ) -> Look {
     type Job<'a> = Box<dyn FnOnce() -> Vec<Piece> + Send + 'a>;
     let mut jobs: Vec<Job> = Vec::new();
     let tint = frame.light();
     let whole = !cut.fold_land;
+    let level = level_key(frame, light, scale);
+    let before = before.filter(|look| {
+        look.scale == scale
+            && look.light == light
+            && look.cut.fold_land == cut.fold_land
+            && look.of.level == level
+    });
+    // Of the same World: every piece of it is the same where it was baked.
+    let same = before.filter(|look| world != 0 && look.of.world == world);
     // The sky, soft all over: a third of the display's resolution.
-    if whole {
+    if let Some(same) = same.filter(|_| whole) {
+        jobs.push(Box::new(move || {
+            same.sky
+                .iter()
+                .cloned()
+                .map(Piece::Sky)
+                .chain(same.hills.iter().cloned().map(Piece::Hills))
+                .collect()
+        }));
+    } else if whole {
         jobs.push(Box::new(move || {
             let s = (scale * SKY_RES).max(0.5);
             let Some(mut canvas) = Canvas::new(
@@ -741,7 +850,7 @@ pub(crate) fn bake_look(
     let tall = band.above + band.below;
     let strip = 1024.0 / hill_scale;
     let mut x0 = 0.0;
-    while whole && x0 < band.w {
+    while whole && same.is_none() && x0 < band.w {
         let w = strip.min(band.w - x0);
         let band = Band::of(frame, vw, vh);
         jobs.push(Box::new(move || {
@@ -771,6 +880,7 @@ pub(crate) fn bake_look(
         .into_iter()
         .filter(|(column, _)| cut.holds(*column as f32 * tile_w, (*column + 1) as f32 * tile_w))
         .collect::<Vec<_>>();
+    let land_tiles = tiles.clone();
     for chunk in tiles.chunks(8) {
         let chunk = chunk.to_vec();
         jobs.push(Box::new(move || {
@@ -779,6 +889,10 @@ pub(crate) fn bake_look(
             chunk
                 .into_iter()
                 .filter_map(|(column, row)| {
+                    if let Some(at) = same.and_then(|same| same.of.land.get(&(column, row))) {
+                        let same = same?;
+                        return at.map(|at| Piece::Land((column, row), same.land[at].clone()));
+                    }
                     let pixmap = paint_land_tile(frame, column, row, land_scale)?;
                     let origin = (column as f32 * tile - pad, row as f32 * tile - pad);
                     let mut sprite = Sprite::whole(pixmap, origin, land_scale);
@@ -795,7 +909,7 @@ pub(crate) fn bake_look(
                         tile,
                         tile,
                     ));
-                    Some(Piece::Land(sprite))
+                    Some(Piece::Land((column, row), sprite))
                 })
                 .collect()
         }));
@@ -804,9 +918,65 @@ pub(crate) fn bake_look(
     // sprite, and in a lit hour the halo of its windows.
     let mut anchors = std::collections::HashMap::new();
     let reach_of = |w: f32, h: f32| w * 0.72 + h * 1.1;
-    for building in frame.buildings.iter().filter(|b| {
-        whole && !b.moving() && cut.holds(b.x - reach_of(b.w, b.h), b.x + reach_of(b.w, b.h))
-    }) {
+    let held = frame
+        .buildings
+        .iter()
+        .filter(|b| {
+            whole && !b.moving() && cut.holds(b.x - reach_of(b.w, b.h), b.x + reach_of(b.w, b.h))
+        })
+        .collect::<Vec<_>>();
+    // What each is, and in a lit hour what stands in front of it close
+    // enough to be taken out of its halo.
+    let keys = held
+        .iter()
+        .map(|b| (b.index, item_key(level, "building", b)))
+        .collect::<HashMap<_, _>>();
+    let fronts = held
+        .iter()
+        .map(|a| {
+            let halo = halo_reach(a, scale);
+            let front = held
+                .iter()
+                .filter(|b| {
+                    light.lit()
+                        && (b.base, b.index) > (a.base, a.index)
+                        && meets(&halo, &body_of(b))
+                })
+                .map(|b| b.index)
+                .collect::<Vec<_>>();
+            (a.index, front)
+        })
+        .collect::<HashMap<_, _>>();
+    let front_key = |item: usize| -> u64 {
+        let mut key = Key::new("in front");
+        for other in &fronts[&item] {
+            key.add((other, keys[other]));
+        }
+        key.finish()
+    };
+    let mut items = HashMap::new();
+    for b in &held {
+        items.insert(b.index, (keys[&b.index], front_key(b.index)));
+    }
+    let taken = |item: usize| {
+        before.filter(|look| {
+            look.of.items.get(&item) == items.get(&item) && items.contains_key(&item)
+        })
+    };
+    // A building painted afresh has its halo taken out behind whatever
+    // stands in front of it: those taken from before are painted again
+    // for their shapes alone.
+    let fresh = held
+        .iter()
+        .filter(|b| taken(b.index).is_none())
+        .map(|b| b.index)
+        .collect::<HashSet<_>>();
+    let masks = fresh
+        .iter()
+        .flat_map(|item| fronts[item].iter().copied())
+        .filter(|item| !fresh.contains(item))
+        .collect::<HashSet<_>>();
+    for building in held {
         anchors.insert(
             building.index,
             Anchor {
@@ -817,6 +987,44 @@ pub(crate) fn bake_look(
                 flat: false,
             },
         );
+        let item = building.index;
+        let at = (building.base, item);
+        if let Some(look) = taken(item) {
+            let mask = masks.contains(&item);
+            jobs.push(Box::new(move || {
+                let mut out = look
+                    .shadows_of(item)
+                    .map(|sprite| Piece::Shadow(item, sprite.clone()))
+                    .collect::<Vec<_>>();
+                out.extend(
+                    look.halos(item)
+                        .map(|(group, halo)| Piece::Halo(at, group, halo.clone())),
+                );
+                out.extend(
+                    look.building_sprites(item)
+                        .map(|sprite| Piece::Building(at, sprite.clone(), None)),
+                );
+                if mask {
+                    let (sprite, _) = sprite_and_glass(frame, building, scale);
+                    if let Some((pixmap, (dx, dy))) = crop(sprite.pixmap) {
+                        let origin = (
+                            sprite.origin.0 + dx as f32 / scale,
+                            sprite.origin.1 + dy as f32 / scale,
+                        );
+                        out.push(Piece::Mask(
+                            at,
+                            Raw {
+                                pixmap,
+                                origin,
+                                scale,
+                            },
+                        ));
+                    }
+                }
+                out
+            }));
+            continue;
+        }
         jobs.push(Box::new(move || {
             let mut out = Vec::new();
             let (w, h) = (building.w, building.h);
@@ -830,16 +1038,15 @@ pub(crate) fn bake_look(
             ) {
                 paint_building_shadow(&mut canvas, frame, building);
                 if let Some(sprite) = Sprite::cropped(canvas.pixmap, (left, top), land_scale) {
-                    out.push(Piece::Shadow(sprite));
+                    out.push(Piece::Shadow(item, sprite));
                 }
             }
             let (sprite, glass) = sprite_and_glass(frame, building, scale);
-            let at = (building.base, building.index);
             if let Some(glass) = glass.as_deref().filter(|_| light.lit()) {
                 if let Some(halo) =
                     halo(&sprite.pixmap, glass, sprite.origin, scale, building, frame)
                 {
-                    out.push(Piece::Glow(at, building.index % GLOW_GROUPS, halo));
+                    out.push(Piece::Glow(at, item % GLOW_GROUPS, halo));
                 }
             }
             if let Some((pixmap, (dx, dy))) = crop(sprite.pixmap) {
@@ -877,11 +1084,28 @@ pub(crate) fn bake_look(
                 flat: lies_flat(thing.shape, thing.base, frame.front),
             },
         );
+        let item = thing.index;
+        let key = (item_key(level, "thing", thing), 0);
+        items.insert(item, key);
+        let at = (thing.base, item);
+        if let Some(look) = before.filter(|look| look.of.items.get(&item) == Some(&key)) {
+            jobs.push(Box::new(move || {
+                look.of
+                    .of(item, 2)
+                    .iter()
+                    .map(|n| {
+                        let (_, boat, sprite) = &look.things[*n];
+                        Piece::Thing(at, *boat, sprite.clone())
+                    })
+                    .collect()
+            }));
+            continue;
+        }
         jobs.push(Box::new(move || {
             bake_thing(frame, thing, scale, tint)
                 .map(|sprite| {
                     let boat = thing.shape == MarkShape::Boat;
-                    Piece::Thing((thing.base, thing.index), boat, sprite)
+                    Piece::Thing(at, boat, sprite)
                 })
                 .into_iter()
                 .collect()
@@ -903,9 +1127,25 @@ pub(crate) fn bake_look(
     let side = 384.0 / scale;
     let columns = (frame.width / side).ceil() as i32;
     let rows = ((vh - top) / side).ceil() as i32;
-    for column in (0..columns)
+    let prop_columns = (0..columns)
         .filter(|column| whole && cut.holds(*column as f32 * side, (*column + 1) as f32 * side))
-    {
+        .collect::<Vec<_>>();
+    for &column in &prop_columns {
+        if let Some((same, (back, front))) =
+            same.and_then(|same| Some((same, same.of.props.get(&column)?)))
+        {
+            jobs.push(Box::new(move || {
+                back.iter()
+                    .map(|at| Piece::Back(column, same.back[*at].clone()))
+                    .chain(
+                        front
+                            .iter()
+                            .map(|at| Piece::Front(column, same.front[*at].clone())),
+                    )
+                    .collect()
+            }));
+            continue;
+        }
         jobs.push(Box::new(move || {
             let mut out = Vec::new();
             for row in 0..rows {
@@ -920,9 +1160,9 @@ pub(crate) fn bake_look(
                     paint_props(&mut canvas, frame, span, front, tint, vh);
                     if let Some(sprite) = Sprite::cropped(canvas.pixmap, origin, scale) {
                         out.push(if front {
-                            Piece::Front(sprite)
+                            Piece::Front(column, sprite)
                         } else {
-                            Piece::Back(sprite)
+                            Piece::Back(column, sprite)
                         });
                     }
                 }
@@ -947,7 +1187,14 @@ pub(crate) fn bake_look(
         }));
     }
     // A chimney's puff through its life, and a glint on the water.
-    if whole {
+    if let Some(same) = same.filter(|_| whole) {
+        jobs.push(Box::new(move || {
+            let mut out = vec![Piece::Puffs(same.puffs.clone())];
+            out.extend(same.glint.clone().map(Piece::Glint));
+            out.extend(same.water.clone().map(Piece::Water));
+            out
+        }));
+    } else if whole {
         jobs.push(Box::new(move || {
             let night = frame.daylight == Daylight::Night;
             let smoke = if night {
@@ -1043,28 +1290,59 @@ pub(crate) fn bake_look(
         water: None,
         cut,
         anchors,
+        of: Pieces {
+            world,
+            level,
+            items,
+            ..Pieces::default()
+        },
     };
     let mut people = Vec::new();
     let mut buildings = Vec::new();
     let mut things = Vec::new();
     let mut solid = Vec::new();
     let mut halos = Vec::new();
+    let mut shadows_of = Vec::new();
     for piece in across_cores(jobs).into_iter().flatten() {
         match piece {
             Piece::Sky(sprite) => look.sky.push(sprite),
             Piece::Hills(sprite) => look.hills.push(sprite),
-            Piece::Land(sprite) => look.land.push(sprite),
-            Piece::Shadow(sprite) => look.shadows.push(sprite),
-            Piece::Back(sprite) => look.back.push(sprite),
+            Piece::Land(at, sprite) => {
+                look.of.land.insert(at, Some(look.land.len()));
+                look.land.push(sprite);
+            }
+            Piece::Shadow(item, sprite) => {
+                shadows_of.push(item);
+                look.shadows.push(sprite);
+            }
+            Piece::Back(column, sprite) => {
+                look.of
+                    .props
+                    .entry(column)
+                    .or_default()
+                    .0
+                    .push(look.back.len());
+                look.back.push(sprite);
+            }
             Piece::Building(at, sprite, raw) => {
                 if let Some(raw) = raw {
                     solid.push((at, raw));
                 }
                 buildings.push((at, sprite));
             }
-            Piece::Glow(at, group, raw) => halos.push((at, group, raw)),
+            Piece::Mask(at, raw) => solid.push((at, raw)),
+            Piece::Glow(at, group, raw) => halos.push((at, group, Err(raw))),
+            Piece::Halo(at, group, sprite) => halos.push((at, group, Ok(sprite))),
             Piece::Thing(at, boat, sprite) => things.push((at, boat, sprite)),
-            Piece::Front(sprite) => look.front.push(sprite),
+            Piece::Front(column, sprite) => {
+                look.of
+                    .props
+                    .entry(column)
+                    .or_default()
+                    .1
+                    .push(look.front.len());
+                look.front.push(sprite);
+            }
             Piece::Person(at, poses) => people.push((at, *poses)),
             Piece::Puffs(puffs) => look.puffs = puffs,
             Piece::Glint(sprite) => look.glint = Some(sprite),
@@ -1081,7 +1359,11 @@ pub(crate) fn bake_look(
     // shines through the roof.
     look.glow = halos
         .into_iter()
-        .filter_map(|(at, group, mut halo)| {
+        .filter_map(|(at, group, halo)| {
+            let mut halo = match halo {
+                Ok(done) => return Some((group, at.1, done)),
+                Err(raw) => raw,
+            };
             for (_, front) in solid
                 .iter()
                 .filter(|(other, _)| order(other, &at) == std::cmp::Ordering::Greater)
@@ -1105,7 +1387,83 @@ pub(crate) fn bake_look(
         .into_iter()
         .map(|((_, item), boat, sprite)| (item, boat, sprite))
         .collect();
+    // Where each piece went: every tile and column tried (one that painted
+    // nothing too), and each item's sprites.
+    for tile in land_tiles {
+        look.of.land.entry(tile).or_insert(None);
+    }
+    for column in prop_columns {
+        look.of.props.entry(column).or_default();
+    }
+    let by_item = &mut look.of.by_item;
+    for (at, (item, _)) in look.buildings.iter().enumerate() {
+        by_item.entry(*item).or_default()[0].push(at);
+    }
+    for (at, (_, item, _)) in look.glow.iter().enumerate() {
+        by_item.entry(*item).or_default()[1].push(at);
+    }
+    for (at, (item, _, _)) in look.things.iter().enumerate() {
+        by_item.entry(*item).or_default()[2].push(at);
+    }
+    for (at, item) in shadows_of.into_iter().enumerate() {
+        by_item.entry(item).or_default()[3].push(at);
+    }
     look
+}
+
+/// What of a frame a building's or thing's own sprite is painted from
+/// besides itself, at `scale` in `light`, as a key.
+fn level_key(frame: &Frame, light: Light, scale: f32) -> u64 {
+    let s = frame.scenery;
+    let mut key = Key::new("living-stage level");
+    key.add(light as u8)
+        .float(scale)
+        .add((s.sky_top, s.sky_bottom, s.far, s.near, s.sun))
+        .add(format!("{:?}", frame.look))
+        .add(frame.daylight as u8)
+        .float(frame.hour)
+        .float(frame.seconds)
+        .add(frame.still)
+        .add(frame.weather as u8)
+        .add(frame.season.map(|season| season as u8))
+        .add(frame.cover.map(|cover| cover as u8))
+        .add((frame.ice, frame.water, frame.blend_top))
+        .add(frame.setting as u8);
+    for line in [
+        frame.view_w,
+        frame.height,
+        frame.horizon,
+        frame.base,
+        frame.feet,
+        frame.figure_h,
+        frame.front,
+        frame.building_h,
+    ] {
+        key.float(line);
+    }
+    key.finish()
+}
+
+/// A building's or thing's paint, all of it, as a key.
+fn item_key(level: u64, kind: &str, paint: &impl std::fmt::Debug) -> u64 {
+    let mut key = Key::new("living-stage item");
+    key.add(level).add(kind).add(format!("{paint:?}"));
+    key.finish()
+}
+
+/// Where a building's halo can reach, at most: its sprite, padded as the
+/// halo pads it, and the pool of light below.
+fn halo_reach(b: &BuildingPaint, scale: f32) -> Rect {
+    let pad = b.w * 0.2 + 24.0 / scale.max(0.25) + 2.0;
+    let (x0, y0) = (b.x - b.w * 0.72 - pad, b.base - b.h * 1.28 - pad);
+    let (x1, y1) = (b.x + b.w * 0.72 + pad, b.base + b.h * 0.34 + pad);
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Where a building's own pixels can be: its sprite's box.
+fn body_of(b: &BuildingPaint) -> Rect {
+    let (x0, y0) = (b.x - b.w * 0.72 - 1.0, b.base - b.h * 1.28 - 1.0);
+    (x0, y0, b.w * 1.44 + 2.0, b.h * 1.32 + 2.0)
 }
 
 /// The halo of a building's lit windows: its lamplight found in its
@@ -2365,6 +2723,25 @@ pub struct Stats {
 }
 
 impl Stats {
+    /// The v0.30 S1b bar for 120 Hz, as a line: each frame planned in 4 ms
+    /// at the 99th percentile, and no interval between frames over 33 ms
+    /// once the place first shows (the measured run starts there).
+    pub fn bar(&self) -> String {
+        let mut planned = self.planned.clone();
+        planned.sort_by(f64::total_cmp);
+        let p99 = planned
+            .get(((planned.len().max(1) - 1) as f64 * 0.99).round() as usize)
+            .copied()
+            .unwrap_or(0.0);
+        let hitches = self.between.iter().filter(|ms| **ms > 33.0).count();
+        let met = |ok: bool| if ok { "met" } else { "NOT met" };
+        format!(
+            "120 Hz bar: plan p99 {p99:.3} ms (at most 4: {}) | intervals over 33 ms after first open {hitches} (none: {})",
+            met(p99 <= 4.0),
+            met(hitches == 0),
+        )
+    }
+
     /// A line of numbers for a log: plan mean, 95th percentile and worst,
     /// frames a second, and what each frame drew.
     pub fn summary(&self) -> String {
