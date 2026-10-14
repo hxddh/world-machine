@@ -290,13 +290,16 @@ fn a_frame_shows_a_look_or_hands_pictures_over_never_both() {
         }
     );
     assert_eq!(
-        chores(false, false, 10),
+        chores(false, false, 6),
         Chores {
             swap: false,
             upload: false,
-            release: 10
+            release: 6
         }
     );
+    // A frame forgets a few at most (24 at scale 2 came to a 50 ms frame).
+    assert_eq!(chores(false, false, 24).release, sv::FREE_PER_FRAME);
+    const { assert!(sv::FREE_PER_FRAME <= 8) };
     // A long queue to forget is forgotten a share a frame regardless.
     let long = chores(false, true, 10_000);
     assert!(long.upload && long.release > 0 && long.release < 10_000);

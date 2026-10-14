@@ -297,6 +297,8 @@ pub struct PoseKey {
     pub right: bool,
     pub step: Option<u8>,
     pub carrying: bool,
+    /// On a bench: how high its seat is for their height, in twentieths.
+    pub seat: Option<u8>,
     pub level: usize,
     pub light: Light,
 }
@@ -317,11 +319,19 @@ impl PoseKey {
             stance: person.stance,
             mood: person.mood,
             right: person.pose.facing >= 0.0,
-            step: person.pose.stride.map(|stride| {
-                ((stride.rem_euclid(1.0) * ls::WALK_FRAMES as f32) as u8)
-                    .min(ls::WALK_FRAMES as u8 - 1)
-            }),
+            // A step of a walk, or a beat of a dance.
+            step: person
+                .pose
+                .stride
+                .map(|stride| {
+                    ((stride.rem_euclid(1.0) * ls::WALK_FRAMES as f32) as u8)
+                        .min(ls::WALK_FRAMES as u8 - 1)
+                })
+                .or(person.beat),
             carrying: person.carrying.is_some(),
+            seat: person
+                .seat
+                .map(|seat| (seat * 20.0).round().clamp(0.0, 255.0) as u8),
             level,
             light,
         }
@@ -340,7 +350,8 @@ pub(super) fn bake_pose(
     let height = frame.figure_h * person.figure.age.height();
     let facing = if key.right { 1.0 } else { -1.0 };
     let tau = std::f32::consts::TAU;
-    let pose = match key.step {
+    let dancing = key.stance == world_projection::Stance::Dancing;
+    let pose = match key.step.filter(|_| !dancing) {
         Some(step) => {
             let phase = step as f32 / ls::WALK_FRAMES as f32;
             art::Pose {
@@ -362,6 +373,8 @@ pub(super) fn bake_pose(
         height,
         pose,
         glow: None,
+        seat: key.seat.map(|seat| seat as f32 / 20.0),
+        beat: key.step.filter(|_| dancing),
         ..person.clone()
     };
     let room = height * 0.8;
@@ -558,8 +571,11 @@ const HAND_IMAGES_PER_FRAME: usize = 48;
 
 /// How many pictures a frame tells the display to forget: a look let go
 /// is forgotten over a few frames, never all in one (64 a frame came to
-/// several milliseconds of a frame's plan).
-const FREE_PER_FRAME: usize = 24;
+/// several milliseconds of a frame's plan, and 24 at display scale 2 to a
+/// 50 ms frame on CI's Mac). Eight a frame forgets a look of 200 pictures
+/// in under half a second, faster than looks are let go, so those waiting
+/// never pile up.
+pub const FREE_PER_FRAME: usize = 8;
 
 /// Past this many pictures waiting to be forgotten, a frame forgets its
 /// share even while it hands pictures over.
@@ -1454,6 +1470,29 @@ pub(super) fn let_go<T: Send + 'static>(pixels: Vec<T>) {
         .spawn(move || drop(pixels));
 }
 
+/// Frees pictures the display has forgotten off the window's thread, each
+/// once nothing else holds it: the last frame drawn with them may still be
+/// on its way out, and the last to let go of a picture frees its pixels.
+/// Whatever is still held after a couple of seconds is let go as it is.
+pub(super) fn let_go_pictures(pictures: Vec<Arc<RenderImage>>) {
+    if pictures.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("living-stage-free".into())
+        .spawn(move || {
+            let mut pictures = pictures;
+            for _ in 0..40 {
+                // Those held here alone are freed right here.
+                pictures.retain(|picture| Arc::strong_count(picture) > 1);
+                if pictures.is_empty() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
+}
+
 /// Bakes one look of `snapshot` for a window `view` large.
 fn bake_one(
     snapshot: &ProjectionSnapshot,
@@ -2284,7 +2323,7 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
     for image in &gone {
         let _ = window.drop_image(image.clone());
     }
-    let_go(gone);
+    let_go_pictures(gone);
     LAST_PLAN.with(|last| last.set((plan.images(), plan.moving, plan.layers.len())));
     let wash = if sync {
         0.0

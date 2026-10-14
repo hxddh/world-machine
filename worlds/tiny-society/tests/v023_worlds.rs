@@ -136,3 +136,52 @@ fn a_lived_harbour_has_people_doing_things_at_ten() {
         assert!(busy >= 6, "{}: {busy} busy at ten", fixture.display());
     }
 }
+
+/// The S2 bar, on screen (v0.30 S2d): every saved harbour, opened and seen
+/// in the World window at each hour from nine to four, has at least six
+/// residents on its first screen seen doing something (working, keeping a
+/// stall, carrying, sitting where their day has them) or with someone, or
+/// where fewer than six stand on it, every one of them. Measured on the
+/// window's own layout and opening view, the hour pinned.
+#[test]
+fn six_residents_busy_on_first_screen_by_day() {
+    let registry = registry();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let mut fixtures = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "world"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    assert!(!fixtures.is_empty());
+    let (mut short, mut seen, mut full) = (Vec::new(), 0, 0);
+    for fixture in fixtures {
+        let bytes = std::fs::read(&fixture).unwrap();
+        let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+        let session = registry.open_archive(&archive).unwrap();
+        let snapshot = session.snapshot();
+        for hour in 9..=16 {
+            let screen = world_gpui::first_screen_busy(&snapshot, (1100.0, 848.0), hour);
+            // Everyone on it is doing something; short of six only where
+            // fewer than six stand on it at all (the oldest saves open on a
+            // welcomer with two to five residents round them).
+            let on_screen = screen.residents.len();
+            seen += 1;
+            full += usize::from(screen.busy() >= 6);
+            if on_screen == 0 || screen.busy() < 6.min(on_screen) {
+                short.push(format!(
+                    "{} at {hour}: {} busy of {:?}",
+                    fixture.display(),
+                    screen.busy(),
+                    screen.residents
+                ));
+            }
+        }
+    }
+    assert!(short.is_empty(), "{}", short.join("\n"));
+    // And most first screens have six or more.
+    assert!(
+        full * 2 > seen,
+        "{full} of {seen} first screens with six busy"
+    );
+}

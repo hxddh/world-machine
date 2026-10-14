@@ -32,13 +32,18 @@ pub(crate) fn settle(t: f32) -> f32 {
 }
 
 /// Where someone is this frame, and how they stand: presentation only.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Living {
     pub x: f32,
     pub pose: Pose,
     /// What they do with an idle moment, or how they answer a click, over
     /// whatever their Pack says they are doing.
     pub stance: Option<Stance>,
+    /// What they do where an errand has taken them, over what their stop
+    /// says they do.
+    pub using: Option<Stance>,
+    /// Carrying a load as they walk.
+    pub loaded: bool,
 }
 
 /// How long a building or thing springs after a click, in seconds.
@@ -439,7 +444,7 @@ pub(super) fn group_sizes(n: usize) -> Vec<usize> {
 /// The groups among the people standing on the stage: for each person
 /// (by position in `people`), where the middle of their group is, if they
 /// stand with anyone.
-pub(super) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> {
+pub(crate) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> {
     let mut order = (0..people.len()).collect::<Vec<_>>();
     order.sort_by(|a, b| people[*a].x.total_cmp(&people[*b].x));
     let mut centres = vec![None; people.len()];
@@ -466,12 +471,16 @@ pub(super) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> 
 
 /// Where each person is this frame, `seconds` into looking at the World.
 ///
-/// Between turns everyone goes about their day: each on a cycle of their
-/// own, most of it at home, part of it walking over to another place and
-/// back. At night nobody wanders. Anyone `pinned` (speaking, being asked,
-/// in the news) stays where they are. `walking` is how far through the walk
-/// a turn started is, from where `before` had them. Someone whose day has
-/// just taken them somewhere else strolls there.
+/// Between turns everyone goes about their day. Where they stand, what
+/// they use there and the errands they run from there (out to the nearest
+/// thing to use, a while there, and back) follow the stage's clock and the
+/// World's day, never `seconds`: the same World at the same moment is the
+/// same town ([`errand_at`]). `seconds` only breathes and turns heads, and
+/// times an idle moment. At night nobody runs an errand. Anyone `pinned`
+/// (speaking, being asked, in the news) stays where they are. `walking` is
+/// how far through the walk a turn started is, from where `before` had
+/// them. Someone whose day has just taken them somewhere else strolls
+/// there, with a load if they carry one there.
 pub fn living(
     stage: &Stage,
     snapshot: &ProjectionSnapshot,
@@ -481,25 +490,11 @@ pub fn living(
     before: Option<(&Stage, &ProjectionSnapshot, f32)>,
 ) -> Vec<Living> {
     let items = &snapshot.canvas.items;
-    let stops = stage
-        .buildings
-        .iter()
-        .chain(stage.things.iter())
-        .map(|spot| spot.x)
-        .collect::<Vec<_>>();
     let figure_h = stage.figure_h;
     // The ground every building stands on: nobody's walk ever goes into
     // one (the art director's S1 blocker, a walker on a tower's
     // door), so a walk toward or past one stops beside it.
-    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
-    let footprints = stage
-        .buildings
-        .iter()
-        .map(|spot| {
-            let (w, h) = super::building_size(stage, snapshot, spot, setting);
-            super::living_stage::footprint(spot.x, spot.y, w, h)
-        })
-        .collect::<Vec<_>>();
+    let footprints = footprints(stage, snapshot);
     let clear = |from: f32, to: f32, y: f32| kept_out(&footprints, from, to, y, figure_h * 0.2);
     // Tall, thin things standing in the water in front of the shore (a tide
     // board, a lamp on the point): nobody stands right behind one, sliced
@@ -529,7 +524,7 @@ pub fn living(
     // Walking from `from` to `to`, `since` seconds of `length` in: planted
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
-    let walk = |from: f32, to: f32, since: f32, length: f32, pace: f32| {
+    let walk = |from: f32, to: f32, since: f32, length: f32, pace: f32, loaded: bool| {
         let t = since / length.max(0.01);
         let facing = (to - from).signum();
         // Shorter, slower steps for someone who takes their time.
@@ -546,6 +541,8 @@ pub fn living(
                 lean,
             },
             stance: None,
+            using: None,
+            loaded,
         }
     };
     // Just arrived: the coat swings on past the stop and settles back.
@@ -557,6 +554,14 @@ pub fn living(
         ..life
     };
     let centres = group_centres(&stage.people, figure_h);
+    let x_of = |index: usize| {
+        stage
+            .people
+            .iter()
+            .chain(&stage.things)
+            .find(|spot| spot.index == index)
+            .map(|spot| spot.x)
+    };
     stage
         .people
         .iter()
@@ -565,7 +570,13 @@ pub fn living(
             let item = &items[spot.index];
             let key = item.id.stable_key();
             let seed = art::seed_of(&key);
-            let home = beside_posts(spot.x);
+            let what = stage.doing.get(&spot.index).copied().unwrap_or_default();
+            let at_fixture = what.fixture.is_some();
+            let home = if at_fixture {
+                spot.x
+            } else {
+                beside_posts(spot.x)
+            };
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
             let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
             // Walking over to where a turn put them.
@@ -578,13 +589,12 @@ pub fn living(
                     if (old.x - home).abs() > 2.0 {
                         let since = progress * WALK_SECONDS;
                         if progress < 1.0 {
-                            return walk(old.x, home, since, WALK_SECONDS, pace);
+                            return walk(old.x, home, since, WALK_SECONDS, pace, false);
                         }
-                        if since < WALK_SECONDS + 1.5 {
+                        if since < WALK_SECONDS + SETTLE {
                             let still = Living {
                                 x: home,
-                                pose: Pose::default(),
-                                stance: None,
+                                ..Living::default()
                             };
                             return arrived(still, since - WALK_SECONDS, (home - old.x).signum());
                         }
@@ -596,28 +606,56 @@ pub fn living(
                 let from = &clear(home, *from, spot.y);
                 let length = (home - from).abs() / (figure_h * STROLL * pace);
                 if *since < length {
-                    return walk(*from, home, *since, length, pace);
+                    return walk(*from, home, *since, length, pace, what.loaded);
                 }
             }
             // Someone standing with others faces into their group, and
-            // now and then glances away; alone, they look about.
+            // now and then glances away; alone, they look about. Whoever
+            // is with someone faces them; whoever uses something faces it.
             let looking = ((seconds * 0.11 + (seed % 7) as f32).sin() * 1.4).clamp(-1.0, 1.0);
-            let facing = match centre {
-                Some(centre) if (centre - home).abs() > 1.0 => {
+            let toward = |x: Option<f32>| {
+                x.filter(|x| (x - home).abs() > 1.0)
+                    .map(|x| (x - home).signum())
+            };
+            let partner = toward(what.with.and_then(x_of));
+            let fixture = what.fixture.map(|(thing, how)| (toward(x_of(thing)), how));
+            let facing = match (partner, fixture, centre) {
+                (Some(partner), _, _) => partner,
+                // Behind a stall, facing out over it, a turn either way.
+                (None, Some((_, Use::Keep)), _) => looking.signum() * 0.3,
+                (None, Some((Some(at), _)), _) => at,
+                (None, Some((None, _)), _) => {
+                    if seed.is_multiple_of(2) {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+                (None, None, Some(centre)) if (centre - home).abs() > 1.0 => {
                     let glance = ((seconds * 0.07 + (seed % 11) as f32).sin() > 0.93) as u8;
                     (centre - home).signum() * if glance == 1 { -0.4 } else { 1.0 }
                 }
                 // The middle of a ring faces out, toward the viewer.
-                Some(_) => looking * 0.3,
-                None => looking,
+                (None, None, Some(_)) => looking * 0.3,
+                (None, None, None) => looking,
+            };
+            // Seated, or standing to what they use: still on their spot.
+            let sway = if at_fixture {
+                0.0
+            } else if centre.is_some() || partner.is_some() {
+                1.0
+            } else {
+                3.0
             };
             let still = Living {
-                x: home
-                    + (seconds * 0.23 + seed as f32).sin()
-                        * if centre.is_some() { 1.0 } else { 3.0 },
+                x: home + (seconds * 0.23 + seed as f32).sin() * sway,
                 pose: Pose {
                     stride: None,
-                    bob: breathe * 0.6,
+                    bob: if what.fixture.is_some_and(|(_, how)| how == Use::Seat) {
+                        0.0
+                    } else {
+                        breathe * 0.6
+                    },
                     facing,
                     // Breathing: a touch taller on the breath in.
                     squash: 1.0 + 0.008 * breathe,
@@ -630,54 +668,703 @@ pub fn living(
                 } else {
                     idle(seed, seconds, daylight)
                 },
+                using: None,
+                loaded: false,
             };
-            // Nobody wanders off from the people they are talking with.
+            // Nobody wanders off from whoever they came with, or from what
+            // they use, or at night; one of a group now and then goes on an
+            // errand and comes back to it.
             if pinned.contains(&item.id)
-                || centre.is_some()
+                || at_fixture
+                || what.with.is_some()
                 || daylight == Daylight::Night
-                || stops.len() < 2
             {
                 return still;
             }
-            // A visit: out to another place, a while there, and home.
-            let period = 34.0 + (seed % 17) as f32;
-            let into = (seconds + (seed % 1000) as f32 * 0.37) % period;
-            let phase = into / period;
-            let nearest = stops
-                .iter()
-                .enumerate()
-                .min_by(|a, b| (a.1 - home).abs().total_cmp(&(b.1 - home).abs()))
-                .map(|(position, _)| position)
-                .unwrap_or(0);
-            let others = stops.len() - 1;
-            let pick = (nearest + 1 + (seed as usize / 7) % others) % stops.len();
-            // Along a panorama, only as far as the next few places.
-            let away = stops[pick] + ((seed % 5) as f32 - 2.0) * stage.figure_h * 0.25;
-            let away = away.clamp(home - stage.view_w * 0.45, home + stage.view_w * 0.45);
-            // In the same while, someone slower gets less far.
-            let away = home + (away - home) * pace.min(1.0);
-            // Beside a building, never into it.
-            let away = clear(home, away, spot.y);
-            let leg = period * 0.08;
-            match phase {
-                p if (0.60..0.68).contains(&p) => walk(home, away, into - period * 0.60, leg, pace),
-                p if (0.68..0.80).contains(&p) => arrived(
+            // An errand: out to where it takes them, a while there, and home.
+            let Some(errand) = what.errand else {
+                return still;
+            };
+            // All the way there (someone slower takes longer); beside a
+            // building, never into it.
+            let away = clear(home, errand.to, spot.y);
+            if (away - home).abs() < 2.0 {
+                return still;
+            }
+            let leg = (away - home).abs() / (figure_h * STROLL * pace);
+            let clock = stage.clock;
+            match errand_at(seed, stage.day, clock.hour, clock.into_hour, leg) {
+                Some((Leg::Out, since)) => walk(home, away, since, leg, pace, false),
+                Some((Leg::There, since)) => arrived(
                     Living {
                         x: away,
-                        stance: Some(Stance::LookingAround),
-                        ..still
+                        pose: Pose {
+                            facing: (errand.at - away).signum(),
+                            ..still.pose
+                        },
+                        stance: None,
+                        using: Some(errand.stance),
+                        loaded: false,
                     },
-                    into - period * 0.68,
+                    since,
                     (away - home).signum(),
                 ),
-                p if (0.80..0.88).contains(&p) => walk(away, home, into - period * 0.80, leg, pace),
-                p if (0.88..0.93).contains(&p) => {
-                    arrived(still, into - period * 0.88, (home - away).signum())
-                }
-                _ => still,
+                Some((Leg::Back, since)) => walk(away, home, since, leg, pace, errand.fetch),
+                Some((Leg::Home, since)) => arrived(still, since, (home - away).signum()),
+                None => still,
             }
         })
         .collect()
+}
+
+/// Every building's footprint on the stage (left, back, right, front):
+/// the ground nobody's feet are ever on.
+pub(super) fn footprints(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+) -> Vec<(f32, f32, f32, f32)> {
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+    stage
+        .buildings
+        .iter()
+        .map(|spot| {
+            let (w, h) = super::building_size(stage, snapshot, spot, setting);
+            super::living_stage::footprint(spot.x, spot.y, w, h)
+        })
+        .collect()
+}
+
+/// How far apart, in figure heights, two people sit side by side on a
+/// bench: about 1.3 body widths, shoulders clear.
+pub(super) const SEAT_ROOM: f32 = 0.6;
+
+/// How far from a lamp's post the nearest of a ring stands, in figure
+/// heights (besides half the lamp's own width).
+pub(super) const RING_REACH: f32 = 0.55;
+
+/// How far from a lamp, in figure heights, anyone of its ring stands.
+pub(super) const RING_MOST: f32 = 1.5;
+
+/// How much of a bench's width, end sitter to end sitter, its sitters
+/// spread over: the whole plank, a body's half width in from each end.
+pub(super) const SEAT_SPAN: f32 = 0.62;
+
+/// The highest seat, for someone's height, their feet still on the ground
+/// (a lifeguard's chair is not sat on).
+pub(super) const SEAT_MOST: f32 = 0.6;
+
+/// How someone stands to `shape` at their stop, by what the stop says they
+/// do there: on a bench's seat, in a ring round a lamp, behind a stall
+/// (beside it with a load), or at its side. None for things nobody stands
+/// to, or a stop that does not say (they stand in front, on the spine).
+fn use_of(shape: MarkShape, stance: Option<Stance>) -> Option<Use> {
+    // Only what the record says they do there: a stop that says nothing
+    // stands them on the spine in front, as ever.
+    let stance = stance?;
+    match (shape, stance) {
+        (MarkShape::Bench, Stance::Sitting) => Some(Use::Seat),
+        (MarkShape::Lamp | MarkShape::Lantern, _) => Some(Use::Ring),
+        (MarkShape::Stall, Stance::Carrying) => Some(Use::Beside),
+        (MarkShape::Stall, _) => Some(Use::Keep),
+        (
+            MarkShape::Bench
+            | MarkShape::Well
+            | MarkShape::Fountain
+            | MarkShape::Garden
+            | MarkShape::Sprouts
+            | MarkShape::Planter,
+            _,
+        ) => Some(Use::Beside),
+        _ => None,
+    }
+}
+
+/// What someone on an errand does where it takes them, at a thing of
+/// `shape`: buys at a stall, draws water or tends the beds, sits by a
+/// bench. None for things nobody runs an errand to.
+fn errand_to(shape: MarkShape) -> Option<Stance> {
+    match shape {
+        MarkShape::Stall => Some(Stance::Talking),
+        MarkShape::Well
+        | MarkShape::Fountain
+        | MarkShape::Garden
+        | MarkShape::Sprouts
+        | MarkShape::Planter
+        | MarkShape::Postbox => Some(Stance::Working),
+        // A sit down a while by a bench, on a seat of their own.
+        MarkShape::Bench => Some(Stance::Sitting),
+        _ => None,
+    }
+}
+
+/// Stands those who use something at their stop to it (v0.30 S2d): a
+/// bench's sitters along its seat, a lamp's gatherers in a ring round it
+/// (never in its post), a stall's keeper behind it and whoever brings it a
+/// load beside it; companions side by side; and gives everyone else out of
+/// doors an errand from where they stand: out to the nearest thing to use
+/// and back, or for a carrier back to where the load comes from. What is
+/// in the water is used from the shore, as before.
+pub(super) fn at_their_stops(
+    stage: &mut Stage,
+    snapshot: &ProjectionSnapshot,
+    came_from: &BTreeMap<usize, usize>,
+    slot_x: &BTreeMap<usize, f32>,
+) {
+    let items = &snapshot.canvas.items;
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+    let figure_h = stage.figure_h;
+    let index_of = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (item.id, index))
+        .collect::<BTreeMap<_, _>>();
+    let out = stage
+        .people
+        .iter()
+        .map(|spot| spot.index)
+        .filter(|index| !stage.routes.contains_key(index))
+        .collect::<BTreeSet<_>>();
+    // Company only while both are out there.
+    let doing = stage.doing.clone();
+    for (person, what) in stage.doing.iter_mut() {
+        what.with = what.with.filter(|with| {
+            out.contains(person)
+                && out.contains(with)
+                && doing
+                    .get(with)
+                    .is_some_and(|other| other.with == Some(*person))
+        });
+    }
+    // Who uses what, thing by thing.
+    let mut by_thing = BTreeMap::<usize, Vec<usize>>::new();
+    for (person, what) in &stage.doing {
+        if !out.contains(person) {
+            continue;
+        }
+        let Some(stop) = world_projection::stop_at(&items[*person].day, stage.clock.hour) else {
+            continue;
+        };
+        let Some(thing) = index_of.get(&stop.at).copied() else {
+            continue;
+        };
+        let Some(spot) = stage.things.iter().find(|spot| spot.index == thing) else {
+            continue;
+        };
+        let shown = stage
+            .shown_from
+            .get(&thing)
+            .is_none_or(|least| least.is_finite());
+        if !shown || stage.depth_of(spot) == Depth::Water {
+            continue;
+        }
+        let shape = items[thing].shape.unwrap_or(MarkShape::Parcel);
+        if use_of(shape, what.stance).is_some() {
+            by_thing.entry(thing).or_default().push(*person);
+        }
+    }
+    let footprints = footprints(stage, snapshot);
+    let room = figure_h * 0.25;
+    let clear_of_buildings = |x: f32, y: f32| {
+        footprints.iter().fold(x, |x, (left, back, right, front)| {
+            if y > *back && y < *front && x > left - room && x < right + room {
+                if x - left < right - x {
+                    left - room
+                } else {
+                    right + room
+                }
+            } else {
+                x
+            }
+        })
+    };
+    // Open ground for someone `p` tall with their feet at (`x`, `y`): in no
+    // building's footprint, nor standing at or behind a building's foot
+    // where its picture is (they would read as on its wall), nor in a thing
+    // standing at their depth.
+    let boxes = stage
+        .buildings
+        .iter()
+        .map(|spot| {
+            let (w, h) = super::building_size(stage, snapshot, spot, setting);
+            (spot.x, spot.y, w, h)
+        })
+        .collect::<Vec<_>>();
+    // Every thing, props too: a pool's rail, a pier, a cart. Nobody is
+    // stood on one.
+    let things_at = stage
+        .things
+        .iter()
+        .map(|spot| {
+            let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
+            (spot.index, spot.x, spot.y, w)
+        })
+        .collect::<Vec<_>>();
+    let open = |x: f32, y: f32, p: f32, own: usize| {
+        let body = p * 0.25;
+        x > body
+            && x < stage.width - body
+            && footprints
+                .iter()
+                .all(|footprint| !super::living_stage::inside(*footprint, x, y))
+            && boxes.iter().all(|(bx, by, w, h)| {
+                (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
+            })
+            && things_at.iter().all(|(index, tx, ty, tw)| {
+                *index == own
+                    || (x - tx).abs() >= tw / 2.0 + body * 0.6
+                    || (y - ty).abs() >= p * 0.45
+            })
+    };
+    for (thing, mut members) in by_thing {
+        let spot = *stage
+            .things
+            .iter()
+            .find(|spot| spot.index == thing)
+            .expect("a thing on the stage");
+        let shape = items[thing].shape.unwrap_or(MarkShape::Parcel);
+        let p = figure_h * spot.scale;
+        let w = super::thing_width(stage, snapshot, &spot, setting);
+        // Companions next to each other.
+        members.sort();
+        let mut ordered: Vec<usize> = Vec::new();
+        for member in members {
+            if ordered.contains(&member) {
+                continue;
+            }
+            ordered.push(member);
+            if let Some(with) = stage.doing[&member].with {
+                if !ordered.contains(&with) && out.contains(&with) {
+                    let theirs = world_projection::stop_at(&items[with].day, stage.clock.hour)
+                        .and_then(|stop| index_of.get(&stop.at).copied());
+                    if theirs == Some(thing) {
+                        ordered.push(with);
+                    }
+                }
+            }
+        }
+        let seat = super::seat_height(stage, snapshot, &spot, setting);
+        let seats = if seat / p <= SEAT_MOST && seat / p >= 0.2 {
+            ((w * SEAT_SPAN / (SEAT_ROOM * p)).floor() as usize + 1).clamp(1, 3)
+        } else {
+            0
+        };
+        let sitting = ordered
+            .iter()
+            .filter(|person| use_of(shape, stage.doing[*person].stance) == Some(Use::Seat))
+            .count()
+            .min(seats);
+        let (mut sat, mut kept, mut beside) = (0, false, 0);
+        let (mut ringed, mut placed) = (Vec::<(f32, f32)>::new(), None::<(usize, f32)>);
+        let mut besides = Vec::<(f32, f32)>::new();
+        for person in ordered {
+            let wants = use_of(shape, stage.doing[&person].stance).unwrap_or(Use::Beside);
+            let how = match wants {
+                Use::Seat if sat < sitting => Use::Seat,
+                Use::Keep if !kept => Use::Keep,
+                Use::Ring => Use::Ring,
+                _ => Use::Beside,
+            };
+            let mut ring_scale = spot.scale;
+            let (x, y) = match how {
+                Use::Seat => {
+                    let along = sat as f32 - (sitting as f32 - 1.0) / 2.0;
+                    sat += 1;
+                    // Spread along the whole plank, end to end, at least a
+                    // body's room apart.
+                    let apart = if sitting > 1 {
+                        w * SEAT_SPAN / (sitting - 1) as f32
+                    } else {
+                        0.0
+                    };
+                    let x = spot.x + along * apart;
+                    // Just in front of the bench, so drawn over it.
+                    (x, spot.y + 0.5)
+                }
+                Use::Ring => {
+                    // Either side of the post, then round toward the viewer
+                    // and further out: a horseshoe open to the front,
+                    // balanced left and right, never in the post nor hidden
+                    // behind it, nor on a building's ground. Companions on
+                    // the same side, next to each other.
+                    const SLOTS: [(f32, f32); 6] = [
+                        (1.0, 0.0),
+                        (0.75, 0.45),
+                        (1.6, 0.12),
+                        (1.35, 0.6),
+                        (2.2, 0.25),
+                        (1.95, 0.75),
+                    ];
+                    let reach = RING_REACH * p + w * 0.2;
+                    let with = stage.doing[&person].with;
+                    let first = match placed {
+                        Some((last, side)) if with == Some(last) => side,
+                        _ if ringed.iter().filter(|(x, _)| *x > spot.x).count()
+                            <= ringed.iter().filter(|(x, _)| *x < spot.x).count() =>
+                        {
+                            1.0
+                        }
+                        _ => -1.0,
+                    };
+                    // Beside whoever they came with: the slots level with
+                    // them first.
+                    let mut slots = SLOTS.to_vec();
+                    if matches!(placed, Some((last, _)) if with == Some(last)) {
+                        slots.sort_by(|a, b| a.1.total_cmp(&b.1));
+                    }
+                    // Round it, on open ground within a stride and a half
+                    // of it. A lamp with none (a beacon on the hill
+                    // between the houses) forms no ring: its gatherers
+                    // stay where their stop stood them.
+                    let free = |x: f32, y: f32| {
+                        (x - spot.x).abs() <= RING_MOST * p
+                            && (y - spot.y).abs() <= p
+                            && ringed.iter().all(|(ox, oy): &(f32, f32)| {
+                                let (dx, dy) = ((ox - x).abs(), (oy - y).abs());
+                                dx >= p * 0.45 || (dy >= p * 0.4 && dx >= p * 0.2)
+                            })
+                            && open(x, y, p, thing)
+                    };
+                    let found = [first, -first].into_iter().find_map(|side| {
+                        slots
+                            .iter()
+                            .map(|(dx, dy)| (spot.x + side * dx * reach, spot.y + dy * p))
+                            .find(|(x, y)| free(*x, *y))
+                            .map(|at| (side, at, spot.scale))
+                    });
+                    let Some((side, at, scale)) = found else {
+                        continue;
+                    };
+                    ring_scale = scale;
+                    placed = Some((person, side));
+                    ringed.push(at);
+                    at
+                }
+                Use::Keep => {
+                    kept = true;
+                    // Behind the counter: drawn before the stall, in front
+                    // of whatever stands behind it.
+                    (spot.x, spot.y - 0.16 * p)
+                }
+                Use::Beside => {
+                    // At its side, on open ground: one side, then the
+                    // other, then a step further out.
+                    let first = if beside % 2 == 0 { 1.0 } else { -1.0 };
+                    beside += 1;
+                    let at = |side: f32, out: usize| {
+                        (
+                            spot.x + side * (w * 0.5 + 0.3 * p + out as f32 * 0.5 * p),
+                            spot.y + 0.12 * p,
+                        )
+                    };
+                    let found = (0..4)
+                        .flat_map(|out| [(first, out), (-first, out)])
+                        .map(|(side, out)| at(side, out))
+                        .find(|(x, y)| {
+                            open(*x, *y, p, thing)
+                                && besides
+                                    .iter()
+                                    .all(|(ox, _): &(f32, f32)| (ox - x).abs() >= p * 0.45)
+                        })
+                        .unwrap_or_else(|| at(first, 0));
+                    besides.push(found);
+                    found
+                }
+            };
+            let x = if how == Use::Ring {
+                x
+            } else {
+                clear_of_buildings(x, y).clamp(figure_h * 0.3, stage.width - figure_h * 0.3)
+            };
+            if let Some(standing) = stage.people.iter_mut().find(|other| other.index == person) {
+                standing.x = x;
+                standing.y = y;
+                standing.scale = ring_scale;
+            }
+            // Seen whenever what they use is.
+            match stage.shown_from.get(&thing).copied() {
+                Some(least) => stage.shown_from.insert(person, least),
+                None => stage.shown_from.remove(&person),
+            };
+            if let Some(what) = stage.doing.get_mut(&person) {
+                what.fixture = Some((thing, how));
+            }
+        }
+    }
+    // Companions anywhere else stand side by side: one steps in beside the
+    // other, changing places with whoever stood there.
+    let at_fixture = |doing: &BTreeMap<usize, Doing>, index: usize| {
+        doing.get(&index).is_some_and(|what| what.fixture.is_some())
+    };
+    let pairs = stage
+        .doing
+        .iter()
+        .filter_map(|(person, what)| Some((*person, what.with?)))
+        .filter(|(a, b)| a < b)
+        .collect::<Vec<_>>();
+    let together = figure_h * TOGETHER;
+    for (a, b) in pairs {
+        if at_fixture(&stage.doing, a) || at_fixture(&stage.doing, b) {
+            continue;
+        }
+        let find =
+            |people: &[Spot], index: usize| people.iter().position(|spot| spot.index == index);
+        let (Some(pa), Some(pb)) = (find(&stage.people, a), find(&stage.people, b)) else {
+            continue;
+        };
+        let (sa, sb) = (stage.people[pa], stage.people[pb]);
+        if (sa.x - sb.x).abs() <= together && (sa.y - sb.y).abs() < figure_h * 0.5 {
+            continue;
+        }
+        let partnered = |index: usize| {
+            stage
+                .doing
+                .get(&index)
+                .is_some_and(|what| what.with.is_some())
+        };
+        let neighbour = stage
+            .people
+            .iter()
+            .enumerate()
+            .filter(|(_, spot)| {
+                spot.index != a
+                    && spot.index != b
+                    && !partnered(spot.index)
+                    && !at_fixture(&stage.doing, spot.index)
+                    && (spot.x - sa.x).abs() <= together
+                    && (spot.y - sa.y).abs() < figure_h * 0.5
+            })
+            .min_by(|x, y| (x.1.x - sa.x).abs().total_cmp(&(y.1.x - sa.x).abs()))
+            .map(|(at, _)| at);
+        match neighbour {
+            Some(pc) => {
+                let sc = stage.people[pc];
+                stage.people[pb] = Spot { index: b, ..sc };
+                stage.people[pc] = Spot {
+                    index: sc.index,
+                    ..sb
+                };
+            }
+            None => {
+                let side = if sb.x >= sa.x { 1.0 } else { -1.0 };
+                let x = sa.x + side * figure_h * 0.62;
+                let crowded = stage.people.iter().any(|spot| {
+                    spot.index != a
+                        && spot.index != b
+                        && (spot.x - x).abs() < figure_h * 0.5
+                        && (spot.y - sa.y).abs() < figure_h * 0.3
+                });
+                if !crowded {
+                    stage.people[pb] = Spot {
+                        x: clear_of_buildings(x, sa.y),
+                        y: sa.y,
+                        scale: sa.scale,
+                        ..sb
+                    };
+                }
+            }
+        }
+    }
+    // Those dancing have a patch of ground of their own: a pair (or one)
+    // with anyone else close by moves along their lane, together, to the
+    // nearest open ground with nobody else within a stride.
+    let dancing = stage
+        .doing
+        .iter()
+        .filter(|(index, what)| {
+            what.stance == Some(Stance::Dancing) && what.fixture.is_none() && out.contains(index)
+        })
+        .map(|(index, _)| *index)
+        .collect::<BTreeSet<_>>();
+    let mut moved = BTreeSet::new();
+    for dancer in &dancing {
+        if moved.contains(dancer) {
+            continue;
+        }
+        let group = std::iter::once(*dancer)
+            .chain(
+                stage.doing[dancer]
+                    .with
+                    .filter(|with| dancing.contains(with)),
+            )
+            .collect::<Vec<_>>();
+        let spots = group
+            .iter()
+            .filter_map(|index| stage.people.iter().position(|spot| spot.index == *index))
+            .collect::<Vec<_>>();
+        let clear_at = |shift: f32| {
+            spots.iter().all(|at| {
+                let spot = stage.people[*at];
+                let (x, y) = (spot.x + shift, spot.y);
+                open(x, y, figure_h * spot.scale, usize::MAX)
+                    && stage.people.iter().all(|other| {
+                        group.contains(&other.index)
+                            || (other.x - x).abs() >= figure_h * 1.1
+                            || (other.y - y).abs() >= figure_h * 0.5
+                    })
+            })
+        };
+        let shift = (0..=60)
+            .flat_map(|step| [step, -step])
+            .map(|step| step as f32 * figure_h * 0.25)
+            .find(|shift| clear_at(*shift));
+        if let Some(shift) = shift.filter(|shift| *shift != 0.0) {
+            for at in &spots {
+                stage.people[*at].x += shift;
+            }
+        }
+        moved.extend(group);
+    }
+    // Everyone else out of doors runs an errand now and then: out to the
+    // nearest thing to use, or for a carrier back where the load comes
+    // from, and home again.
+    let usable = stage
+        .things
+        .iter()
+        .filter(|spot| {
+            stage.depth_of(spot) != Depth::Water
+                && stage
+                    .shown_from
+                    .get(&spot.index)
+                    .is_none_or(|least| *least <= 1.0)
+        })
+        .filter_map(|spot| Some((*spot, errand_to(items[spot.index].shape?)?)))
+        .collect::<Vec<_>>();
+    // With nothing to use near, an errand calls at another door.
+    let stops = stage
+        .buildings
+        .iter()
+        .map(|spot| (spot.x, spot.w))
+        .collect::<Vec<_>>();
+    let reach = stage.view_w * 0.4;
+    for spot in stage.people.clone() {
+        if stage.routes.contains_key(&spot.index) {
+            continue;
+        }
+        // A baby goes nowhere on their own (a pram stays by its people).
+        let baby = items[spot.index]
+            .look
+            .is_some_and(|look| Age::of(&look) == Age::Baby);
+        let what = stage.doing.entry(spot.index).or_default();
+        if what.fixture.is_some() || what.with.is_some() || baby {
+            continue;
+        }
+        let home = spot.x;
+        let beside = |x: f32, w: f32| {
+            let side = (x - home).signum();
+            x - side * (w * 0.5 + figure_h * 0.35)
+        };
+        let carrier = what.stance == Some(Stance::Carrying);
+        // Somewhere they can walk to along their line, no building between.
+        let reachable = |to: f32| {
+            (kept_out(&footprints, home, to, spot.y, figure_h * 0.2) - to).abs() < figure_h * 0.3
+        };
+        let fetch = came_from
+            .get(&spot.index)
+            .filter(|_| carrier)
+            .and_then(|from| Some((*slot_x.get(from)?, stage.building_w * 0.5)))
+            .filter(|(x, w)| (x - home).abs() < reach * 1.5 && reachable(beside(*x, *w)));
+        what.errand = if let Some((x, w)) = fetch {
+            Some(Errand {
+                to: beside(x, w),
+                at: x,
+                stance: Stance::Working,
+                fetch: true,
+            })
+        } else if let Some((thing, stance)) = usable
+            .iter()
+            .filter(|(thing, _)| {
+                // On their own ground, so they are seen to get to it, and
+                // far enough to be seen to go.
+                let away = (thing.x - home).abs();
+                (thing.y - spot.y).abs() < figure_h * 0.6
+                    && away > figure_h * 2.0
+                    && away < reach
+                    && reachable(beside(thing.x, thing.w))
+            })
+            .min_by(|a, b| (a.0.x - home).abs().total_cmp(&(b.0.x - home).abs()))
+        {
+            Some(Errand {
+                to: beside(thing.x, thing.w),
+                at: thing.x,
+                stance: *stance,
+                fetch: false,
+            })
+        } else if stops.len() >= 2 {
+            // Over to another door, as far as the next few, to call there.
+            let seed = art::seed_of(&items[spot.index].id.stable_key());
+            let nearest = stops
+                .iter()
+                .enumerate()
+                .min_by(|a, b| (a.1 .0 - home).abs().total_cmp(&(b.1 .0 - home).abs()))
+                .map(|(position, _)| position)
+                .unwrap_or(0);
+            let pick = (nearest + 1 + (seed as usize / 7) % (stops.len() - 1)) % stops.len();
+            let (x, _) = stops[pick];
+            // At the door, a step short of it, if they can walk there.
+            let to = x - (x - home).signum() * figure_h * 0.3;
+            ((x - home).abs() < stage.view_w * 0.45 && reachable(to)).then_some(Errand {
+                to,
+                at: x,
+                stance: Stance::Talking,
+                fetch: false,
+            })
+        } else {
+            None
+        };
+    }
+}
+
+/// How long one stretch of an hour an errand may fall in is, in seconds.
+pub const ERRAND_SLOT: f32 = 180.0;
+
+/// How long someone stays where an errand takes them, in seconds.
+pub const ERRAND_STAY: f32 = 40.0;
+
+/// Where someone is in an errand at `into_hour` seconds into `hour` of the
+/// World's `day`: a pure function of who they are (`seed`, of their stable
+/// key), the day, the hour and how far into it, and how long each way
+/// takes them (`leg`, in seconds). Half the stretches of an hour have one,
+/// starting at a moment of their own and over within the stretch: so it
+/// never runs over into the next hour.
+pub fn errand_at(seed: u32, day: u64, hour: u8, into_hour: f32, leg: f32) -> Option<(Leg, f32)> {
+    let slot = (into_hour / ERRAND_SLOT).floor().max(0.0);
+    let mut mix = u64::from(seed)
+        ^ day.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ u64::from(hour).wrapping_mul(0xbf58_476d_1ce4_e5b9)
+        ^ (slot as u64).wrapping_mul(0x94d0_49bb_1331_11eb);
+    mix ^= mix >> 31;
+    mix = mix.wrapping_mul(0xd6e8_feb8_6659_fd93);
+    mix ^= mix >> 32;
+    if mix % 2 == 1 {
+        return None;
+    }
+    let length = leg * 2.0 + ERRAND_STAY + SETTLE;
+    let spare = ERRAND_SLOT - 4.0 - length;
+    if spare <= 0.0 {
+        return None;
+    }
+    let start = ((mix >> 8) % 1000) as f32 / 1000.0 * spare;
+    let t = into_hour - slot * ERRAND_SLOT - start;
+    match t {
+        t if t < 0.0 => None,
+        t if t < leg => Some((Leg::Out, t)),
+        t if t < leg + ERRAND_STAY => Some((Leg::There, t - leg)),
+        t if t < leg * 2.0 + ERRAND_STAY => Some((Leg::Back, t - leg - ERRAND_STAY)),
+        t if t < length => Some((Leg::Home, t - leg * 2.0 - ERRAND_STAY)),
+        _ => None,
+    }
+}
+
+/// How long the coat swings on after someone stops, in seconds.
+const SETTLE: f32 = 1.5;
+
+/// The parts of an errand.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Leg {
+    Out,
+    There,
+    Back,
+    Home,
 }
 
 /// Where a walk along the line `y` from `from` toward `to` ends so that
@@ -722,6 +1409,14 @@ pub struct PersonPaint {
     /// Where along the stage they are, in stage pixels: which row of a
     /// folded postcard they stand in.
     pub along: f32,
+    /// Sitting on a bench: how high its seat is, for their height. Their
+    /// feet stay on the ground (`y`), their legs reaching down to it.
+    pub seat: Option<f32>,
+    /// Which beat of a dance they are on (0 to 3).
+    pub beat: Option<u8>,
+    /// The thing (an item index) they stand behind, keeping it: drawn over
+    /// them wherever people are painted over the still layers.
+    pub behind: Option<usize>,
 }
 
 /// A baby out and about is carried: in the arms of a grown-up from their
@@ -745,6 +1440,8 @@ pub(super) fn carry_babies(people: &mut Vec<PersonPaint>, items: &[CanvasItem], 
                 matches!(person.figure.age, Age::Adult | Age::Elder)
                     && !person.figure.bird
                     && person.carrying.is_none()
+                    && !matches!(person.stance, Stance::Carrying | Stance::Dancing)
+                    && person.seat.is_none()
                     && home.is_some()
                     && items[person.index].home == home
                     && (person.x - x).abs() < figure_h * 2.2
@@ -755,8 +1452,8 @@ pub(super) fn carry_babies(people: &mut Vec<PersonPaint>, items: &[CanvasItem], 
             let figure = people[baby].figure;
             let holder = &mut people[carrier];
             holder.carrying = Some(figure);
-            // Both arms round the baby, unless they are walking.
-            if holder.stance != Stance::Walking {
+            // Both arms round the baby, unless they are walking or sit.
+            if !matches!(holder.stance, Stance::Walking | Stance::Sitting) {
                 holder.stance = Stance::Working;
             }
             carried.insert(baby);
@@ -1063,6 +1760,14 @@ pub(super) fn paint_live(
             continue;
         }
         paint_person_live(window, frame, person, (ox, oy), light);
+        // A stall's keeper stands behind its counter: the stall again,
+        // over them.
+        if let Some(thing) = person
+            .behind
+            .and_then(|index| frame.things.iter().find(|thing| thing.index == index))
+        {
+            paint_thing_live(window, frame, thing, &screen, light);
+        }
     }
     // The lighthouse's lamp, the brightest point on the land.
     paint_beacons(window, frame, &screen, &seen);
@@ -1393,8 +2098,9 @@ pub(super) fn paint_person_body(
             sky_luma(&frame.scenery) * WALLS_UNDER_SKY
         },
     };
-    // Someone sitting sits on something (art's, B).
-    if person.stance == Stance::Sitting && !person.figure.bird {
+    // Someone sitting sits on something (art's, B): the bench they are
+    // on, or a seat of their own.
+    if person.stance == Stance::Sitting && !person.figure.bird && person.seat.is_none() {
         crate::setting::paint_seat(
             &mut tinted,
             frame.setting,
@@ -1404,17 +2110,29 @@ pub(super) fn paint_person_body(
             person.pose.facing,
         );
     }
+    let (stance, pose) = match (person.stance, person.beat) {
+        (Stance::Dancing, beat) => dance(beat.unwrap_or(0), person.pose, person.height),
+        (stance, _) => (stance, person.pose),
+    };
+    let on_bench = person
+        .seat
+        .zip(person.drawing.as_ref())
+        .filter(|_| stance == Stance::Sitting)
+        .map(|(seat, drawing)| seated(drawing, seat, person.figure.bird));
     age::paint_person(
         &mut tinted,
         x,
         y,
         person.height,
         &person.figure,
-        person.drawing.as_ref(),
-        person.stance,
+        on_bench.as_ref().or(person.drawing.as_ref()),
+        stance,
         person.mood,
-        person.pose,
+        pose,
     );
+    if stance == Stance::Carrying && !person.figure.bird {
+        paint_load(&mut tinted, frame.setting, person, (x, y));
+    }
     if let Some(baby) = &person.carrying {
         let grown = person.height / person.figure.age.height().max(0.1);
         age::paint_bundle(
@@ -1426,6 +2144,227 @@ pub(super) fn paint_person_body(
             person.pose.bob,
             baby,
             &person.figure,
+        );
+    }
+}
+
+/// Where a sitter's hips are in a drawing's sitting stance, as a share of
+/// their height above their feet: the seat of their own a sitter brings
+/// (`setting::paint_seat`) is this high.
+const OWN_SEAT: f32 = 0.2;
+
+/// How high a drawing's knees are when it sits, before it is drawn lower
+/// (`world_projection::drop_of`), and the top of its shoes.
+const KNEE: f32 = 0.36;
+
+/// How far behind the near leg a sitter's far leg shows, in widths.
+const FAR_LEG: f32 = 0.11;
+const SHOE_TOP: f32 = 0.16;
+
+/// `drawing` sitting on a seat `seat` of their height up: everything above
+/// the knee lifted onto it, the shins reaching down to the ground and the
+/// shoes left on it, so nothing floats (the art bible's §5). A bird is
+/// perched, all of it lifted.
+pub(super) fn seated(drawing: &Drawing, seat: f32, bird: bool) -> Drawing {
+    use world_projection::DrawShape;
+    let lift = (seat - OWN_SEAT).max(0.0);
+    let reach = (KNEE - SHOE_TOP + lift) / (KNEE - SHOE_TOP);
+    let mut out = drawing.clone();
+    // The far leg, a little behind the near one and a shade darker, so
+    // both show: the drawing sits in profile with one.
+    if !bird {
+        let legs = out
+            .parts
+            .iter()
+            .position(|part| part.stances == [Stance::Sitting])
+            .unwrap_or(out.parts.len());
+        let far = out
+            .parts
+            .iter()
+            .filter(|part| part.stances == [Stance::Sitting])
+            .map(|part| {
+                let mut part = part.clone();
+                part.tone -= 0.18;
+                match &mut part.shape {
+                    DrawShape::Rect { x, .. } | DrawShape::Ellipse { x, .. } => *x -= FAR_LEG,
+                    DrawShape::Polygon { points } => {
+                        for point in points.iter_mut() {
+                            point.0 -= FAR_LEG;
+                        }
+                    }
+                    DrawShape::Line { from, to, .. } => {
+                        from.0 -= FAR_LEG;
+                        to.0 -= FAR_LEG;
+                    }
+                }
+                part
+            })
+            .collect::<Vec<_>>();
+        out.parts.splice(legs..legs, far);
+    }
+    for part in &mut out.parts {
+        let ys = match &part.shape {
+            DrawShape::Rect { y, h, .. } => vec![*y, y + h],
+            DrawShape::Ellipse { y, ry, .. } => vec![y - ry, y + ry],
+            DrawShape::Polygon { points } => points.iter().map(|(_, y)| *y).collect(),
+            DrawShape::Line { from, to, .. } => vec![from.1, to.1],
+        };
+        let top = ys.iter().copied().fold(f32::MIN, f32::max);
+        let legs = !bird && part.stances == [Stance::Sitting] && top <= KNEE;
+        let map = |y: f32| -> f32 {
+            match (legs, top <= SHOE_TOP) {
+                (true, true) => y,
+                (true, false) => {
+                    SHOE_TOP + (y - SHOE_TOP).max(0.0) * reach + (y - SHOE_TOP).min(0.0)
+                }
+                (false, _) => y + lift,
+            }
+        };
+        match &mut part.shape {
+            DrawShape::Rect { y, h, .. } => {
+                let (bottom, top) = (map(*y), map(*y + *h));
+                *y = bottom;
+                *h = top - bottom;
+            }
+            DrawShape::Ellipse { y, ry, .. } => {
+                let (bottom, top) = (map(*y - *ry), map(*y + *ry));
+                *y = (bottom + top) / 2.0;
+                *ry = (top - bottom) / 2.0;
+            }
+            DrawShape::Polygon { points } => {
+                for point in points.iter_mut() {
+                    point.1 = map(point.1);
+                }
+            }
+            DrawShape::Line { from, to, .. } => {
+                from.1 = map(from.1);
+                to.1 = map(to.1);
+            }
+        }
+    }
+    out
+}
+
+/// One beat (0 to 3) of a little dance: arms up and swaying one way, a
+/// hand high on a skip, arms up and swaying the other way, a hand high
+/// again; the feet apart and together. Drawn in the stances a drawing
+/// already has.
+pub(super) fn dance(beat: u8, pose: Pose, height: f32) -> (Stance, Pose) {
+    let stance = if beat.is_multiple_of(2) {
+        Stance::Celebrating
+    } else {
+        Stance::Waving
+    };
+    let (lean, step, skip) = match beat % 4 {
+        0 => (-0.05, Some(0.125), 0.0),
+        1 => (0.0, None, 0.05),
+        2 => (0.05, Some(0.625), 0.0),
+        _ => (0.0, None, 0.035),
+    };
+    (
+        stance,
+        Pose {
+            stride: step,
+            bob: pose.bob + skip * height,
+            lean: pose.lean + lean,
+            ..pose
+        },
+    )
+}
+
+/// The load someone carries in both arms, held against them at the waist,
+/// their hands at its sides: a crate of the catch by water, of greens and
+/// fruit where there is none.
+pub(super) fn paint_load(
+    window: &mut dyn Brush,
+    setting: art::Setting,
+    person: &PersonPaint,
+    (x, y): (f32, f32),
+) {
+    let h = person.height;
+    let pose = person.pose;
+    let facing = if pose.facing < 0.0 { -1.0 } else { 1.0 };
+    let mut posed = Xform::about(
+        window,
+        (x, y),
+        1.0 / pose.squash.max(0.2).sqrt(),
+        pose.squash,
+        pose.lean,
+    );
+    let window: &mut dyn Brush = &mut posed;
+    // A box half as wide as they are tall, held from the hip to the chest,
+    // so it reads as a load and not a button on the coat.
+    let (w, tall) = (h * 0.46, h * 0.25);
+    let cx = x + facing * h * 0.07;
+    let bottom = y - h * 0.22 - pose.bob;
+    let top = bottom - tall;
+    // In the place's own wood, or a wicker or a dark crate where the wood
+    // is too near their clothes to tell apart: the one furthest from them
+    // in lightness.
+    let kit = crate::works::Kit::of(setting);
+    let clothes = person.figure.clothes.l;
+    let body = [kit.wood, art::hex(0xe2c48a), art::hex(0x5b3b22)]
+        .into_iter()
+        .max_by(|a, b| (a.l - clothes).abs().total_cmp(&(b.l - clothes).abs()))
+        .unwrap_or(kit.wood);
+    let edge = art::shade(body, if body.l > 0.5 { -0.45 } else { -0.3 });
+    // What it holds peeps over the rim: a catch where there is water,
+    // greens and fruit where there is not.
+    if setting.water() == Some(false) {
+        art::ellipse(window, cx - w * 0.18, top, w * 0.17, tall * 0.4, kit.leaf);
+        art::ellipse(
+            window,
+            cx + w * 0.14,
+            top + tall * 0.05,
+            w * 0.15,
+            tall * 0.34,
+            kit.bloom,
+        );
+    } else {
+        for dx in [-0.28_f32, 0.0, 0.28] {
+            art::ellipse(
+                window,
+                cx + w * dx,
+                top + tall * 0.04,
+                w * 0.15,
+                tall * 0.22,
+                art::hex(0xc9d3dc),
+            );
+        }
+    }
+    let rim = (h * 0.018).max(0.8);
+    art::rect(
+        window,
+        cx - w / 2.0 - rim,
+        top - rim,
+        w + rim * 2.0,
+        tall + rim * 2.0,
+        h * 0.02,
+        edge,
+    );
+    art::rect(window, cx - w / 2.0, top, w, tall, h * 0.012, body);
+    // Its slats.
+    for v in [0.36_f32, 0.68] {
+        art::rect(
+            window,
+            cx - w / 2.0,
+            top + tall * v,
+            w,
+            (tall * 0.09).max(0.8),
+            0.0,
+            edge,
+        );
+    }
+    // Hands at its sides.
+    let skin = person.figure.skin;
+    for side in [-1.0_f32, 1.0] {
+        art::ellipse(
+            window,
+            cx + side * (w * 0.5 + rim),
+            top + tall * 0.4,
+            h * 0.04,
+            h * 0.04,
+            skin,
         );
     }
 }

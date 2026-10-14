@@ -137,19 +137,17 @@ fn nobody_wanders_at_night_or_while_they_are_needed() {
     for (life, home) in day.iter().zip(&homes) {
         assert!((life.x - home).abs() <= 3.0);
     }
-    // By day, over a few minutes, somebody goes somewhere.
+    // By day, over a few minutes of the clock, somebody runs an errand.
     let wandered = (0..240).any(|second| {
-        living(
-            &stage,
-            &snapshot,
-            second as f32,
-            Daylight::Day,
-            &pinned,
-            None,
-        )
-        .iter()
-        .zip(&homes)
-        .any(|(life, home)| (life.x - home).abs() > stage.figure_h)
+        let clock = Clock {
+            hour: 12,
+            into_hour: 1800.0 + second as f32,
+        };
+        let stage = stage_at(&snapshot, 1100.0, 848.0, clock);
+        living(&stage, &snapshot, 0.0, Daylight::Day, &pinned, None)
+            .iter()
+            .zip(&homes)
+            .any(|(life, home)| (life.x - home).abs() > stage.figure_h)
     });
     assert!(wandered);
 }

@@ -6810,14 +6810,31 @@ mod tests {
         let cx = &mut VisualTestContext::from_window(window.into(), cx);
         cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
         cx.run_until_parked();
-        let late = || Some(Instant::now() - Duration::from_secs(4));
-        // A click on Next, four seconds into a beat.
-        view.update(cx, |view, cx| {
-            view.looking.beat_at = late();
-            cx.notify();
-        });
-        cx.run_until_parked();
+        // The first frames bake the place right here, seconds on a slow
+        // machine, and the beat may go on by itself meanwhile: the film is
+        // put back on its first beat until a frame of it is drawn with the
+        // beat still there (once the place is baked, a frame is quick).
+        for _ in 0..5 {
+            view.update(cx, |view, cx| {
+                view.retelling = Some(0);
+                view.looking.beat_at = Some(Instant::now());
+                cx.notify();
+            });
+            cx.run_until_parked();
+            if view.read_with(cx, |view, _| view.retelling) == Some(0) {
+                break;
+            }
+        }
+        // Where Next is, on that frame. From here no frame is drawn before
+        // the click, so how long one takes never counts.
         let next = cx.debug_bounds("retelling-next").expect("Next");
+        // A second into a beat: a clock left running by the click would
+        // still be a second behind it.
+        let late = || Some(Instant::now() - Duration::from_secs(1));
+        // A click on Next, a second into the first beat.
+        view.update(cx, |view, _| {
+            view.looking.beat_at = late();
+        });
         let clicked = Instant::now();
         cx.simulate_click(next.center(), Modifiers::none());
         cx.run_until_parked();
@@ -6825,10 +6842,9 @@ mod tests {
             assert_eq!(view.retelling, Some(1), "the next beat");
             assert!(view.looking.beat_at >= Some(clicked), "told from its start");
         });
-        // The Right arrow, four seconds into that one.
-        view.update(cx, |view, cx| {
+        // The Right arrow, a second into that one.
+        view.update(cx, |view, _| {
             view.looking.beat_at = late();
-            cx.notify();
         });
         let pressed = Instant::now();
         cx.simulate_keystrokes("right");

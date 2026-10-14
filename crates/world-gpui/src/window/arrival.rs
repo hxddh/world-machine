@@ -155,6 +155,118 @@ pub(crate) fn free_offer(snapshot: &ProjectionSnapshot) -> Option<(String, Strin
         .map(|(_, command, hand)| (hand.verb.clone(), super::world_window::which(command, hand)))
 }
 
+/// Who is out on a World's first screen at an hour, and what each is seen
+/// doing there.
+#[derive(Clone, Debug, Default)]
+pub struct FirstScreen {
+    /// Where the window opens, centred on this stage x.
+    pub centre: f32,
+    /// Each resident out on it: their name, how they are drawn, and
+    /// whether they are seen doing something (working, keeping a stall,
+    /// carrying, sitting where their day has them, dancing, using what an
+    /// errand took them to) or are with someone (a companion, a group).
+    pub residents: Vec<(String, world_projection::Stance, bool)>,
+}
+
+impl FirstScreen {
+    /// How many residents on it are seen busy or with someone.
+    pub fn busy(&self) -> usize {
+        self.residents.iter().filter(|(_, _, busy)| *busy).count()
+    }
+}
+
+/// The first screen of `snapshot` in a window `view` large at `hour` (well
+/// into it): where the window opens (on whoever speaks, else on the
+/// resident with the most of the place around them, as the window does)
+/// and who stands on it doing what. A function of the snapshot and the
+/// hour alone: nothing is drawn.
+pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: u8) -> FirstScreen {
+    use crate::diorama::{self, Camera, Clock, Glows};
+    use world_projection::Stance;
+    let stage = diorama::stage_at(snapshot, view.0, view.1, Clock::at(hour));
+    let noon = diorama::stage_at(snapshot, view.0, view.1, Clock::at(12));
+    let x_of = |stage: &diorama::Stage, who: SelectionId| {
+        let index = snapshot
+            .canvas
+            .items
+            .iter()
+            .position(|item| item.id == who)?;
+        let (x, _, w, _) = stage.frame_of(index)?;
+        Some(x + w / 2.0)
+    };
+    let speaker = super::world_window::voices_now(snapshot)
+        .first()
+        .map(|voice| voice.speaker)
+        .filter(|who| x_of(&stage, *who).is_some());
+    let who = speaker.or_else(|| {
+        stage
+            .people
+            .iter()
+            .filter_map(|spot| {
+                let who = snapshot.canvas.items.get(spot.index)?.id;
+                let x = x_of(&stage, who)?;
+                Some((view_score(&stage, best_view(&stage, x)), who))
+            })
+            .max_by(|a, b| a.0.cmp(&b.0))
+            .map(|(_, who)| who)
+    });
+    let Some((who, x)) = who.and_then(|who| Some((who, x_of(&stage, who)?))) else {
+        return FirstScreen::default();
+    };
+    let centre = opening_view(&stage, x, || {
+        x_of(&noon, who).map_or_else(|| best_view(&stage, x), |x| best_view(&noon, x))
+    });
+    let daylight = crate::scene::daylight_at(u32::from(hour));
+    let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
+    let camera = Camera::around(&stage, 1.0, centre, view.1 / 2.0);
+    let frame = diorama::frame(
+        snapshot,
+        &stage,
+        &living,
+        camera,
+        0.0,
+        daylight,
+        &Glows::new(),
+        1.0,
+    );
+    let half = stage.view_w / 2.0;
+    let centre = centre.clamp(half, (stage.width - half).max(half));
+    let groups = diorama::group_centres(&stage.people, stage.figure_h);
+    let mut residents = Vec::new();
+    for ((spot, life), group) in stage.people.iter().zip(&living).zip(groups) {
+        if (life.x - centre).abs() > half - 8.0 || !stage.shows(spot.index, 1.0) {
+            continue;
+        }
+        let item = &snapshot.canvas.items[spot.index];
+        let Some(drawn) = frame
+            .people
+            .iter()
+            .find(|person| person.index == spot.index)
+        else {
+            continue;
+        };
+        let what = stage.doing.get(&spot.index).copied().unwrap_or_default();
+        let doing = |stance: Option<Stance>| {
+            stance.is_some_and(|stance| {
+                !matches!(
+                    stance,
+                    Stance::Standing | Stance::Walking | Stance::LookingAround | Stance::Stretching
+                )
+            })
+        };
+        let walking = life.pose.stride.is_some();
+        let busy = (walking && life.loaded)
+            || (!walking
+                && (doing(life.using)
+                    || doing(what.stance)
+                    || doing(item.stance)
+                    || what.with.is_some()
+                    || group.is_some()));
+        residents.push((item.label.clone(), drawn.stance, busy));
+    }
+    FirstScreen { centre, residents }
+}
+
 /// What the first screen shows when the view is centred at `centre`:
 /// how many residents are out on it, and how many buildings stand on it
 /// (most of each building in the window). The camera stops at the ends of

@@ -144,3 +144,51 @@ fn a_lived_place_has_people_doing_things_at_ten() {
         assert!(busy >= 6, "{}: {busy} busy at ten", fixture.display());
     }
 }
+
+/// The S2 bar, on screen (v0.30 S2d): every saved place, opened and seen in
+/// the World window at each hour from nine to four, has at least six
+/// residents on its first screen seen doing something (working, keeping a
+/// stall, carrying, sitting where their day has them) or with someone, or
+/// where fewer than six stand on it, every one of them. Measured on the
+/// window's own layout and opening view, the hour pinned.
+#[test]
+fn six_residents_busy_on_first_screen_by_day() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let mut fixtures = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "world"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    assert!(!fixtures.is_empty());
+    let (mut short, mut seen, mut full) = (Vec::new(), 0, 0);
+    for fixture in fixtures {
+        let bytes = std::fs::read(&fixture).unwrap();
+        let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+        let universe = PocketUniverse::resume_archive(&archive).unwrap();
+        let snapshot = universe.projection_snapshot();
+        for hour in 9..=16 {
+            let screen = world_gpui::first_screen_busy(&snapshot, (1100.0, 848.0), hour);
+            // Everyone on it is doing something; short of six only where
+            // fewer than six stand on it at all.
+            let on_screen = screen.residents.len();
+            seen += 1;
+            full += usize::from(screen.busy() >= 6);
+            if on_screen == 0 || screen.busy() < 6.min(on_screen) {
+                short.push(format!(
+                    "{} at {hour}: {} busy of {:?}",
+                    fixture.display(),
+                    screen.busy(),
+                    screen.residents
+                ));
+            }
+        }
+    }
+    assert!(short.is_empty(), "{}", short.join("\n"));
+    // The places of a keeper or two open on two to seven residents; the
+    // grown ones on six or more.
+    assert!(
+        full > 0 && seen > 0,
+        "{full} of {seen} first screens with six busy"
+    );
+}
