@@ -28,6 +28,10 @@ pub struct Canvas {
     pub pixmap: sk::Pixmap,
     pub scale: f32,
     pub origin: (f32, f32),
+    /// Soft shapes painted as a window paints them (a blurred pill, as
+    /// GPUI's shadows are), for what is painted ahead of time but stands
+    /// in for the live layer: otherwise solid to where the blur begins.
+    pub window_soft: bool,
 }
 
 impl Canvas {
@@ -36,7 +40,74 @@ impl Canvas {
             pixmap: sk::Pixmap::new(width.max(1), height.max(1))?,
             scale,
             origin,
+            window_soft: false,
         })
+    }
+
+    /// A soft shape as a window's brush paints it: a pill `rx` by `ry`
+    /// less the blur, blurred by a Gaussian of `blur` (GPUI's shadow),
+    /// laid as a radial gradient of the same fall.
+    fn soft_as_window(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, blur: f32, colour_: Hsla) {
+        let sigma = blur.max(0.5);
+        let half = (
+            ((rx * 2.0 - sigma).max(1.0)) / 2.0,
+            ((ry * 2.0 - sigma).max(1.0)) / 2.0,
+        );
+        let corner = half.0.min(half.1);
+        // How much of the colour shows `to` from the middle (offscreen's
+        // shadow, as the GPU has it).
+        let alpha = |to: (f32, f32)| -> f32 {
+            let (low, high) = (to.1 - half.1, to.1 + half.1);
+            let start = (-3.0 * sigma).clamp(low, high);
+            let end = (3.0 * sigma).clamp(low, high);
+            let samples = 8;
+            let step = (end - start) / samples as f32;
+            let mut sample = start + step * 0.5;
+            let mut sum = 0.0;
+            let scale = std::f32::consts::FRAC_1_SQRT_2 / sigma;
+            for _ in 0..samples {
+                let dy = to.1 - sample;
+                let delta = (half.1 - corner - dy.abs()).min(0.0);
+                let curved = half.0 - corner + (corner * corner - delta * delta).max(0.0).sqrt();
+                let along = 0.5 * (erf((to.0 + curved) * scale) - erf((to.0 - curved) * scale));
+                let gaussian = (-(sample * sample) / (2.0 * sigma * sigma)).exp()
+                    / ((2.0 * std::f32::consts::PI).sqrt() * sigma);
+                sum += along * gaussian * step;
+                sample += step;
+            }
+            sum.clamp(0.0, 1.0)
+        };
+        let (ox, oy) = (half.0 + 3.0 * sigma, half.1 + 3.0 * sigma);
+        let c = colour(colour_);
+        let count = 14;
+        let stops = (0..count)
+            .map(|n| {
+                let t = n as f32 / (count - 1) as f32;
+                let k = 0.5 * (alpha((t * ox, 0.0)) + alpha((0.0, t * oy)));
+                let mut faded = c;
+                faded.set_alpha(c.alpha() * if n + 1 == count { 0.0 } else { k });
+                sk::GradientStop::new(t, faded)
+            })
+            .collect::<Vec<_>>();
+        let local = sk::Transform::from_row(ox, 0.0, 0.0, oy, cx, cy);
+        let Some(shader) = sk::RadialGradient::new(
+            sk::Point::from_xy(0.0, 0.0),
+            sk::Point::from_xy(0.0, 0.0),
+            1.0,
+            stops,
+            sk::SpreadMode::Pad,
+            local,
+        ) else {
+            return;
+        };
+        let paint = sk::Paint {
+            shader,
+            anti_alias: false,
+            ..sk::Paint::default()
+        };
+        if let Some(rect) = self.on_canvas(cx - ox, cy - oy, ox * 2.0, oy * 2.0) {
+            self.pixmap.fill_rect(rect, &paint, self.transform(), None);
+        }
     }
 
     fn transform(&self) -> sk::Transform {
@@ -201,6 +272,10 @@ impl Brush for Canvas {
 
     fn soft(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, blur: f32, colour_: Hsla) {
         if rx <= 0.0 || ry <= 0.0 || colour_.a <= 0.0 {
+            return;
+        }
+        if self.window_soft {
+            self.soft_as_window(cx, cy, rx, ry, blur, colour_);
             return;
         }
         let reach = blur.max(0.5) / 2.0;
@@ -2326,4 +2401,13 @@ pub(crate) fn slowest(name: &'static str, took: Duration) {
     }
     #[cfg(not(test))]
     let _ = (name, took);
+}
+
+/// The error function, closely enough for a blur's fall (Abramowitz and
+/// Stegun 7.1.27, as offscreen's shadows have it).
+fn erf(x: f32) -> f32 {
+    let a = x.abs();
+    let r1 = 1.0 + (0.278393 + (0.230389 + (0.000972 + 0.078108 * a) * a) * a) * a;
+    let r2 = r1 * r1;
+    x.signum() - x.signum() / (r2 * r2)
 }

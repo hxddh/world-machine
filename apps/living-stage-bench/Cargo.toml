@@ -1,0 +1,26 @@
+[package]
+name = "living-stage-bench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "The v0.30 S0 spike's windowed benchmark: the living stage composited by GPUI on a real GPU."
+
+[features]
+# Builds the window on Linux too (cfg(gui), see build.rs), as the desktop
+# app's feature of the same name does: for Xvfb and Linux desktops.
+linux-window = ["dep:gpui", "dep:gpui_platform"]
+
+[dependencies]
+serde_json = "1"
+world-gpui = { path = "../../crates/world-gpui" }
+world-pack-protocol = { path = "../../crates/world-pack-protocol" }
+world-projection = { path = "../../crates/world-projection" }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui_platform", features = ["font-kit"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui", optional = true }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui_platform", features = ["font-kit", "x11"], optional = true }

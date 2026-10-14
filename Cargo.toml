@@ -40,6 +40,7 @@ members = [
   "apps/tiny-society-pack",
   "apps/pocket-universe-pack",
   "apps/world-machine-desktop",
+  "apps/living-stage-bench",
 ]
 resolver = "2"
 

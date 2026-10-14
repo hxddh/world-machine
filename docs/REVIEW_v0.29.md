@@ -202,6 +202,22 @@ Bake the existing `tiny-skia` brush code's buildings, props, works and people in
 
 If it fails, A falls back to keeping the painter and adding moving people and scenes as live layers over the still town. That is slower and less alive, but still the leap in substance.
 
+**Result (2026-10-14): go.** The spike is `diorama/living_stage.rs`, the `living_stage_bench` example and the `living-stage-bench` app.
+1. *Frame plan.* On CI's macOS runner (Apple silicon, real Metal, a 60 Hz virtual display), 300 walkers planned in 0.37 ms mean, 0.50 ms p95 and 0.92 ms max over 1,197 frames. No frame went over 8 ms, and the runner held 59.8 fps. After the per-picture cross-fade fix, headless p95 is 1.2–1.6 ms. 120 Hz on a real ProMotion Mac is not measured yet: no device is to hand. It moves to a release gate for v0.30, with a 60 Hz cap as the fallback.
+2. *Art.* The art director said yes at noon and dusk, and no at night. Round 2 fixed the reasons:
+   - the ghosted crowd, and people popping during the light cross-fade, both fixed by cross-fading each picture over itself;
+   - halo size, now soft light the way the painter draws it;
+   - the stall-roof smudge;
+   - the beacon;
+   - night window reflections;
+   - the story props (build plots, washing line, handcart, moored boat);
+   - the dusk water gradient.
+
+   On re-review the art director said **yes at noon, dusk and night**, with no regressions. One S1 blocker remains: a walker is drawn over the lighthouse door, because people are not depth-sorted against buildings. Water texture and clouds/birds trail S1, but must land before sign-off.
+3. *Glow.* Lit windows and lamp pools read well as layered images.
+
+Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, so S1 bakes lazily per zoom level and evicts. Second, Retina scale: it is not yet measured, and S1 adds a 2× bench run to CI.
+
 ### S1. The living stage
 
 - Sprites composited on the GPU replace the tile painter. The rough stand-in, the tiles, the paint-ahead queues and "painted per region" accounting are deleted, probably 8–12k lines.

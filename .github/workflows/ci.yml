@@ -185,3 +185,40 @@ jobs:
           path: target/bundle/World-Machine-macOS.zip
           if-no-files-found: error
           retention-days: 7
+
+  # The v0.30 S0 spike's interim reading on real Metal (a virtual GPU):
+  # the living stage, a whole place baked once into sprites and composited
+  # by GPUI every frame with 300 people walking, timed per frame
+  # (apps/living-stage-bench). It reports and never gates: a failure or a
+  # slow frame here does not fail CI, and it runs beside gpui-macos rather
+  # than inside it, so that job is no slower. The go/no-go is judged on a
+  # real Mac (docs/REVIEW_v0.29.md, S0); this only says what CI's runner
+  # managed.
+  living-stage-macos:
+    needs: changes
+    if: needs.changes.outputs.gpui == 'true'
+    runs-on: macos-15
+    continue-on-error: true
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: living-stage-macos
+      - run: cargo build --locked --release -p living-stage-bench
+      - name: Run the living stage for 20 seconds
+        run: |
+          set -o pipefail
+          cargo run --locked --release -p living-stage-bench -- --seconds 20 --walkers 300 | tee living-stage.txt
+          {
+            echo '### Living stage (S0 spike) on the macOS runner'
+            echo
+            echo '```'
+            cat living-stage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

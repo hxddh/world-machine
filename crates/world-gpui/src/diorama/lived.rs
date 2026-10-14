@@ -17,7 +17,7 @@ type Taken = (f32, f32, f32, bool);
 /// What a lived-in harbour has about it, over the still layers and behind
 /// the things and people the World places. `screen` maps a stage point to
 /// the window.
-pub(super) fn paint_harbour_life(
+pub(super) fn paint_lived_in(
     window: &mut dyn Brush,
     frame: &Frame,
     screen: &dyn Fn(f32, f32) -> (f32, f32),
