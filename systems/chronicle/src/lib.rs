@@ -16,12 +16,13 @@
 #![forbid(unsafe_code)]
 
 pub mod kit;
+pub mod scene;
 
 use std::collections::BTreeSet;
 use world_core::{EntityId, Event, EventId, StateChange, Value, World};
 use world_projection::{
     cause_in_words, day_of, latest_before, life_events, lowered, one_a_day, Almanac, Legend,
-    LegendLine, Moment, MomentKind, Mood, Named, Panel, PanelBeat, Prop, SelectionId,
+    LegendLine, Look, Moment, MomentKind, Mood, Named, Panel, PanelBeat, Prop, SelectionId,
 };
 
 /// How a question of the Pack's own storyteller was settled.
@@ -70,6 +71,31 @@ pub trait Teller {
     /// Whether someone is one of the World's people, whose legend is a
     /// life rather than a place's history.
     fn is_person(&self, id: EntityId) -> bool;
+    /// What kind of scene `event` plays as: the kinds every World shares
+    /// ([`scene::kind_of`]), unless the Pack knows better.
+    fn scene_kind(&self, event: &Event) -> MomentKind {
+        scene::kind_of(self, event)
+    }
+    /// The words beneath a scene of `event`: what it recorded it told.
+    fn scene_caption(&self, event: &Event) -> Option<String> {
+        text(event, "told").map(str::to_string)
+    }
+    /// Where a scene happens when its Event puts it nowhere else.
+    fn scene_home(&self) -> Option<EntityId> {
+        None
+    }
+    /// How someone looked at a world time (the time of a scene's Event),
+    /// so a scene draws them as they were then, even once they have grown
+    /// up, left or died.
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        let _ = (id, at);
+        None
+    }
+    /// How people come and go here (a ferry, a shuttle), shown at an
+    /// arrival and a farewell.
+    fn transport(&self) -> Option<Prop> {
+        None
+    }
 }
 
 /// A text field of an Event's payload.
@@ -808,7 +834,14 @@ pub fn rank(kind: MomentKind) -> u32 {
         MomentKind::WorkOpened => 5,
         MomentKind::Storm => 6,
         MomentKind::Festival => 7,
-        MomentKind::Other => 8,
+        // The kinds a scene plays as but no moment is: a moment of one is
+        // weighed as any other.
+        MomentKind::Arrival
+        | MomentKind::Quarrel
+        | MomentKind::MakingUp
+        | MomentKind::Outing
+        | MomentKind::Build
+        | MomentKind::Other => 8,
     }
 }
 

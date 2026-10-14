@@ -221,12 +221,13 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
 }
 
 /// What the harbour can do beyond the core of the Pack protocol.
-pub const PACK_CAPABILITIES: [&str; 5] = [
+pub const PACK_CAPABILITIES: [&str; 6] = [
     world_projection::capability::PLOTS,
     world_projection::capability::DESIGNS,
     world_projection::capability::NAMES,
     world_projection::capability::STORY,
     world_projection::capability::OFFERED_REPLIES,
+    world_projection::capability::SCENES,
 ];
 
 #[cfg(test)]

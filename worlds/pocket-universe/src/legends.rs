@@ -2,10 +2,11 @@
 //! places and the things made in it, told line by line from what the
 //! World recorded, each line with what brought it about.
 
+use chronicle::kit::ChroniclePack;
 use chronicle::{kit, text, Answered, Teller};
 use std::sync::OnceLock;
-use world_core::{EntityId, Event, World};
-use world_projection::{Legend, SelectionId};
+use world_core::{EntityId, Event, EventId, World};
+use world_projection::{Legend, Look, MomentKind, Prop, SceneScript, SelectionId};
 
 /// The place, as the chronicle reads it.
 pub(crate) struct Place<'a>(pub(crate) &'a World);
@@ -136,9 +137,46 @@ impl Teller for Place<'_> {
     fn is_person(&self, id: EntityId) -> bool {
         is_person(self.0, id)
     }
+
+    /// The place's scenes: a work everyone finished is opened; everything
+    /// else plays as the kinds every World shares (someone drawn here
+    /// arrives, a falling-out or a day that ended in words is a quarrel, a
+    /// making-up, an outing you arranged, a plot built, a festival, a
+    /// storm, a birth).
+    fn scene_kind(&self, event: &Event) -> MomentKind {
+        if crate::moments::Place
+            .works_opened(self.0)
+            .iter()
+            .any(|(id, _, _)| *id == event.id)
+        {
+            return MomentKind::WorkOpened;
+        }
+        chronicle::scene::kind_of(self, event)
+    }
+
+    fn scene_caption(&self, event: &Event) -> Option<String> {
+        crate::story::told(self.0, event).or_else(|| text(event, "told").map(str::to_string))
+    }
+
+    fn scene_home(&self) -> Option<EntityId> {
+        Some(crate::moments::Place.home())
+    }
+
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        crate::kin::look_at(self.0, id, at)
+    }
+
+    fn transport(&self) -> Option<Prop> {
+        Some(crate::moments::transport(self.0))
+    }
 }
 
 /// The legend of a person, place or thing.
 pub(crate) fn legend(world: &World, subject: SelectionId) -> Option<Legend> {
     kit::filled_legend(&Place(world), subject)
+}
+
+/// One recorded Event of the place's, staged as a scene.
+pub(crate) fn scene(world: &World, event: EventId) -> Option<SceneScript> {
+    chronicle::scene::scene(&Place(world), event)
 }

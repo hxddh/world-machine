@@ -180,6 +180,7 @@ impl PocketUniverse {
                 let moments = moments::moments(&self.world);
                 almanac_page::almanac(&self.world, year, &moments).map(StoryPage::Almanac)
             }
+            StoryRequest::Scene(event) => legends::scene(&self.world, event).map(StoryPage::Scene),
         }
     }
 
@@ -1057,6 +1058,7 @@ pub fn pocket_universe_registration_with_voices(
         world_projection::capability::NAMES,
         world_projection::capability::STORY,
         world_projection::capability::OFFERED_REPLIES,
+        world_projection::capability::SCENES,
     ])
 }
 

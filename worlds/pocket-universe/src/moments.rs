@@ -32,7 +32,7 @@ const PROP_WORDS: &[(&str, Prop)] = &[
 
 /// How someone leaves this place, or comes to it: a shuttle from a
 /// colony, the bus from a town, a sled over the ice.
-fn transport(world: &World) -> Prop {
+pub(crate) fn transport(world: &World) -> Prop {
     match crate::seed_id(world) {
         "mars-colony" => Prop::Shuttle,
         "penguin-civilization" => Prop::Sled,

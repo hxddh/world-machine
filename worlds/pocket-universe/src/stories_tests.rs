@@ -151,3 +151,59 @@ fn three_years_of_stories_in_every_place() {
 fn frame(because: &str) -> &str {
     because.split('“').next().unwrap_or(because)
 }
+
+/// Every scene of a lived place is staged again, the same, from a replay
+/// of its recorded Events and from its save reopened: nobody is asked to
+/// decide anything again. Nothing anyone says in a scene is anything but
+/// the words the Event recorded.
+#[test]
+fn scenes_replay_identically() {
+    let (universe, _, _) = lived(crate::SEED_1980S_TOWN_COMMAND, 60);
+    let world = universe.world();
+    let replayed = world.replay().unwrap();
+    let reopened = PocketUniverse::resume_archive(&universe.archive().unwrap()).unwrap();
+    let teller = crate::legends::Place(world);
+    // The news of the place, every moment's Event, and every Event that
+    // plays as a scene of its own kind.
+    let mut beats = world
+        .events()
+        .iter()
+        .filter(|event| {
+            lives::is_news(event)
+                || chronicle::scene::kind_of(&teller, event) != world_projection::MomentKind::Other
+        })
+        .map(|event| event.id)
+        .chain(
+            crate::moments::moments(world)
+                .into_iter()
+                .filter_map(|moment| moment.event),
+        )
+        .collect::<Vec<_>>();
+    beats.sort_unstable();
+    beats.dedup();
+    let mut kinds = BTreeMap::<&str, usize>::new();
+    for id in &beats {
+        let scene = crate::legends::scene(world, *id).unwrap();
+        assert_eq!(crate::legends::scene(&replayed, *id).as_ref(), Some(&scene));
+        assert_eq!(
+            crate::legends::scene(reopened.world(), *id).as_ref(),
+            Some(&scene)
+        );
+        assert_eq!(
+            universe.story(StoryRequest::Scene(*id)),
+            Some(StoryPage::Scene(scene.clone()))
+        );
+        let event = world.event(*id).unwrap();
+        for (_, words) in scene.speech() {
+            assert_eq!(Some(words), chronicle::text(event, "said"), "{scene:?}");
+        }
+        assert!(!scene.cues.is_empty(), "{scene:?}");
+        *kinds.entry(scene.kind.id()).or_default() += 1;
+    }
+    eprintln!("{} scenes: {kinds:?}", beats.len());
+    assert!(kinds.len() >= 3, "{kinds:?}");
+    assert_eq!(
+        universe.story(StoryRequest::Scene(world_core::EventId::new(u64::MAX))),
+        None
+    );
+}

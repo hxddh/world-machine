@@ -621,6 +621,14 @@ pub fn localize_story(mut page: StoryPage) -> StoryPage {
         }
         StoryPage::Moment(moment) => put_moment(moment),
         StoryPage::Almanac(almanac) => put_almanac(almanac),
+        StoryPage::Scene(scene) => {
+            put(&mut scene.caption);
+            for cue in &mut scene.cues {
+                if let world_projection::Act::Say(words) = &mut cue.act {
+                    put(words);
+                }
+            }
+        }
     }
     page
 }

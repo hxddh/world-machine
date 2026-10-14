@@ -856,8 +856,12 @@ impl WorldSession for ProcessWorldSession {
     }
 
     fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {
-        // A Pack from before stories has none to tell.
-        if !self.speaks_v7() {
+        // A Pack from before stories has none to tell, and one that does not
+        // say it stages scenes is not asked for one.
+        if !self.speaks_v7()
+            || (matches!(request, StoryRequest::Scene(_))
+                && !self.can(world_projection::capability::SCENES))
+        {
             return Ok(None);
         }
         let response = self.client.borrow_mut().request(PackRequest::Story {

@@ -2,10 +2,11 @@
 //! places and the things made in it, told line by line from what the
 //! World recorded, each line with what brought it about.
 
+use chronicle::kit::ChroniclePack;
 use chronicle::{kit, text, Answered, Teller};
 use std::sync::OnceLock;
-use world_core::{EntityId, Event, World};
-use world_projection::{Legend, SelectionId};
+use world_core::{EntityId, Event, EventId, World};
+use world_projection::{Legend, Look, MomentKind, Prop, SceneScript, SelectionId};
 
 /// The harbour, as the chronicle reads it.
 pub(crate) struct Harbour<'a>(pub(crate) &'a World);
@@ -142,9 +143,46 @@ impl Teller for Harbour<'_> {
     fn is_person(&self, id: EntityId) -> bool {
         is_person(self.0, id)
     }
+
+    /// The harbour's scenes: a work the whole harbour finished is opened;
+    /// everything else plays as the kinds every World shares (someone
+    /// drawn here arrives, a falling-out or a day that ended in words is a
+    /// quarrel, a making-up, an outing you arranged, a plot built, a
+    /// festival, a storm, a birth).
+    fn scene_kind(&self, event: &Event) -> MomentKind {
+        if crate::moments::Harbour
+            .works_opened(self.0)
+            .iter()
+            .any(|(id, _, _)| *id == event.id)
+        {
+            return MomentKind::WorkOpened;
+        }
+        chronicle::scene::kind_of(self, event)
+    }
+
+    fn scene_caption(&self, event: &Event) -> Option<String> {
+        crate::projection::narrated_title(self.0, event)
+    }
+
+    fn scene_home(&self) -> Option<EntityId> {
+        Some(crate::HARBOR)
+    }
+
+    fn look(&self, id: EntityId, at: u64) -> Option<Look> {
+        crate::kin::look_at(self.0.state(), id, at)
+    }
+
+    fn transport(&self) -> Option<Prop> {
+        Some(Prop::Ferry)
+    }
 }
 
 /// The legend of a person, place or thing in the harbour.
 pub(crate) fn legend(world: &World, subject: SelectionId) -> Option<Legend> {
     kit::filled_legend(&Harbour(world), subject)
+}
+
+/// One recorded Event of the harbour's, staged as a scene.
+pub(crate) fn scene(world: &World, event: EventId) -> Option<SceneScript> {
+    chronicle::scene::scene(&Harbour(world), event)
 }

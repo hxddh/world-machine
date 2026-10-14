@@ -35,8 +35,9 @@ pub use mark::{
 pub use seams::{seams_in, speaks_of_self, Seam};
 pub use stories::{
     cause_in_words, day_of, go_to_what_was_answered, latest_before, latest_moments, life_events,
-    lowered, one_a_day, Almanac, Legend, LegendLine, Moment, MomentKind, Named, Panel, PanelBeat,
-    Prop, StoryPage, StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
+    lowered, one_a_day, scene_id, Act, Almanac, Cue, Legend, LegendLine, Mark, Moment, MomentKind,
+    Named, Panel, PanelBeat, Prop, SceneScript, StoryPage, StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
+    MOST_SCENE_SECONDS,
 };
 /// Text from outside a World, cleaned of characters that change how it
 /// reads without being seen (see [`world_core::text`]).
@@ -543,6 +544,9 @@ pub mod capability {
     pub const NAMES: &str = "names";
     /// Its Worlds tell stories: legends, moments and almanacs.
     pub const STORY: &str = "story";
+    /// Its Worlds stage any recorded Event as a scene when asked
+    /// ([`crate::StoryRequest::Scene`]); a host asks no other Pack for one.
+    pub const SCENES: &str = "scenes";
     /// It reads [`crate::Ears::Offered`]: a favour's quick reply, chosen
     /// with a click, done as offered rather than heard as words.
     pub const OFFERED_REPLIES: &str = "offered-replies";

@@ -53,7 +53,14 @@ pub(crate) fn occasion(kind: MomentKind) -> Occasion {
         MomentKind::Storm => Occasion::Storm,
         MomentKind::WorkOpened => Occasion::WorkOpened,
         MomentKind::Festival => Occasion::Festival,
-        MomentKind::Other => Occasion::Other,
+        // The kinds only a scene plays as are drawn as any other moment
+        // until the stage stages them (S3c).
+        MomentKind::Arrival
+        | MomentKind::Quarrel
+        | MomentKind::MakingUp
+        | MomentKind::Outing
+        | MomentKind::Build
+        | MomentKind::Other => Occasion::Other,
     }
 }
 

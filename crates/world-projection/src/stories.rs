@@ -1,7 +1,8 @@
 //! Stories a World tells about itself, asked for rather than sent every
 //! time: a legend (the life of one person, place or work, line by line,
-//! each naming its cause), a moment (a key beat told in three panels) and
-//! an almanac (a year in review).
+//! each naming its cause), a moment (a key beat told in three panels), a
+//! scene (one recorded Event, staged for a few seconds) and an almanac (a
+//! year in review).
 //!
 //! Everything here is read from recorded Events and never written back:
 //! the words are the World's, and what a line says caused it is a cause
@@ -9,7 +10,7 @@
 //! Pack's to say; this module only holds the shapes, and the few readings
 //! of a history that any World shares.
 
-use crate::{Mood, SelectionId};
+use crate::{Look, Mood, SelectionId, Stance};
 use std::collections::{BTreeSet, VecDeque};
 use world_core::{EntityId, Event, EventId, World};
 
@@ -51,12 +52,22 @@ pub enum MomentKind {
     Storm,
     WorkOpened,
     Festival,
+    /// Someone new comes to live here.
+    Arrival,
+    /// Two people have words, or fall out.
+    Quarrel,
+    /// Two who had fallen out make it up.
+    MakingUp,
+    /// Someone the player invited goes out.
+    Outing,
+    /// Something going up by hand, or finished.
+    Build,
     #[default]
     Other,
 }
 
 impl MomentKind {
-    pub const ALL: [MomentKind; 9] = [
+    pub const ALL: [MomentKind; 14] = [
         MomentKind::Wedding,
         MomentKind::Birth,
         MomentKind::ComingOfAge,
@@ -65,6 +76,11 @@ impl MomentKind {
         MomentKind::Storm,
         MomentKind::WorkOpened,
         MomentKind::Festival,
+        MomentKind::Arrival,
+        MomentKind::Quarrel,
+        MomentKind::MakingUp,
+        MomentKind::Outing,
+        MomentKind::Build,
         MomentKind::Other,
     ];
 
@@ -78,6 +94,11 @@ impl MomentKind {
             MomentKind::Storm => "storm",
             MomentKind::WorkOpened => "work_opened",
             MomentKind::Festival => "festival",
+            MomentKind::Arrival => "arrival",
+            MomentKind::Quarrel => "quarrel",
+            MomentKind::MakingUp => "making_up",
+            MomentKind::Outing => "outing",
+            MomentKind::Build => "build",
             MomentKind::Other => "other",
         }
     }
@@ -289,6 +310,100 @@ impl Almanac {
     }
 }
 
+/// Somewhere on the stage a scene's cue points at, by what is there rather
+/// than where: the app finds the spot on the stage it draws. A mark it
+/// cannot find (a place since pulled down, someone long gone) falls back
+/// to the scene's place.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Mark {
+    /// At a place, a person or a thing.
+    Place(SelectionId),
+    /// Beside a place, a person or a thing: so many steps to its right
+    /// (or, below 0, its left); 0 is right up against it.
+    Beside(SelectionId, i8),
+    /// Off the edge of the stage: the right edge when `true`, the left
+    /// when `false`. Where someone comes from or goes to.
+    Offstage(bool),
+    /// Someone's home, wherever the World says it is.
+    Home(SelectionId),
+}
+
+/// What someone (or the stage) does at one cue of a scene.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Act {
+    /// Walk to a mark in `stance`, and stand there once arrived. At a
+    /// scene's start (`at` 0) it puts them there instead, the scene
+    /// opening with them in place.
+    WalkTo { to: Mark, stance: Stance },
+    /// Take up a stance where they are: waving, dancing, working.
+    Strike(Stance),
+    /// Say these words, which are always words the World recorded.
+    Say(String),
+    /// Show a prop at a mark, or (`shown` false) take it away.
+    Prop { prop: Prop, at: Mark, shown: bool },
+    /// Point the camera at a mark, `zoom` times as close as the whole
+    /// place (1 is the whole place).
+    Camera { on: Mark, zoom: f32 },
+    /// Set the weather over the whole stage: rain, say.
+    Weather(Prop),
+}
+
+/// One cue of a scene: at `at` seconds in, `who` (or, with no one, the
+/// stage and the camera) does `act`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cue {
+    pub at: f32,
+    pub who: Option<SelectionId>,
+    pub act: Act,
+}
+
+/// One recorded Event, staged as a scene of a few seconds: who is in it
+/// (and how they look, so someone who has since left or died is still
+/// drawn as they were), where, and its cues in time order. Worked out
+/// from the recorded Event alone whenever it is asked for and never
+/// recorded, so a World from before scenes has them, and the same history
+/// always stages the same scene.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SceneScript {
+    /// Stable for as long as the history is.
+    pub id: String,
+    /// The recorded Event the scene shows.
+    pub event: EventId,
+    pub kind: MomentKind,
+    /// Where it happens.
+    pub place: Option<SelectionId>,
+    /// How long it plays.
+    pub seconds: f32,
+    /// Everyone it stages, the one it is about first, each with how they
+    /// look when the World says.
+    pub cast: Vec<(SelectionId, Option<Look>)>,
+    /// What happens, in time order.
+    pub cues: Vec<Cue>,
+    /// The World's words for what happens, shown beneath.
+    pub caption: String,
+}
+
+impl SceneScript {
+    /// Every line spoken in the scene, with who says it, in time order.
+    pub fn speech(&self) -> Vec<(Option<SelectionId>, &str)> {
+        self.cues
+            .iter()
+            .filter_map(|cue| match &cue.act {
+                Act::Say(words) => Some((cue.who, words.as_str())),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// The longest a scene plays, in seconds.
+pub const MOST_SCENE_SECONDS: f32 = 12.0;
+
+/// A scene's id, from the Event it shows.
+pub fn scene_id(event: EventId) -> String {
+    format!("scene-{event}")
+}
+
 /// What a player can ask a World to tell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StoryRequest {
@@ -298,14 +413,17 @@ pub enum StoryRequest {
     Moment(String),
     /// The almanac of one year, counted from 1.
     Almanac(u32),
+    /// One recorded Event, staged as a scene.
+    Scene(EventId),
 }
 
 /// What a World tells when asked.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum StoryPage {
     Legend(Legend),
     Moment(Moment),
     Almanac(Almanac),
+    Scene(SceneScript),
 }
 
 /// The most moments a snapshot carries: the latest. The book keeps them
@@ -552,6 +670,15 @@ mod tests {
             ["c", "b"]
         );
         assert_eq!(latest_moments(&kept).len(), 2);
+    }
+
+    #[test]
+    fn every_kind_reads_back_from_its_id_and_an_unknown_one_is_other() {
+        for kind in MomentKind::ALL {
+            assert_eq!(MomentKind::from_id(kind.id()), kind);
+        }
+        assert_eq!(MomentKind::from_id("coronation"), MomentKind::Other);
+        assert_eq!(MomentKind::from_id("making_up"), MomentKind::MakingUp);
     }
 
     #[test]

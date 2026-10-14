@@ -453,6 +453,7 @@ impl crate::ProjectionController for Telling {
                 .find(|moment| moment.id == id)
                 .cloned()
                 .map(StoryPage::Moment),
+            StoryRequest::Scene(_) => None,
         }
     }
 }

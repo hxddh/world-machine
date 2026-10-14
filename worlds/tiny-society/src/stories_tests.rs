@@ -326,3 +326,95 @@ fn show_stories() {
         }
     }
 }
+
+/// The Events a scene is asked for: the return film's beats over the
+/// whole history, every moment's, and every Event that plays as a scene
+/// of its own kind.
+fn scene_beats(world: &World) -> Vec<world_core::EventId> {
+    let teller = crate::legends::Harbour(world);
+    let mut beats = crate::projection::briefing_from(world, Some(0), true)
+        .items
+        .into_iter()
+        .filter_map(|item| match item.selection {
+            Some(SelectionId::Event(id)) => Some(id),
+            _ => None,
+        })
+        .chain(
+            crate::moments::moments(world)
+                .into_iter()
+                .filter_map(|moment| moment.event),
+        )
+        .chain(
+            world
+                .events()
+                .iter()
+                .filter(|event| {
+                    chronicle::scene::kind_of(&teller, event) != world_projection::MomentKind::Other
+                })
+                .map(|event| event.id),
+        )
+        .collect::<Vec<_>>();
+    beats.sort_unstable();
+    beats.dedup();
+    beats
+}
+
+/// Every scene of a lived harbour is staged again, the same, from a
+/// replay of its recorded Events and from its save reopened: nobody is
+/// asked to decide anything again. Nothing anyone says in a scene is
+/// anything but the words the Event recorded.
+#[test]
+fn scenes_replay_identically() {
+    let (branch, _) = short();
+    let world = branch.world();
+    let replayed = world.replay().unwrap();
+    let reopened = TinySociety::resume_json(&branch.archive_json().unwrap()).unwrap();
+    let reopened = reopened.branch();
+    let beats = scene_beats(world);
+    let mut kinds = BTreeMap::<&str, usize>::new();
+    let mut births = 0;
+    for id in &beats {
+        let scene = crate::legends::scene(world, *id).unwrap();
+        assert_eq!(crate::legends::scene(&replayed, *id).as_ref(), Some(&scene));
+        assert_eq!(
+            crate::legends::scene(reopened.world(), *id).as_ref(),
+            Some(&scene)
+        );
+        assert_eq!(
+            branch.story(StoryRequest::Scene(*id)),
+            Some(StoryPage::Scene(scene.clone()))
+        );
+        let event = world.event(*id).unwrap();
+        for (_, words) in scene.speech() {
+            assert_eq!(Some(words), chronicle::text(event, "said"), "{scene:?}");
+        }
+        assert!(!scene.cues.is_empty(), "{scene:?}");
+        assert!(scene.seconds <= world_projection::MOST_SCENE_SECONDS);
+        // Everyone staged is drawn as themselves.
+        assert!(
+            scene.cast.iter().all(|(_, look)| look.is_some()),
+            "{scene:?}"
+        );
+        // Drawn as they were at the Event, not as they are now: a birth
+        // shows its baby however old the child is today.
+        if scene.kind == world_projection::MomentKind::Birth {
+            assert!(
+                scene.cast.iter().any(|(_, look)| look
+                    .as_ref()
+                    .is_some_and(|look| look.age == Some(world_projection::AgeStage::Baby))),
+                "{scene:?}"
+            );
+            births += 1;
+        }
+        *kinds.entry(scene.kind.id()).or_default() += 1;
+    }
+    eprintln!("{} scenes: {kinds:?}", beats.len());
+    assert!(births > 0, "no birth scene to check");
+    for kind in ["arrival", "quarrel", "festival", "build", "outing"] {
+        assert!(kinds.contains_key(kind), "no {kind} scene in {kinds:?}");
+    }
+    assert_eq!(
+        branch.story(StoryRequest::Scene(world_core::EventId::new(u64::MAX))),
+        None
+    );
+}

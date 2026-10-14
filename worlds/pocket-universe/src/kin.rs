@@ -360,6 +360,11 @@ pub(crate) fn of(place: Place) -> &'static Kin {
 /// How someone looks, their age as well: a child in a mix of their
 /// parents' colouring.
 pub(crate) fn look(world: &world_core::World, id: EntityId) -> Option<Look> {
+    look_at(world, id, world.state().world_time())
+}
+
+/// How someone looked at a world time, their age then on it.
+pub(crate) fn look_at(world: &world_core::World, id: EntityId, at: u64) -> Option<Look> {
     let state = world.state();
     let mut look = crate::talk::look(world, id)?;
     if let [a, b] = lives::parents(state, id).as_slice() {
@@ -375,7 +380,7 @@ pub(crate) fn look(world: &world_core::World, id: EntityId) -> Option<Look> {
         look.carries = None;
     }
     let cast = &crate::life::cast_kept(world).0;
-    if let Some((stage, grey, stoop)) = lives::looks_of(state, cast, id) {
+    if let Some((stage, grey, stoop)) = lives::looks_at(state, cast, id, at) {
         look.age = Some(match stage {
             lives::Stage::Baby => world_projection::AgeStage::Baby,
             lives::Stage::Child => world_projection::AgeStage::Child,

@@ -25,8 +25,8 @@ mod voice;
 
 pub mod generations;
 pub use generations::{
-    age_of, awaiting_memorial, born_here, children, grown, grown_here, lives_with, looks_of,
-    memorial_request, parents, Kin, KinWords, Memorial, Stage,
+    age_at, age_of, awaiting_memorial, born_here, children, grown, grown_here, lives_with,
+    looks_at, looks_of, memorial_request, parents, Kin, KinWords, Memorial, Stage,
 };
 
 mod answers;
@@ -1492,7 +1492,7 @@ const BOND_HOLDS: i64 = 90;
 /// anyone: each is a thing people talk about, not the weather.
 const BOND_GAP: i64 = 6;
 /// Whom someone last had words with, and over what: `"<id>:<topic>"`.
-const ROW: &str = "lives.row";
+pub const ROW: &str = "lives.row";
 /// The changes in how people stand of the last [`BOND_HOLDS`] periods, on
 /// the notes, as `"<a>.<b>.<period>"` with `a` the lower id: kept this
 /// short so a World's saves and codes stay small.
