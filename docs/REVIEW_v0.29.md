@@ -323,3 +323,13 @@ Five think-aloud players watch a lived town for ten minutes and cannot say what 
 
 - **Nightly bars** were red every night after v0.29 merged. #346 fixed them: the blind-set test is skipped, a memento and the work it marks count as one telling, and four Pocket Universe bugs from v0.29 are fixed. It ran green on its branch, and the first green run on `main` is pending.
 - **The release workflow's publish step** failed after publishing v0.29.0, because a Windows file was named as a plain path in a `nullglob` array. #345 fixed it.
+
+## The owner's answers (2026-10-14)
+
+The owner accepted every recommendation:
+1. **The leap:** A, "the town you watch live", with the desktop companion (B) as v0.31 on top of it.
+2. **Time:** one day per sitting, capped, with a non-punitive real-day ritual.
+3. **Real devices:** a real Mac and a real Windows PC go in the loop. The S0 go/no-go and every art sign-off are judged on them. Until a device is to hand, the spike is also measured on CI's macOS runner (real Metal, a virtual GPU) as an interim reading, and the owner runs the spike's benchmark build on their own Mac.
+4. **AI disclosure:** keep the label for v0.30, and decide on a human rewrite before the Steam page goes up.
+5. **The voice:** frozen: no new red-team sets, judge work or lexicon growth until there is a key and a ship-or-cut decision.
+6. **Cadence:** a release per playable slice, with pre-releases for testers.
