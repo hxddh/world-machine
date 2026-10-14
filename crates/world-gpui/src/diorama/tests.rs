@@ -982,20 +982,9 @@ fn a_panorama_puts_things_at_their_px_and_the_camera_keeps_to_it() {
 /// that moves them, on their way.
 #[test]
 fn people_keep_to_their_day_and_are_indoors_at_night() {
-    let mut snapshot = three_years();
-    let places = snapshot
-        .canvas
-        .items
-        .iter()
-        .filter(|item| item.kind == CanvasItemKind::Place)
-        .map(|item| item.id)
-        .collect::<Vec<_>>();
-    // Everyone's day between the first place and the last.
-    let (home, work) = (places[0], places[places.len() - 1]);
-    for index in 0..snapshot.canvas.items.len() {
-        if snapshot.canvas.items[index].kind != CanvasItemKind::Actor {
-            continue;
-        }
+    let mut snapshot = harbour();
+    let (home, work) = (entity(101), entity(102));
+    for index in 5..snapshot.canvas.items.len() {
         snapshot.canvas.items[index].day = vec![
             world_projection::RoutineStop {
                 from_hour: 8,
@@ -1792,9 +1781,20 @@ fn print_painted_heights() {
 /// a World changed under the same size and hour.
 #[test]
 fn a_kept_layout_is_the_one_laid_out_afresh() {
-    let mut snapshot = harbour();
-    let (home, work) = (entity(101), entity(102));
-    for index in 5..snapshot.canvas.items.len() {
+    let mut snapshot = three_years();
+    let places = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Place)
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    // Everyone's day between the first place and the last.
+    let (home, work) = (places[0], places[places.len() - 1]);
+    for index in 0..snapshot.canvas.items.len() {
+        if snapshot.canvas.items[index].kind != CanvasItemKind::Actor {
+            continue;
+        }
         snapshot.canvas.items[index].day = vec![
             world_projection::RoutineStop {
                 from_hour: 8,
