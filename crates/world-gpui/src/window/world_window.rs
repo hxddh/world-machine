@@ -6810,8 +6810,12 @@ mod tests {
         let cx = &mut VisualTestContext::from_window(window.into(), cx);
         cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
         cx.run_until_parked();
-        let late = || Some(Instant::now() - Duration::from_secs(4));
-        // A click on Next, four seconds into a beat.
+        // A second into a beat: well short of the beat's own time, so a slow
+        // test machine (the bake runs synchronously here) never lets the
+        // beat go on by itself before the click or key lands; a clock left
+        // running would still be a second behind the click.
+        let late = || Some(Instant::now() - Duration::from_secs(1));
+        // A click on Next, a second into a beat.
         view.update(cx, |view, cx| {
             view.looking.beat_at = late();
             cx.notify();
@@ -6825,7 +6829,7 @@ mod tests {
             assert_eq!(view.retelling, Some(1), "the next beat");
             assert!(view.looking.beat_at >= Some(clicked), "told from its start");
         });
-        // The Right arrow, four seconds into that one.
+        // The Right arrow, a second into that one.
         view.update(cx, |view, cx| {
             view.looking.beat_at = late();
             cx.notify();
