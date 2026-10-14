@@ -1,4 +1,5 @@
-//! The living stage: the v0.30 S0 spike, not yet part of any window.
+//! The living stage: the v0.30 S0 spike, which the World window draws
+//! (`stage_view`, since S1a).
 //!
 //! The question it answers: can the still scene the CPU painter paints a
 //! tile at a time be baked **once**, a sprite per drawing, at a few zoom

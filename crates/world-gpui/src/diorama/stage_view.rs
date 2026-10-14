@@ -892,12 +892,15 @@ impl Stagehand {
         }
         // A picture a look kept shares (taken into it when it was baked)
         // stays with the display.
-        let shared = self
-            .slots
-            .iter()
-            .flat_map(|slot| slot.images.iter())
-            .map(Arc::as_ptr)
-            .collect::<std::collections::HashSet<_>>();
+        let shared = if dropped.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            self.slots
+                .iter()
+                .flat_map(|slot| slot.images.iter())
+                .map(Arc::as_ptr)
+                .collect::<std::collections::HashSet<_>>()
+        };
         for slot in &dropped {
             gone.extend(
                 slot.images

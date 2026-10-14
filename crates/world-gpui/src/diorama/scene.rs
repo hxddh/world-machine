@@ -405,11 +405,20 @@ pub fn stage_at(snapshot: &ProjectionSnapshot, width: f32, height: f32, clock: C
     let (stage, walks) = lay_out(snapshot, width, height, clock);
     LAID.with(|laid| {
         let mut laid = laid.borrow_mut();
+        // The World as a layout kept already has it (someone has just
+        // arrived, the hour turned, the window was resized), or a copy of
+        // it: a three-year World's canvas takes milliseconds to copy.
+        let world = laid
+            .iter()
+            .find(|kept| kept.of(snapshot))
+            .map(|kept| kept.world.clone())
+            .unwrap_or_else(|| {
+                std::rc::Rc::new((snapshot.canvas.clone(), snapshot.drawings.clone()))
+            });
         laid.insert(
             0,
             Laid {
-                canvas: snapshot.canvas.clone(),
-                drawings: snapshot.drawings.clone(),
+                world,
                 size: (width.to_bits(), height.to_bits()),
                 hour: clock.hour,
                 walks,
@@ -429,8 +438,8 @@ const LAID_KEPT: usize = 4;
 /// (seconds into it) everyone walking then is still walking and nobody
 /// else is.
 struct Laid {
-    canvas: world_projection::CanvasProjection,
-    drawings: Vec<Drawing>,
+    /// The World's canvas and drawings, shared by its layouts.
+    world: std::rc::Rc<(world_projection::CanvasProjection, Vec<Drawing>)>,
     size: (u32, u32),
     hour: u8,
     walks: (f32, f32),
@@ -443,8 +452,12 @@ impl Laid {
             && self.hour == clock.hour
             && clock.into_hour >= self.walks.0
             && clock.into_hour < self.walks.1
-            && self.canvas == snapshot.canvas
-            && self.drawings == snapshot.drawings
+            && self.of(snapshot)
+    }
+
+    /// Whether it is a layout of the World `snapshot` is of.
+    fn of(&self, snapshot: &ProjectionSnapshot) -> bool {
+        self.world.0 == snapshot.canvas && self.world.1 == snapshot.drawings
     }
 }
 
