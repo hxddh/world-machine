@@ -285,7 +285,7 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 ### S8. Pay for it: what to stop and delete
 
 The stop list:
-1. Replace the 64 continuation digests with event-replay checks, which is what save compatibility needs. Keep one replayed-state digest per Pack, re-blessed only at release.
+1. Shrink the 64 continuation digests to a representative few; don't delete them all. Event replay of every archived save proves each log rebuilds the same state, but not what happens after a load. So keep, per Pack, the continuation and snapshot-wire digests for the oldest and the newest fixture: open, make choices, pass days, compare later snapshots, new events and the process wire output. That is about 8 digests instead of 64, plus one replayed-state digest per Pack, so a regression on the first day after a load is still caught and an ordinary content change re-blesses a handful of files, not 64.
 2. Move golden render tests out of PR CI and into the nightly in release mode, after giving `world-gpui` an optimisation level in debug and measuring. The PR run should be under 15 minutes.
 3. Stop releasing daily with 490-line reviews and full KNOWN_ISSUES rewrites. Release when a slice is playable, with a short changelog.
 4. No art rounds on Xvfb frames. Sign-off happens on a real Mac or PC (decision 3).
