@@ -706,6 +706,90 @@ pub(super) fn carry_babies(people: &mut Vec<PersonPaint>, items: &[CanvasItem], 
     });
 }
 
+/// At dusk the water holds the sky's gold: a warm sheen near the shore
+/// fading out to sea, deeper further out, over the water from `front` to
+/// `bottom` across `width` from `ox`. How much of dusk there is (0 by day
+/// and at night).
+pub(super) fn paint_dusk_water(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    ox: f32,
+    width: f32,
+    front: f32,
+    bottom: f32,
+) -> f32 {
+    let dusk = dusk_share(frame.hour) * if sun_out(frame.weather) { 1.0 } else { 0.5 };
+    if dusk > 0.0 {
+        let (_, sky_low) = sky_colours(frame);
+        let gold = mix(sky_low, art::hex(0xffb24a), 0.5);
+        // Deeper out to sea, so the gold reads against it.
+        window.gradient(
+            ox,
+            front,
+            width,
+            bottom - front,
+            180.0,
+            (art::hex(0x1c2a44).opacity(0.0), 0.0),
+            (
+                art::hex(0x1c2a44).opacity(0.55 * dusk_share(frame.hour)),
+                1.0,
+            ),
+        );
+        window.gradient(
+            ox,
+            front,
+            width,
+            (bottom - front) * 0.45,
+            180.0,
+            (gold.opacity(0.26 * dusk), 0.0),
+            (gold.opacity(0.0), 1.0),
+        );
+    }
+    dusk
+}
+
+/// At dusk and at night the lit windows shine on the water, trembling:
+/// each building's light broken on the swell, down to `bottom` on screen,
+/// `t` seconds in.
+pub(super) fn paint_window_reflections(
+    window: &mut dyn Brush,
+    frame: &Frame,
+    screen: &dyn Fn(f32, f32) -> (f32, f32),
+    seen: &dyn Fn(f32, f32) -> bool,
+    bottom: f32,
+    t: f32,
+) {
+    let lit = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
+    if !frame.water || !lit || frame.buildings.is_empty() {
+        return;
+    }
+    let z = frame.camera.zoom;
+    let front = screen(0.0, frame.front).1;
+    let deep = (bottom - front).max(0.0);
+    let warm = art::hex(0xffcf7a);
+    for building in &frame.buildings {
+        if !seen(building.x, building.w * z) {
+            continue;
+        }
+        let (x, _) = screen(building.x, building.base);
+        let seed = building.index as f32 * 1.7;
+        // Each lit window's light, broken on the swell.
+        for streak in 0..2 {
+            let along = (streak as f32 - 0.5) * building.w * z * 0.3;
+            paint_reflection(
+                window,
+                x + along,
+                front + 2.0 * z,
+                deep * 0.42,
+                building.w * z * 0.08,
+                warm.opacity(0.34),
+                t,
+                seed + streak as f32 * 3.1,
+            );
+        }
+    }
+}
+
 /// Everything that moves, over the still layers, lit by the hour.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint_live(
@@ -743,33 +827,7 @@ pub(super) fn paint_live(
         if front < bottom {
             // At dusk the water holds the sky's gold: a warm sheen near the
             // shore fading out to sea, and the swell's lights gold.
-            let dusk = dusk_share(frame.hour) * if sun_out(frame.weather) { 1.0 } else { 0.5 };
-            if dusk > 0.0 {
-                let (_, sky_low) = sky_colours(frame);
-                let gold = mix(sky_low, art::hex(0xffb24a), 0.5);
-                // Deeper out to sea, so the gold reads against it.
-                window.gradient(
-                    ox,
-                    front,
-                    width,
-                    bottom - front,
-                    180.0,
-                    (art::hex(0x1c2a44).opacity(0.0), 0.0),
-                    (
-                        art::hex(0x1c2a44).opacity(0.55 * dusk_share(frame.hour)),
-                        1.0,
-                    ),
-                );
-                window.gradient(
-                    ox,
-                    front,
-                    width,
-                    (bottom - front) * 0.45,
-                    180.0,
-                    (gold.opacity(0.26 * dusk), 0.0),
-                    (gold.opacity(0.0), 1.0),
-                );
-            }
+            let dusk = paint_dusk_water(window, frame, ox, width, front, bottom);
             let shimmer = mix(gpui::white(), art::hex(0xffc860), dusk).opacity(if night {
                 0.12
             } else {
@@ -824,32 +882,8 @@ pub(super) fn paint_live(
     // Zoomed out to the postcard, smoke and reflections are too small to
     // see, and not drawn.
     let fine = z >= 0.6;
-    if fine && frame.water && lit && !frame.buildings.is_empty() {
-        let front = screen(0.0, frame.front).1;
-        let bottom = oy + height;
-        let deep = (bottom - front).max(0.0);
-        let warm = art::hex(0xffcf7a);
-        for building in &frame.buildings {
-            if !seen(building.x, building.w * z) {
-                continue;
-            }
-            let (x, _) = screen(building.x, building.base);
-            let seed = building.index as f32 * 1.7;
-            // Each lit window's light, broken on the swell.
-            for streak in 0..2 {
-                let along = (streak as f32 - 0.5) * building.w * z * 0.3;
-                paint_reflection(
-                    window,
-                    x + along,
-                    front + 2.0 * z,
-                    deep * 0.42,
-                    building.w * z * 0.08,
-                    warm.opacity(0.34),
-                    t,
-                    seed + streak as f32 * 3.1,
-                );
-            }
-        }
+    if fine {
+        paint_window_reflections(window, frame, &screen, &seen, oy + height, t);
     }
 
     // Buildings springing after a click, or rising just built.
@@ -962,7 +996,7 @@ pub(super) fn paint_live(
     paint_worn_places(window, frame, &screen, light);
 
     // A harbour lived in whatever is built: washing, a cart, rowboats.
-    super::lived::paint_harbour_life(window, frame, &screen, &seen, light);
+    super::lived::paint_lived_in(window, frame, &screen, &seen, light);
     // Lamps along the spine, lit from dusk.
     paint_spine_lamps(window, frame, &screen, &seen, light);
     // What stands in the water stands on a jetty.

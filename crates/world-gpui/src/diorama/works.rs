@@ -377,14 +377,30 @@ pub(super) fn sprite(frame: &Frame, building: &BuildingPaint, scale: f32) -> Spr
 }
 
 pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32) -> Sprite {
+    sprite_and_glass(frame, building, scale).0
+}
+
+/// A building's sprite as [`sprite_painted`] paints it, and which of its
+/// pixels are lit glass (by how much), found by their lamplight colour
+/// before anything else touched them: nothing by day.
+pub(super) fn sprite_and_glass(
+    frame: &Frame,
+    building: &BuildingPaint,
+    scale: f32,
+) -> (Sprite, Option<Vec<f32>>) {
     let (w, h) = (building.w, building.h);
     let left = building.x - w * 0.72;
     let top = building.base - h * 1.28;
     let (right, bottom) = (building.x + w * 0.72, building.base + h * 0.04);
     let origin = (left, top);
-    let empty = || Sprite {
-        pixmap: sk::Pixmap::new(1, 1).expect("a pixel"),
-        origin,
+    let empty = || {
+        (
+            Sprite {
+                pixmap: sk::Pixmap::new(1, 1).expect("a pixel"),
+                origin,
+            },
+            None,
+        )
     };
     let Some(mut canvas) = Canvas::new(
         ((right - left) * scale).ceil() as u32,
@@ -584,10 +600,13 @@ pub(super) fn sprite_painted(frame: &Frame, building: &BuildingPaint, scale: f32
         });
     }
     let _ = (width, height);
-    Sprite {
-        pixmap: canvas.pixmap,
-        origin,
-    }
+    (
+        Sprite {
+            pixmap: canvas.pixmap,
+            origin,
+        },
+        glass,
+    )
 }
 
 /// Turns the pixels `mask` picks (by how much it picks them) to `rgb`,

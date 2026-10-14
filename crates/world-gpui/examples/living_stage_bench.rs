@@ -399,17 +399,16 @@ fn shots(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
                     file.display(),
                     started.elapsed().as_secs_f32()
                 );
-                if zoom == 1.0 {
-                    // Beside the painter: the same view, the same people
-                    // (nobody walking), the painter on top.
-                    let sprites = composed(&baked, &nobody, shot);
-                    let painter = painted(&snapshot, (w, h), view, light.hour(), light);
-                    let file = options
-                        .out
-                        .join(format!("{name}-{}-painter-vs-sprites.png", light.name()));
-                    beside(&painter, &sprites).save(&file)?;
-                    println!("{}", file.display());
-                }
+                // Beside the painter: the same view, the same people
+                // (nobody walking), the painter on top.
+                let sprites = composed(&baked, &nobody, shot);
+                let painter = painted(&snapshot, (w, h), view, light.hour(), light);
+                let file = options.out.join(format!(
+                    "{name}{tag}-{}-painter-vs-sprites.png",
+                    light.name()
+                ));
+                beside(&painter, &sprites).save(&file)?;
+                println!("{}", file.display());
             }
         }
         // Halfway from dusk to night: the two lights cross-fading.
