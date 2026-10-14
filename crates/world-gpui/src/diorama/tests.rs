@@ -1808,11 +1808,15 @@ fn a_kept_layout_is_the_one_laid_out_afresh() {
                 from_hour: 8,
                 at: work,
                 inside: false,
+                stance: None,
+                with: None,
             },
             world_projection::RoutineStop {
                 from_hour: 21,
                 at: home,
                 inside: true,
+                stance: None,
+                with: None,
             },
         ];
     }
