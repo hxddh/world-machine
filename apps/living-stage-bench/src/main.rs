@@ -256,11 +256,12 @@ mod window {
                 options.hour,
                 Some(Duration::from_secs_f32(options.seconds)),
             );
-            let (stats, done, memory, opened) = (
+            let (stats, done, memory, opened, bakes) = (
                 bench.stats.clone(),
                 bench.done.clone(),
                 bench.memory.clone(),
                 bench.opened.clone(),
+                bench.bakes.clone(),
             );
             let window = cx.open_window(
                 WindowOptions {
@@ -304,6 +305,11 @@ mod window {
                     "living-stage window pixel memory: {:.1} MB held at the end, {:.1} MB at most",
                     now as f64 / 1e6,
                     peak.max(most) as f64 / 1e6
+                );
+                println!("living-stage window {}", stats.borrow().bar());
+                println!(
+                    "living-stage window {}",
+                    world_gpui::diorama::stage_view::bake_summary(&bakes.borrow())
                 );
                 cx.update(|cx| cx.quit());
             })

@@ -1774,3 +1774,73 @@ fn print_painted_heights() {
         eprintln!("HEIGHT {p:5.2} {name} {label}");
     }
 }
+
+/// A layout kept and used again (v0.30 S1b: a window lays its World out
+/// every frame) is always the one laid out afresh: through an hour of
+/// people setting off and arriving, for two Worlds side by side, and for
+/// a World changed under the same size and hour.
+#[test]
+fn a_kept_layout_is_the_one_laid_out_afresh() {
+    let mut snapshot = three_years();
+    let places = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Place)
+        .map(|item| item.id)
+        .collect::<Vec<_>>();
+    // Everyone's day between the first place and the last.
+    let (home, work) = (places[0], places[places.len() - 1]);
+    for index in 0..snapshot.canvas.items.len() {
+        if snapshot.canvas.items[index].kind != CanvasItemKind::Actor {
+            continue;
+        }
+        snapshot.canvas.items[index].day = vec![
+            world_projection::RoutineStop {
+                from_hour: 8,
+                at: work,
+                inside: false,
+            },
+            world_projection::RoutineStop {
+                from_hour: 21,
+                at: home,
+                inside: true,
+            },
+        ];
+    }
+    let mut changed = snapshot.clone();
+    let moved = changed
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.kind == CanvasItemKind::Place)
+        .expect("a place");
+    changed.canvas.items[moved].x += 0.05;
+    let walking = stage_at(
+        &snapshot,
+        1100.0,
+        848.0,
+        Clock {
+            hour: 8,
+            into_hour: 0.5,
+        },
+    );
+    assert!(!walking.routes.is_empty(), "someone on their way");
+    for hour in [7_u8, 8, 9, 18, 21, 23] {
+        // Closely through the first minutes, when people arrive, then on.
+        let moments = (0..240)
+            .map(|step| step as f32 * 2.5)
+            .chain((2..12).map(|step| step as f32 * 300.0));
+        for into_hour in moments {
+            for world in [&snapshot, &changed] {
+                let clock = Clock { hour, into_hour };
+                let kept = stage_at(world, 1100.0, 848.0, clock);
+                let (fresh, _) = lay_out(world, 1100.0, 848.0, clock);
+                assert!(
+                    kept == fresh,
+                    "the layout kept at {hour}h {into_hour} s is not the one laid out afresh"
+                );
+            }
+        }
+    }
+}

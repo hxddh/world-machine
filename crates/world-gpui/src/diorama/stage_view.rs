@@ -23,8 +23,10 @@
 //!   once, and stand in depth with the buildings and things: someone
 //!   behind a building is hidden by it, someone in front stands over it.
 //!
-//! The tile painter (`interface::scene`) still paints the strip, covers,
-//! postcards and the golden pictures; the World window no longer uses it.
+//! The strip, covers, postcards and the golden pictures are still painted
+//! a tile at a time, right where they are drawn (`interface::paint`); the
+//! tiles painted off the window's thread, their rough stand-in and what
+//! was painted ahead of the camera went with S1b.
 //!
 //! Presentation only, like the rest of the diorama: it reads a snapshot
 //! and never anything the World records.
@@ -494,6 +496,18 @@ pub struct Slot {
     pub took: Duration,
 }
 
+/// A look baked, as the log has it: which, how long it took, its bytes,
+/// its pictures, and how many of them were taken from a look baked before
+/// (already with the display).
+#[derive(Clone, Copy, Debug)]
+pub struct BakeLog {
+    pub held: Held,
+    pub took: Duration,
+    pub bytes: usize,
+    pub pictures: usize,
+    pub taken: usize,
+}
+
 /// What a bake hands back: the look, the frame it was baked from, and a
 /// cottage's width on its stage.
 type Baked = (Look, Frame, f32);
@@ -504,6 +518,8 @@ struct Baking {
     view: (f32, f32),
     out: Arc<Mutex<Option<Baked>>>,
     started: Instant,
+    /// The look it takes what is the same from.
+    before: Option<Arc<Look>>,
 }
 
 /// A pose baked: what it is, and its picture (none if it draws nothing).
@@ -557,10 +573,12 @@ pub struct Stagehand {
     /// The most pixels it has held at once, in bytes.
     pub peak: usize,
     /// What each look took to bake.
-    pub log: Vec<(Held, Duration, usize)>,
+    pub log: Vec<BakeLog>,
     /// Pictures let go, still to be forgotten by the display, a frame's
     /// share at a time.
     freeing: Vec<Arc<RenderImage>>,
+    /// The bytes of its looks' pictures, until it takes or lets go of one.
+    held_bytes: Option<usize>,
 }
 
 impl Default for Stagehand {
@@ -595,16 +613,32 @@ impl Stagehand {
             peak: 0,
             log: Vec::new(),
             freeing: Vec::new(),
+            held_bytes: None,
         }
     }
 
-    /// The pixels it holds, in bytes: every look, and every pose.
-    pub fn bytes(&self) -> usize {
-        self.slots
-            .iter()
-            .map(|slot| slot.look.bytes())
-            .sum::<usize>()
-            + self.pose_bytes()
+    /// The pixels it holds, in bytes: every look (a picture two share
+    /// counted once), and every pose.
+    pub fn bytes(&mut self) -> usize {
+        let looks = match self.held_bytes {
+            Some(bytes) => bytes,
+            None => {
+                let mut seen = std::collections::HashSet::new();
+                let bytes = self
+                    .slots
+                    .iter()
+                    .flat_map(|slot| slot.images.iter())
+                    .filter(|image| seen.insert(Arc::as_ptr(image)))
+                    .map(|image| {
+                        let size = image.size(0);
+                        (size.width.0.max(0) as usize) * (size.height.0.max(0) as usize) * 4
+                    })
+                    .sum();
+                self.held_bytes = Some(bytes);
+                bytes
+            }
+        };
+        looks + self.pose_bytes()
     }
 
     /// The pixels of its poses, in bytes.
@@ -676,9 +710,28 @@ impl Stagehand {
         (look, frame, building_w): Baked,
         took: Duration,
     ) {
-        let images = look.images();
+        // Pictures taken from a look already with the display need no
+        // handing over: they come first, counted as handed.
+        let with_display = self
+            .slots
+            .iter()
+            .flat_map(|slot| slot.images[..slot.handed].iter())
+            .map(Arc::as_ptr)
+            .collect::<std::collections::HashSet<_>>();
+        let (mut images, fresh): (Vec<_>, Vec<_>) = look
+            .images()
+            .into_iter()
+            .partition(|image| with_display.contains(&Arc::as_ptr(image)));
+        let handed = images.len();
+        images.extend(fresh);
         let band = Band::of(&frame, view.0, view.1);
-        self.log.push((held, took, look.bytes()));
+        self.log.push(BakeLog {
+            held,
+            took,
+            bytes: look.bytes(),
+            pictures: images.len(),
+            taken: handed,
+        });
         self.slots.push(Slot {
             held: Held {
                 ready: false,
@@ -692,15 +745,21 @@ impl Stagehand {
             horizon: frame.horizon,
             building_w,
             frame: Arc::new(frame),
-            handed: 0,
+            handed,
             took,
         });
+        self.held_bytes = None;
         self.peak = self.peak.max(self.bytes());
     }
 
     /// Starts baking the next look wanted, off the thread, or right here
     /// (`now`: a test, a cover).
     fn schedule(&mut self, wants: &[Want], now: bool) {
+        // A batch of poses is short: a look waits for it rather than
+        // baking beside it on cores the window needs.
+        if !now && self.posing.is_some() {
+            return;
+        }
         loop {
             let Some(want) = next_bake(&self.held(), self.baking.is_some(), wants) else {
                 return;
@@ -727,12 +786,15 @@ impl Stagehand {
             let scale = LEVELS[want.level] * if now { 1.0 } else { self.dpr };
             let view = self.view;
             let started = Instant::now();
+            let before = self
+                .donor(&want, span)
+                .map(|at| self.slots[at].look.clone());
             if now {
                 // Right here, only what this frame shows.
                 if !want.shown {
                     return;
                 }
-                let baked = bake_one(&snapshot, view, want.light, scale, cut);
+                let baked = bake_one(&snapshot, view, (want.light, scale), cut, before);
                 self.take(held, view, baked, started.elapsed());
                 // Shown at once: nothing to hand over a frame at a time.
                 if let Some(slot) = self.slots.last_mut() {
@@ -743,10 +805,11 @@ impl Stagehand {
             }
             let out = Arc::new(Mutex::new(None));
             let sink = out.clone();
+            let taking = before.clone();
             let spawned = std::thread::Builder::new()
                 .name("living-stage-bake".into())
                 .spawn(move || {
-                    let baked = bake_one(&snapshot, view, want.light, scale, cut);
+                    let baked = bake_one(&snapshot, view, (want.light, scale), cut, taking);
                     if let Ok(mut out) = sink.lock() {
                         *out = Some(baked);
                     }
@@ -757,25 +820,98 @@ impl Stagehand {
                     view,
                     out,
                     started,
+                    before,
                 });
             }
             return;
         }
     }
 
+    /// The look already baked that has most of the look `want` (over
+    /// `span`): of this World, the most of the stretch wanted; else of the
+    /// World as it was. A bake takes from it whatever is the same.
+    fn donor(&self, want: &Want, span: Option<(f32, f32)>) -> Option<usize> {
+        let share = |slot: &Slot| {
+            let (from, to) = slot.held.span.unwrap_or((0.0, self.width));
+            let (want_from, want_to) = span.unwrap_or((0.0, self.width));
+            (to.min(want_to) - from.max(want_from)).max(0.0)
+        };
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| {
+                slot.held.level == want.level
+                    && slot.held.light == want.light
+                    && slot.held.variant == want.variant
+                    && slot.view == self.view
+                    && share(slot) > 0.0
+            })
+            .max_by(|(_, a), (_, b)| {
+                (a.held.key == want.key)
+                    .cmp(&(b.held.key == want.key))
+                    .then(share(a).total_cmp(&share(b)))
+            })
+            .map(|(at, _)| at)
+    }
+
     /// Lets go of every look no want keeps, returning their pictures for
-    /// the display to forget.
+    /// the display to forget. A look a bake (under way, or next) takes
+    /// from is kept until that bake is done.
     fn evict(&mut self, wants: &[Want]) -> Vec<Arc<RenderImage>> {
-        let keep = keep(&self.held(), wants);
+        let mut keep = keep(&self.held(), wants);
+        let baking = self
+            .baking
+            .as_ref()
+            .and_then(|baking| baking.before.clone());
+        for (at, slot) in self.slots.iter().enumerate() {
+            if baking
+                .as_ref()
+                .is_some_and(|before| Arc::ptr_eq(before, &slot.look))
+            {
+                keep[at] = true;
+            }
+        }
+        let held = self.held();
+        for want in wants {
+            if held.iter().any(|held| held.answers(want)) {
+                continue;
+            }
+            let span = span_for(want, self.width, self.view.0);
+            if let Some(at) = self.donor(want, span) {
+                keep[at] = true;
+            }
+        }
         let mut gone = Vec::new();
         let mut dropped = Vec::new();
         for (slot, kept) in std::mem::take(&mut self.slots).into_iter().zip(keep) {
             if kept {
                 self.slots.push(slot);
             } else {
-                gone.extend(slot.images.iter().take(slot.handed).cloned());
                 dropped.push(slot);
             }
+        }
+        // A picture a look kept shares (taken into it when it was baked)
+        // stays with the display.
+        let shared = if dropped.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            self.slots
+                .iter()
+                .flat_map(|slot| slot.images.iter())
+                .map(Arc::as_ptr)
+                .collect::<std::collections::HashSet<_>>()
+        };
+        for slot in &dropped {
+            gone.extend(
+                slot.images
+                    .iter()
+                    .take(slot.handed)
+                    .filter(|image| !shared.contains(&Arc::as_ptr(image)))
+                    .cloned(),
+            );
+        }
+        if !dropped.is_empty() {
+            self.held_bytes = None;
         }
         // Tens of megabytes of pixels are freed off the window's thread.
         let_go(dropped);
@@ -875,6 +1011,20 @@ impl Stagehand {
     fn pose_asked(&mut self, now: bool) {
         if self.asked.is_empty() || self.posing.is_some() {
             return;
+        }
+        // While a look bakes on a machine of few cores, poses wait for it,
+        // unless someone has no pose at all (they would be drawn live,
+        // which costs the window's thread far more).
+        if !now && self.baking.is_some() && ls::bake_threads() < 3 {
+            let bare = self.asked.iter().any(|(key, _)| {
+                !self
+                    .poses
+                    .iter()
+                    .any(|(have, posed)| have.who == key.who && posed.sprite.is_some())
+            });
+            if !bare {
+                return;
+            }
         }
         let frames = self
             .slots
@@ -1029,12 +1179,21 @@ pub(super) fn let_go<T: Send + 'static>(pixels: Vec<T>) {
 fn bake_one(
     snapshot: &ProjectionSnapshot,
     view: (f32, f32),
-    light: Light,
-    scale: f32,
+    (light, scale): (Light, f32),
     cut: Cut,
+    before: Option<Arc<Look>>,
 ) -> Baked {
     let (frame, stage) = prepare(snapshot, view, light, cut.fold_land);
-    let look = ls::bake_look(&frame, &stage, &[], light, scale, view, cut);
+    let world = bake_key(&frame);
+    let look = ls::bake_look(
+        &frame,
+        &stage,
+        &[],
+        (light, scale),
+        view,
+        cut,
+        (world, before.as_deref()),
+    );
     (look, frame, stage.building_w)
 }
 
@@ -1248,9 +1407,18 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
     let full = (0.0, 0.0, vw, vh);
     let mut items: Vec<Item> = Vec::new();
     let mut moving = 0;
-    let rows = rows_of(frame).unwrap_or_else(|| vec![((**frame).clone(), (0.0, vw))]);
+    // The frame itself unless it folds into rows: a frame is every
+    // resident with their drawing, and cloning it was a tenth of a
+    // frame's work.
+    let rows = match rows_of(frame) {
+        Some(rows) => rows
+            .into_iter()
+            .map(|(part, span)| (Arc::new(part), span))
+            .collect(),
+        None => vec![(frame.clone(), (0.0, vw))],
+    };
     let folded = rows.len() > 1;
-    let back = Arc::new(rows[0].0.clone());
+    let back = rows[0].0.clone();
     // The sky, and its clouds.
     for (view, opacity, _) in &looks {
         for sprite in &view.look.sky {
@@ -1291,7 +1459,6 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
     let count = rows.len();
     let mut everyone_posed = true;
     for (row, (part, span)) in rows.into_iter().enumerate() {
-        let part = Arc::new(part);
         let clip = folded.then_some((span.0, 0.0, span.1 - span.0, vh));
         let cut = |draw: Draw| clipped(draw, clip);
         let flat = |items: &mut Vec<Item>, of: &dyn Fn(&LookView, &Lens) -> Vec<Draw>| {
@@ -1402,10 +1569,12 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
             let mut items = Vec::new();
             // The looks it is drawn from: the frame's own, or the nearest
             // other look that holds it.
-            let sources = if baked.is_some() {
-                looks.clone()
+            let spare: Vec<_>;
+            let sources: &[_] = if baked.is_some() {
+                &looks
             } else {
-                spare_for(building.index).into_iter().collect()
+                spare = spare_for(building.index).into_iter().collect();
+                &spare
             };
             if building.moving() || sources.is_empty() {
                 // Rising into place, springing after a click, or not in
@@ -1434,12 +1603,7 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                         continue;
                     };
                     let shift = (building.x - anchor.x, building.base - anchor.base);
-                    for (_, sprite) in view
-                        .look
-                        .buildings
-                        .iter()
-                        .filter(|(of, _)| *of == building.index)
-                    {
+                    for sprite in view.look.building_sprites(building.index) {
                         if let Some(draw) = lens.draw_moved(sprite, shift, 1.0, (0.0, 0.0)) {
                             items.push(Item {
                                 opacity: *opacity,
@@ -1447,15 +1611,10 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                             });
                         }
                     }
-                    for (group, _, halo) in view
-                        .look
-                        .glow
-                        .iter()
-                        .filter(|(_, of, _)| *of == building.index)
-                    {
+                    for (group, halo) in view.look.halos(building.index) {
                         if let Some(draw) = lens.draw_moved(halo, shift, 1.0, (0.0, 0.0)) {
                             items.push(Item {
-                                opacity: shares[n] * ls::flicker(*group, seconds),
+                                opacity: shares[n] * ls::flicker(group, seconds),
                                 draw: cut(draw),
                             });
                         }
@@ -1501,10 +1660,12 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 screen_y(thing.x, thing.base)
             };
             let mut items = Vec::new();
-            let sources = if first.look.anchors.contains_key(&thing.index) {
-                looks.clone()
+            let spare: Vec<_>;
+            let sources: &[_] = if first.look.anchors.contains_key(&thing.index) {
+                &looks
             } else {
-                spare_for(thing.index).into_iter().collect()
+                spare = spare_for(thing.index).into_iter().collect();
+                &spare
             };
             if draws_live(thing, &first.look, &part)
                 && (thing.grow < 1.0 || sources.is_empty() || worn(thing, &part))
@@ -1527,18 +1688,13 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                     }),
                 });
             } else {
-                for (view, opacity, _) in &sources {
+                for (view, opacity, _) in sources {
                     let lens = lens_of(&view.slot, part.camera, frame);
                     let Some(anchor) = view.look.anchors.get(&thing.index) else {
                         continue;
                     };
                     let shift = (thing.x - anchor.x, thing.base - anchor.base);
-                    for (_, _, sprite) in view
-                        .look
-                        .things
-                        .iter()
-                        .filter(|(of, _, _)| *of == thing.index)
-                    {
+                    for sprite in view.look.thing_sprites(thing.index) {
                         if let Some(draw) = lens.draw_moved(sprite, shift, 1.0, (0.0, 0.0)) {
                             items.push(Item {
                                 opacity: *opacity,
@@ -1791,9 +1947,20 @@ pub fn stage_bytes(window: &Window) -> (usize, usize) {
     let id = window.window_handle().window_id().as_u64();
     HANDS.with(|hands| {
         hands
+            .borrow_mut()
+            .get_mut(&id)
+            .map_or((0, 0), |hand| (hand.bytes(), hand.peak))
+    })
+}
+
+/// The looks the living stage of `window` has baked.
+pub fn bake_log(window: &Window) -> Vec<BakeLog> {
+    let id = window.window_handle().window_id().as_u64();
+    HANDS.with(|hands| {
+        hands
             .borrow()
             .get(&id)
-            .map_or((0, 0), |hand| (hand.bytes(), hand.peak))
+            .map_or(Vec::new(), |hand| hand.log.clone())
     })
 }
 
@@ -1943,6 +2110,8 @@ pub struct StageBench {
     /// (bytes), and how many frames until it first settled.
     pub memory: Rc<std::cell::Cell<(usize, usize)>>,
     pub opened: Rc<std::cell::Cell<Option<usize>>>,
+    /// The looks baked, as the stage logs them.
+    pub bakes: Rc<std::cell::RefCell<Vec<BakeLog>>>,
     frames: usize,
 }
 
@@ -1962,6 +2131,7 @@ impl StageBench {
             done: Rc::default(),
             memory: Rc::default(),
             opened: Rc::default(),
+            bakes: Rc::default(),
             frames: 0,
         }
     }
@@ -1974,6 +2144,20 @@ impl StageBench {
         let x = stage.width / 2.0 + (stage.width / 2.0) * 0.8 * (seconds * 0.05).sin();
         Camera::around(stage, zoom, x, stage.height * 0.6)
     }
+}
+
+/// A line for a log of the looks a stage baked: how many, how long they
+/// took in all, and how many of their pictures were taken from a look
+/// baked before.
+pub fn bake_summary(log: &[BakeLog]) -> String {
+    let pictures = log.iter().map(|bake| bake.pictures).sum::<usize>();
+    let taken = log.iter().map(|bake| bake.taken).sum::<usize>();
+    format!(
+        "looks baked {} ({:.0} ms in all, {:.0} MB) | pictures {pictures}, {taken} taken from a look baked before",
+        log.len(),
+        log.iter().map(|bake| bake.took.as_secs_f64() * 1000.0).sum::<f64>(),
+        log.iter().map(|bake| bake.bytes).sum::<usize>() as f64 / 1e6,
+    )
 }
 
 impl gpui::Render for StageBench {
@@ -2019,6 +2203,7 @@ impl gpui::Render for StageBench {
         let scene = living_scene(frame, &self.snapshot, window);
         let (bytes, peak) = stage_bytes(window);
         self.memory.set((bytes, peak));
+        *self.bakes.borrow_mut() = bake_log(window);
         self.frames += 1;
         let settled = super::settled(window) && super::painted(window);
         if self.opened.get().is_none() {

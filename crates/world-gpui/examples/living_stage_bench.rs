@@ -18,7 +18,9 @@
 //! Options: `--world <snapshot.json>` (repeatable; default the fixtures
 //! for day 1 and day 1,082 under `tests/fixtures/`), `--walkers N` (in a
 //! window's width, default 300), `--seconds S`, `--levels 1,2,3` (device
-//! pixels a stage pixel), `--size 1280x800`.
+//! pixels a stage pixel), `--size 1280x800`, and for `window`, `--hour H`
+//! (default 12; `--hour day` runs through a day every forty seconds, as
+//! CI's windowed run does).
 //!
 //! The windowed benchmark, on a real GPU, is `apps/living-stage-bench`.
 
@@ -43,6 +45,9 @@ struct Options {
     levels: Vec<f32>,
     size: (f32, f32),
     dpr: f32,
+    /// The hour held (none: through a day every forty seconds, as CI's
+    /// windowed run has it).
+    hour: Option<f32>,
 }
 
 fn options() -> Options {
@@ -56,6 +61,7 @@ fn options() -> Options {
         levels: vec![1.0, 2.0, 3.0],
         size: (1280.0, 800.0),
         dpr: 1.0,
+        hour: Some(12.0),
     };
     let mut positional = 0;
     while let Some(arg) = args.next() {
@@ -65,6 +71,7 @@ fn options() -> Options {
             "--walkers" => options.walkers = value().parse().unwrap_or(300),
             "--seconds" => options.seconds = value().parse().unwrap_or(10.0),
             "--dpr" => options.dpr = value().parse().unwrap_or(1.0),
+            "--hour" => options.hour = value().parse().ok(),
             "--levels" => {
                 options.levels = value()
                     .split(',')
@@ -302,13 +309,14 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
         let view = {
             let (snapshot, bench) = (snapshot.clone(), bench.clone());
             let until = Duration::from_secs_f32(options.seconds);
+            let hour = options.hour;
             cx.open_window(
                 size(px(options.size.0), px(options.size.1)),
                 move |_, cx: &mut App| {
                     let view = StageBench::new(
                         snapshot,
                         stage::Time::Real(Instant::now()),
-                        Some(12.0),
+                        hour,
                         Some(until),
                     );
                     *bench.borrow_mut() = Some((
@@ -316,12 +324,13 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
                         view.done.clone(),
                         view.memory.clone(),
                         view.opened.clone(),
+                        view.bakes.clone(),
                     ));
                     cx.new(|_| view)
                 },
             )?
         };
-        let (stats, done, memory, opened) = bench.borrow().clone().ok_or("no bench")?;
+        let (stats, done, memory, opened, bakes) = bench.borrow().clone().ok_or("no bench")?;
         let started = Instant::now();
         let mut opened_at = None;
         let (mut at_rest, mut zoomed, mut most) = (0_usize, 0_usize, 0_usize);
@@ -365,6 +374,11 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
             at_rest as f64 / 1e6,
             zoomed as f64 / 1e6,
             most as f64 / 1e6,
+        );
+        println!("  {}", stats.bar());
+        println!(
+            "  {}",
+            world_gpui::diorama::stage_view::bake_summary(&bakes.borrow())
         );
     }
     set_display_scale(None);
