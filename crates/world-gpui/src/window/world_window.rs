@@ -753,12 +753,12 @@ pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<Vec<usize>> {
 pub const RESTING_WORD_LIMIT: usize = 40;
 
 /// How many words a World window shows at rest, the bar above it included:
-/// the World's name, when it next moves ("Keeps going without you · next
+/// the World's name, when its next day comes ("Waits for you · a new
 /// sol in 6 h"), and everything `resting_text` lists.
 pub fn words_at_rest(snapshot: &ProjectionSnapshot) -> usize {
     let bar = [
         snapshot.title.clone(),
-        "Keeps going without you · next day in 6 h".to_string(),
+        "Waits for you · a new day in 6 h".to_string(),
     ];
     word_count(&bar) + word_count(&resting_text(snapshot))
 }
@@ -2090,7 +2090,7 @@ impl ProjectionView {
     /// their words; on a chapter's ending it turns the page; on the card
     /// in front it chooses, and lets a day pass only from the day's own
     /// card with the scene holding the keyboard (see `arrival`).
-    fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use super::arrival::{enter_does, passes_day, EnterContext, EnterDoes};
         if self.controller.is_some() {
             if let Some(number) = chapter_just_ended(&self.snapshot, self.looking.chapter_read)
@@ -2106,7 +2106,10 @@ impl ProjectionView {
             asking: self.looking.asking.is_some(),
             covered: self.looking.drawer
                 || self.looking.hands.is_some()
-                || self.looking.marking.card.is_some(),
+                || self.looking.marking.card.is_some()
+                // The morning, the Goodnight card and the World asleep hide
+                // the cards under them (v0.30 S4).
+                || self.sitting_covers(),
             card_shown: card.is_some(),
             card_passes_day: card.is_some_and(passes_day),
             scene_focused: self
@@ -4275,7 +4278,7 @@ impl ProjectionView {
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(tokens::ACCENT_TEXT))
-                    .child(ui::t("Today's question")),
+                    .child(ui::t("Today's choice")),
             );
         }
         // A question's card says what is asked; a lone choice says itself.

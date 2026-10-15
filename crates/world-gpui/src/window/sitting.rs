@@ -39,6 +39,15 @@ pub type SpendDay = std::rc::Rc<dyn Fn()>;
 /// The hour the sky is held at while the World sleeps: everyone is home.
 pub(crate) const ASLEEP_HOUR: u32 = 23;
 
+/// How much the sleeping World is dimmed, over the night it is held at.
+const ASLEEP_VEIL: f32 = 0.33;
+
+/// The ink of the asleep note's line: the text's own, at least 4.5:1 on
+/// the night's paper.
+fn asleep_ink() -> gpui::Rgba {
+    ui::color(tokens::TEXT)
+}
+
 /// The sitting as the window keeps it.
 #[derive(Default)]
 pub(crate) struct Sitting {
@@ -52,7 +61,13 @@ pub(crate) struct Sitting {
     pub(crate) asleep: Option<Asleep>,
     /// The morning read, by its moment: put away with "Begin the day".
     pub(crate) morning_read: Option<SelectionId>,
+    /// What the host does once the morning is read: writes it down, so it
+    /// shows once however often the World is opened that day.
+    pub(crate) on_read: Option<ReadMorning>,
 }
+
+/// What a host does once a morning (by its moment's stable key) is read.
+pub type ReadMorning = std::rc::Rc<dyn Fn(&str)>;
 
 impl Sitting {
     /// Whether the sitting has passed every day it may.
@@ -65,16 +80,51 @@ impl Sitting {
 /// window closed, or the sleep ended).
 pub(crate) struct Asleep;
 
+#[cfg(not(test))]
+static SLEEPERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+thread_local! {
+    /// In tests, counted on the sleeping test's thread alone, as the held
+    /// hour is.
+    static SLEEPERS: std::sync::atomic::AtomicUsize = const { std::sync::atomic::AtomicUsize::new(0) };
+}
+
+/// Changes how many views sleep, returning how many did before.
+fn sleepers(by: isize) -> usize {
+    use std::sync::atomic::Ordering::Relaxed;
+    let change = |count: &std::sync::atomic::AtomicUsize| {
+        if by >= 0 {
+            count.fetch_add(by as usize, Relaxed)
+        } else {
+            count
+                .fetch_update(Relaxed, Relaxed, |now| Some(now.saturating_sub(1)))
+                .unwrap_or(0)
+        }
+    };
+    #[cfg(test)]
+    return SLEEPERS.with(change);
+    #[cfg(not(test))]
+    change(&SLEEPERS)
+}
+
 impl Asleep {
+    /// The sky held at night for as long as any view sleeps: a view
+    /// rebuilt while asleep (its page asked again) holds it before the
+    /// one it replaces lets go, so the night never flickers to the clock.
     fn hold() -> Self {
-        crate::scene::hold_hour(Some(ASLEEP_HOUR));
+        if sleepers(1) == 0 {
+            crate::scene::hold_hour(Some(ASLEEP_HOUR));
+        }
         Asleep
     }
 }
 
 impl Drop for Asleep {
     fn drop(&mut self) {
-        crate::scene::hold_hour(None);
+        if sleepers(-1) == 1 {
+            crate::scene::hold_hour(None);
+        }
     }
 }
 
@@ -102,6 +152,19 @@ impl ProjectionView {
         if allowance.left == 0 {
             self.fall_asleep();
         }
+        self
+    }
+
+    /// The morning already read this sitting, by its moment's stable key,
+    /// and what to do once one is read (`on_read`): so a World opened again
+    /// the same day does not show its morning twice.
+    pub fn with_morning_read(
+        mut self,
+        read: Option<&str>,
+        on_read: impl Fn(&str) + 'static,
+    ) -> Self {
+        self.looking.sitting.morning_read = read.and_then(SelectionId::from_stable_key);
+        self.looking.sitting.on_read = Some(std::rc::Rc::new(on_read));
         self
     }
 
@@ -167,9 +230,29 @@ impl ProjectionView {
         if let Some(chapter) = self.snapshot.chapters.last() {
             self.looking.chapter_read = Some(chapter.number);
         }
-        if let Some(morning) = &self.snapshot.morning {
-            self.looking.sitting.morning_read = Some(morning.moment);
+        self.mark_morning_read();
+    }
+
+    /// This day's morning is read: kept here, and by the host.
+    fn mark_morning_read(&mut self) {
+        let Some(moment) = self.snapshot.morning.as_ref().map(|morning| morning.moment) else {
+            return;
+        };
+        if self.looking.sitting.morning_read == Some(moment) {
+            return;
         }
+        self.looking.sitting.morning_read = Some(moment);
+        if let Some(on_read) = &self.looking.sitting.on_read {
+            on_read(&moment.stable_key());
+        }
+    }
+
+    /// Whether the sitting covers the place: the morning, the Goodnight
+    /// card or the World asleep. Nothing under it is chosen.
+    pub(crate) fn sitting_covers(&self) -> bool {
+        self.looking.sitting.goodnight
+            || self.looking.sitting.asleep.is_some()
+            || self.morning_shown().is_some()
     }
 
     /// The World sleeps until the next sitting: dimmed, the sky held at
@@ -200,9 +283,7 @@ impl ProjectionView {
     /// "Begin the day": the morning is put away, and the day's main
     /// question is the card in front.
     pub(crate) fn begin_the_day(&mut self) {
-        if let Some(morning) = &self.snapshot.morning {
-            self.looking.sitting.morning_read = Some(morning.moment);
-        }
+        self.mark_morning_read();
         self.looking.card = 0;
         self.looking.answer = self.first_available_answer();
     }
@@ -240,10 +321,10 @@ impl ProjectionView {
             .child(ui::caption("That's the day"))
             .child(ui::heading("Goodnight"))
             .child(ui::body(
-                "Everyone is going home. Come back tomorrow for the morning: a letter, the day's question, and something new for the book.",
+                "Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.",
             ))
             .child(ui::caption(
-                "There's no hurry. A day you miss costs nothing.",
+                "No hurry. The town will wait for you.",
             ))
             .child(
                 div().pt_2().flex().justify_end().child(
@@ -266,24 +347,31 @@ impl ProjectionView {
             .px_4()
             .py_3()
             .rounded_2xl()
-            .bg(scene_paper().opacity(0.92))
+            // Opaque, so its words keep their contrast over the night.
+            .bg(scene_paper())
             .shadow_sm()
             .flex()
             .flex_col()
             .items_center()
             .gap_1()
             .child(ui::row_title("Asleep until tomorrow"))
-            .child(ui::caption(
-                "Everyone is home. The morning comes with your next visit.",
-            ));
-        // The place dimmed under the night it is held at, and the note
-        // hanging from the top, clear of everyone's doors.
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(asleep_ink())
+                    .child(crate::wrap::text(ui::t(
+                        "Everyone's home. Come back tomorrow for the morning.",
+                    ))),
+            );
+        // The place dimmed under the night it is held at (lightly, so the
+        // night's own blues still show), and the note hanging from the
+        // top, clear of everyone's doors.
         div()
             .absolute()
             .top_0()
             .left_0()
             .size_full()
-            .bg(gpui::hsla(0.63, 0.35, 0.06, 0.38))
+            .bg(gpui::hsla(0.63, 0.35, 0.06, ASLEEP_VEIL))
             .child(
                 div()
                     .absolute()
@@ -324,7 +412,7 @@ impl ProjectionView {
         if let Some(question) = &morning.question {
             parts = parts.child(
                 part("morning-question")
-                    .child(ui::section_label("Today's question"))
+                    .child(ui::section_label("Today's choice"))
                     .child(
                         div()
                             .text_sm()
@@ -337,7 +425,7 @@ impl ProjectionView {
         if let Some(tended) = &morning.tended {
             parts = parts.child(
                 part("morning-tended")
-                    .child(ui::section_label("Tended overnight"))
+                    .child(ui::section_label("Looked after"))
                     .child(ui::body(tended.line.clone())),
             );
         }
@@ -507,6 +595,8 @@ mod tests {
     struct Days {
         snapshot: ProjectionSnapshot,
         passed: Rc<Cell<u32>>,
+        /// Every other command the World was asked to carry out.
+        chosen: Rc<Cell<u32>>,
     }
 
     impl crate::ProjectionController for Days {
@@ -520,6 +610,8 @@ mod tests {
                 self.snapshot.world_time += 1;
                 // A new day has no morning until a sitting begins on it.
                 self.snapshot.morning = None;
+            } else if matches!(intent, ProjectionIntent::InvokeCommand(_)) {
+                self.chosen.set(self.chosen.get() + 1);
             }
             Ok(self.snapshot.clone())
         }
@@ -530,6 +622,7 @@ mod tests {
         cx: VisualTestContext,
         passed: Rc<Cell<u32>>,
         spent: Rc<Cell<u32>>,
+        chosen: Rc<Cell<u32>>,
     }
 
     /// A World window on `snapshot`, with `allowance` if any: what the
@@ -539,14 +632,30 @@ mod tests {
         snapshot: ProjectionSnapshot,
         allowance: Option<Allowance>,
     ) -> Opened {
+        open_read(cx, snapshot, allowance, None, |_| {})
+    }
+
+    /// As [`open`], with the morning already read (`read`, a moment's
+    /// stable key) and what the host does once one is.
+    fn open_read(
+        cx: &mut TestAppContext,
+        snapshot: ProjectionSnapshot,
+        allowance: Option<Allowance>,
+        read: Option<String>,
+        on_read: impl Fn(&str) + 'static,
+    ) -> Opened {
         let passed = Rc::new(Cell::new(0));
         let spent = Rc::new(Cell::new(0));
-        let (world_passed, host_spent) = (passed.clone(), spent.clone());
+        let chosen = Rc::new(Cell::new(0));
+        let (world_passed, host_spent, world_chose) =
+            (passed.clone(), spent.clone(), chosen.clone());
         let window = cx.add_window(move |_, _| {
             let view = ProjectionView::controlled(Days {
                 snapshot,
                 passed: world_passed,
-            });
+                chosen: world_chose,
+            })
+            .with_morning_read(read.as_deref(), on_read);
             let mut view = match allowance {
                 Some(allowance) => view.with_allowance(allowance, move || {
                     host_spent.set(host_spent.get() + 1);
@@ -565,7 +674,13 @@ mod tests {
             cx,
             passed,
             spent,
+            chosen,
         }
+    }
+
+    fn press_enter(view: &gpui::Entity<ProjectionView>, cx: &mut VisualTestContext) {
+        cx.update(|window, app| view.update(app, |view, cx| view.enter(window, cx)));
+        cx.run_until_parked();
     }
 
     fn pass_day(view: &gpui::Entity<ProjectionView>, cx: &mut VisualTestContext) {
@@ -581,6 +696,7 @@ mod tests {
             mut cx,
             passed,
             spent,
+            ..
         } = open(cx, town(), Some(Allowance { left: 1, of: 1 }));
         let cx = &mut cx;
         assert!(cx.debug_bounds("bottom-card").is_some(), "the day's card");
@@ -624,6 +740,7 @@ mod tests {
             mut cx,
             passed,
             spent,
+            ..
         } = open(cx, town(), Some(Allowance { left: 3, of: 3 }));
         let cx = &mut cx;
         for day in 1..=3 {
@@ -669,6 +786,7 @@ mod tests {
             mut cx,
             passed,
             spent,
+            ..
         } = open(cx, town(), None);
         let cx = &mut cx;
         for _ in 0..5 {
@@ -719,5 +837,114 @@ mod tests {
             assert!(is_days_question(&view.snapshot, card));
         });
         crate::scene::set_clock(None);
+    }
+
+    #[gpui::test]
+    fn enter_chooses_nothing_under_the_morning_the_goodnight_or_the_sleep(cx: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let Opened {
+            view,
+            mut cx,
+            passed,
+            chosen,
+            ..
+        } = open(cx, morning_town(), Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        // Under the morning: the day's question is in front, and hidden.
+        press_enter(&view, cx);
+        assert_eq!(chosen.get(), 0, "nothing chosen under the morning");
+        view.update(cx, |view, cx| {
+            view.begin_the_day();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        // Shown, Enter answers it (the scene's own way of choosing).
+        press_enter(&view, cx);
+        assert_eq!(chosen.get(), 1, "the card in front, once shown");
+        // The day passes; under the Goodnight card and asleep, nothing.
+        pass_day(&view, cx);
+        assert_eq!(passed.get(), 1);
+        view.read_with(cx, |view, _| assert!(view.goodnight_shown()));
+        press_enter(&view, cx);
+        assert_eq!(chosen.get(), 1, "nothing chosen under the Goodnight card");
+        view.update(cx, |view, cx| {
+            view.fall_asleep();
+            cx.notify();
+        });
+        cx.run_until_parked();
+        press_enter(&view, cx);
+        assert_eq!(chosen.get(), 1, "nothing chosen asleep");
+        assert_eq!(passed.get(), 1);
+        view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        crate::scene::set_clock(None);
+    }
+
+    #[gpui::test]
+    fn a_morning_read_is_written_down_and_not_shown_again(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let moment = morning_town().morning.unwrap().moment.stable_key();
+        let read = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let kept = read.clone();
+        let Opened { view, mut cx, .. } = open_read(
+            app,
+            morning_town(),
+            Some(Allowance { left: 1, of: 1 }),
+            None,
+            move |key| kept.borrow_mut().push(key.to_string()),
+        );
+        let cx = &mut cx;
+        assert!(cx.debug_bounds("morning").is_some());
+        let begin = cx.debug_bounds("morning-begin").expect("Begin the day");
+        cx.simulate_click(begin.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(*read.borrow(), vec![moment.clone()], "written down once");
+        drop(view);
+        // Opened again that day, the morning read before is not shown.
+        let Opened { mut cx, .. } = open_read(
+            app,
+            morning_town(),
+            Some(Allowance { left: 1, of: 1 }),
+            Some(moment),
+            |_| {},
+        );
+        assert!(cx.debug_bounds("morning").is_none());
+        assert!(cx.debug_bounds("bottom-card").is_some());
+        crate::scene::set_clock(None);
+    }
+
+    #[test]
+    fn a_view_rebuilt_asleep_keeps_the_night_until_the_last_lets_go() {
+        let old = Asleep::hold();
+        assert_eq!(crate::scene::pinned_hour(), Some(ASLEEP_HOUR));
+        // The page asked again: the new view sleeps before the old goes.
+        let new = Asleep::hold();
+        drop(old);
+        assert_eq!(
+            crate::scene::pinned_hour(),
+            Some(ASLEEP_HOUR),
+            "still night"
+        );
+        drop(new);
+        assert_eq!(crate::scene::pinned_hour(), None);
+    }
+
+    #[test]
+    fn the_asleep_note_reads_at_four_and_a_half_to_one_on_the_night_paper() {
+        fn luminance(colour: gpui::Rgba) -> f32 {
+            let channel = |c: f32| {
+                if c <= 0.039_28 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b)
+        }
+        let ink = asleep_ink();
+        let night = crate::scene::daylight_at(ASLEEP_HOUR);
+        let paper = super::super::world_window::paper_at(night, false);
+        let (a, b) = (luminance(ink), luminance(paper));
+        let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+        assert!(ratio >= 4.5, "{ratio}");
     }
 }

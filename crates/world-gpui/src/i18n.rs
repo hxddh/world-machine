@@ -558,22 +558,40 @@ pub fn time_passed(periods: u64, unit: &str) -> String {
     format!("{} {verb} passed", count_of(periods, unit))
 }
 
-/// "Keeps going without you · next sol in 5 h": what the app is about, in
-/// one line, with the one number that makes it true. In Chinese and
+/// "A new day is waiting": a World with a new sitting waiting for the
+/// player on Home (v0.30 S4). It is always one, however long they were
+/// away.
+pub fn new_day_waiting(unit: &str) -> String {
+    let unit = unit.to_lowercase();
+    match zh_unit(&unit).filter(|_| chinese() || japanese()) {
+        Some(zh) if japanese() => format!("{}が待っています", zh.next),
+        Some(zh) => format!("{}在等你", zh.next),
+        None => format!("A new {unit} is waiting"),
+    }
+}
+
+/// "Waits for you · a new sol in 5 h": what the app is about, in one line,
+/// with the one number that makes it true (v0.30 S4: a World moves a day a
+/// sitting, and a new sitting comes with the player's next day). `asleep`
+/// says so first, while the World sleeps or its sitting is spent. With no
+/// countdown, the new day comes with tomorrow's visit. In Chinese and
 /// Japanese, whole sentences in their own order.
-pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
+pub fn keeps_going(remaining_seconds: u64, unit: &str, asleep: bool) -> String {
     let unit = unit.to_lowercase();
     let zh = zh_unit(&unit).filter(|_| chinese() || japanese());
+    let state = match (asleep, japanese(), chinese()) {
+        (true, true, _) => "おやすみ中",
+        (false, true, _) => "あなたを待っています",
+        (true, _, true) => "已经睡了",
+        (false, _, true) => "在等你",
+        (true, ..) => "Asleep",
+        (false, ..) => "Waits for you",
+    };
     if remaining_seconds == 0 {
         return match zh {
-            Some(zh) if japanese() => {
-                format!(
-                    "留守のあいだも暮らしは続きます · 次に来たときには{}",
-                    zh.next
-                )
-            }
-            Some(zh) => format!("你不在时，这里照常继续 · {}在等你下次到访", zh.next),
-            None => format!("Keeps going without you · a new {unit} waits for your next visit"),
+            Some(zh) if japanese() => format!("{state} · 明日来たときに{}", zh.next),
+            Some(zh) => format!("{state} · 明天来时便是{}", zh.next),
+            None => format!("{state} · a new {unit} comes with tomorrow's visit"),
         };
     }
     let (count, english, chinese_unit, japanese_unit) = if remaining_seconds >= 3600 {
@@ -582,15 +600,11 @@ pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
         (remaining_seconds.div_ceil(60).max(1), "min", "分钟", "分")
     };
     match zh {
-        Some(zh) if japanese() => format!(
-            "留守のあいだも暮らしは続きます · あと{count}{japanese_unit}で{}",
-            zh.next
-        ),
-        Some(zh) => format!(
-            "你不在时，这里照常继续 · {count} {chinese_unit}后便是{}",
-            zh.next
-        ),
-        None => format!("Keeps going without you · next {unit} in {count} {english}"),
+        Some(zh) if japanese() => {
+            format!("{state} · あと{count}{japanese_unit}で{}", zh.next)
+        }
+        Some(zh) => format!("{state} · {count} {chinese_unit}后便是{}", zh.next),
+        None => format!("{state} · a new {unit} in {count} {english}"),
     }
 }
 
@@ -672,30 +686,53 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 50), "Sol 5");
         assert_eq!(time_passed(3, "night"), "3 nights have passed");
         assert_eq!(
-            keeps_going(5 * 3600 + 10, "sol"),
-            "Keeps going without you · next sol in 6 h"
+            keeps_going(5 * 3600 + 10, "sol", false),
+            "Waits for you · a new sol in 6 h"
         );
+        assert_eq!(
+            keeps_going(4 * 3600, "day", true),
+            "Asleep · a new day in 4 h"
+        );
+        assert_eq!(
+            keeps_going(0, "night", false),
+            "Waits for you · a new night comes with tomorrow's visit"
+        );
+        assert_eq!(new_day_waiting("Day"), "A new day is waiting");
+        assert_eq!(new_day_waiting("sol"), "A new sol is waiting");
         set_thread_language(Some(Language::SimplifiedChinese));
         assert_eq!(moment_label(&calendar("Day"), 10820), "第1082天");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "第156个火星日");
         assert_eq!(moment_label(&calendar("Night"), 1200), "第120夜");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
         assert_eq!(time_passed(5, "day"), "已过去 5 天");
-        let line = keeps_going(6 * 3600, "day");
-        assert_eq!(line, "你不在时，这里照常继续 · 6 小时后便是新的一天");
+        let line = keeps_going(6 * 3600, "day", false);
+        assert_eq!(line, "在等你 · 6 小时后便是新的一天");
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
+        assert_eq!(
+            keeps_going(6 * 3600, "day", true),
+            "已经睡了 · 6 小时后便是新的一天"
+        );
+        assert_eq!(
+            keeps_going(0, "day", false),
+            "在等你 · 明天来时便是新的一天"
+        );
+        assert_eq!(new_day_waiting("day"), "新的一天在等你");
         assert_eq!(here_since("Day", 703), "自第703天起在这里");
         set_thread_language(Some(Language::Japanese));
         assert_eq!(moment_label(&calendar("Day"), 10820), "1082日目");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
         assert_eq!(time_passed(5, "day"), "5日が過ぎました");
-        let line = keeps_going(6 * 3600, "day");
-        assert_eq!(
-            line,
-            "留守のあいだも暮らしは続きます · あと6時間で新しい一日"
-        );
+        let line = keeps_going(6 * 3600, "day", false);
+        assert_eq!(line, "あなたを待っています · あと6時間で新しい一日");
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
+        assert_eq!(
+            keeps_going(6 * 3600, "day", true),
+            "おやすみ中 · あと6時間で新しい一日"
+        );
+        assert!(!new_day_waiting("day")
+            .chars()
+            .any(|c| c.is_ascii_alphabetic()));
         assert_eq!(year_label(2), "2年目");
         assert_eq!(season_in_year("Spring", 2), "2年目 · 春");
         set_thread_language(None);
