@@ -295,7 +295,7 @@ impl Render for AboutView {
                 div()
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("Small worlds that keep living while you are away."),
+                    .child("Small worlds that grow a day at a time."),
             )
             .child(div().text_sm().child(build_info::display_label()))
             .child(

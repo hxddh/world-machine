@@ -16,8 +16,12 @@ pub(crate) fn unix_now() -> Option<u64> {
 /// "Waits for you · a new sol in 5 h", or "Asleep · …" while the World
 /// sleeps: what the app is about, in one line, with the one number that
 /// makes it true.
-pub(crate) fn keeps_going_line(remaining_seconds: u64, unit: &str, asleep: bool) -> String {
-    world_gpui::i18n::keeps_going(remaining_seconds, unit, asleep)
+pub(crate) fn keeps_going_line(
+    remaining_seconds: u64,
+    unit: &str,
+    rest: world_gpui::i18n::Rest,
+) -> String {
+    world_gpui::i18n::keeps_going(remaining_seconds, unit, rest)
 }
 
 /// "A new day is waiting": a World on Home whose next opening begins a new

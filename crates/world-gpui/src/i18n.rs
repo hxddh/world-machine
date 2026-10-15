@@ -558,6 +558,18 @@ pub fn time_passed(periods: u64, unit: &str) -> String {
     format!("{} {verb} passed", count_of(periods, unit))
 }
 
+/// What a World is doing, as its window's title bar says it (v0.30 S4).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rest {
+    /// Awake, waiting for the player.
+    Waits,
+    /// Its sitting's last day passed: the Goodnight card is up, and
+    /// everyone is heading home.
+    HeadingHome,
+    /// Put to bed with "Goodnight", or opened again asleep.
+    Asleep,
+}
+
 /// "A new day is waiting": a World with a new sitting waiting for the
 /// player on Home (v0.30 S4). It is always one, however long they were
 /// away.
@@ -572,20 +584,24 @@ pub fn new_day_waiting(unit: &str) -> String {
 
 /// "Waits for you · a new sol in 5 h": what the app is about, in one line,
 /// with the one number that makes it true (v0.30 S4: a World moves a day a
-/// sitting, and a new sitting comes with the player's next day). `asleep`
-/// says so first, while the World sleeps or its sitting is spent. With no
+/// sitting, and a new sitting comes with the player's next day). `rest`
+/// says first what the World is doing: waiting, heading home under the
+/// Goodnight card, or asleep once it is said. With no
 /// countdown, the new day comes with tomorrow's visit. In Chinese and
 /// Japanese, whole sentences in their own order.
-pub fn keeps_going(remaining_seconds: u64, unit: &str, asleep: bool) -> String {
+pub fn keeps_going(remaining_seconds: u64, unit: &str, rest: Rest) -> String {
     let unit = unit.to_lowercase();
     let zh = zh_unit(&unit).filter(|_| chinese() || japanese());
-    let state = match (asleep, japanese(), chinese()) {
-        (true, true, _) => "おやすみ中",
-        (false, true, _) => "あなたを待っています",
-        (true, _, true) => "已经睡了",
-        (false, _, true) => "在等你",
-        (true, ..) => "Asleep",
-        (false, ..) => "Waits for you",
+    let state = match (rest, japanese(), chinese()) {
+        (Rest::Asleep, true, _) => "おやすみ中",
+        (Rest::HeadingHome, true, _) => "家路の途中",
+        (Rest::Waits, true, _) => "あなたを待っています",
+        (Rest::Asleep, _, true) => "已经睡了",
+        (Rest::HeadingHome, _, true) => "大家正往家走",
+        (Rest::Waits, _, true) => "在等你",
+        (Rest::Asleep, ..) => "Asleep",
+        (Rest::HeadingHome, ..) => "Heading home",
+        (Rest::Waits, ..) => "Waits for you",
     };
     if remaining_seconds == 0 {
         return match zh {
@@ -686,15 +702,19 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 50), "Sol 5");
         assert_eq!(time_passed(3, "night"), "3 nights have passed");
         assert_eq!(
-            keeps_going(5 * 3600 + 10, "sol", false),
+            keeps_going(5 * 3600 + 10, "sol", Rest::Waits),
             "Waits for you · a new sol in 6 h"
         );
         assert_eq!(
-            keeps_going(4 * 3600, "day", true),
+            keeps_going(4 * 3600, "day", Rest::Asleep),
             "Asleep · a new day in 4 h"
         );
         assert_eq!(
-            keeps_going(0, "night", false),
+            keeps_going(3 * 3600, "day", Rest::HeadingHome),
+            "Heading home · a new day in 3 h"
+        );
+        assert_eq!(
+            keeps_going(0, "night", Rest::Waits),
             "Waits for you · a new night comes with tomorrow's visit"
         );
         assert_eq!(new_day_waiting("Day"), "A new day is waiting");
@@ -705,15 +725,19 @@ mod tests {
         assert_eq!(moment_label(&calendar("Night"), 1200), "第120夜");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
         assert_eq!(time_passed(5, "day"), "已过去 5 天");
-        let line = keeps_going(6 * 3600, "day", false);
+        let line = keeps_going(6 * 3600, "day", Rest::Waits);
         assert_eq!(line, "在等你 · 6 小时后便是新的一天");
+        assert_eq!(
+            keeps_going(6 * 3600, "day", Rest::HeadingHome),
+            "大家正往家走 · 6 小时后便是新的一天"
+        );
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
         assert_eq!(
-            keeps_going(6 * 3600, "day", true),
+            keeps_going(6 * 3600, "day", Rest::Asleep),
             "已经睡了 · 6 小时后便是新的一天"
         );
         assert_eq!(
-            keeps_going(0, "day", false),
+            keeps_going(0, "day", Rest::Waits),
             "在等你 · 明天来时便是新的一天"
         );
         assert_eq!(new_day_waiting("day"), "新的一天在等你");
@@ -723,11 +747,14 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
         assert_eq!(time_passed(5, "day"), "5日が過ぎました");
-        let line = keeps_going(6 * 3600, "day", false);
+        let line = keeps_going(6 * 3600, "day", Rest::Waits);
         assert_eq!(line, "あなたを待っています · あと6時間で新しい一日");
+        assert!(!keeps_going(6 * 3600, "day", Rest::HeadingHome)
+            .chars()
+            .any(|c| c.is_ascii_alphabetic()));
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
         assert_eq!(
-            keeps_going(6 * 3600, "day", true),
+            keeps_going(6 * 3600, "day", Rest::Asleep),
             "おやすみ中 · あと6時間で新しい一日"
         );
         assert!(!new_day_waiting("day")

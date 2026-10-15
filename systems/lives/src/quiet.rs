@@ -871,7 +871,7 @@ pub(crate) fn letter_notes(
 /// today. Any other line is as it is.
 fn in_the_morning(line: &str) -> &str {
     match line {
-        "Hello from me." => "Morning! A bit of news.",
+        "Hello from me." => "Something to tell you.",
         "Come by soon." => "Come and find me today.",
         line => line,
     }
@@ -1014,7 +1014,7 @@ mod rhythm {
 
     #[test]
     fn a_morning_letter_greets_the_morning_and_asks_you_round_today() {
-        assert_eq!(in_the_morning("Hello from me."), "Morning! A bit of news.");
+        assert_eq!(in_the_morning("Hello from me."), "Something to tell you.");
         assert_eq!(in_the_morning("Come by soon."), "Come and find me today.");
         assert_eq!(in_the_morning("Yours, Ann."), "Yours, Ann.");
         // Both are among the stock lines they stand in for.

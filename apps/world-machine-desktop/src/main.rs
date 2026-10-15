@@ -1004,20 +1004,14 @@ impl Render for WorldDocumentView {
         };
         // Nor while the demo's farewell shows: there is no next day there.
         let farewell = self.projection.read(cx).farewell_shown();
-        // Asleep, or its sitting's days spent: it says so (v0.30 S4).
-        let asleep = {
-            let view = self.projection.read(cx);
-            view.asleep()
-                || view.goodnight_shown()
-                || view
-                    .allowance()
-                    .is_some_and(|allowance| allowance.left == 0)
-        };
+        // Heading home under the Goodnight card, asleep once it is said
+        // (v0.30 S4).
+        let rest = self.projection.read(cx).rest();
         let keeps_going = self
             .next_move_at
             .filter(|_| moves_alone && !farewell)
             .zip(unix_now())
-            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit, asleep));
+            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit, rest));
         // The World is called by its name, and only by its name; which file
         // it lives in is for Export and Show in Finder to say.
         let identity = div()
@@ -2931,7 +2925,7 @@ impl WorldMachineHome {
                         div()
                             .text_xs()
                             .text_color(ui::color(tokens::ACCENT_TEXT))
-                            .child("START HERE · A WORLD THAT KEEPS LIVING"),
+                            .child("START HERE · A WORLD THAT GROWS A DAY AT A TIME"),
                     )
                     .child(div().text_lg().child(pack.title))
                     .child(
@@ -3072,7 +3066,7 @@ impl WorldMachineHome {
                     .gap_1()
                     .child(ui::heading(format!("{title} is ready")))
                     .child(ui::body(
-                        "Start your first World. It keeps living between visits, and you can always create another.",
+                        "Start your first World. It grows a day at a time, and you can always create another.",
                     )),
             )
             .child(
@@ -3479,7 +3473,7 @@ impl Render for WorldMachineHome {
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(ui::t(
-                        "No Worlds yet. Start one below; it keeps living while you are away.",
+                        "No Worlds yet. Start one below; it grows a day at a time.",
                     )),
             );
         } else if visible_documents.is_empty() {
@@ -3624,9 +3618,7 @@ impl Render for WorldMachineHome {
             .flex_col()
             .gap_1()
             .child(ui::page_title(demo::HOME_TITLE))
-            .child(ui::body(
-                "Small worlds that keep living while you are away.",
-            ));
+            .child(ui::body("Small worlds that grow a day at a time."));
 
         let mut body = div()
             .w_full()
@@ -4241,15 +4233,15 @@ mod file_type_tests {
     #[test]
     fn a_world_says_when_it_next_moves_on_its_own() {
         assert_eq!(
-            keeps_going_line(5 * 3600 + 10, "sol", false),
+            keeps_going_line(5 * 3600 + 10, "sol", world_gpui::i18n::Rest::Waits),
             "Waits for you · a new sol in 6 h"
         );
         assert_eq!(
-            keeps_going_line(20 * 60, "night", true),
+            keeps_going_line(20 * 60, "night", world_gpui::i18n::Rest::Asleep),
             "Asleep · a new night in 20 min"
         );
         assert_eq!(
-            keeps_going_line(0, "day", false),
+            keeps_going_line(0, "day", world_gpui::i18n::Rest::Waits),
             "Waits for you · a new day comes with tomorrow's visit"
         );
     }

@@ -178,6 +178,20 @@ impl ProjectionView {
         self.looking.sitting.goodnight
     }
 
+    /// What the World is doing, for the title bar: heading home while the
+    /// Goodnight card is up, asleep once it is said (or opened asleep),
+    /// and otherwise waiting for the player.
+    pub fn rest(&self) -> crate::i18n::Rest {
+        use crate::i18n::Rest;
+        if self.looking.sitting.goodnight {
+            Rest::HeadingHome
+        } else if self.looking.sitting.asleep.is_some() {
+            Rest::Asleep
+        } else {
+            Rest::Waits
+        }
+    }
+
     /// Whether the World sleeps until the next sitting.
     pub fn asleep(&self) -> bool {
         self.looking.sitting.asleep.is_some()
@@ -701,10 +715,18 @@ mod tests {
         let cx = &mut cx;
         assert!(cx.debug_bounds("bottom-card").is_some(), "the day's card");
         assert!(cx.debug_bounds("goodnight").is_none());
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.rest(), crate::i18n::Rest::Waits)
+        });
         pass_day(&view, cx);
         assert_eq!((passed.get(), spent.get()), (1, 1), "one day, written down");
         view.read_with(cx, |view, _| {
             assert!(view.goodnight_shown());
+            assert_eq!(
+                view.rest(),
+                crate::i18n::Rest::HeadingHome,
+                "never asleep while the town is still up"
+            );
             assert!(!view.asleep());
             assert_eq!(view.allowance(), Some(Allowance { left: 0, of: 1 }));
         });
@@ -714,7 +736,14 @@ mod tests {
         let sleep = cx.debug_bounds("goodnight-sleep").expect("Goodnight");
         cx.simulate_click(sleep.center(), Modifiers::none());
         cx.run_until_parked();
-        view.read_with(cx, |view, _| assert!(view.asleep()));
+        view.read_with(cx, |view, _| {
+            assert!(view.asleep());
+            assert_eq!(
+                view.rest(),
+                crate::i18n::Rest::Asleep,
+                "asleep once it is said"
+            );
+        });
         assert!(cx.debug_bounds("asleep").is_some(), "asleep");
         assert!(cx.debug_bounds("goodnight").is_none());
         assert!(cx.debug_bounds("bottom-card").is_none(), "no card asleep");
@@ -769,6 +798,7 @@ mod tests {
         let cx = &mut cx;
         view.read_with(cx, |view, _| {
             assert!(view.asleep());
+            assert_eq!(view.rest(), crate::i18n::Rest::Asleep, "opened asleep");
             assert!(!view.goodnight_shown());
         });
         assert!(cx.debug_bounds("asleep").is_some());

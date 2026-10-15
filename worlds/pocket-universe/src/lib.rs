@@ -1035,7 +1035,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         pack: pocket_universe_pack_ref(),
         title: "Pocket Universe".into(),
         description:
-            "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
+            "A tiny world that grows a day at a time: begin it, let it grow, and come back each day to see what changed.".into(),
     }
 }
 
