@@ -134,14 +134,48 @@ impl ObserverStore {
     }
 
     /// This World's sittings on this device, as its ledger has them: the
-    /// empty ledger if it was never sat with here (or the ledger cannot be
-    /// read, which counts as never).
+    /// empty ledger if it was never opened here. A World opened here before
+    /// ledgers were kept (it has a v1 stamp and no ledger), or one whose
+    /// ledger cannot be read, has been sat with: its next sitting is a
+    /// later one, of one day, never a first sitting's three.
     pub fn ledger(&self, key: &ObserverKey) -> Result<SittingLedger, ObserverError> {
+        let sat_before = SittingLedger {
+            sittings: 1,
+            ..SittingLedger::default()
+        };
         match fs::read(self.ledger_path(key)) {
-            Ok(bytes) => Ok(parse_ledger(&bytes).unwrap_or_default()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SittingLedger::default()),
+            Ok(bytes) => Ok(parse_ledger(&bytes).unwrap_or(sat_before)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if self.stamp_path(key).exists() {
+                    Ok(sat_before)
+                } else {
+                    Ok(SittingLedger::default())
+                }
+            }
             Err(error) => Err(ObserverError::Io(error)),
         }
+    }
+
+    /// Writes down that the window showed the morning `moment` (its stable
+    /// key) in the sitting begun on `today`, so it shows once: nothing for
+    /// a sitting that is not today's.
+    pub fn read_morning(
+        &self,
+        key: &ObserverKey,
+        today: i64,
+        moment: &str,
+    ) -> Result<(), ObserverError> {
+        let ledger = self.ledger(key)?;
+        if ledger.began_on != Some(today) || ledger.morning_read.as_deref() == Some(moment) {
+            return Ok(());
+        }
+        self.write_ledger(
+            key,
+            &SittingLedger {
+                morning_read: Some(moment.to_string()),
+                ..ledger
+            },
+        )
     }
 
     /// The sitting that opening the World on local day `today` is: a new
@@ -186,10 +220,18 @@ impl ObserverStore {
         let began = ledger
             .began_on
             .map_or_else(|| "-".to_string(), |day| day.to_string());
-        let bytes = format!(
+        let mut bytes = format!(
             "{LEDGER_FORMAT}\n{}\n{began}\n{}\n",
             ledger.sittings, ledger.days_passed
         );
+        if let Some(moment) = ledger
+            .morning_read
+            .as_deref()
+            .filter(|moment| !moment.is_empty() && !moment.contains(['\n', '\r']))
+        {
+            bytes.push_str(moment);
+            bytes.push('\n');
+        }
         atomic_write(&self.ledger_path(key), bytes.as_bytes())?;
         Ok(())
     }
@@ -291,13 +333,16 @@ fn parse_ledger(bytes: &[u8]) -> Option<SittingLedger> {
         day => Some(day.parse().ok()?),
     };
     let days_passed = lines.next()?.parse().ok()?;
-    if lines.next().is_some() {
+    // The morning read, if one was: a line of its own, or none.
+    let morning_read = lines.next().map(str::to_string);
+    if lines.next().is_some() || morning_read.as_deref() == Some("") {
         return None;
     }
     Some(SittingLedger {
         sittings,
         began_on,
         days_passed,
+        morning_read,
     })
 }
 
@@ -518,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_ledger_is_a_first_sitting() {
+    fn an_unreadable_ledger_is_a_later_sitting_of_one_day() {
         let root = temp_root("bad-ledger");
         let store = ObserverStore::new(root.clone());
         let key = key();
@@ -528,10 +573,56 @@ mod tests {
             "world-observer-sitting-v2\nnot a number\n",
         )
         .unwrap();
-        assert_eq!(store.ledger(&key).unwrap(), SittingLedger::default());
-        assert_eq!(store.sit(&key, 9).unwrap().number, 1);
+        let sitting = store.sit(&key, 9).unwrap();
+        assert!(sitting.new);
+        assert_eq!((sitting.number, sitting.left), (2, SITTING_DAYS));
+        // Written down afresh, it reads back.
+        assert_eq!(store.ledger(&key).unwrap().began_on, Some(9));
         // The stamp and the ledger are files of their own.
         assert_ne!(store.ledger_path(&key), store.stamp_path(&key));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_world_opened_before_ledgers_has_a_later_sitting_of_one_day() {
+        let root = temp_root("pre-ledger");
+        let store = ObserverStore::new(root.clone());
+        let key = key();
+        // v0.29 kept only the stamp.
+        store.claim_due(&key, 100, policy()).unwrap();
+        let sitting = store.sit(&key, 20_000).unwrap();
+        assert!(sitting.new);
+        assert_eq!((sitting.number, sitting.left), (2, SITTING_DAYS));
+        // A World never opened here is still a first sitting.
+        let other = ObserverKey::new("library:never-opened").unwrap();
+        assert_eq!(store.sit(&other, 20_000).unwrap().left, FIRST_SITTING_DAYS);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_morning_read_is_kept_for_its_sitting() {
+        let root = temp_root("morning-read");
+        let store = ObserverStore::new(root.clone());
+        let key = key();
+        store.sit(&key, 50).unwrap();
+        store.read_morning(&key, 50, "event-42").unwrap();
+        assert_eq!(
+            store.ledger(&key).unwrap().morning_read.as_deref(),
+            Some("event-42")
+        );
+        // Spending a day keeps it; another day's sitting does not.
+        store.spend_day(&key, 50).unwrap();
+        assert_eq!(
+            store.ledger(&key).unwrap().morning_read.as_deref(),
+            Some("event-42")
+        );
+        store.read_morning(&key, 49, "event-1").unwrap();
+        assert_eq!(
+            store.ledger(&key).unwrap().morning_read.as_deref(),
+            Some("event-42")
+        );
+        store.sit(&key, 51).unwrap();
+        assert_eq!(store.ledger(&key).unwrap().morning_read, None);
         let _ = fs::remove_dir_all(root);
     }
 

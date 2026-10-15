@@ -26,14 +26,20 @@ pub fn local_day(unix_seconds: i64, utc_offset_seconds: i64) -> i64 {
 
 /// A World's sittings on this device, as its ledger keeps them. Kept by the
 /// observer beside the Library, never in the World.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SittingLedger {
     /// How many sittings there have been.
     pub sittings: u64,
-    /// The local day the latest sitting began on.
+    /// The local day the latest sitting began on: `None` with sittings
+    /// counted is a World sat with before ledgers were kept (v0.29 and
+    /// earlier), whose next sitting is a later one.
     pub began_on: Option<i64>,
     /// How many World days the latest sitting has passed.
     pub days_passed: u32,
+    /// The morning the window has shown in the latest sitting, by its
+    /// moment's stable key: presentation only, so it shows once however
+    /// often the World is opened that day.
+    pub morning_read: Option<String>,
 }
 
 impl SittingLedger {
@@ -43,11 +49,11 @@ impl SittingLedger {
     pub fn spent(&self, today: i64) -> SittingLedger {
         let sitting = sitting_at(self, today);
         if sitting.new || sitting.left == 0 {
-            return *self;
+            return self.clone();
         }
         SittingLedger {
-            days_passed: self.days_passed + 1,
-            ..*self
+            days_passed: self.days_passed.saturating_add(1),
+            ..self.clone()
         }
     }
 }
@@ -66,7 +72,7 @@ pub struct Sitting {
     /// How many of them are still to pass.
     pub left: u32,
     /// How many of the player's days since the last sitting began: 0 for
-    /// the first, or for one that goes on.
+    /// the first, for one that goes on, or after a clock turned back.
     pub days_away: u64,
 }
 
@@ -75,12 +81,13 @@ impl Sitting {
     /// was worked out from.
     pub fn begun(&self, before: &SittingLedger, today: i64) -> SittingLedger {
         if !self.new {
-            return *before;
+            return before.clone();
         }
         SittingLedger {
             sittings: self.number,
             began_on: Some(today),
             days_passed: 0,
+            morning_read: None,
         }
     }
 
@@ -98,15 +105,39 @@ fn allowance(number: u64) -> u32 {
     }
 }
 
+/// A later sitting beginning now: one World day, whatever came before.
+fn later(ledger: &SittingLedger, days_away: u64) -> Sitting {
+    let number = ledger.sittings.saturating_add(1);
+    let allowance = allowance(number);
+    Sitting {
+        number,
+        new: true,
+        allowance,
+        left: allowance,
+        days_away,
+    }
+}
+
 /// The sitting that begins (or goes on) when the World is opened on local
 /// day `today`, from its ledger. A new day of the player's is a new
 /// sitting, with one World day to pass, however many days they were away;
 /// the same day again goes on with the sitting already begun, with what it
-/// has left. A clock that went back counts as the same day: no sitting is
-/// ever won by turning the clock.
+/// has left. A day before the one the ledger names (a clock that was once
+/// ahead, and is right again) begins a new sitting of one day too, so a
+/// World is never kept asleep until the calendar catches up; and never the
+/// first sitting's three, so nothing is won by turning the clock.
 pub fn sitting_at(ledger: &SittingLedger, today: i64) -> Sitting {
     match ledger.began_on {
-        Some(began) if ledger.sittings > 0 && today <= began => {
+        _ if ledger.sittings == 0 => Sitting {
+            number: 1,
+            new: true,
+            allowance: FIRST_SITTING_DAYS,
+            left: FIRST_SITTING_DAYS,
+            days_away: 0,
+        },
+        // Sat with before ledgers were kept: a later sitting.
+        None => later(ledger, 0),
+        Some(began) if today == began => {
             let allowance = allowance(ledger.sittings);
             Sitting {
                 number: ledger.sittings,
@@ -116,24 +147,11 @@ pub fn sitting_at(ledger: &SittingLedger, today: i64) -> Sitting {
                 days_away: 0,
             }
         }
-        Some(began) if ledger.sittings > 0 => {
-            let number = ledger.sittings + 1;
-            let allowance = allowance(number);
-            Sitting {
-                number,
-                new: true,
-                allowance,
-                left: allowance,
-                days_away: (today - began) as u64,
-            }
-        }
-        _ => Sitting {
-            number: 1,
-            new: true,
-            allowance: FIRST_SITTING_DAYS,
-            left: FIRST_SITTING_DAYS,
-            days_away: 0,
-        },
+        Some(began) if today < began => later(ledger, 0),
+        Some(began) => later(
+            ledger,
+            u64::try_from(today.saturating_sub(began)).unwrap_or(0),
+        ),
     }
 }
 
@@ -204,15 +222,55 @@ mod tests {
     }
 
     #[test]
-    fn a_clock_turned_back_wins_no_sitting() {
+    fn a_clock_turned_back_begins_a_sitting_of_one_day() {
         let (_, ledger) = begin(&SittingLedger::default(), 100);
         let (_, ledger) = begin(&ledger.spent(100).spent(100).spent(100), 105);
         let ledger = ledger.spent(105);
+        assert!(sitting_at(&ledger, 105).spent());
+        // A clock that was once ahead (the 105th) and is right again: a
+        // new sitting of one day, never locked asleep until the 105th,
+        // and never the first sitting's three.
         for today in [104, 50, -3] {
             let back = sitting_at(&ledger, today);
-            assert!(!back.new, "{today}");
-            assert_eq!(back.left, 0);
+            assert!(back.new, "{today}");
+            assert_eq!((back.left, back.allowance), (SITTING_DAYS, SITTING_DAYS));
+            assert_eq!(back.days_away, 0);
         }
+        // Begun on the 104th, the same day goes on, and the 105th, when it
+        // comes, is another.
+        let (_, ledger) = begin(&ledger, 104);
+        assert_eq!(ledger.began_on, Some(104));
+        assert!(!sitting_at(&ledger, 104).new);
+        assert!(sitting_at(&ledger, 105).new);
+    }
+
+    #[test]
+    fn a_world_sat_with_before_ledgers_has_a_later_sitting() {
+        let before = SittingLedger {
+            sittings: 1,
+            ..SittingLedger::default()
+        };
+        let sitting = sitting_at(&before, 300);
+        assert!(sitting.new);
+        assert_eq!((sitting.number, sitting.left), (2, SITTING_DAYS));
+    }
+
+    #[test]
+    fn the_counts_never_overflow() {
+        let full = SittingLedger {
+            sittings: u64::MAX,
+            began_on: Some(i64::MIN),
+            days_passed: u32::MAX,
+            morning_read: None,
+        };
+        let sitting = sitting_at(&full, i64::MAX);
+        assert_eq!(sitting.number, u64::MAX);
+        assert_eq!(sitting.days_away, i64::MAX as u64);
+        let same = SittingLedger {
+            began_on: Some(7),
+            ..full
+        };
+        assert_eq!(same.spent(7).days_passed, u32::MAX);
     }
 
     #[test]
@@ -222,6 +280,7 @@ mod tests {
             sittings: 4,
             began_on: Some(200),
             days_passed: 1,
+            morning_read: None,
         };
         assert_eq!(sitting_at(&ledger, 200), sitting_at(&ledger, 200));
         assert_eq!(sitting_at(&ledger, 203), sitting_at(&ledger, 203));
@@ -231,6 +290,7 @@ mod tests {
             sittings: 0,
             began_on: Some(10),
             days_passed: 2,
+            morning_read: None,
         };
         assert_eq!(sitting_at(&odd, 10).number, 1);
         assert_eq!(sitting_at(&odd, 10).left, FIRST_SITTING_DAYS);
