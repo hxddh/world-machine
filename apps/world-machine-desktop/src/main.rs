@@ -695,6 +695,29 @@ impl WorldDocumentView {
 
     /// Re-read what this World is called from the session, after anything
     /// that can change its file or its target.
+    /// The sitting written down under the World's identity now (after Save
+    /// As), so its days are charged to the World it now is, and opening that
+    /// World again the same day goes on with this sitting. The World it was
+    /// saved from keeps its own ledger.
+    fn carry_sitting(&mut self) {
+        let carried = {
+            let document = self.document.borrow();
+            match &document.sitting {
+                Some(SittingKept::Ledger(ledger)) => Some(ledger.carried_to(&document.session)),
+                _ => None,
+            }
+        };
+        match carried {
+            Some(Ok(ledger)) => {
+                self.document.borrow_mut().sitting = Some(SittingKept::Ledger(ledger));
+            }
+            Some(Err(error)) => {
+                diagnostics::error(format!("could not carry the sitting over: {error}"));
+            }
+            None => {}
+        }
+    }
+
     fn refresh_document_identity(&mut self) {
         let (label, name) = {
             let document = self.document.borrow();
@@ -771,6 +794,8 @@ impl WorldDocumentView {
                 match result {
                     Ok(snapshot) => {
                         this.refresh_document_identity();
+                        // The sitting goes with the World to its new file.
+                        this.carry_sitting();
                         this.rebuild_projection(cx);
                         this.status = Some(DocumentStatus::success(format!(
                             "Saved As {} · {}",
@@ -2208,6 +2233,10 @@ impl WorldMachineHome {
                 return;
             }
         };
+        // A file sat with before keeps its sittings in the Library.
+        if let Err(error) = observer::carry_from_file(&source, &session, &self.library) {
+            diagnostics::error(format!("could not carry the sittings over: {error}"));
+        }
         let pack = session.pack();
         let title = self
             .registry

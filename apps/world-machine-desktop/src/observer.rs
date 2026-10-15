@@ -58,6 +58,23 @@ impl Ledger {
             .flatten()
     }
 
+    /// The sitting carried to the World `session` is now (after Save As: a
+    /// new file, under a new key), the morning read and all: written down
+    /// under its new key, and the ledger that writes there. The World it
+    /// was saved from keeps its own.
+    pub fn carried_to(&self, session: &DurableWorldSession) -> Result<Ledger, String> {
+        let key = observer_key(session)?;
+        if key == self.key {
+            return Ok(self.clone());
+        }
+        carry(&self.store(), &self.key, &key)?;
+        Ok(Ledger {
+            root: self.root.clone(),
+            key,
+            began_on: self.began_on,
+        })
+    }
+
     /// One of the sitting's days passed. A ledger that cannot be written
     /// is let be: the next sitting comes all the same.
     pub fn spend_day(&self) {
@@ -83,6 +100,37 @@ impl Ledger {
     fn new_day_due_on(&self, today: i64) -> bool {
         today != self.began_on
     }
+}
+
+/// Writes the sittings kept under `from` under `to` as well, whatever `to`
+/// held: the same World under a new identity.
+fn carry(store: &ObserverStore, from: &ObserverKey, to: &ObserverKey) -> Result<(), String> {
+    let ledger = store
+        .ledger(from)
+        .map_err(|error| format!("could not read the sittings: {error}"))?;
+    store
+        .set_ledger(to, &ledger)
+        .map_err(|error| format!("could not write the sittings: {error}"))
+}
+
+/// A World file imported into the Library (`session`, now its Library
+/// copy) keeps the sittings it had as a file, if it had any: never a new
+/// first sitting for a World already sat with.
+pub fn carry_from_file(
+    source: &Path,
+    session: &DurableWorldSession,
+    library: &WorldLibrary,
+) -> Result<(), String> {
+    let store = ObserverStore::new(observer_root(library));
+    let from = ObserverKey::new(format!("file:{}", normalized_path(source).display()))
+        .map_err(|error| error.to_string())?;
+    let had = store
+        .ledger(&from)
+        .map_err(|error| format!("could not read the sittings: {error}"))?;
+    if had.sittings == 0 {
+        return Ok(());
+    }
+    carry(&store, &from, &observer_key(session)?)
 }
 
 /// Opens this World's sitting for today on this device's calendar.
@@ -404,6 +452,89 @@ mod tests {
         assert!(!sat.sitting.new);
         assert!(sat.morning, "the morning comes on the next opening");
         assert_eq!(session.snapshot().world_time, MORNING + 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_world_saved_as_a_new_file_keeps_its_sitting() {
+        let root = temp_root("save-as");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        let document_id = WorldDocumentId::new("saved").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
+        let sat = sit_on(&mut session, &registry, &library, 400).unwrap();
+        assert_eq!(sat.sitting.left, FIRST_SITTING_DAYS);
+        sat.ledger().spend_day();
+        sat.ledger().read_morning("event-9");
+        // Save As: the session is the new file's now.
+        let destination = root.join("Saved elsewhere.world");
+        fs::create_dir_all(&root).unwrap();
+        session.save_as_file(destination.clone()).unwrap();
+        let carried = sat.ledger().carried_to(&session).unwrap();
+        let store = ObserverStore::new(observer_root(&library));
+        let source = store
+            .ledger(&ObserverKey::new("library:saved").unwrap())
+            .unwrap();
+        let saved = store.ledger(&observer_key(&session).unwrap()).unwrap();
+        assert_eq!(saved, source, "the same sitting, morning read and all");
+        assert_eq!(saved.morning_read.as_deref(), Some("event-9"));
+        // Its days are charged to the new file now; the old keeps its own.
+        carried.spend_day();
+        assert_eq!(
+            store
+                .ledger(&observer_key(&session).unwrap())
+                .unwrap()
+                .days_passed,
+            2
+        );
+        assert_eq!(
+            store
+                .ledger(&ObserverKey::new("library:saved").unwrap())
+                .unwrap()
+                .days_passed,
+            1
+        );
+        // Opened again the same day, the new file goes on with the sitting:
+        // never a first sitting of three days.
+        drop(session);
+        let mut reopened = DurableWorldSession::open_file(destination, &registry).unwrap();
+        let again = sit_on(&mut reopened, &registry, &library, 400).unwrap();
+        assert!(!again.sitting.new);
+        assert_eq!(again.sitting.left, FIRST_SITTING_DAYS - 2);
+        assert_eq!(again.ledger().morning_read().as_deref(), Some("event-9"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_world_file_imported_keeps_the_sittings_it_had() {
+        let root = temp_root("import");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        // A World sat with as a file.
+        let document_id = WorldDocumentId::new("as-file").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
+        let file = root.join("Kept.world");
+        fs::create_dir_all(&root).unwrap();
+        session.save_as_file(file.clone()).unwrap();
+        let sat = sit_on(&mut session, &registry, &library, 500).unwrap();
+        sat.ledger().spend_day();
+        drop(session);
+        // Imported into the Library: the same sitting goes on.
+        let imported = DurableWorldSession::import_file(
+            WorldDocumentId::new("imported").unwrap(),
+            &file,
+            &registry,
+            &library,
+        )
+        .unwrap();
+        carry_from_file(&file, &imported, &library).unwrap();
+        let mut imported = imported;
+        let again = sit_on(&mut imported, &registry, &library, 500).unwrap();
+        assert!(!again.sitting.new);
+        assert_eq!(again.sitting.number, sat.sitting.number);
+        assert_eq!(again.sitting.left, sat.sitting.left - 1);
         let _ = fs::remove_dir_all(root);
     }
 
