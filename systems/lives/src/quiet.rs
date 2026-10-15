@@ -782,16 +782,15 @@ pub(crate) fn letter_body(
         .arg("who", Value::Entity(writer))
         .arg("letter", "yes");
     // What the player did, if they brought it about, after the line;
-    // unless the line already says ("came because of the bench you
-    // built").
+    // unless the line already tells it ("came because of the bench you
+    // built"). Either way the letter names it as its cause.
     let citing = |body: String, request: ActionRequest, about: &Event| {
-        let says_you = match about.payload.get("told") {
-            Some(Value::Text(told)) => told
-                .split(|c: char| !c.is_alphanumeric())
-                .any(|word| word.eq_ignore_ascii_case("you")),
-            _ => false,
+        let told = match about.payload.get("told") {
+            Some(Value::Text(told)) => told.as_str(),
+            _ => "",
         };
-        match player_act(world, about).filter(|_| !says_you) {
+        match player_act(world, about) {
+            Some((act, how)) if crate::retold::tells(told, &how) => (body, request.caused_by(act)),
             Some((act, how)) => (
                 format!("{body} {}", cited(&how, seed >> 5)),
                 request.caused_by(act),

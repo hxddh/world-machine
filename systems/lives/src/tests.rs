@@ -1285,7 +1285,77 @@ fn a_letter_cites_what_the_player_did() {
     let (body, request) = quiet::letter_body(&world, &cast(), ben).unwrap();
     assert!(body.contains("the bench you built"), "{body}");
     assert!(!body.contains("All because") && !body.contains("started when"));
-    assert!(request.caused_by.is_empty());
+    // Not told twice, but still the letter's cause.
+    assert_eq!(request.caused_by, vec![EventId::new(1)]);
+
+    // A line that only speaks to the player tells nothing of what they
+    // chose: the answer is cited all the same.
+    let mut answered = with(
+        with(
+            with(
+                recorded(1, "situation_answered", 30, Some(ann)),
+                "kind",
+                "confide",
+            ),
+            "answer",
+            "keep",
+        ),
+        "told",
+        "Ann told you something she'd never told anyone",
+    );
+    answered.targets = vec![ann];
+    // Long enough after to be looked back on.
+    let later = recorded(2, "lived", 30 + 1_000 * cast().period, Some(ben));
+    let world = World::from_history(start.state().clone(), &[answered, later]).unwrap();
+    let (body, request) = quiet::letter_body(&world, &cast(), ann).unwrap();
+    assert!(body.contains("you said “Keep it between you”."), "{body}");
+    assert_eq!(request.caused_by, vec![EventId::new(1)]);
+}
+
+/// An answer that named a friend is cited with the friend it named, kept
+/// in the record when it was given; one from before, which kept no friend,
+/// is cited by nothing it cannot fill.
+#[test]
+fn an_answer_naming_a_friend_is_cited_with_that_friend() {
+    let (world, _) = world();
+    let ann = EntityId::new(1);
+    let short = |id: u64| {
+        with(
+            with(
+                recorded(id, "situation_answered", 30, Some(ann)),
+                "kind",
+                "short",
+            ),
+            "answer",
+            "friend",
+        )
+    };
+    let history = [with(short(1), "offered", "Ask Ben"), short(2)];
+    let world = World::from_history(world.state().clone(), &history).unwrap();
+    let event = |id: u64| world.event(EventId::new(id)).unwrap();
+    assert_eq!(
+        player_act(&world, event(1)),
+        Some((EventId::new(1), Act::Said("Ask Ben".into())))
+    );
+    assert_eq!(player_act(&world, event(2)), None);
+}
+
+/// Whether a line already tells what the player did: by the deed's doing
+/// or the answer's words, never by a passing "you".
+#[test]
+fn a_line_tells_a_deed_by_its_doing() {
+    let built = Act::Deed("you built a bench by the mill".into());
+    assert!(crate::retold::tells(
+        "Ann came because of the bench you built",
+        &built
+    ));
+    assert!(!crate::retold::tells("Ann told you something", &built));
+    let said = Act::Said("Throw a party".into());
+    assert!(crate::retold::tells(
+        "They threw a party, as you said: throw a party",
+        &said
+    ));
+    assert!(!crate::retold::tells("Thank you for everything", &said));
 }
 
 /// He, she or they: as the Pack says, unless someone carries their own;

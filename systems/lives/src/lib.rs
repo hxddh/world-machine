@@ -3560,6 +3560,15 @@ impl Action for Answers {
         draft.payload.insert("answer".into(), answer.into());
         draft.payload.insert("told".into(), told.into());
         draft.payload.insert("said".into(), said.into());
+        // The answer in the words it was offered in, where they name a
+        // friend the record keeps no other trace of: a letter cites it
+        // later, when the friend may be another.
+        if let Some(label) = answer_label(candidate.kind.id(), answer)
+            .filter(|label| !lapsed && label.contains("{friend}"))
+        {
+            let offered = fill_owned(label, &words_for(state, &cast, &candidate));
+            draft.payload.insert("offered".into(), offered.into());
+        }
         if lapsed {
             draft.payload.insert("lapsed".into(), true.into());
         } else if candidate.kind == Kind::Keepsake {

@@ -105,6 +105,9 @@ fn act_of(state: &WorldState, event: &Event) -> Option<Act> {
             Some(Value::Text(text)) => Some(text.as_str()),
             _ => None,
         };
+        if let Some(offered) = text("offered") {
+            return (!offered.contains('{')).then(|| Act::Said(offered.to_string()));
+        }
         let label = answer_label(text("kind")?, text("answer")?)?;
         let a = event.actor.map(|a| name(state, a)).unwrap_or_default();
         let b = event
@@ -152,6 +155,21 @@ pub fn player_act(world: &World, event: &Event) -> Option<(EventId, Act)> {
         }
     }
     None
+}
+
+/// Whether `told` already tells `act`: a deed by its doing ("the bench
+/// you built" tells "you built a bench by the mill"), an answer by its
+/// words. A line that only speaks to the player ("Ann told you something")
+/// tells nothing of what they did.
+pub fn tells(told: &str, act: &Act) -> bool {
+    let told = told.to_lowercase();
+    match act {
+        Act::Deed(deed) => deed
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|did| told.contains(&format!("you {}", did.to_lowercase()))),
+        Act::Said(words) => told.contains(&words.to_lowercase()),
+    }
 }
 
 /// How a letter says what the player did brought its news about.
