@@ -141,6 +141,10 @@ pub(super) fn one_talks_at_a_time(
         if let Some((lamp, Use::Ring)) = stage.doing.get(&index).and_then(|what| what.fixture) {
             return Some(i64::MIN / 2 + lamp as i64);
         }
+        // (So is a gathering standing in a ring, v0.30 S1d.)
+        if let Some(middle) = stage.doing.get(&index).and_then(|what| what.ring) {
+            return Some(i64::MIN / 4 + (middle * 4.0).round() as i64);
+        }
         if let Some(centre) = centres.get(at).copied().flatten() {
             return Some((centre * 4.0).round() as i64);
         }
@@ -270,7 +274,16 @@ pub fn gathering_at_rest(
             .get(&person.index)
             .and_then(|what| what.with)
             .and_then(|with| on_screen.iter().find(|other| other.index == with));
+        let ring = stage.doing.get(&person.index).and_then(|what| what.ring);
         let toward = match (centres[at], partner) {
+            // In a ring, toward its middle (its middle faces out).
+            _ if ring.is_some() => ring.map(|middle| {
+                if (middle - spot.x).abs() > stage.figure_h * 0.3 {
+                    middle - spot.x
+                } else {
+                    0.0
+                }
+            }),
             (Some(centre), _) if (centre - spot.x).abs() > 1.0 => Some(centre - spot.x),
             (_, Some(other)) => Some(other.x - person.x),
             (Some(_), None) => Some(0.0),
@@ -292,13 +305,16 @@ pub fn gathering_at_rest(
         };
         out.facing += usize::from(turned);
         if person.stance == Stance::Talking {
-            let ring = stage
+            let lamp = stage
                 .doing
                 .get(&person.index)
                 .and_then(|what| what.fixture)
                 .filter(|(_, how)| *how == Use::Ring);
             let key = match centres[at] {
-                _ if ring.is_some() => i64::MIN / 2 + ring.map_or(0, |(lamp, _)| lamp as i64),
+                _ if lamp.is_some() => i64::MIN / 2 + lamp.map_or(0, |(lamp, _)| lamp as i64),
+                _ if ring.is_some() => {
+                    i64::MIN / 4 + ring.map_or(0, |middle| (middle * 4.0).round() as i64)
+                }
                 Some(centre) => (centre * 4.0).round() as i64,
                 None => {
                     -1 - partner.map_or(person.index, |other| other.index.min(person.index)) as i64
@@ -890,6 +906,13 @@ pub fn living_staged(
             let partner = toward(what.with.and_then(x_of));
             let fixture = what.fixture.map(|(thing, how)| (toward(x_of(thing)), how));
             let facing = match (partner, fixture, centre) {
+                // In a ring, into its middle; its middle faces out.
+                _ if what.ring.is_some() => match what.ring {
+                    Some(middle) if (middle - home).abs() > figure_h * 0.3 => {
+                        (middle - home).signum()
+                    }
+                    _ => looking.signum() * 0.3,
+                },
                 (Some(partner), _, _) => partner,
                 // Behind a stall, facing out over it, a turn either way.
                 (None, Some((_, Use::Keep)), _) => looking.signum() * 0.3,
@@ -912,7 +935,7 @@ pub fn living_staged(
             // Seated, or standing to what they use: still on their spot.
             let sway = if at_fixture {
                 0.0
-            } else if centre.is_some() || partner.is_some() {
+            } else if centre.is_some() || partner.is_some() || what.ring.is_some() {
                 1.0
             } else {
                 3.0
@@ -933,7 +956,7 @@ pub fn living_staged(
                 },
                 stance: if pinned.contains(&item.id) {
                     None
-                } else if centre.is_some() {
+                } else if centre.is_some() || what.ring.is_some() {
                     talk(seed, seconds).or_else(|| idle(seed, seconds, daylight))
                 } else {
                     idle(seed, seconds, daylight)
@@ -947,6 +970,7 @@ pub fn living_staged(
             if pinned.contains(&item.id)
                 || at_fixture
                 || what.with.is_some()
+                || what.ring.is_some()
                 || daylight == Daylight::Night
                 // While a scene plays, everyone else stays where they are,
                 // so its cast is staged clear of them.
@@ -1218,6 +1242,249 @@ pub(super) fn off_props(
                 None => {
                     stage.shown_from.insert(spot.index, ZOOM_MOST);
                 }
+            }
+        }
+    }
+}
+
+/// The fewest of a gathering at one hub who stand in a ring
+/// ([`in_a_ring`]): fewer stand in twos and threes.
+pub(super) const RING_LEAST: usize = 4;
+/// How far apart along the stage neighbours in a ring stand, in figure
+/// heights: a shoulder's room.
+pub(super) const RING_STEP: f32 = 0.62;
+/// How far behind the people's line the back of a ring stands, and how far
+/// in front of it its ends, in figure heights.
+pub(super) const RING_BACK: f32 = 0.42;
+pub(super) const RING_ENDS: f32 = 0.26;
+/// How far in front of the line whoever closes a ring stands (from
+/// behind, facing into it), in figure heights.
+pub(super) const RING_FRONT: f32 = 0.42;
+/// How near two hubs stand, in figure heights, for those gathered at them
+/// to stand in one ring.
+pub(super) const RING_MERGE: f32 = 3.5;
+/// How far from the middle of a gathering, in figure heights, whoever
+/// speaks first may stand at what they work at for the ring to form in
+/// front of them.
+pub(super) const RING_TO_SPEAKER: f32 = 6.0;
+/// How far a ring may stand from the middle of its gathering to find open
+/// ground, in fifths of a person either way: a step. Further, and it would
+/// leave the rest of the place's first screen (a bench's sitters, a keeper)
+/// behind; the gathering stands as it did.
+pub(super) const RING_SHIFT: i32 = 5;
+
+/// Where each of a ring stands, from its middle along the stage and from
+/// the people's line in depth, in figure heights (v0.30 S1d): `arc` on an
+/// arc open to the viewer, its ends a step nearer and its back well behind
+/// the line, and with `front` one more (the last) a step in front of the
+/// line in a gap of the arc, closing it, seen from behind.
+pub(super) fn ring_slots(arc: usize, front: bool) -> Vec<(f32, f32)> {
+    let half = (arc as f32 - 1.0) / 2.0;
+    let mut slots = (0..arc)
+        .map(|j| {
+            let off = if half > 0.0 {
+                (j as f32 - half) / half
+            } else {
+                0.0
+            };
+            (
+                (j as f32 - half) * RING_STEP,
+                RING_ENDS - (RING_ENDS + RING_BACK) * (1.0 - off.powi(2)),
+            )
+        })
+        .collect::<Vec<_>>();
+    if front {
+        // In a gap of the arc behind, half hiding the two either side, off
+        // to the left of its middle: whoever speaks there, with their name
+        // under their feet, stays clear.
+        let gap = if arc.is_multiple_of(2) {
+            -RING_STEP
+        } else {
+            -RING_STEP * 1.5
+        };
+        slots.push((gap, RING_FRONT));
+    }
+    slots
+}
+
+/// A gathering at a hub stands in a ring (v0.30 S1d, the art director's
+/// "one line in two depths" on the first day): of those talking
+/// at one hub (`hub_of`, by where their host stands), four or more, not at
+/// a thing of their own, not on their way, stand round its middle on the
+/// arc of [`ring_slots`], companions side by side, whoever speaks first
+/// (`speaker`) at its back in the middle, facing out, and one in front
+/// closing it. A ring goes only where every place in it is open ground
+/// ([`Ground::open`]), clear of the doors in front (`fronted`) and of
+/// everyone else, within a step of the middle of the gathering ([`RING_SHIFT`]); else
+/// the gathering stands as it did.
+pub(super) fn in_a_ring(
+    stage: &mut Stage,
+    snapshot: &ProjectionSnapshot,
+    hub_of: &BTreeMap<usize, f32>,
+    speaker: Option<usize>,
+    fronted: &[(f32, f32)],
+) {
+    let fig = stage.figure_h;
+    let feet = stage.feet;
+    let ground = Ground::of(stage, snapshot);
+    let talking = |index: usize| {
+        stage.doing.get(&index).is_some_and(|what| {
+            what.fixture.is_none()
+                && (what.stance == Some(Stance::Talking)
+                    || (what.stance == Some(Stance::Sitting) && what.with.is_some()))
+        })
+    };
+    let mut gatherings = BTreeMap::<i64, Vec<usize>>::new();
+    for (at, spot) in stage.people.iter().enumerate() {
+        let Some(hub) = hub_of.get(&spot.index) else {
+            continue;
+        };
+        if stage.routes.contains_key(&spot.index)
+            || !talking(spot.index)
+            || spot.y > feet + fig * 0.6
+            || stage
+                .shown_from
+                .get(&spot.index)
+                .is_some_and(|least| !least.is_finite())
+        {
+            continue;
+        }
+        gatherings
+            .entry((hub * 4.0).round() as i64)
+            .or_default()
+            .push(at);
+    }
+    // The two hubs of an hour near each other (within a ring's width) are
+    // one gathering, one ring.
+    let mut merged: Vec<(f32, Vec<usize>)> = Vec::new();
+    for (key, members) in gatherings {
+        let hub = key as f32 / 4.0;
+        match merged.last_mut() {
+            Some((last, them)) if hub - *last <= fig * RING_MERGE => {
+                *last = hub;
+                them.extend(members);
+            }
+            _ => merged.push((hub, members)),
+        }
+    }
+    for (_, mut members) in merged {
+        let n = members.len();
+        if n < RING_LEAST {
+            continue;
+        }
+        members.sort_by(|a, b| {
+            stage.people[*a]
+                .x
+                .total_cmp(&stage.people[*b].x)
+                .then(stage.people[*a].index.cmp(&stage.people[*b].index))
+        });
+        // Companions side by side.
+        let mut ordered: Vec<usize> = Vec::with_capacity(n);
+        for at in &members {
+            if ordered.contains(at) {
+                continue;
+            }
+            ordered.push(*at);
+            let with = stage
+                .doing
+                .get(&stage.people[*at].index)
+                .and_then(|w| w.with);
+            if let Some(partner) = members
+                .iter()
+                .find(|other| Some(stage.people[**other].index) == with)
+            {
+                if !ordered.contains(partner) {
+                    ordered.push(*partner);
+                }
+            }
+        }
+        // From five, one standing closes the ring, from just off its middle:
+        // not whoever speaks, nor anyone sitting.
+        let mut arc_members = ordered.clone();
+        let mut closing = None;
+        if n >= 5 {
+            let middle = (arc_members.len() as f32 - 1.0) / 2.0;
+            let pick = (0..arc_members.len())
+                .filter(|j| {
+                    let index = stage.people[arc_members[*j]].index;
+                    Some(index) != speaker
+                        && stage.doing.get(&index).and_then(|w| w.stance) == Some(Stance::Talking)
+                })
+                .min_by(|a, b| {
+                    (*a as f32 - middle)
+                        .abs()
+                        .total_cmp(&(*b as f32 - middle).abs())
+                        .then(a.cmp(b))
+                });
+            closing = pick.map(|pick| arc_members.remove(pick));
+        }
+        let slots = ring_slots(arc_members.len(), closing.is_some());
+        // Whoever speaks first, at the back in the middle.
+        if let Some(j) = arc_members
+            .iter()
+            .position(|at| Some(stage.people[*at].index) == speaker)
+        {
+            let them = arc_members.remove(j);
+            arc_members.insert(arc_members.len() / 2, them);
+        }
+        let mut placing = arc_members.clone();
+        placing.extend(closing);
+        let mut centre = members.iter().map(|at| stage.people[*at].x).sum::<f32>() / n as f32;
+        // Whoever speaks first, standing near at what they work at (not one
+        // of the ring), is its middle: the ring forms in front of them.
+        if let Some(them) = stage
+            .people
+            .iter()
+            .find(|spot| Some(spot.index) == speaker)
+            .filter(|spot| {
+                !members
+                    .iter()
+                    .any(|at| stage.people[*at].index == spot.index)
+                    && stage
+                        .doing
+                        .get(&spot.index)
+                        .is_some_and(|what| what.fixture.is_some())
+                    && (spot.x - centre).abs() <= fig * RING_TO_SPEAKER
+            })
+        {
+            centre = them.x;
+        }
+        let others = stage
+            .people
+            .iter()
+            .enumerate()
+            .filter(|(at, _)| !members.contains(at))
+            .map(|(_, spot)| (spot.x, spot.y))
+            .collect::<Vec<_>>();
+        let room = fig * 0.25;
+        let fits = |cx: f32| {
+            slots.iter().all(|(dx, dy)| {
+                let (x, y) = (cx + dx * fig, feet + dy * fig);
+                let p = fig * (1.0 + dy * 0.35);
+                ground.open(x, y, p, usize::MAX)
+                    && fronted
+                        .iter()
+                        .all(|(l, r)| x + room <= *l || x - room >= *r)
+                    && others
+                        .iter()
+                        .all(|(ox, oy)| (ox - x).abs() >= fig * 0.45 || (oy - y).abs() >= fig * 0.6)
+            })
+        };
+        let Some(cx) = (0..=RING_SHIFT)
+            .flat_map(|step| [step, -step])
+            .map(|step| centre + step as f32 * fig * 0.2)
+            .find(|cx| fits(*cx))
+        else {
+            continue;
+        };
+        for (at, (dx, dy)) in placing.into_iter().zip(slots) {
+            let index = stage.people[at].index;
+            let spot = &mut stage.people[at];
+            spot.x = cx + dx * fig;
+            spot.y = feet + dy * fig;
+            spot.scale = 1.0 + dy * 0.35;
+            if let Some(what) = stage.doing.get_mut(&index) {
+                what.ring = Some(cx);
             }
         }
     }
@@ -3196,6 +3463,19 @@ pub(super) fn turn_of(
     }
     if stance == Stance::Waving {
         return Turn::Front;
+    }
+    // In a ring (v0.30 S1d): whoever closes it in front is seen from
+    // behind, its middle three-quarter, the rest turned in, in profile or
+    // three-quarter.
+    if let Some(middle) = what.ring {
+        let pick = (seed / 7) % 5;
+        return if spot.y > stage.feet + fig * 0.3 {
+            Turn::Back
+        } else if (middle - spot.x).abs() <= fig * 0.3 || pick >= 2 {
+            Turn::ThreeQuarter
+        } else {
+            Turn::Profile
+        };
     }
     // (One of a group glancing away a moment, or turned half out, still
     // stands turned to it, v0.30 S1c round 2; the middle of a ring, and

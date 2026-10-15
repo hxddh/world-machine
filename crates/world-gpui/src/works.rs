@@ -1280,6 +1280,64 @@ mod tests {
         }
     }
 
+    /// The navigation light on the point stands on a drawn base (v0.30 S1d,
+    /// the art director: "a grey placeholder plinth over the water"): its
+    /// pier is laid in courses (three joints or more down its lit face)
+    /// and the stones at its foot lie close round it, no broader than seven
+    /// tenths of the drawing's width.
+    #[test]
+    fn the_point_lamp_stands_on_dressed_stone() {
+        let art = Art::from_key("point-lamp").expect("the point lamp");
+        let (w, h) = (200_u32, 280_u32);
+        let mut canvas = crate::painter::Canvas::new(w, h, 1.0, (0.0, 0.0)).expect("a canvas");
+        let palette =
+            Palette::of_in("lamp", false, art.family().setting()).drawn_as(Some(art.key()));
+        paint_art(
+            &mut canvas,
+            art,
+            w as f32 / 2.0,
+            h as f32,
+            w as f32,
+            h as f32,
+            &palette,
+            0.0,
+        );
+        let data = canvas.pixmap.data();
+        let pixel = |x: u32, y: u32| {
+            let at = ((y * w + x) * 4) as usize;
+            (
+                u32::from(data[at]) + u32::from(data[at + 1]) + u32::from(data[at + 2]),
+                data[at + 3],
+            )
+        };
+        // Down the pier's lit face, from under the cap to the wet at its
+        // foot (v 0.31 to 0.1 of its height), each joint a dip in the light.
+        let x = w / 2 - 18;
+        let (top, foot) = (
+            (h as f32 * (1.0 - 0.31)) as u32,
+            (h as f32 * (1.0 - 0.1)) as u32,
+        );
+        let stone = pixel(x, (top + foot) / 2 + 3).0;
+        let mut joints = 0;
+        let mut in_joint = false;
+        for y in top..foot {
+            let dark = pixel(x, y).0 + 30 < stone;
+            if dark && !in_joint {
+                joints += 1;
+            }
+            in_joint = dark;
+        }
+        assert!(joints >= 3, "{joints} joints down the pier");
+        // The stones at its foot.
+        let y = (h as f32 * (1.0 - 0.045)) as u32;
+        let covered = (0..w).filter(|x| pixel(*x, y).1 > 100).collect::<Vec<_>>();
+        let span = covered.last().unwrap_or(&0) - covered.first().unwrap_or(&0);
+        assert!(
+            span as f32 <= w as f32 * 0.7,
+            "the stones spread {span} of {w}"
+        );
+    }
+
     #[test]
     fn no_two_drawings_in_the_library_share_an_outline() {
         let mut seen = std::collections::BTreeMap::new();

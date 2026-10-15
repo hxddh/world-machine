@@ -671,11 +671,85 @@ pub(super) fn cover(patch: Patch, water: bool) -> (f32, f32) {
         Patch::Cobbles | Patch::Plaza | Patch::Yard | Patch::Paving => 0.9,
         _ => 0.94,
     };
-    (0.35, body)
+    // Laid ground has a kerb, not a soft rim (v0.30 S1d).
+    let rim = if laid(patch) { 0.0 } else { 0.35 };
+    (rim, body)
+}
+
+/// Whether a patch is laid by hand, stone by stone (cobbles, a plaza,
+/// paving): its edge is a kerb, drawn hard, not a soft spread of ground
+/// (v0.30 S1d: the art director's "blobby" paving by the clock post, a
+/// soft cloud shape cut over the beds).
+pub(super) fn laid(patch: Patch) -> bool {
+    matches!(patch, Patch::Cobbles | Patch::Plaza | Patch::Paving)
+}
+
+/// The outline of laid ground from `x0` to `x1` and `top` to `bottom`:
+/// straight edges, a little wider at its foot (`flare` either side), as
+/// ground seen in depth is, and its corners just turned (`corner`).
+pub(super) fn laid_outline(
+    (x0, x1, top, bottom): (f32, f32, f32, f32),
+    flare: f32,
+    corner: f32,
+) -> Shape {
+    let c = corner
+        .min((x1 - x0) * 0.25)
+        .min((bottom - top) * 0.3)
+        .max(0.0);
+    let (bl, br) = (x0 - flare, x1 + flare);
+    let mut shape = Shape::new();
+    shape.move_to(x0 + c, top);
+    shape.line_to(x1 - c, top);
+    shape.curve_to(x1, top + c, x1, top);
+    shape.line_to(br, bottom - c);
+    shape.curve_to(br - c, bottom, br, bottom);
+    shape.line_to(bl + c, bottom);
+    shape.curve_to(bl, bottom - c, bl, bottom);
+    shape.line_to(x0, top + c);
+    shape.curve_to(x0 + c, top, x0, top);
+    shape.close();
+    shape
+}
+
+/// Laid ground with its kerb: the stones' ground, a kerb of darker stone
+/// round it with its face showing along the front, and a lit lip along
+/// the back edge where the light from the upper left catches it.
+fn paint_laid(
+    canvas: &mut Canvas,
+    (x0, x1, top, bottom): (f32, f32, f32, f32),
+    (ground, flare, k): (Hsla, f32, f32),
+    body: f32,
+) {
+    let corner = 4.0 * k;
+    let kerb = art::shade(ground, -0.2);
+    // The kerb's face along the front, a stone's height below the edge.
+    let face = 3.0 * k;
+    let mut front = Shape::new();
+    front
+        .move_to(x0 - flare, bottom - corner * 0.5)
+        .line_to(x1 + flare, bottom - corner * 0.5)
+        .line_to(x1 + flare, bottom + face)
+        .line_to(x0 - flare, bottom + face)
+        .close();
+    canvas.fill(&front, art::shade(ground, -0.3).opacity(body));
+    let outline = laid_outline((x0, x1, top, bottom), flare, corner);
+    canvas.fill(&outline, ground.opacity(body));
+    canvas.stroke(&outline, 2.4 * k, kerb.opacity(body));
+    // The lit lip of the back kerb.
+    let mut lip = Shape::new();
+    lip.move_to(x0 + corner, top + 1.6 * k)
+        .line_to(x1 - corner, top + 1.6 * k);
+    canvas.stroke(&lip, 1.0 * k, art::shade(ground, 0.12).opacity(body));
 }
 
 /// One cluster's patch of ground, and what marks it as that ground.
-fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hsla, k: f32) {
+pub(super) fn paint_patch(
+    canvas: &mut Canvas,
+    frame: &Frame,
+    patch: &PatchPaint,
+    field: Hsla,
+    k: f32,
+) {
     let (ground, mark) = inks(patch.patch, field, frame);
     let (x0, x1, top, bottom) = (patch.x0, patch.x1, patch.top, patch.bottom);
     // A little wider at its foot, as ground seen in depth is. A patch at
@@ -692,17 +766,21 @@ fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hs
     if bottom <= top {
         return;
     }
-    canvas.fill(
-        &blob(
-            x0 - bleed,
-            x1 + bleed,
-            top - bleed * 0.4,
-            bottom + bleed * 0.3,
-            patch.seed,
-        ),
-        ground.opacity(under),
-    );
-    canvas.fill(&blob(x0, x1, top, bottom, patch.seed), ground.opacity(body));
+    if laid(patch.patch) && body > 0.0 {
+        paint_laid(canvas, (x0, x1, top, bottom), (ground, bleed, k), body);
+    } else {
+        canvas.fill(
+            &blob(
+                x0 - bleed,
+                x1 + bleed,
+                top - bleed * 0.4,
+                bottom + bleed * 0.3,
+                patch.seed,
+            ),
+            ground.opacity(under),
+        );
+        canvas.fill(&blob(x0, x1, top, bottom, patch.seed), ground.opacity(body));
+    }
     let w = x1 - x0;
     let h = bottom - top;
     let at = |i: i32, salt: i32| {

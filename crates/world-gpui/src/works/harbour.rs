@@ -2365,20 +2365,71 @@ pub fn new_pier(p: &mut Pen) {
     p.rr(0.39, 0.86, 0.48, 0.98, 0.02, p.glass);
 }
 
-/// A navigation light on the point: a squat stone plinth on the rocks and
-/// an iron lantern on a post, its glass green.
+/// A navigation light on the point: an iron lantern on a post, its glass
+/// green, set on a squat pier of dressed stone (v0.30 S1d: a drawn base,
+/// not a grey placeholder plinth). The pier is laid in courses with
+/// staggered joints, lit from the upper left and shaded on its right face,
+/// under a cap stone with a lit edge; its foot is dark with the wet, and
+/// a few boulders, lit on top, are bedded close round it.
 pub fn point_lamp(p: &mut Pen) {
-    p.shadow(0.4);
+    p.shadow(0.3);
     let stone = p.k.stone;
-    for (u, r) in [(-0.3, 0.16), (0.28, 0.18), (0.0, 0.2)] {
-        p.ell(u, 0.06, r, 0.08, shade(stone, -0.2));
+    let wet = shade(stone, -0.34);
+    let joint = shade(stone, -0.26);
+    // The boulders at its foot, close round it: wet below, lit on top.
+    for (u, r) in [(-0.235, 0.075), (0.245, 0.08), (-0.13, 0.06), (0.15, 0.065)] {
+        p.ell(u, 0.045, r, 0.04, wet);
+        p.ell(u - r * 0.25, 0.062, r * 0.55, 0.018, shade(stone, 0.04));
     }
+    // The pier, battered: a little narrower at the top.
+    let half = |v: f32| 0.19 - (v - 0.03) / 0.3 * 0.035;
     p.poly(
-        &[(-0.2, 0.08), (0.2, 0.08), (0.14, 0.34), (-0.14, 0.34)],
+        &[
+            (-0.19, 0.03),
+            (0.19, 0.03),
+            (half(0.33), 0.33),
+            (-half(0.33), 0.33),
+        ],
         stone,
     );
-    p.rect(-0.16, 0.34, 0.16, 0.38, shade(stone, 0.12));
-    p.rect(-0.03, 0.38, 0.03, 0.78, p.k.dark);
+    // Its right face in shade.
+    p.poly(
+        &[(0.05, 0.03), (0.19, 0.03), (half(0.33), 0.33), (0.05, 0.33)],
+        shade(stone, -0.12),
+    );
+    // The wet at its foot.
+    p.poly(
+        &[
+            (-0.19, 0.03),
+            (0.19, 0.03),
+            (half(0.09), 0.09),
+            (-half(0.09), 0.09),
+        ],
+        wet,
+    );
+    // Courses, and their joints staggered course by course.
+    let courses = [0.09, 0.15, 0.21, 0.27, 0.33];
+    for v in &courses[..4] {
+        p.line((-half(*v), *v), (half(*v), *v), 0.012, joint);
+    }
+    for (n, pair) in courses.windows(2).enumerate() {
+        let (v0, v1) = (pair[0], pair[1]);
+        let joints: &[f32] = if n % 2 == 0 {
+            &[-0.06, 0.1]
+        } else {
+            &[-0.13, 0.02, 0.15]
+        };
+        for u in joints {
+            p.line((*u, v0), (*u, v1), 0.01, joint);
+        }
+    }
+    // The cap stone, wider than the pier: lit along its top, dark beneath.
+    p.rr(-0.185, 0.325, 0.185, 0.375, 0.008, shade(stone, 0.06));
+    p.rect(-0.185, 0.325, 0.185, 0.333, shade(stone, -0.22));
+    p.rect(-0.185, 0.366, 0.185, 0.375, shade(stone, 0.2));
+    // The post and its lantern.
+    p.rect(-0.03, 0.375, 0.03, 0.78, p.k.dark);
+    p.rect(-0.05, 0.375, 0.05, 0.41, p.k.dark);
     p.rr(-0.09, 0.78, 0.09, 0.92, 0.02, hex(0x5fbf8a));
     p.rect(-0.1, 0.92, 0.1, 0.94, p.k.dark);
     p.gable(-0.11, 0.11, 0.94, 1.0, p.k.dark);
