@@ -664,6 +664,19 @@ The return film becomes a cut of these scenes, replayed from the recorded events
   - The same-day reopen framed where it was put to bed.
   - Home's subtitle, "Small worlds that keep living while you are away", now contradicts S4. It was not in the brief.
 
+**S4 round 3 (2026-10-15): the old promise retired.** Copy only.
+- *Everywhere the player reads it, "keeps living while you are away" now says the World grows a day at a time*, with the zh and ja catalogs to match:
+  - Home's subtitle and the About window: "Small worlds that grow a day at a time."
+  - The empty Home: "No Worlds yet. Start one below; it grows a day at a time."
+  - The first-World card: "START HERE · A WORLD THAT GROWS A DAY AT A TIME", with "It grows a day at a time, and you can always create another."
+  - The Tiny Society and Pocket Universe blurbs, and the included Pack's description.
+  - README, ROADMAP (a note that its older entries describe releases before S4), the store page and the trailer's cards.
+- *The morning letter's opening* is now "Something to tell you." It was "Morning! A bit of news.", which said "news" twice under "Good morning".
+- *The title bar* says "Heading home · a new day in N h" while the Goodnight card is up. It says "Asleep · …" only once Goodnight is pressed, or when the World is opened asleep (`ProjectionView::rest`, tested).
+- *No digest, golden or ratchet changed.*
+- *Pictures:* `scratchpad/v030/s4/r3/` (Home, morning, Goodnight).
+- *Left:* `docs/press/store/description.md` and `capture-plan.md` still describe the old clock. They are not part of the brief.
+
 ### S5. Residents become people (small, focused)
 
 - **Letters:** about you and what you did together, replacing the one template.

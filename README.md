@@ -1,6 +1,6 @@
 # World Machine
 
-Persistent worlds that remember and evolve. A World keeps living while you are away and tells you what changed when you return.
+Persistent worlds that remember and evolve. A World grows a day at a time: each day you sit down with it, a morning brings a letter, a choice, something looked after and a find, and you let the day pass when you are ready.
 
 > **Early release for macOS.** No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on — see [privacy](docs/PRIVACY.md). Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
 

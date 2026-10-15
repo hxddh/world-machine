@@ -15,11 +15,11 @@ World Machine
 
 ### Short description (≤ 300 characters)
 
-A harbour town that goes on living while you are away. Answer what its people ask, build with your own hands, talk to them in your own words — then close the window. When you come back, the town tells you what happened, and it is the town your answers made.
+A harbour town that grows a day at a time. Answer what its people ask, build with your own hands, talk to them in your own words, then say goodnight. Come back tomorrow for the morning: a letter, a choice, something looked after and a find, in the town your answers made.
 
 ### Long description
 
-**World Machine is a small living place on your Mac that carries on without you.**
+**World Machine is a small living place on your Mac that grows a day at a time.**
 
 Begin in **Tiny Society**, a harbour town of eight neighbours and whoever else turns up. They fish, bake, fall out and make up, and they ask things of you. The oven is failing again. The pier wants mending. A stranger would like to stay. Answer, and the town remembers: what you chose comes back days or months later, in what gets built, who stays and what people say about you.
 
@@ -27,7 +27,7 @@ Begin in **Tiny Society**, a harbour town of eight neighbours and whoever else t
 
 **Talk to people in your own words.** Type what you want to say and they answer from their own lives: what they did today, what they think of each other, what they want.
 
-**Then close the window.** For every six hours you are away the town lives another day, up to a week at a time. Storms come, festivals happen, people arrive, fall in love, move away. When you come back the camera glides from one moment to the next and tells you what changed.
+**Then say goodnight.** Each visit the town lives one day (three on your first), and then everyone heads home. Come back the next day and the morning is waiting: a letter written to you, the day's choice, something looked after overnight, and a find for your book. A day you miss costs nothing: the town waits for you.
 
 **Years of story.** Seasons close chapters of the town's story. Letters arrive (never more than two a week), keepsakes are given, a book fills with the things you have found, and every New Year brings an almanac of the year. Children are born and grow up; the old retire to the quay. Every one of these was played through three whole years in testing, and something new still comes along in the third.
 
@@ -35,17 +35,17 @@ Begin in **Tiny Society**, a harbour town of eight neighbours and whoever else t
 
 **Made to be kept.** Every World is a file on your Mac. There is no account and no telemetry, and nothing is uploaded. What happened is kept as history and replayed exactly, never made up again.
 
-**What the clock does.** While you play, a day passes when you say so: choose "Let the day pass". Close the window and the town keeps living by the real clock, a day for every six hours you are away; come back after a week or more and it has lived 28 days, no more, told back as a short film. The light over the town follows your own clock, so an evening visit finds it at dusk.
+**What the clock does.** A day passes when you say so: choose "Let the day pass". Each visit on a new day of yours brings one day (three on your first visit), however long you were away; a month away is one day, never thirty. Your own clock never enters the town's history. The light over the town follows your own clock, so an evening visit finds it at dusk.
 
 **Every drawing is made by the game's own code.** There are no image files and no AI-generated art: the town, its people, the sky, the app icon and the key art are all drawn by World Machine itself.
 
-**A free demo** of 20 to 30 minutes: the town's first days, a favour asked of you, something you build going up, a few days the town lives on without you (the demo skips the six-hour wait so you see the return), and an evening at dusk to end on. When it ends, your town is kept, and the full game opens it and carries on.
+**A free demo** of 20 to 30 minutes: the town's first days, a favour asked of you, something you build going up, a few days of the town's life, and an evening at dusk to end on. When it ends, your town is kept, and the full game opens it and carries on.
 
 *An optional World voice lets a language model word what people say, using your own API key or your Mac's own model. It is off by default. See the AI disclosure below.*
 
 ### Features
 
-- A World that keeps living while you are away: a day for every six hours, up to a week each time you come back, told back as a short film of its moments.
+- A World that grows a day at a time: one day each visit, with a morning of its own (a letter, a choice, something looked after, a find), never a penalty for a day you miss.
 - Questions from the people who live there, whose answers change the place and come back later.
 - Your own hands: build, give, paint designs and name what you make; two deeds a day.
 - Talk in your own words. People understand 28 kinds of thing in English and Chinese without any model, and answer from their own lives.
