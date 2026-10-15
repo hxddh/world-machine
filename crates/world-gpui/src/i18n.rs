@@ -126,6 +126,21 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     for letter in &mut snapshot.letters {
         put(&mut letter.note);
     }
+    // The morning a sitting opens on (v0.30 S4): every part of it.
+    if let Some(morning) = &mut snapshot.morning {
+        if let Some(letter) = &mut morning.letter {
+            put(&mut letter.note);
+        }
+        if let Some(question) = &mut morning.question {
+            put(&mut question.prompt);
+        }
+        if let Some(tended) = &mut morning.tended {
+            put(&mut tended.line);
+        }
+        if let Some(find) = &mut morning.find {
+            put(&mut find.line);
+        }
+    }
     if let Some(favour) = &mut snapshot.favour {
         put(&mut favour.note);
         put(&mut favour.hint);
@@ -810,6 +825,50 @@ mod tests {
             set_thread_language(None);
             assert_eq!(found, shown, "{language:?}");
         }
+    }
+
+    /// Every part of the morning is shown in the reader's language, as
+    /// the rest of the snapshot is (v0.30 S4).
+    #[test]
+    fn the_morning_is_shown_in_the_readers_language() {
+        use world_projection::{Letter, Morning, MorningLine, Question, SelectionId};
+        world_i18n::install(
+            "Something to tell you.\t有件事想告诉你。\n\
+             Should we?\t我们要不要？\n\
+             Overnight, Quill swept the step.\t夜里，奎尔扫了台阶。\n\
+             You found a bell.\t你找到了一个铃铛。\n",
+        );
+        let someone = SelectionId::from_stable_key("entity-1").unwrap();
+        let line = |line: &str| MorningLine {
+            line: line.into(),
+            about: None,
+        };
+        let snapshot = ProjectionSnapshot {
+            morning: Some(Morning {
+                moment: someone,
+                letter: Some(Letter {
+                    from: someone,
+                    note: "Something to tell you.".into(),
+                    moment: someone,
+                }),
+                question: Some(Question {
+                    id: "q".into(),
+                    prompt: "Should we?".into(),
+                }),
+                tended: Some(line("Overnight, Quill swept the step.")),
+                find: Some(line("You found a bell.")),
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        set_thread_language(Some(Language::SimplifiedChinese));
+        let shown = localize(snapshot).morning.unwrap();
+        set_thread_language(None);
+        assert_eq!(shown.letter.unwrap().note, "有件事想告诉你。");
+        let question = shown.question.unwrap();
+        assert_eq!(question.prompt, "我们要不要？");
+        assert_eq!(question.id, "q", "the id stays the World's");
+        assert_eq!(shown.tended.unwrap().line, "夜里，奎尔扫了台阶。");
+        assert_eq!(shown.find.unwrap().line, "你找到了一个铃铛。");
     }
 
     fn calendar_at(unit: &str, world_time: u64) -> ProjectionSnapshot {

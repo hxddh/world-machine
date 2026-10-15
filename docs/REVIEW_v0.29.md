@@ -680,7 +680,17 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 **S4 round 4 (2026-10-15): two P2s from Codex.**
 - *A held hour is each window's own.* The World asleep (and the demo's farewell) held every window's sky through a process-wide hour (`scene::hold_hour`), so one sleeping World put every open World to bed. Now a view draws its own scene at its own held hour, `ProjectionView::held_hour`, and only while it draws (`scene::with_view_hour`). The global hold is gone. Tested: one window asleep at 23:00 and another awake at the clock's noon, drawn in turn, each at its own hour; the farewell test now checks the window's own hour.
 - *A window active across midnight wakes.* Each World window arms a timer for a moment past the next local midnight (`observer::wake_wait`). It then takes the same wake path as activation (`wake_if_new_day`) and arms again. The task is kept on the window and dropped with it. Tested: the wait falls just after midnight, and the next day's wake begins a new sitting. The timer itself is not driven in a test.
- Residents become people (small, focused)
+
+**S4 round 5 (2026-10-15): a World saved as or imported keeps its sitting.** After Save As, the sitting (the morning read too) is written under the new file's key, and the window charges its days there. The World saved from keeps its own sitting. A World file imported into the Library carries over the sittings it had as a file. Tested both ways.
+
+**S4 round 6 (2026-10-15): the morning in the reader's language.** `world_gpui::i18n::localize` now puts every part of `snapshot.morning` into the reader's language, as it does the rest of the snapshot: the letter, the day's choice, what was looked after, and the find.
+- *Tests:*
+  - a localize test for each part (the question's id stays the World's);
+  - `world-builtins/tests/morning_in_every_language.rs`, where eight harbour mornings and six colony mornings read whole in Chinese and Japanese through the installed catalogs, with no English word left.
+- *Pictures:* `scratchpad/v030/s4/r6/` (the morning in Chinese and in Japanese).
+- *Also:* the "### S5" heading, lost in the round-4 entry, is restored.
+
+### S5. Residents become people (small, focused)
 
 - **Letters:** about you and what you did together, replacing the one template.
 - **Pronouns** fixed.
