@@ -1577,7 +1577,7 @@ fn paint_ground_live(
         let sx = frame.at(x, 0.0).0;
         sx + reach >= 0.0 && sx - reach <= width
     };
-    if frame.water && matches!(frame.weather, Weather::Rain | Weather::Storm) {
+    if frame.water && matches!(frame.shown_weather(), Weather::Rain | Weather::Storm) {
         let front = screen(0.0, frame.front).1;
         let reach = frame.figure_h * z * 0.9;
         let [r, g, b] = shadow_ink(frame.hour);
@@ -1754,6 +1754,8 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
         items.push(Item {
             opacity: 1.0,
             draw: live(full, None, move |window, (ox, oy, w, h)| {
+                // A scene's storm: cloud over the sun, before its clouds.
+                super::staging::paint_overcast(window, &back, (ox, oy, w, h));
                 paint_clouds(window, &back, ox, oy, w, h)
             }),
         });
@@ -2103,7 +2105,9 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 continue;
             }
             let at = match (prop.prop, prop.held_by) {
-                (world_projection::Prop::Bunting, _) => f32::INFINITY,
+                // Bunting stands on its poles: whoever is nearer stands in
+                // front of them.
+                (world_projection::Prop::Bunting, _) => foot,
                 (_, Some(_)) => foot + 0.01,
                 // Scaffolding stands just in front of what it is round.
                 (world_projection::Prop::Scaffold, _) => foot + 0.5,
@@ -2417,6 +2421,9 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
                 if wash > 0.0 {
                     paint_wash(window, &top, (ox, oy, w, h), wash);
                 }
+                // A scene's storm: the light cooler and dimmer, its
+                // lamps lit through it, its rain heavy.
+                super::staging::paint_storm(window, &top, (ox, oy, w, h));
                 paint_weather(window, &top, ox, oy, w, h, (h / 848.0).clamp(0.3, 1.3));
                 let bounds = Bounds::new(point(px(ox), px(oy)), size(px(w), px(h)));
                 if painter::synchronous() {

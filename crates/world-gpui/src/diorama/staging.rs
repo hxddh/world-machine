@@ -37,6 +37,26 @@ pub const TRANSPORT_SLIDE: f32 = 1.4;
 const BRISK: f32 = 1.15;
 const HURRIED: f32 = 2.0;
 
+/// How far apart two of the cast stand, middle to middle, in figure
+/// heights: a body's width between them (a body is 0.42 P wide), unless a
+/// cue puts one right up against the other.
+pub const APART: f32 = 0.84;
+
+/// Room kept between a prop and a person or another prop, in figure
+/// heights.
+const CLEAR: f32 = 0.12;
+
+/// How far in front of the people's line someone walking a distance goes,
+/// in figure heights: the near lane, in front of whoever stands and
+/// whatever stands on their ground, so no walk goes through anyone.
+const LANE: f32 = 0.72;
+
+/// How long after reaching their door someone goes in.
+const GOING_IN: f32 = 0.3;
+
+/// How long a scene's storm takes to set in.
+const STORM_IN: f32 = 1.5;
+
 /// The window's zoom for a script's camera zoom: 1 is the place as the
 /// window shows it at rest, a little closer, and a scene never pulls back
 /// further than that (a long place folding into a postcard mid-scene).
@@ -62,6 +82,9 @@ pub struct StagedPerson {
     pub walk: Option<(f32, f32, f32, f32)>,
     /// Carrying a load as they walk.
     pub loaded: bool,
+    /// How they look, when the scene says: cross in a quarrel, happy at
+    /// a cheer or a dance.
+    pub mood: Option<world_projection::Mood>,
 }
 
 impl StagedPerson {
@@ -123,6 +146,12 @@ pub struct Staged {
     pub bubble: Option<(SelectionId, String, f32)>,
     /// Rain over the whole stage.
     pub rain: bool,
+    /// How far a storm has set in (0 to 1): the sun gone behind cloud, the
+    /// light cooler and dimmer, the rain heavy.
+    pub storm: f32,
+    /// Those of the cast who have gone indoors (item indices): drawn by
+    /// nobody, out of everyone's day.
+    pub indoors: Vec<usize>,
     /// How far in, and how long the scene plays.
     pub t: f32,
     pub seconds: f32,
@@ -139,6 +168,12 @@ impl Staged {
         Dress {
             props: self.props.clone(),
             rain: self.rain,
+            storm: self.storm,
+            moods: self
+                .people
+                .iter()
+                .filter_map(|person| Some((person.index, person.mood?)))
+                .collect(),
         }
     }
 }
@@ -148,14 +183,28 @@ impl Staged {
 pub struct Dress {
     pub props: Vec<StagedProp>,
     pub rain: bool,
+    /// How far a storm has set in (0 to 1).
+    pub storm: f32,
+    /// How the cast look, by item index, when the scene says.
+    pub moods: Vec<(usize, world_projection::Mood)>,
 }
 
 impl Frame {
     /// The frame dressed for a scene: its props stand in depth with
     /// everything else, drawn live, and its rain falls.
     pub fn dressed(mut self, dress: Dress) -> Self {
+        for person in &mut self.people {
+            if let Some((_, mood)) = dress.moods.iter().find(|(at, _)| *at == person.index) {
+                person.mood = *mood;
+            }
+        }
         self.scene = Some(Arc::new(dress));
         self
+    }
+
+    /// How far a scene's storm has set in over it (0 to 1).
+    pub(crate) fn scene_storm(&self) -> f32 {
+        self.scene.as_deref().map_or(0.0, |dress| dress.storm)
     }
 
     /// The props a scene shows in it, if one is playing.
@@ -165,10 +214,11 @@ impl Frame {
 
     /// The weather drawn over it: the World's, or a scene's rain.
     pub(crate) fn shown_weather(&self) -> Weather {
+        let scene = self.scene.as_deref();
         match self.weather {
-            Weather::Clear | Weather::Cloudy
-                if self.scene.as_ref().is_some_and(|dress| dress.rain) =>
-            {
+            weather if weather == Weather::Storm => weather,
+            _ if scene.is_some_and(|dress| dress.storm > 0.3) => Weather::Storm,
+            Weather::Clear | Weather::Cloudy if scene.is_some_and(|dress| dress.rain) => {
                 Weather::Rain
             }
             weather => weather,
@@ -182,6 +232,15 @@ impl Frame {
 /// Everyone else keeps their day.
 pub fn cast_on(stage: &Stage, staged: &Staged) -> Stage {
     let mut out = stage.clone();
+    // Nobody else sets off anywhere while it plays: they are where their
+    // day has them, which the scene was staged clear of.
+    out.routes.clear();
+    // Whoever has gone in is nobody's to draw.
+    for index in &staged.indoors {
+        out.people.retain(|spot| spot.index != *index);
+        out.routes.remove(index);
+        out.doing.remove(index);
+    }
     for person in &staged.people {
         out.inside.retain(|(who, _)| *who != person.index);
         out.routes.remove(&person.index);
@@ -219,6 +278,13 @@ struct Leg {
     after: Stance,
     /// Walking in this stance (Walking, or Carrying with a load).
     moving: Stance,
+    /// Walking a distance: the near lane they walk along, stepping out to
+    /// it and back.
+    lane: Option<f32>,
+    /// Going in at their door once there (or off the edge of the view).
+    indoors: bool,
+    /// How long they stand there before they go.
+    pause: f32,
 }
 
 /// One of the cast's part in a scene.
@@ -239,11 +305,24 @@ impl Part {
         if t >= leg.t1 || leg.t1 <= leg.t0 {
             return Some(leg.to);
         }
-        let u = ease((t - leg.t0) / (leg.t1 - leg.t0));
-        Some((
-            leg.from.0 + (leg.to.0 - leg.from.0) * u,
-            leg.from.1 + (leg.to.1 - leg.from.1) * u,
-        ))
+        let raw = (t - leg.t0) / (leg.t1 - leg.t0);
+        let u = ease(raw);
+        let y = match leg.lane {
+            Some(lane) if raw < 0.2 => leg.from.1 + (lane - leg.from.1) * ease(raw / 0.2),
+            Some(lane) if raw > 0.8 => lane + (leg.to.1 - lane) * ease((raw - 0.8) / 0.2),
+            Some(lane) => lane,
+            None => leg.from.1 + (leg.to.1 - leg.from.1) * u,
+        };
+        Some((leg.from.0 + (leg.to.0 - leg.from.0) * u, y))
+    }
+
+    /// Whether they have gone in at their door by `t`.
+    fn gone_in(&self, t: f32) -> bool {
+        self.legs
+            .iter()
+            .rev()
+            .find(|leg| leg.t0 <= t)
+            .is_some_and(|leg| leg.indoors && t >= leg.t1 + leg.pause)
     }
 
     fn walking(&self, t: f32) -> Option<&Leg> {
@@ -286,6 +365,26 @@ struct Anchor {
     half: f32,
     /// A building's foot and height, for scaffolding round it.
     building: Option<(f32, f32)>,
+    /// A thing's foot and width, for scaffolding round it.
+    thing: Option<(f32, f32)>,
+}
+
+/// Who or what stands somewhere already, so nobody is put on anyone.
+#[derive(Clone, Copy, Debug)]
+struct Taken {
+    x: f32,
+    y: f32,
+    /// Half its width.
+    half: f32,
+    /// One of the people (the cast or anyone out), not a thing or a prop.
+    person: bool,
+    /// Which of the cast, so a cue can put someone right up against them.
+    who: Option<SelectionId>,
+    /// How far in front or behind it someone may stand at its side, in
+    /// figure heights: a body's own height for someone else (who would
+    /// hide them), less for a low thing or prop (someone stands in front
+    /// of a planter, never on it).
+    depth: f32,
 }
 
 /// A scene worked out against a stage: everyone's part, the props' and
@@ -301,11 +400,15 @@ struct Blocking<'a> {
     parts: Vec<Part>,
     props: Vec<PropPart>,
     /// Who and what stands where already, so nobody is put on anyone.
-    taken: Vec<(f32, f32, f32)>,
+    taken: Vec<Taken>,
     /// Tall, thin things standing in the water in front of the shore (a
     /// tide board, a lamp on the point): nobody stands right behind one,
     /// sliced by it. Where, and how far either side.
     posts: Vec<(f32, f32)>,
+}
+
+fn ls_inside(footprint: (f32, f32, f32, f32), x: f32, y: f32) -> bool {
+    super::living_stage::inside(footprint, x, y)
 }
 
 /// Whether a prop is how people come and go.
@@ -427,6 +530,7 @@ impl<'a> Blocking<'a> {
                     y,
                     half: fig * 0.2,
                     building: None,
+                    thing: None,
                 });
             }
         }
@@ -436,6 +540,7 @@ impl<'a> Blocking<'a> {
                 y: spot.y,
                 half: fig * 0.2,
                 building: None,
+                thing: None,
             });
         }
         if let Some(spot) = stage.buildings.iter().find(|spot| spot.index == index) {
@@ -446,9 +551,12 @@ impl<'a> Blocking<'a> {
                 y: feet.max(spot.y + fig * 0.25),
                 half: w * 0.45,
                 building: Some((spot.y, h.max(w * 0.6))),
+                thing: None,
             });
         }
         if let Some(spot) = stage.things.iter().find(|spot| spot.index == index) {
+            let setting = art::Setting::from_key(self.snapshot.canvas.setting.as_deref());
+            let w = thing_width(stage, self.snapshot, spot, setting).max(spot.w);
             return Some(Anchor {
                 x: spot.x,
                 y: if (spot.y - feet).abs() < fig * 0.6 {
@@ -456,8 +564,9 @@ impl<'a> Blocking<'a> {
                 } else {
                     feet
                 },
-                half: spot.w / 2.0,
+                half: w / 2.0,
                 building: None,
+                thing: Some((spot.y, w)),
             });
         }
         if depth > 2 {
@@ -486,7 +595,7 @@ impl<'a> Blocking<'a> {
             Mark::Beside(id, steps) => {
                 let a = self.anchor(id, t, 0)?;
                 let side = if steps < 0 { -1.0 } else { 1.0 };
-                let x = a.x + side * (a.half + fig * 0.3 + f32::from(steps).abs() * fig * 0.6);
+                let x = a.x + side * (a.half + fig * 0.45 + f32::from(steps).abs() * fig * 0.6);
                 Some((x, a.y, None))
             }
             Mark::Offstage(right) => {
@@ -522,26 +631,89 @@ impl<'a> Blocking<'a> {
     /// The nearest open ground to `x` on line `y`, `half` wide: in no
     /// building, on no thing, and clear of whoever and whatever stands
     /// there already.
-    fn open_near(&self, x: f32, y: f32, half: f32) -> f32 {
+    fn open_near(
+        &self,
+        x: f32,
+        y: f32,
+        half: f32,
+        person: bool,
+        close_to: Option<SelectionId>,
+    ) -> (f32, f32) {
         let fig = self.fig();
-        let clear = |x: f32| {
-            self.ground.open(x, y, fig, usize::MAX)
-                && self.ground.open(x - half, y, fig * 0.5, usize::MAX)
-                && self.ground.open(x + half, y, fig * 0.5, usize::MAX)
-                && self
-                    .posts
-                    .iter()
-                    .all(|(post, reach)| (x - post).abs() >= reach + half * 0.5)
-                && self.taken.iter().all(|(tx, ty, reach)| {
-                    (x - tx).abs() >= reach + half || (y - ty).abs() >= fig * 0.45
+        let step = fig * 0.2;
+        // On their line, or a step or two in front of it (in front of a
+        // building's foot, where its picture is).
+        let feet = self.stage.feet;
+        let lines = [y, feet + fig * 0.3, feet + fig * 0.6];
+        let near = |reach: i32, strict: bool| {
+            (0..=reach)
+                .flat_map(|n| [n, -n])
+                .map(|n| x + n as f32 * step)
+                .find_map(|x| {
+                    lines
+                        .iter()
+                        .find(|y| self.clear_at(x, **y, half, person, close_to, strict))
+                        .map(|y| (x, *y))
                 })
         };
-        let step = fig * 0.2;
-        (0..=80)
-            .flat_map(|n| [n, -n])
-            .map(|n| x + n as f32 * step)
-            .find(|x| clear(*x))
-            .unwrap_or(x)
+        // Clear of everyone, close by; else clear of the cast and of
+        // everything, whoever of the town is about.
+        near(30, true)
+            .or_else(|| near(80, false))
+            .or_else(|| near(400, false))
+            .unwrap_or((x, y))
+    }
+
+    /// Whether something `half` wide stands clear at (`x`, `y`): on open
+    /// ground, behind no post in the water, and a body's width from anyone
+    /// (but `close_to`, whom a cue puts it right up against), clear of
+    /// every thing and prop.
+    fn clear_at(
+        &self,
+        x: f32,
+        y: f32,
+        half: f32,
+        person: bool,
+        close_to: Option<SelectionId>,
+        strict: bool,
+    ) -> bool {
+        let fig = self.fig();
+        self.ground.open(x, y, fig, usize::MAX)
+            && self.ground.open(x - half, y, fig * 0.5, usize::MAX)
+            && self.ground.open(x + half, y, fig * 0.5, usize::MAX)
+            && self
+                .posts
+                .iter()
+                .all(|(post, reach)| (x - post).abs() >= reach + half * 0.5)
+            && self.taken.iter().all(|taken| {
+                // Whoever of the town is about: a body's width from them,
+                // or at a pinch, only not on them.
+                let gap = if person && taken.person {
+                    let against = close_to.is_some() && taken.who == close_to;
+                    if against || (taken.who.is_none() && !strict) {
+                        0.0
+                    } else {
+                        fig * (APART - 0.42)
+                    }
+                } else if taken.person && taken.who.is_none() && !strict {
+                    0.0
+                } else {
+                    fig * CLEAR
+                };
+                (x - taken.x).abs() >= taken.half + half + gap
+                    || (y - taken.y).abs() >= fig * taken.depth
+            })
+    }
+
+    fn take(&mut self, x: f32, y: f32, half: f32, person: Option<SelectionId>) {
+        self.taken.push(Taken {
+            x,
+            y,
+            half,
+            person: person.is_some(),
+            who: person,
+            depth: if person.is_some() { 0.7 } else { 0.58 },
+        });
     }
 
     fn part_of(&mut self, who: SelectionId) -> Option<usize> {
@@ -584,17 +756,31 @@ impl<'a> Blocking<'a> {
         }
     }
 
+    /// Whom a cue puts someone right up against: a mark beside one of the
+    /// cast with no steps between (a baby by its parent).
+    fn up_against(&self, mark: Mark) -> Option<SelectionId> {
+        match mark {
+            Mark::Beside(id, 0) if self.parts.iter().any(|part| part.who == id) => Some(id),
+            _ => None,
+        }
+    }
+
     fn place(&mut self, at: usize, mark: Mark, stance: Stance, t: f32) {
         self.note_with(at, mark);
         let fig = self.fig();
+        let who = self.parts[at].who;
         let (x, y) = self.spot_or_middle(mark, t);
         let y = self.on_ground(y);
-        let x = if matches!(mark, Mark::Offstage(_)) {
-            x
+        let offstage = matches!(mark, Mark::Offstage(_));
+        let (x, y) = if offstage {
+            (x, y)
         } else {
-            self.open_near(x, y, fig * 0.2)
+            let close = self.up_against(mark);
+            self.open_near(x, y, fig * 0.21, true, close)
         };
-        self.taken.push((x, y, fig * 0.25));
+        if !offstage {
+            self.take(x, y, fig * 0.21, Some(who));
+        }
         let part = &mut self.parts[at];
         part.legs.retain(|leg| leg.t0 > t + 1e-3);
         part.legs.insert(
@@ -606,19 +792,48 @@ impl<'a> Blocking<'a> {
                 to: (x, y),
                 after: stance,
                 moving: Stance::Walking,
+                lane: None,
+                indoors: false,
+                pause: 0.0,
             },
         );
     }
 
+    /// Whether rain is falling by `t`.
+    fn raining(&self, t: f32) -> bool {
+        self.rain_from().is_some_and(|from| from <= t)
+    }
+
+    fn rain_from(&self) -> Option<f32> {
+        self.script
+            .cues
+            .iter()
+            .filter(|cue| {
+                matches!(
+                    cue.act,
+                    Act::Weather(Prop::Rain)
+                        | Act::Prop {
+                            prop: Prop::Rain,
+                            shown: true,
+                            ..
+                        }
+                )
+            })
+            .map(|cue| cue.at)
+            .reduce(f32::min)
+    }
+
     /// Someone walking from where they are at `t` to a mark: briskly, and
     /// hurried (or, if even that is too slow, setting off from nearer) so
-    /// they are there by their next cue; along their line, stopping beside
-    /// any building in the way.
+    /// they are there by their next cue or the scene's end; hurried in the
+    /// rain. A walk of any distance goes along the near lane, in front of
+    /// whoever stands about, and stops beside any building in the way.
+    /// Someone walking home goes in at their door once there.
     fn walk(&mut self, at: usize, mark: Mark, stance: Stance, t: f32) {
         self.note_with(at, mark);
         let fig = self.fig();
         let who = self.parts[at].who;
-        let from = match self.parts[at].at(t) {
+        let mut from = match self.parts[at].at(t) {
             Some(from) => from,
             None => {
                 let mark = Mark::Place(who);
@@ -628,51 +843,108 @@ impl<'a> Blocking<'a> {
                     .unwrap_or(((self.edges.0 + self.edges.1) / 2.0, self.stage.feet))
             }
         };
-        let (x, y) = self.spot_or_middle(mark, t);
+        let found = self.find(mark, t);
+        let (x, y) = found
+            .map(|(x, y, _)| (x, y))
+            .unwrap_or_else(|| self.spot_or_middle(mark, t));
         let y = self.on_ground(y);
         let offstage = matches!(mark, Mark::Offstage(_));
-        let x = if offstage {
-            x
+        // Home, to a door they can go in at.
+        let door = matches!(mark, Mark::Home(_))
+            && found.and_then(|(.., anchor)| anchor?.building).is_some();
+        let (x, y) = if offstage {
+            (x, y)
         } else {
-            self.open_near(x, y, fig * 0.2)
+            let close = self.up_against(mark);
+            self.open_near(x, y, fig * 0.21, true, close)
         };
-        let x = if offstage {
-            x
-        } else {
-            kept_out(self.ground.footprints(), from.0, x, y, fig * 0.2)
-        };
-        if !offstage {
-            self.taken.push((x, y, fig * 0.25));
-        }
         let pace = fig * STROLL * BRISK;
-        let mut from = from;
-        let mut distance = (x - from.0).abs();
-        let mut speed = pace;
-        if let Some(next) = self.next_cue(who, t) {
-            let room = (next - t - 0.15).max(0.3);
-            speed = (distance / room).clamp(pace, pace * HURRIED);
-            // Still too far: they set off from nearer, if they were only
-            // standing about before.
-            let part = &self.parts[at];
-            let placed = part.walking(t).is_none()
-                && part.legs.len() == 1
-                && part.legs[0].t1 <= part.legs[0].t0;
-            if distance / speed > room && placed {
-                let toward = (from.0 - x).signum();
-                let nearer = self.open_near(x + toward * speed * room, from.1, fig * 0.2);
-                let first = &mut self.parts[at].legs[0];
-                first.from.0 = nearer;
-                first.to.0 = nearer;
-                from.0 = nearer;
-                distance = (x - from.0).abs();
-            }
+        let pace = if self.raining(t) { pace * 1.6 } else { pace };
+        let most = fig * STROLL * BRISK * HURRIED;
+        let next = self.next_cue(who, t);
+        let room = (next.unwrap_or(self.script.seconds - 0.6) - t - 0.15).max(0.3);
+        let near_lane = self.stage.feet + fig * LANE;
+        // Whether the way along the near lane is clear (nothing stands out
+        // into it), and how far along their own line they get.
+        // Someone only standing about before, who could not be there in
+        // time (or could not get there at all), sets off from nearer.
+        let part = &self.parts[at];
+        let placed =
+            part.walking(t).is_none() && part.legs.len() == 1 && part.legs[0].t1 <= part.legs[0].t0;
+        let (lane_clear, reach) = self.way(from, x, y);
+        let blocked = !offstage && !lane_clear && (reach - x).abs() > 0.5;
+        let far = (x - from.0).abs() / most > room;
+        if placed && next.is_some() && (far || blocked) {
+            let toward = if (from.0 - x).abs() > 1.0 {
+                (from.0 - x).signum()
+            } else {
+                1.0
+            };
+            let reach = (x - from.0).abs().min(most * room);
+            let nearer = self.open_near(x + toward * reach, from.1, fig * 0.21, true, None);
+            let first = &mut self.parts[at].legs[0];
+            first.from = nearer;
+            first.to = nearer;
+            from = nearer;
+            self.take(nearer.0, nearer.1, fig * 0.21, Some(who));
         }
+        let (lane_clear, reach) = self.way(from, x, y);
+        // Stopped short by a building: the nearest open ground this side
+        // of it that they can get to.
+        // Off the edge along whichever line is clear of every building on
+        // the way. Stopped short by a building: the nearest open ground
+        // this side of it that they can get to (and they stay there).
+        let feet = self.stage.feet;
+        let off = (offstage && !lane_clear)
+            .then(|| {
+                [from.1, feet, feet + fig * 0.3, feet + fig * 0.6]
+                    .into_iter()
+                    .find(|line| (self.way(from, x, *line).1 - x).abs() < 0.5)
+            })
+            .flatten();
+        let stopped = !lane_clear && off.is_none() && (reach - x).abs() >= 0.5;
+        let (x, y) = if let Some(line) = off {
+            (x, line)
+        } else if !stopped {
+            (x, y)
+        } else {
+            let back = (from.0 - reach).signum();
+            let lines = [y, feet + fig * 0.3, feet + fig * 0.6];
+            (0..200)
+                .map(|k| reach + back * k as f32 * fig * 0.2)
+                .take_while(|x| (x - from.0) * back <= 0.0)
+                .find_map(|x| {
+                    lines
+                        .iter()
+                        .find(|y| {
+                            self.clear_at(x, **y, fig * 0.21, true, None, false)
+                                && (self.way(from, x, **y).1 - x).abs() < 0.5
+                        })
+                        .map(|y| (x, *y))
+                })
+                .unwrap_or(from)
+        };
+        let offstage = offstage && !stopped;
+        if !offstage {
+            self.take(x, y, fig * 0.21, Some(who));
+        }
+        let distance = (x - from.0).abs();
+        let speed = (distance / room).clamp(pace, fig * STROLL * BRISK * 3.0);
         let length = if distance < 1.0 {
             0.0
         } else {
             distance / speed
         };
         let carrying = stance == Stance::Carrying;
+        let lane = (lane_clear && (distance > fig * 1.5 || offstage || door))
+            .then_some(near_lane)
+            .or_else(|| {
+                // Off the near lane, along whichever of their two lines is
+                // clear all the way (never across a building's ground as
+                // they step from one to the other).
+                let clear = |line: f32| (self.way(from, x, line).1 - x).abs() < 0.5;
+                [from.1, y].into_iter().find(|line| clear(*line))
+            });
         self.parts[at].legs.retain(|leg| leg.t0 <= t);
         self.parts[at].legs.push(Leg {
             t0: t,
@@ -689,10 +961,83 @@ impl<'a> Blocking<'a> {
             } else {
                 Stance::Walking
             },
+            lane,
+            // In at their door, or gone off the edge of the view.
+            indoors: offstage || (door && (x - found.map_or(x, |(fx, ..)| fx)).abs() < fig * 2.0),
+            pause: if offstage { 0.0 } else { GOING_IN },
         });
     }
 
+    /// Whether the way from `from` to `x` along the near lane is clear
+    /// (nothing stands out into it), and how far along the line `y` they
+    /// get, stopping beside any building in the way.
+    fn way(&self, from: (f32, f32), x: f32, y: f32) -> (bool, f32) {
+        let fig = self.fig();
+        let near_lane = self.stage.feet + fig * LANE;
+        let footprints = self.ground.footprints();
+        let lane = (kept_out(footprints, from.0, x, near_lane, fig * 0.2) - x).abs() < 0.5
+            && footprints
+                .iter()
+                .all(|footprint| !ls_inside(*footprint, from.0, near_lane));
+        (lane, kept_out(footprints, from.0, x, y, fig * 0.2))
+    }
+
     fn block(&mut self) {
+        let fig = self.fig();
+        // Everyone out who is not of the cast, where their day has them,
+        // and everything standing on the people's ground.
+        // (Those of the cast with no part of their own keep their day,
+        // and so are about like anyone else.)
+        let cast = self
+            .script
+            .cues
+            .iter()
+            .filter_map(|cue| self.index_of.get(&cue.who?).copied())
+            .collect::<BTreeSet<_>>();
+        let out = self
+            .stage
+            .people
+            .iter()
+            .filter(|spot| !cast.contains(&spot.index))
+            .map(|spot| (spot.x, spot.y))
+            .collect::<Vec<_>>();
+        for (x, y) in out {
+            self.taken.push(Taken {
+                x,
+                y,
+                half: fig * 0.21,
+                person: true,
+                who: None,
+                depth: 0.7,
+            });
+        }
+        let setting = art::Setting::from_key(self.snapshot.canvas.setting.as_deref());
+        let feet = self.stage.feet;
+        let front = self.stage.front;
+        let height = self.stage.height;
+        let things = self
+            .stage
+            .things
+            .iter()
+            .filter(|spot| {
+                let depth = Depth::at(spot.y, height);
+                depth > Depth::Street && depth < Depth::Water
+            })
+            .filter(|spot| {
+                let shape = self.snapshot.canvas.items[spot.index]
+                    .shape
+                    .unwrap_or(MarkShape::Parcel);
+                !super::living_stage::lies_flat(shape, spot.y, front)
+            })
+            .filter(|spot| (spot.y - feet).abs() < fig * 0.9)
+            .map(|spot| {
+                let w = thing_width(self.stage, self.snapshot, spot, setting).max(spot.w);
+                (spot.x, w / 2.0)
+            })
+            .collect::<Vec<_>>();
+        for (x, half) in things {
+            self.take(x, feet, half, None);
+        }
         // Every cue in time order, as the script has them.
         let cues = self.script.cues.clone();
         let mut shown: Vec<PropPart> = Vec::new();
@@ -725,9 +1070,16 @@ impl<'a> Blocking<'a> {
                     shown: on,
                 } => {
                     if *on {
-                        let still = self.prop_at(*prop, *at, t);
-                        if let (Some((x, y, w, _)), true) = (still, takes_ground(*prop)) {
-                            self.taken.push((x, y, w / 2.0));
+                        let still = self.prop_at(*prop, *at, t, &shown);
+                        if let Some((x, y, w, _)) = still {
+                            if takes_ground(*prop) {
+                                self.take(x, y, w / 2.0, None);
+                            } else if *prop == Prop::Bunting {
+                                // Its two poles.
+                                for pole in [x - w / 2.0, x + w / 2.0] {
+                                    self.take(pole, y, fig * 0.08, None);
+                                }
+                            }
                         }
                         shown.push(PropPart {
                             prop: *prop,
@@ -753,7 +1105,17 @@ impl<'a> Blocking<'a> {
 
     /// Where a prop that stands still stands, shown at `t`: (x, foot, w,
     /// h). None for one that goes with someone, or comes in from an edge.
-    fn prop_at(&self, prop: Prop, mark: Mark, t: f32) -> Option<(f32, f32, f32, f32)> {
+    /// Scaffolding stands round whatever is going up, at its own foot; the
+    /// tools lean against the scaffolding, or lie by the work; bunting is
+    /// strung between two poles on open ground; anything else stands on
+    /// open ground clear of everyone and everything.
+    fn prop_at(
+        &self,
+        prop: Prop,
+        mark: Mark,
+        t: f32,
+        shown: &[PropPart],
+    ) -> Option<(f32, f32, f32, f32)> {
         let fig = self.fig();
         let (w, h) = prop_size(prop, fig);
         if is_transport(prop) {
@@ -773,17 +1135,59 @@ impl<'a> Blocking<'a> {
             .map(|(x, y, _)| (x, y))
             .unwrap_or_else(|| self.spot_or_middle(mark, t));
         let anchor = found.and_then(|(.., anchor)| anchor);
+        // What it stands by: the anchor of a mark beside something.
+        let by = match mark {
+            Mark::Beside(id, _) => self.anchor(id, t, 0),
+            _ => anchor,
+        };
         match prop {
-            // Round a building, from its foot; or a plot's worth of it.
-            Prop::Scaffold => match anchor.and_then(|a| a.building.map(|b| (a, b))) {
-                Some((a, (base, height))) => Some((a.x, base, a.half * 2.3, height * 0.95)),
-                None => {
-                    let y = self.on_ground(y) - fig * 0.15;
-                    Some((self.open_near(x, y, w / 2.0), y, w, h))
+            Prop::Scaffold => {
+                if let Some((a, (base, height))) = anchor.and_then(|a| a.building.map(|b| (a, b))) {
+                    return Some((a.x, base, a.half * 2.3, height * 0.95));
                 }
-            },
-            // Over the people's heads, across the place.
-            Prop::Bunting => Some((x, self.on_ground(y) - fig * 0.1, w, h)),
+                if let Some((a, (base, width))) = anchor.and_then(|a| a.thing.map(|b| (a, b))) {
+                    return Some((a.x, base, (width * 1.4).max(fig * 1.6), fig * 2.0));
+                }
+                let y = self.on_ground(y) - fig * 0.15;
+                {
+                    let (x, y) = self.open_near(x, y, w / 2.0, false, None);
+                    Some((x, y, w, h))
+                }
+            }
+            Prop::Tools => {
+                // Against the scaffolding round the same work, if it is up.
+                let scaffold = shown
+                    .iter()
+                    .filter(|part| part.prop == Prop::Scaffold && part.until.is_none())
+                    .find_map(|part| part.at);
+                if let Some((sx, base, sw, _)) = scaffold {
+                    let side = if x < sx { -1.0 } else { 1.0 };
+                    return Some((sx + side * (sw / 2.0 + w * 0.35), base, w, h));
+                }
+                let _ = by;
+                let y = self.on_ground(y) - fig * 0.12;
+                {
+                    let (x, y) = self.open_near(x, y, w / 2.0, false, None);
+                    Some((x, y, w, h))
+                }
+            }
+            // Over the people's heads, across the place, its poles on open
+            // ground: never on a building's face, a thing or a post.
+            Prop::Bunting => {
+                let y = self.on_ground(y) - fig * 0.1;
+                let pole = |at: f32| self.clear_at(at, y, fig * 0.08, false, None, false);
+                for k in [1.0, 0.85, 0.7, 0.55] {
+                    let w = w * k;
+                    let shift = (0..=60)
+                        .flat_map(|n| [n, -n])
+                        .map(|n| n as f32 * fig * 0.2)
+                        .find(|shift| pole(x + shift - w / 2.0) && pole(x + shift + w / 2.0));
+                    if let Some(shift) = shift {
+                        return Some((x + shift, y, w, h));
+                    }
+                }
+                None
+            }
             // Across the door.
             Prop::Ribbon => {
                 let width = anchor.map_or(w, |a| (a.half * 1.2).max(fig));
@@ -791,7 +1195,10 @@ impl<'a> Blocking<'a> {
             }
             _ => {
                 let y = self.on_ground(y) - fig * 0.12;
-                Some((self.open_near(x, y, w / 2.0), y, w, h))
+                {
+                    let (x, y) = self.open_near(x, y, w / 2.0, false, None);
+                    Some((x, y, w, h))
+                }
             }
         }
     }
@@ -851,9 +1258,26 @@ impl<'a> Blocking<'a> {
                     && !is_transport(part.prop)
             })
         };
+        // A quarrel's two are cross with each other.
+        let quarrel = if self.script.kind == MomentKind::Quarrel {
+            self.parts
+                .iter()
+                .take(2)
+                .map(|part| part.index)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let indoors = self
+            .parts
+            .iter()
+            .filter(|part| part.gone_in(t))
+            .map(|part| part.index)
+            .collect::<Vec<_>>();
         let mut people = self
             .parts
             .iter()
+            .filter(|part| !part.gone_in(t))
             .filter_map(|part| {
                 let (x, y) = part.at(t)?;
                 let holding = held(part.index, t);
@@ -876,6 +1300,16 @@ impl<'a> Blocking<'a> {
                     }
                     None => (plain(part.stance(t)), None, false, 0.0),
                 };
+                let mood = if quarrel.contains(&part.index) {
+                    Some(world_projection::Mood::Cross)
+                } else if matches!(
+                    stance,
+                    Stance::Celebrating | Stance::Dancing | Stance::Waving
+                ) {
+                    Some(world_projection::Mood::Happy)
+                } else {
+                    None
+                };
                 Some(StagedPerson {
                     index: part.index,
                     who: part.who,
@@ -885,6 +1319,7 @@ impl<'a> Blocking<'a> {
                     stance,
                     walk,
                     loaded,
+                    mood,
                 })
             })
             .collect::<Vec<_>>();
@@ -991,8 +1426,10 @@ impl<'a> Blocking<'a> {
                         return None;
                     }
                     let y = match part.prop {
+                        // Well out on the water, its cabin below the shore's
+                        // edge.
                         Prop::Ferry => {
-                            self.stage.front + (self.stage.height - self.stage.front) * 0.3
+                            self.stage.front + (self.stage.height - self.stage.front) * 0.42
                         }
                         _ => self.stage.feet + fig * 0.6,
                     };
@@ -1064,27 +1501,104 @@ impl<'a> Blocking<'a> {
                     .any(|person| person.who == who)
                     .then(|| (who, words.clone(), t - at))
             });
-        let rain = self.script.cues.iter().any(|cue| {
-            cue.at <= t
-                && matches!(
-                    cue.act,
-                    Act::Weather(Prop::Rain)
-                        | Act::Prop {
-                            prop: Prop::Rain,
-                            shown: true,
-                            ..
-                        }
-                )
+        let rain = self.raining(t);
+        // A storm sets in: in a storm's scene, or wherever the rain comes.
+        let storm = self.rain_from().map_or(0.0, |from| {
+            ease(((t - from) / STORM_IN).clamp(0.0, 1.0)) * if t >= from { 1.0 } else { 0.0 }
         });
+        let storm = if self.script.kind == MomentKind::Storm || rain {
+            storm
+        } else {
+            0.0
+        };
         Staged {
             people,
             props,
             camera,
             bubble,
             rain,
+            storm,
+            indoors,
             t,
             seconds: self.script.seconds,
         }
+    }
+}
+
+/// A scene's storm over the sky: a deck of cloud over the sun and the blue,
+/// darker overhead, as far as it has set in. Drawn over the sky's own
+/// pictures, under the hills and the clouds that drift.
+pub(super) fn paint_overcast(window: &mut dyn Brush, frame: &Frame, (ox, oy, w, h): Rect) {
+    let storm = frame.scene_storm();
+    if storm <= 0.0 {
+        return;
+    }
+    let horizon = oy + frame.at(0.0, frame.horizon).1;
+    let bottom = (horizon + h * 0.06).min(oy + h);
+    window.gradient(
+        ox,
+        oy,
+        w,
+        (bottom - oy).max(1.0),
+        180.0,
+        (art::hex(0x4e5866).opacity(0.97 * storm), 0.0),
+        (art::hex(0x8c96a0).opacity(0.93 * storm), 1.0),
+    );
+}
+
+/// A scene's storm over everything: the light cooled and dimmed (never
+/// greyed out: the art bible's §4), heavy streaks of rain that read at the
+/// window's own zoom, and its lamps glowing through it.
+pub(super) fn paint_storm(window: &mut dyn Brush, frame: &Frame, (ox, oy, w, h): Rect) {
+    let storm = frame.scene_storm();
+    if storm <= 0.0 {
+        return;
+    }
+    window.rect(ox, oy, w, h, 0.0, art::hex(0x1e2a3a).opacity(0.26 * storm));
+    let z = frame.camera.zoom;
+    let fig = frame.figure_h * z;
+    for prop in frame
+        .scene_props()
+        .iter()
+        .filter(|prop| prop.prop == Prop::Lamp)
+    {
+        let (x, foot) = frame.at(prop.x, prop.y);
+        let (x, y) = (ox + x, oy + foot - prop.h * z * 0.86);
+        let a = prop.shown * storm;
+        window.soft(
+            x,
+            y,
+            fig * 1.1,
+            fig * 1.1,
+            fig * 0.7,
+            art::hex(0xffc36a).opacity(0.5 * a),
+        );
+        window.soft(
+            x,
+            y,
+            fig * 0.3,
+            fig * 0.3,
+            fig * 0.2,
+            art::hex(0xffe2a0).opacity(0.9 * a),
+        );
+    }
+    // Rain in slanting streaks, thicker than a shower's.
+    let t = frame.seconds;
+    let k = (h / 848.0).clamp(0.3, 1.3) * z.sqrt();
+    let ink = art::hex(0xdfe7ef).opacity(0.5 * storm);
+    for index in 0..170_u32 {
+        let mut seed = index.wrapping_mul(0x9e37_79b9) ^ 0x2c1b_3c6d;
+        seed ^= seed >> 15;
+        let x0 = (seed % 1000) as f32 / 1000.0;
+        let phase = ((seed / 1000) % 1000) as f32 / 1000.0;
+        let y = ((phase + t * 1100.0 / h.max(1.0)) % 1.0) * (h + 60.0) - 30.0;
+        let x = (x0 * (w + 160.0) + y * 0.28) % (w + 160.0) - 80.0;
+        let len = (16.0 + (index % 5) as f32 * 4.0) * k;
+        let mut streak = Shape::new();
+        streak
+            .move_to(ox + x, oy + y)
+            .line_to(ox + x + len * 0.28, oy + y + len);
+        window.stroke(&streak, 1.3 * k, ink);
     }
 }
 
@@ -1471,11 +1985,57 @@ pub fn sample(
     use world_projection::Cue;
     let items = &snapshot.canvas.items;
     let middle = stage.view_w / 2.0;
+    // How much open ground there is about `x` for a crowd: the spots,
+    // a stride apart, on no building's picture and clear of every thing
+    // and everyone out.
+    let ground = Ground::of(stage, snapshot);
+    let fig = stage.figure_h;
+    let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+    let standing = stage
+        .things
+        .iter()
+        .filter(|spot| (spot.y - stage.feet).abs() < fig * 0.9)
+        .map(|spot| {
+            (
+                spot.x,
+                thing_width(stage, snapshot, spot, setting).max(spot.w) / 2.0,
+            )
+        })
+        .collect::<Vec<_>>();
+    let room_at = |x: f32| {
+        (-6..=6)
+            .map(|k| x + k as f32 * fig * 0.5)
+            .filter(|x| {
+                ground.open(*x, stage.feet + fig * 0.5, fig, usize::MAX)
+                    && standing
+                        .iter()
+                        .all(|(at, half)| (x - at).abs() > half + fig * 0.3)
+                    && stage
+                        .people
+                        .iter()
+                        .all(|spot| (x - spot.x).abs() > fig * 0.5)
+            })
+            .count()
+    };
+    // The building with the most room in front of it, of those in the
+    // first view; the nearest the middle of it of those.
     let place = stage
         .buildings
         .iter()
         .filter(|spot| stage.shows(spot.index, 1.0))
-        .min_by(|a, b| (a.x - middle).abs().total_cmp(&(b.x - middle).abs()))?;
+        .filter(|spot| (spot.x - middle).abs() < stage.view_w * 0.35)
+        .max_by(|a, b| {
+            (room_at(a.x), -(a.x - middle).abs())
+                .partial_cmp(&(room_at(b.x), -(b.x - middle).abs()))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .or_else(|| {
+            stage
+                .buildings
+                .iter()
+                .filter(|spot| stage.shows(spot.index, 1.0))
+                .min_by(|a, b| (a.x - middle).abs().total_cmp(&(b.x - middle).abs()))
+        })?;
     let mut people = stage
         .people
         .iter()
@@ -1573,10 +2133,26 @@ pub fn sample(
                 cue(4.0, Some(*who), Act::Strike(Stance::Dancing));
             }
             cue(4.5, Some(a), Act::Say(said));
-            cue(5.0, None, camera(here, 1.3));
+            cue(1.5, None, camera(here, 1.3));
             9.0
         }
         MomentKind::Build => {
+            // What goes up is a thing on the people's ground, as a work
+            // built by hand is: the nearest of them to the place.
+            // The one with the most room about it, for those who build it.
+            let made = stage
+                .things
+                .iter()
+                .filter(|spot| (spot.y - stage.feet).abs() < fig * 0.6)
+                .filter(|spot| stage.shows(spot.index, 1.0))
+                .filter(|spot| (spot.x - middle).abs() < stage.view_w * 0.45)
+                .max_by(|a, b| {
+                    (room_at(a.x), -(a.x - middle).abs())
+                        .partial_cmp(&(room_at(b.x), -(b.x - middle).abs()))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map_or(here, |spot| Mark::Place(items[spot.index].id));
+            let here = made;
             cue(0.0, None, camera(here, 1.5));
             cue(0.0, None, prop(Prop::Scaffold, here, true));
             cue(0.0, None, prop(Prop::Tools, beside(here, -1), true));
@@ -1615,6 +2191,7 @@ pub fn sample(
                     walk(beside(here, spread(n, 2)), Stance::Walking),
                 );
                 cue(3.0, Some(*who), Act::Strike(Stance::Waving));
+                cue(5.5, Some(*who), Act::Strike(Stance::Celebrating));
             }
             cue(2.5, Some(parent), Act::Say(said));
             8.0

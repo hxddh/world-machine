@@ -424,7 +424,8 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
                 stage.strike(4.0, *who, Stance::Dancing);
             }
             say(&mut stage, 4.5);
-            stage.camera(5.0, place, 1.3);
+            // In close while they gather, so the dance is seen.
+            stage.camera(1.5, place, 1.3);
             9.0
         }
         MomentKind::Storm => {
@@ -458,6 +459,7 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
                 stage.walk(0.0, *who, beside(place, spread(n, 5)), Stance::Standing);
                 stage.walk(1.0, *who, beside(place, spread(n, 2)), Stance::Walking);
                 stage.strike(3.0, *who, Stance::Waving);
+                stage.strike(5.5, *who, Stance::Celebrating);
             }
             say(&mut stage, 2.5);
             8.0

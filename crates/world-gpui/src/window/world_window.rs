@@ -426,6 +426,8 @@ pub(crate) struct Looking {
     /// the World's revision and the beat's index): none for a beat that is
     /// no recorded Event, or one the World stages no scene for.
     pub(crate) scene: Option<((u64, usize), Option<BeatScene>)>,
+    /// Where the return film's card docked for a beat, kept through it.
+    pub(crate) film_dock: Option<((u64, usize), Dock)>,
     /// A test's clock for the beat: how far into it, whatever the wall
     /// clock says.
     #[cfg(test)]
@@ -3481,8 +3483,24 @@ impl ProjectionView {
                     .find_map(|who| heads.iter().find(|(id, ..)| id == who))
                     .map(|(_, x, _)| *x)
                     .filter(|_| self.retelling.is_none());
+                // A return beat's card stays where it first docked for the
+                // whole beat, however its scene's people move.
+                let dock = match self.retelling {
+                    Some(index) => {
+                        let key = (self.revision, index);
+                        match self.looking.film_dock {
+                            Some((at, dock)) if at == key => dock,
+                            _ => {
+                                let dock = card_dock(room, asker_x, &crowd);
+                                self.looking.film_dock = Some((key, dock));
+                                dock
+                            }
+                        }
+                    }
+                    None => card_dock(room, asker_x, &crowd),
+                };
                 root = root.child(
-                    bottom_card(card, card_dock(room, asker_x, &crowd))
+                    bottom_card(card, dock)
                         .when(self.looking.drawer, |card| card.right(px(DRAWER_WIDTH))),
                 );
             }

@@ -713,6 +713,9 @@ pub fn living_staged(
                 || at_fixture
                 || what.with.is_some()
                 || daylight == Daylight::Night
+                // While a scene plays, everyone else stays where they are,
+                // so its cast is staged clear of them.
+                || staged.is_some()
             {
                 return still;
             }
@@ -2112,7 +2115,7 @@ pub(super) fn paint_person_ground(
     let t = frame.seconds;
     let night = frame.daylight == Daylight::Night;
     let (across, high) = sun_at(frame.hour);
-    let day = sun_out(frame.weather) && high > 0.02 && !night;
+    let day = sun_out(frame.shown_weather()) && high > 0.02 && !night;
     let long = 0.22 + 0.9 * (1.0 - high.max(0.0)).powi(2);
     let away = if across < 0.0 { 1.0 } else { -1.0 };
     let (x, y) = (ox + person.x, oy + person.y);

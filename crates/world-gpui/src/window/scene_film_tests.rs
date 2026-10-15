@@ -360,9 +360,12 @@ fn scene_pictures() {
                 .expect("a picture");
         }
     }
-    if only.is_none() {
-        // One whole beat, six moments of it.
-        let script = staging::sample(&snapshot, &stage, MomentKind::Festival).unwrap();
+    // Whole beats, six moments of each.
+    for kind in [MomentKind::Festival, MomentKind::Storm] {
+        if only.as_deref().is_some_and(|only| only != kind.id()) {
+            continue;
+        }
+        let script = staging::sample(&snapshot, &stage, kind).unwrap();
         let frames = (0..6)
             .map(|n| scene_picture(&script, script.seconds * n as f32 / 5.0, size))
             .collect::<Vec<_>>();
@@ -374,7 +377,7 @@ fn scene_pictures() {
             image::imageops::overlay(&mut strip, &small, i64::from(x), i64::from(y));
         }
         strip
-            .save(dir.join("festival-beat-strip.png"))
+            .save(dir.join(format!("{}-beat-strip.png", kind.id())))
             .expect("a picture");
     }
     crate::scene::pin_hour(None);

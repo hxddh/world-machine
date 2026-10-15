@@ -122,7 +122,8 @@ fn an_arrival_comes_on_from_the_edge_with_a_bag_and_is_waved_in() {
         walking.walk.is_some() && walking.facing > 0.0,
         "{walking:?}"
     );
-    assert!((person(&end, a).x - x).abs() < fig * 2.0, "{end:?}");
+    // At the place, on the nearest open ground to it.
+    assert!((person(&end, a).x - x).abs() < fig * 6.0, "{end:?}");
     assert_eq!(person(&end, a).stance, Stance::Waving);
     // The bag goes with them.
     let bag = |staged: &Staged| {
@@ -156,19 +157,27 @@ fn a_quarrel_has_two_face_to_face_and_one_goes_off_home() {
     );
     let start = stage_scene(&script, &stage, &snapshot, 0.0);
     let (pa, pb) = (person(&start, a), person(&start, b));
-    // Side by side: the nearest open ground beside them.
-    assert!((pa.x - pb.x).abs() < fig * 3.0, "{pa:?} {pb:?}");
+    // Face to face, a clear gap between them, and cross.
+    let gap = (pa.x - pb.x).abs();
+    assert!(
+        gap >= fig * APART * 0.99 && gap < fig * 3.0,
+        "{pa:?} {pb:?}"
+    );
     assert_eq!(pa.facing, (pb.x - pa.x).signum(), "facing each other");
     assert_eq!(pb.facing, (pa.x - pb.x).signum(), "facing each other");
     assert_eq!(pa.stance, Stance::Talking);
+    assert_eq!(pa.mood, Some(world_projection::Mood::Cross));
+    assert_eq!(pb.mood, Some(world_projection::Mood::Cross));
     // Half way, one has turned away and is walking home.
     let middle = stage_scene(&script, &stage, &snapshot, 4.5);
     assert!(person(&middle, b).walk.is_some(), "{middle:?}");
+    // By the end they are home and gone in, or (a home too far to reach)
+    // well away.
     let end = stage_scene(&script, &stage, &snapshot, script.seconds);
-    assert!(
-        (person(&end, b).x - pa.x).abs() > (pb.x - pa.x).abs() + fig,
-        "{end:?}"
-    );
+    match end.person(b) {
+        None => assert!(end.indoors.contains(&b), "{end:?}"),
+        Some(walked) => assert!((walked.x - pa.x).abs() > gap + fig * 2.0, "{end:?}"),
+    }
     assert_eq!(person(&end, a).stance, Stance::LookingAround);
 }
 
@@ -203,8 +212,36 @@ fn a_build_goes_up_in_scaffolding_and_comes_down_to_a_cheer() {
     let script = scene(&snapshot, &stage, MomentKind::Build);
     let working = stage_scene(&script, &stage, &snapshot, 2.0);
     let end = stage_scene(&script, &stage, &snapshot, script.seconds);
-    assert!(working.props.iter().any(|prop| prop.prop == Prop::Scaffold));
-    assert!(working.props.iter().any(|prop| prop.prop == Prop::Tools));
+    let scaffold = working
+        .props
+        .iter()
+        .find(|prop| prop.prop == Prop::Scaffold)
+        .copied()
+        .expect("scaffolding");
+    let tools = working
+        .props
+        .iter()
+        .find(|prop| prop.prop == Prop::Tools)
+        .copied()
+        .expect("tools");
+    // One work site: the tools against the scaffolding, at its foot, and
+    // everyone working at it, on its ground.
+    let fig = stage.figure_h;
+    assert!(
+        (tools.x - scaffold.x).abs() <= scaffold.w / 2.0 + tools.w,
+        "{tools:?}"
+    );
+    assert!((tools.y - scaffold.y).abs() < 1.0, "{tools:?} {scaffold:?}");
+    assert!(
+        (scaffold.y - stage.feet).abs() < fig * 0.6,
+        "on the people's ground"
+    );
+    for person in &working.people {
+        assert!(
+            (person.x - scaffold.x).abs() < scaffold.w / 2.0 + fig * 3.0,
+            "{person:?} {scaffold:?}"
+        );
+    }
     assert!(working
         .people
         .iter()
@@ -236,7 +273,7 @@ fn a_birth_a_farewell_and_a_storm_play_their_parts() {
             person(&end, index)
         );
         assert!((person(&end, index).x - person(&start, index).x).abs() > 1.0);
-        assert_eq!(person(&end, index).stance, Stance::Waving);
+        assert_eq!(person(&end, index).stance, Stance::Celebrating);
     }
     // A farewell: bag in hand, off to the right edge, the ferry waiting.
     let farewell = scene(&snapshot, &stage, MomentKind::Farewell);
@@ -245,7 +282,11 @@ fn a_birth_a_farewell_and_a_storm_play_their_parts() {
     let going = stage_scene(&farewell, &stage, &snapshot, 5.0);
     let end = stage_scene(&farewell, &stage, &snapshot, farewell.seconds);
     assert!(person(&going, a).walk.is_some() && person(&going, a).facing > 0.0);
-    assert!(person(&end, a).x > person(&start, a).x + fig * 3.0);
+    // Gone off the edge, or well on the way.
+    match end.person(a) {
+        None => assert!(end.indoors.contains(&a), "{end:?}"),
+        Some(going) => assert!(going.x > person(&start, a).x + fig * 3.0),
+    }
     let ferry = going.props.iter().find(|prop| prop.prop == Prop::Ferry);
     assert!(ferry.is_some_and(|ferry| ferry.x > person(&start, a).x));
     // A storm: rain from the start, everyone off home, a lamp lit.
@@ -253,13 +294,19 @@ fn a_birth_a_farewell_and_a_storm_play_their_parts() {
     let start = stage_scene(&storm, &stage, &snapshot, 0.0);
     let end = stage_scene(&storm, &stage, &snapshot, storm.seconds);
     assert!(start.rain && end.rain);
+    assert!(start.storm < 0.1 && end.storm > 0.99, "the storm sets in");
+    assert!(
+        !end.indoors.is_empty() || end.people.iter().all(|person| person.walk.is_some()),
+        "home and in, or still hurrying: {end:?}"
+    );
     assert!(end.props.iter().any(|prop| prop.prop == Prop::Lamp));
     let moved = storm
         .cast
         .iter()
         .filter(|(id, _)| {
             let index = who(&snapshot, *id);
-            (person(&end, index).x - person(&start, index).x).abs() > fig
+            end.indoors.contains(&index)
+                || (person(&end, index).x - person(&start, index).x).abs() > fig
         })
         .count();
     assert!(moved >= 1, "someone hurried home");
@@ -319,8 +366,10 @@ fn the_cast_is_in_view_at_each_camera_cue() {
                     }
                 }
                 Mark::Place(id) => {
-                    let person = person(&staged, who(&snapshot, *id));
-                    assert!(shown(person.x), "{kind:?} at {t}: {person:?}");
+                    // (Unless they have gone in at their door.)
+                    if let Some(person) = staged.person(who(&snapshot, *id)) {
+                        assert!(shown(person.x), "{kind:?} at {t}: {person:?}");
+                    }
                 }
                 _ => {}
             }
@@ -329,22 +378,80 @@ fn the_cast_is_in_view_at_each_camera_cue() {
 }
 
 /// In every fixture, every kind, every quarter second: nobody staged has
-/// their feet in a building, and nobody standing is on a prop.
+/// their feet in a building; nobody standing is on a prop or on a thing;
+/// none of the cast standing is less than a body's width from another
+/// (unless a cue puts them right up against each other); and no prop that
+/// stands on the ground (nor a pole of the bunting) is on a thing, a
+/// building's face or behind a post in the water.
 #[test]
 fn nobody_staged_is_in_a_building_or_on_a_prop() {
     let mut scenes = 0;
-    for (name, snapshot) in fixtures() {
-        let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(11));
+    for ((name, snapshot), hour) in fixtures()
+        .into_iter()
+        .flat_map(|fixture| [(fixture.clone(), 11), (fixture, 14)])
+    {
+        let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(hour));
+        let name = format!("{name} at {hour}");
         let footprints = footprints(&stage, &snapshot);
+        let ground = Ground::of(&stage, &snapshot);
+        let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
         let fig = stage.figure_h;
+        let things = stage
+            .things
+            .iter()
+            .filter(|spot| {
+                let depth = Depth::at(spot.y, stage.height);
+                depth > Depth::Street && depth < Depth::Water
+            })
+            .filter(|spot| {
+                let shape = snapshot.canvas.items[spot.index]
+                    .shape
+                    .unwrap_or(MarkShape::Parcel);
+                !ls::lies_flat(shape, spot.y, stage.front)
+            })
+            .filter(|spot| (spot.y - stage.feet).abs() < fig * 0.9)
+            .map(|spot| {
+                (
+                    spot.x,
+                    thing_width(&stage, &snapshot, spot, setting).max(spot.w) / 2.0,
+                )
+            })
+            .collect::<Vec<_>>();
         for kind in KINDS {
             let Some(script) = sample(&snapshot, &stage, kind) else {
                 continue;
             };
             scenes += 1;
+            let together = script
+                .cues
+                .iter()
+                .filter_map(|cue| match cue.act {
+                    Act::WalkTo {
+                        to: Mark::Beside(other, 0),
+                        ..
+                    } => Some((cue.who?, other)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let with_part = script
+                .cues
+                .iter()
+                .filter_map(|cue| {
+                    let who = cue.who?;
+                    snapshot.canvas.items.iter().position(|item| item.id == who)
+                })
+                .collect::<BTreeSet<_>>();
+            let paired = |a: SelectionId, b: SelectionId| {
+                together.contains(&(a, b)) || together.contains(&(b, a))
+            };
             let mut t = 0.0;
             while t <= script.seconds {
                 let staged = stage_scene(&script, &stage, &snapshot, t);
+                let standing = staged
+                    .people
+                    .iter()
+                    .filter(|person| person.walk.is_none())
+                    .collect::<Vec<_>>();
                 for person in &staged.people {
                     for footprint in &footprints {
                         assert!(
@@ -352,9 +459,8 @@ fn nobody_staged_is_in_a_building_or_on_a_prop() {
                             "{name} {kind:?} at {t}: {person:?} in {footprint:?}"
                         );
                     }
-                    if person.walk.is_some() {
-                        continue;
-                    }
+                }
+                for person in &standing {
                     for prop in staged.props.iter().filter(|prop| {
                         prop.held_by.is_none()
                             && matches!(
@@ -367,16 +473,66 @@ fn nobody_staged_is_in_a_building_or_on_a_prop() {
                                     | Prop::Bench
                             )
                     }) {
-                        let on = (person.x - prop.x).abs() < prop.w / 2.0 + fig * 0.1
-                            && (person.y - prop.y).abs() < fig * 0.45;
+                        let on = (person.x - prop.x).abs() < prop.w / 2.0 + fig * 0.21
+                            && (person.y - prop.y).abs() < fig * 0.44;
                         assert!(!on, "{name} {kind:?} at {t}: {person:?} on {prop:?}");
+                    }
+                    for (x, half) in &things {
+                        // At its side, or a step in front of it.
+                        let on = (person.x - x).abs() < half + fig * 0.21
+                            && (person.y - stage.feet).abs() < fig * 0.44;
+                        assert!(!on, "{name} {kind:?} at {t}: {person:?} on a thing at {x}");
+                    }
+                    // Nobody of the town about is stood on either.
+                    for spot in stage
+                        .people
+                        .iter()
+                        .filter(|spot| !with_part.contains(&spot.index))
+                    {
+                        let on = (person.x - spot.x).abs() < fig * 0.42
+                            && (person.y - spot.y).abs() < fig * 0.7;
+                        assert!(!on, "{name} {kind:?} at {t}: {person:?} on {spot:?}");
+                    }
+                    for other in &standing {
+                        if other.index == person.index || paired(person.who, other.who) {
+                            continue;
+                        }
+                        let apart = (person.x - other.x).abs();
+                        assert!(
+                            apart >= fig * APART * 0.99 || (person.y - other.y).abs() >= fig * 0.7,
+                            "{name} {kind:?} at {t}: {person:?} on {other:?}"
+                        );
+                    }
+                }
+                // What stands on the ground stands on open ground.
+                for prop in staged.props.iter().filter(|prop| prop.held_by.is_none()) {
+                    let feet = match prop.prop {
+                        Prop::Table | Prop::Cradle | Prop::Wreath | Prop::Lamp | Prop::Bench => {
+                            vec![prop.x]
+                        }
+                        Prop::Bunting => vec![prop.x - prop.w / 2.0, prop.x + prop.w / 2.0],
+                        _ => continue,
+                    };
+                    for x in feet {
+                        assert!(
+                            ground.open(x, prop.y, fig * 0.5, usize::MAX),
+                            "{name} {kind:?} at {t}: {prop:?} not on open ground at {x}"
+                        );
+                        for (tx, half) in &things {
+                            // At its side, or a step in front of it.
+                            assert!(
+                                (x - tx).abs() >= *half
+                                    || (prop.y - stage.feet).abs() >= fig * 0.44,
+                                "{name} {kind:?} at {t}: {prop:?} on a thing at {tx}"
+                            );
+                        }
                     }
                 }
                 t += 0.25;
             }
         }
     }
-    assert!(scenes >= 7 * 4, "{scenes} scenes");
+    assert!(scenes >= 7 * 8, "{scenes} scenes");
 }
 
 /// Nobody says anything in a scene but the words the script records, by
@@ -406,7 +562,15 @@ fn speech_is_only_what_the_script_records() {
                         "{kind:?}: {words}"
                     );
                 }
-                None => assert!(t < first || kind == MomentKind::Arrival && t < 4.5),
+                // Not yet said, or its speaker has gone in.
+                None => assert!(
+                    t < first
+                        || staged
+                            .people
+                            .iter()
+                            .all(|person| lines.iter().all(|(by, _)| *by != Some(person.who))),
+                    "{kind:?} at {t}"
+                ),
             }
             t += 0.5;
         }
@@ -470,19 +634,24 @@ fn living_takes_the_scene_for_its_cast_and_the_day_for_everyone_else() {
                 assert_eq!(life.pose.stride.is_some(), person.walk.is_some());
             }
             None => {
-                // Where they are and what they do is their day's; only
-                // whom they turn to may change, with the cast about them.
+                // Where their day has them, held there while the scene
+                // plays (no errand, no stroll), so the scene is staged
+                // clear of them; what they do there is their day's.
                 let at = stage
                     .people
                     .iter()
                     .position(|other| other.index == spot.index)
                     .expect("out before");
                 let before = &day[at];
-                assert_eq!(
-                    (life.x, life.stance, life.using, life.loaded),
-                    (before.x, before.stance, before.using, before.loaded)
+                assert!(
+                    (life.x - stage.people[at].x).abs() < 4.0,
+                    "{life:?} {:?}",
+                    stage.people[at]
                 );
-                assert_eq!(life.pose.stride, before.pose.stride);
+                assert!(life.pose.stride.is_none(), "{life:?}");
+                if before.pose.stride.is_none() {
+                    assert_eq!(life.using, before.using);
+                }
             }
         }
     }
@@ -522,7 +691,8 @@ fn a_dressed_frame_is_baked_as_before() {
         super::stage_view::bake_key(&frame),
         super::stage_view::bake_key(&dressed)
     );
-    assert_eq!(dressed.shown_weather(), Weather::Rain);
+    // A storm, once it has set in.
+    assert_eq!(dressed.shown_weather(), Weather::Storm);
     assert!(!dressed.scene_props().is_empty());
 }
 
