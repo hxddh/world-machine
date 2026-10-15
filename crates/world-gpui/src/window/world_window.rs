@@ -526,8 +526,10 @@ pub(crate) struct Looking {
     pub(crate) welcome_pan: Option<(SelectionId, f32)>,
     /// Where the opening view is centred at noon, for a stage of this
     /// width and height: the framing every hour opens on where its own
-    /// would leave a building against the window's edge.
-    pub(crate) noon_view: Option<((f32, f32), f32)>,
+    /// would leave a building against the window's edge. Kept for the
+    /// World's revision it was framed on: a turn that builds or moves
+    /// something frames the noon stage again.
+    pub(crate) noon_view: Option<(u64, (f32, f32), f32)>,
     /// A farewell showing over the World, and whether the camera has gone
     /// to whoever says goodbye.
     pub(crate) farewell: Option<super::farewell::Farewell>,
@@ -1826,16 +1828,17 @@ impl ProjectionView {
     /// [`super::arrival::framed_as_at_noon`]). v0.29's opening framing.
     fn overview_view(&mut self, stage: &Stage, x: f32) -> f32 {
         let size = (stage.view_w, stage.height);
-        super::arrival::opening_view(stage, x, || match self.looking.noon_view {
-            Some((kept, centre)) if kept == size && (centre - x).abs() < stage.view_w * 0.5 => {
-                centre
-            }
-            _ => {
-                let noon_stage =
-                    diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
-                let centre = super::arrival::best_view(&noon_stage, x);
-                self.looking.noon_view = Some((size, centre));
-                centre
+        let revision = self.revision;
+        super::arrival::opening_view(stage, x, || {
+            match kept_noon_view(self.looking.noon_view, revision, size, x) {
+                Some(centre) => centre,
+                None => {
+                    let noon_stage =
+                        diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
+                    let centre = super::arrival::best_view(&noon_stage, x);
+                    self.looking.noon_view = Some((revision, size, centre));
+                    centre
+                }
             }
         })
     }
@@ -6119,11 +6122,37 @@ pub(crate) fn postcard_paper(card: &crate::postcard::Postcard, width: f32, heigh
         )
 }
 
+/// The noon framing kept in `cached`, if it still answers for a window of
+/// `size` coming out from stage `x` on the World's `revision`: none once a
+/// turn has changed the place (what was built or moved is framed again),
+/// the window has another size, or `x` has gone half a window from it.
+fn kept_noon_view(
+    cached: Option<(u64, (f32, f32), f32)>,
+    revision: u64,
+    size: (f32, f32),
+    x: f32,
+) -> Option<f32> {
+    let (framed, kept, centre) = cached?;
+    (framed == revision && kept == size && (centre - x).abs() < size.0 * 0.5).then_some(centre)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::drawer::tests::a_full_drawer;
     use super::*;
     use crate::ui::accessible;
+
+    #[test]
+    fn the_noon_framing_is_framed_again_after_a_turn() {
+        let size = (1280.0, 800.0);
+        let kept = Some((3, size, 400.0));
+        assert_eq!(kept_noon_view(kept, 3, size, 300.0), Some(400.0));
+        // A turn built or moved something: the noon stage is framed again.
+        assert_eq!(kept_noon_view(kept, 4, size, 300.0), None);
+        assert_eq!(kept_noon_view(kept, 3, (1000.0, 800.0), 300.0), None);
+        assert_eq!(kept_noon_view(kept, 3, size, 1100.0), None);
+        assert_eq!(kept_noon_view(None, 3, size, 300.0), None);
+    }
 
     #[test]
     fn a_world_nobody_can_see_asks_for_no_frames_and_keeps_no_clock() {
