@@ -342,7 +342,9 @@ fn a_camera_on_something_frames_it_and_never_looks_past_the_edges() {
     let whole = Camera::whole(&stage);
     assert_eq!(whole.at(&stage, 10.0, 20.0), (10.0, 20.0));
     let close = Camera::on(&stage, stage.frame_of(0).unwrap());
-    assert!(close.zoom > 1.0 && close.zoom <= 1.8);
+    // From the camera at rest, at most halfway on to the closest it goes.
+    let rest = Camera::rest_zoom(&stage);
+    assert!(close.zoom >= rest && close.zoom <= rest + (ZOOM_MOST - rest) * 0.5 + 1e-4);
     let (left, top) = close.at(&stage, 0.0, 0.0);
     let (right, bottom) = close.at(&stage, stage.width, stage.height);
     assert!(left <= 0.01 && top <= 0.01);
@@ -391,7 +393,7 @@ fn zooming_keeps_the_point_under_the_pointer_and_stays_on_stage() {
     let back = camera.stage_point(&stage, x, y);
     assert!((back.0 - 500.0).abs() < 0.01 && (back.1 - 420.0).abs() < 0.01);
     let corner = Camera::around(&stage, 9.0, 0.0, 0.0);
-    assert!(corner.zoom <= 2.2);
+    assert!((corner.zoom - ZOOM_MOST).abs() < 1e-4);
     let (left, top) = corner.at(&stage, 0.0, 0.0);
     assert!(left.abs() < 0.01 && top.abs() < 0.01);
 }

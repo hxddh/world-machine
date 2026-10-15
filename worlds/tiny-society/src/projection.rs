@@ -122,6 +122,8 @@ pub(crate) fn snapshot_since(
     snapshot.moments = world_projection::latest_moments(&moments);
     snapshot.tell_events_as_history_does();
     snapshot.keep_voices_in_view();
+    // By day the town gathers round whoever speaks (v0.30 S1c).
+    days::town::gather_round_the_day(&mut snapshot);
     snapshot
 }
 

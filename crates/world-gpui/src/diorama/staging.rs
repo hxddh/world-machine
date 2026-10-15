@@ -62,11 +62,14 @@ const GOING_IN: f32 = 0.3;
 /// How long a scene's storm takes to set in.
 const STORM_IN: f32 = 1.5;
 
-/// The window's zoom for a script's camera zoom: 1 is the place as the
-/// window shows it at rest, a little closer, and a scene never pulls back
-/// further than that (a long place folding into a postcard mid-scene).
-pub fn scene_zoom(zoom: f32) -> f32 {
-    (0.2 + zoom).clamp(1.0, ZOOM_MOST)
+/// The window's zoom on `stage` for a script's camera zoom: 1 is the place
+/// as the window shows it at rest, and 2 (the closest any template comes)
+/// two fifths of the way from there to the closest the camera goes. A scene
+/// never pulls back further than rest (v0.30 S1c; S3c had `zoom + 0.2`
+/// from one window of the place, when that was rest).
+pub fn scene_zoom(stage: &Stage, zoom: f32) -> f32 {
+    let rest = Camera::rest_zoom(stage);
+    (rest + (zoom - 1.0) * (ZOOM_MOST - rest) * 0.4).clamp(rest, ZOOM_MOST)
 }
 
 /// Someone a scene stages, as it has them this moment.
@@ -561,7 +564,7 @@ impl<'a> Blocking<'a> {
         let (x, _) = blocking
             .spot(on, 0.0)
             .unwrap_or((stage.width / 2.0, stage.feet));
-        let camera = Camera::around(stage, scene_zoom(zoom), x, stage.feet);
+        let camera = Camera::around(stage, scene_zoom(stage, zoom), x, stage.feet);
         let half = stage.view_w / camera.zoom / 2.0;
         blocking.edges = (camera.x - half, camera.x + half);
         blocking.block();
@@ -569,8 +572,14 @@ impl<'a> Blocking<'a> {
         blocking.nearest = blocking
             .parts
             .iter()
-            .filter(|part| part.aboard.is_none())
-            .flat_map(|part| part.legs.iter().map(|leg| leg.to.1))
+            // Those who go aboard too, where they stand before (a boat's deck
+            // is below the cap).
+            .flat_map(|part| {
+                part.legs
+                    .iter()
+                    .flat_map(|leg| [Some(leg.from.1), Some(leg.to.1), leg.lane])
+                    .flatten()
+            })
             .fold(0.0, f32::max)
             .min(stage.feet + fig * 0.6);
         blocking
@@ -1646,7 +1655,7 @@ impl<'a> Blocking<'a> {
         let latest = cameras.iter().rposition(|(at, ..)| *at <= t).unwrap_or(0);
         let view = |(_, on, zoom): (f32, Mark, f32)| {
             let (x, y) = self.spot_or_middle(on, t);
-            let zoom = scene_zoom(zoom);
+            let zoom = scene_zoom(self.stage, zoom);
             // The people's ground a little below the middle, room above
             // for the roofs and below for the words: the ground the
             // nearest of those it stages stand on, so none is down in the
@@ -1661,9 +1670,38 @@ impl<'a> Blocking<'a> {
                 .map(|(base, height)| {
                     let top = base - height - self.fig() * 0.3;
                     let half = self.stage.height / zoom / 2.0;
-                    let lowest = self.stage.feet - half * 0.45;
+                    let lowest = nearest - half * 0.45;
                     ground.min(top + half).max(lowest)
                 });
+            // On the scene's place: along as far as keeps the cast standing
+            // round it in view, and if they do not all fit, back as far as
+            // they do, never further out than one window of the place
+            // (v0.30 S1c: the camera at rest sees less of the place than
+            // one window, and a crowd round a place can stand wider).
+            let (x, zoom) = match on {
+                Mark::Place(id) if self.script.place == Some(id) => {
+                    let room = self.fig() * 0.4;
+                    let (lo, hi) = self
+                        .parts
+                        .iter()
+                        .filter(|part| !part.gone_in(t) && part.aboard.is_none())
+                        .filter(|part| part.walking(t).is_none())
+                        // Not whoever is sent off out of the view.
+                        .filter(|part| part.legs.last().is_none_or(|leg| !leg.indoors))
+                        .filter_map(|part| part.at(t))
+                        .map(|(x, _)| x)
+                        .fold((x, x), |(lo, hi), x| (lo.min(x), hi.max(x)));
+                    let fits = self.stage.view_w / ((hi - lo) / 2.0 + room * 2.0).max(1.0) / 2.0;
+                    let zoom = zoom.min(fits).max(1.0);
+                    let half = self.stage.view_w / zoom / 2.0 - room;
+                    if hi - lo < half * 2.0 - 0.01 {
+                        (x.clamp(hi - half, lo + half), zoom)
+                    } else {
+                        (x, zoom)
+                    }
+                }
+                _ => (x, zoom),
+            };
             Camera::around(self.stage, zoom, x, building.unwrap_or(ground))
         };
         let now = view(*cameras.get(latest)?);

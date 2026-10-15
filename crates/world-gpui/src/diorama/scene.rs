@@ -542,7 +542,7 @@ pub(super) fn lay_out(
     // A window's stage keeps its people big enough to see; a cover's
     // shrinks everything with it. A cottage stands `COTTAGE` times a
     // grown-up at the same depth.
-    let figure_h = (height * 0.068).min(64.0).max((height * 0.1).min(40.0));
+    let figure_h = figure_height(height);
     let building_h = figure_h * COTTAGE;
     let index_of = items
         .iter()
@@ -1005,7 +1005,19 @@ pub(super) fn lay_out(
             .unwrap_or_else(|| width * MARGIN + usable * items[index].x.clamp(0.0, 1.0));
         wanted.push((index, x));
     }
-    wanted.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    // Those standing talking take their room first (v0.30 S1c: a crowd at
+    // a hub stands at it), then everyone else along the line.
+    let talking = |index: usize| {
+        doing
+            .get(&index)
+            .is_some_and(|what| what.stance == Some(Stance::Talking))
+    };
+    wanted.sort_by(|a, b| {
+        talking(b.0)
+            .cmp(&talking(a.0))
+            .then(a.1.total_cmp(&b.1))
+            .then(a.0.cmp(&b.0))
+    });
     // Nobody stands on anybody, nor in anything standing on the quay:
     // each takes the nearest room to where they would be.
     let quay = height * FEET;
@@ -1037,6 +1049,7 @@ pub(super) fn lay_out(
     // The quay has two lanes: among what stands on it, and a step nearer,
     // in front of everything, for a crowd the first has no room for.
     let lane = figure_h * 0.45;
+    let ground = (figure_h, quay, width);
     let mut people: Vec<Spot> = Vec::new();
     let reach = view_w * 0.6;
     let nudge = spacing * 0.25;
@@ -1056,14 +1069,26 @@ pub(super) fn lay_out(
                     .filter(|other| other.y == y)
                     .all(|other| (other.x - x).abs() >= spacing - 0.01)
         };
+        // Those standing talking: near where they would be, on the line
+        // or a step in front of it; only then further along the line (v0.30
+        // S1c: a crowd talking at a hub stays at it, not strung off along
+        // the front). Anyone else first along the line.
         let steps = (reach / nudge) as i32;
-        let found = [quay, quay + lane].into_iter().find_map(|y| {
-            (0..=steps)
-                .flat_map(|step| [step, -step])
-                .map(|step| want + step as f32 * nudge)
-                .find(|x| clear(*x, y))
-                .map(|x| (x, y))
-        });
+        let near = if talking(index) {
+            (figure_h * NEAR_HUB / nudge) as i32
+        } else {
+            -1
+        };
+        let (on, nearer) = (ground.1, ground.1 + lane);
+        let found = [(on, near), (nearer, near), (on, steps), (nearer, steps)]
+            .into_iter()
+            .find_map(|(y, steps)| {
+                (0..=steps)
+                    .flat_map(|step| [step, -step])
+                    .map(|step| want + step as f32 * nudge)
+                    .find(|x| clear(*x, y))
+                    .map(|x| (x, y))
+            });
         let (x, y) = found.unwrap_or((want.clamp(spacing * 0.5, width - spacing * 0.5), quay));
         if found.is_none() {
             // No room on the quay: this one waits for a closer look.
@@ -1097,6 +1122,16 @@ pub(super) fn lay_out(
     }
     // People stand in twos and threes facing each other, not in rows (A2).
     super::people::gather(&mut people, figure_h, quay, &blocked, &fronted);
+    // Each group at a depth of its own, so groups side by side read as
+    // standing about, not along one line (v0.30 S1c).
+    super::people::in_depth(&mut people, ground.0, ground.1, &blocked);
+    super::people::unstack(
+        &mut people,
+        (ground.0, ground.1, ground.2, 12),
+        &blocked,
+        &fronted,
+        &|_| false,
+    );
     people.sort_by_key(|spot| spot.index);
     let routes = leaving
         .into_iter()
@@ -1132,8 +1167,23 @@ pub(super) fn lay_out(
     // Those who use something where they are stand to it: on a bench, round
     // a lamp, behind a stall; companions together; and everyone's errand.
     super::people::at_their_stops(&mut stage, snapshot, &came_from, &slot_x);
+    // And once more with everyone where their stops have them: companions
+    // stepping in beside each other change places with whoever stood there.
+    let doing = stage.doing.clone();
+    super::people::unstack(
+        &mut stage.people,
+        (ground.0, ground.1, ground.2, 30),
+        &blocked,
+        &fronted,
+        &|index| doing.get(&index).is_some_and(|what| what.fixture.is_some()),
+    );
     (stage, walks)
 }
+
+/// How far, in figure heights, someone talking stands from where they
+/// would be, on the people's line or in the lane in front, before they go
+/// further along it.
+const NEAR_HUB: f32 = 1.5;
 
 /// The quay's row, as [`compose`] keys rows (the Pack's `y` in hundredths).
 pub(super) const QUAY_ROW: i32 = 76;
@@ -1523,8 +1573,33 @@ pub struct Camera {
     pub fold: f32,
 }
 
-/// The closest the camera goes.
-pub const ZOOM_MOST: f32 = 2.2;
+/// The closest the camera goes: a grown-up on the line about 190 px tall
+/// in a window 848 high.
+pub const ZOOM_MOST: f32 = 3.4;
+
+/// How tall a grown-up standing on the line is drawn with the camera at
+/// rest, in window pixels (v0.30 S1c: the art director's 120 to 160 px).
+pub const REST_FIGURE: f32 = 140.0;
+
+/// How much closer than rest the camera can always go, at the least: most
+/// of a press of the zoom control.
+const REST_ROOM: f32 = 1.12;
+
+/// How many times closer than one window of the place the camera rests, for
+/// a stage whose grown-ups stand `figure_h` tall at one window: close
+/// enough that they stand [`REST_FIGURE`] tall, never closer than one
+/// press short of [`ZOOM_MOST`], and never further out than one window
+/// (the overview, a scroll out).
+pub fn rest_zoom(figure_h: f32) -> f32 {
+    (REST_FIGURE / figure_h.max(1.0)).clamp(1.0, ZOOM_MOST / REST_ROOM)
+}
+
+/// How tall a grown-up on the line stands at one window of a stage
+/// `height` tall (before the stage's least height is taken).
+pub fn figure_height(height: f32) -> f32 {
+    let height = height.max(90.0);
+    (height * 0.068).min(64.0).max((height * 0.1).min(40.0))
+}
 
 /// How a place folds into a postcard: into `rows` stretches, each
 /// `row_w` stage pixels long and drawn at `zoom` so it fills the window's
@@ -1580,7 +1655,7 @@ impl Fold {
 
 /// The camera's closest and furthest along one axis: a view `half` wide
 /// either side kept on a stage `extent` long, or centred when it is wider.
-pub(super) fn keep_on(at: f32, half: f32, extent: f32) -> f32 {
+pub(crate) fn keep_on(at: f32, half: f32, extent: f32) -> f32 {
     if half * 2.0 >= extent {
         extent / 2.0
     } else {
@@ -1599,6 +1674,35 @@ impl Camera {
         }
     }
 
+    /// How close the camera rests on this stage ([`rest_zoom`]).
+    pub fn rest_zoom(stage: &Stage) -> f32 {
+        rest_zoom(stage.figure_h)
+    }
+
+    /// The camera at rest, centred along the place on stage `x`: people at
+    /// [`REST_FIGURE`], and the street's front roofs down to the water's
+    /// edge in the frame ([`Camera::rest_y`]).
+    pub fn rest(stage: &Stage, x: f32) -> Self {
+        let zoom = Self::rest_zoom(stage);
+        Self::around(stage, zoom, x, Self::rest_y(stage, zoom))
+    }
+
+    /// Where a camera `zoom` times closer looks up and down the stage at
+    /// rest: the street's front row of roofs a little below the window's
+    /// top, unless that leaves the water's edge low in the window, where the
+    /// card at its foot would cover the people standing there; then the
+    /// water's edge at 0.78 of the window's height, the roofs going over
+    /// the top.
+    pub fn rest_y(stage: &Stage, zoom: f32) -> f32 {
+        let seen = stage.height / zoom.max(1.0);
+        let roofs = stage.street - stage.building_h * row_aged(0.60, stage.grown).1;
+        let mut top = roofs - seen * 0.05;
+        if stage.front > top + seen * 0.78 {
+            top = stage.front - seen * 0.78;
+        }
+        top + seen / 2.0
+    }
+
     /// The furthest out the camera goes: one window, or for a panorama the
     /// whole of it at once, folded into a postcard when it is long.
     pub fn least(stage: &Stage) -> f32 {
@@ -1608,7 +1712,11 @@ impl Camera {
     /// Close enough on a box to see who is in it, and no closer than twice.
     pub fn on(stage: &Stage, (x, y, w, h): (f32, f32, f32, f32)) -> Self {
         let room = (stage.view_w * 0.55 / w.max(1.0)).min(stage.height * 0.45 / h.max(1.0));
-        let zoom = room.clamp(1.0, 1.8);
+        // From rest (a box that fills the window there) halfway to the
+        // closest the camera goes (a small one): v0.29's 1 to 1.8 of one
+        // window, carried over to the camera at rest (v0.30 S1c).
+        let rest = Self::rest_zoom(stage);
+        let zoom = rest + (room.clamp(1.0, 1.8) - 1.0) / 0.8 * (ZOOM_MOST - rest) * 0.5;
         // Keep the view inside the stage: never show past its edges.
         let half_w = stage.view_w / zoom / 2.0;
         let half_h = stage.height / zoom / 2.0;

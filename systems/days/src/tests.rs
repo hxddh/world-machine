@@ -455,3 +455,180 @@ fn the_scene_learns_what_everyone_is_doing_and_with_whom() {
             .all(|stop| !stop.inside || stop.stance.is_none()));
     }
 }
+
+/// By day the town gathers (v0.30 S1c): at each hour from nine to four,
+/// those out and about elsewhere come to one or two hubs near each other,
+/// talking two by two, enough to fill a window at rest; keepers stay at
+/// their stalls; nobody indoors comes out; no stretch holds more than its
+/// share; a festival is left alone; and the same town gathers the same.
+#[test]
+fn the_town_gathers_at_hubs_by_day() {
+    use world_core::EntityId;
+    use world_projection::{
+        CanvasItem, CanvasItemKind, MarkShape, RoutineStop, SelectionId, Stance,
+    };
+    let id = |n| SelectionId::Entity(EntityId::new(n));
+    let place = |n: u64, px: f32, shape: MarkShape| CanvasItem {
+        id: id(n),
+        kind: CanvasItemKind::Place,
+        px: Some(px),
+        shape: Some(shape),
+        ..Default::default()
+    };
+    let stop = |from_hour, at, inside, stance| RoutineStop {
+        from_hour,
+        at,
+        inside,
+        stance,
+        with: None,
+    };
+    let mut items = vec![
+        place(100, 0.3, MarkShape::House),
+        place(101, 0.95, MarkShape::Shop),
+        place(102, 1.1, MarkShape::Stall),
+        place(103, 1.9, MarkShape::Shop),
+        place(104, 2.6, MarkShape::House),
+    ];
+    // Ten people: two keep the stall, one works indoors, the rest are out
+    // and about all over the place.
+    for n in 1..=10_u64 {
+        let (at, inside, stance) = match n {
+            1 | 2 => (id(102), false, Some(Stance::Talking)),
+            3 => (id(103), true, None),
+            n => (id(100 + n % 5), false, Some(Stance::Working)),
+        };
+        items.push(CanvasItem {
+            id: id(n),
+            kind: CanvasItemKind::Actor,
+            day: vec![
+                stop(0, id(100), true, None),
+                stop(8, at, inside, stance),
+                stop(18, id(104), true, None),
+            ],
+            ..Default::default()
+        });
+    }
+    let before = items.clone();
+    let spans = STRETCHES.map(|stretch| (stretch.from, stretch.to));
+    town::gather_at_hubs(&mut items, &spans, None);
+    let mut again = before.clone();
+    town::gather_at_hubs(&mut again, &spans, None);
+    assert_eq!(items, again, "the same town gathers the same");
+    let px = |at: SelectionId| {
+        items
+            .iter()
+            .find(|item| item.id == at)
+            .and_then(|item| item.px)
+            .unwrap()
+    };
+    let people = || {
+        items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+    };
+    for hour in 9..=16 {
+        let now = people()
+            .map(|item| {
+                (
+                    item.id,
+                    *world_projection::stop_at(&item.day, hour).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let out = now
+            .iter()
+            .filter(|(_, stop)| !stop.inside)
+            .collect::<Vec<_>>();
+        // Around the busiest spot: the stall and its keepers.
+        let hub = px(id(102));
+        let near = out
+            .iter()
+            .filter(|(_, stop)| (px(stop.at) - hub).abs() <= town::HUB_APART + town::HUB_REACH)
+            .count();
+        assert!(near >= 6, "{hour}:00: {near} near the hub");
+        assert!(near <= town::HUB_MOST + 2, "{hour}:00: {near}, a crowd");
+        // Keepers keep; indoors stays in.
+        for (who, stop) in &now {
+            if *who == id(1) || *who == id(2) {
+                assert_eq!(stop.at, id(102));
+            }
+            if *who == id(3) {
+                assert!(stop.inside);
+            }
+        }
+        // Those who came talk, two by two.
+        let came = now
+            .iter()
+            .filter(|(who, stop)| {
+                let was = before
+                    .iter()
+                    .find(|item| item.id == *who)
+                    .and_then(|item| world_projection::stop_at(&item.day, hour))
+                    .unwrap();
+                stop.at != was.at
+            })
+            .collect::<Vec<_>>();
+        assert!(!came.is_empty(), "{hour}:00: nobody came");
+        assert!(came
+            .iter()
+            .all(|(_, stop)| stop.stance == Some(Stance::Talking) && !stop.inside));
+        // (At most one alone at each of the two hubs.)
+        assert!(came.iter().filter(|(_, stop)| stop.with.is_some()).count() + 2 >= came.len());
+        // No stretch holds more than its share.
+        for stretch in &STRETCHES {
+            let in_it = now
+                .iter()
+                .filter(|(_, stop)| stretch.holds(px(stop.at)))
+                .count();
+            assert!(in_it <= 6, "{hour}:00: {in_it} in {}", stretch.id);
+        }
+    }
+    // Outside the hours, as it was.
+    for hour in [7, 8, 17, 18, 22] {
+        for (a, b) in people().zip(
+            before
+                .iter()
+                .filter(|item| item.kind == CanvasItemKind::Actor),
+        ) {
+            assert_eq!(
+                world_projection::stop_at(&a.day, hour).map(|stop| (stop.at, stop.inside)),
+                world_projection::stop_at(&b.day, hour).map(|stop| (stop.at, stop.inside))
+            );
+        }
+    }
+    // A festival is left as it is.
+    let mut festival = before.clone();
+    for item in festival
+        .iter_mut()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+    {
+        item.day = vec![
+            stop(0, id(100), true, None),
+            stop(9, id(102), false, Some(Stance::Dancing)),
+        ];
+    }
+    let kept = festival.clone();
+    town::gather_at_hubs(&mut festival, &spans, None);
+    assert_eq!(festival, kept);
+    // Round whoever speaks today, when they are out: the gathering is
+    // where they are.
+    let mut round = before.clone();
+    town::gather_at_hubs(&mut round, &spans, Some(id(9)));
+    for hour in 9..=16 {
+        let theirs = round
+            .iter()
+            .find(|item| item.id == id(9))
+            .and_then(|item| world_projection::stop_at(&item.day, hour))
+            .copied()
+            .unwrap();
+        // They come to the gathering, which is round them.
+        assert_eq!(theirs.stance, Some(Stance::Talking), "{hour}:00");
+        let near = round
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+            .filter_map(|item| world_projection::stop_at(&item.day, hour))
+            .filter(|stop| !stop.inside && (px(stop.at) - px(theirs.at)).abs() <= 0.3)
+            .count();
+        assert!(near >= 6, "{hour}:00: {near} round the speaker");
+    }
+}
