@@ -186,18 +186,29 @@ fn step(label: String, value: &impl Debug, keep: bool) -> Step {
 /// by hand; then the day let pass with `pass`.
 pub fn builder(session: &mut Box<dyn WorldSession>, pass: &str, days: usize) {
     for day in 1..=days {
-        builder_day(session, pass, day);
+        builder_day(session, pass, day, false);
     }
 }
 
-fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize) {
+/// One builder day. With `strict`, a command the snapshot offered as
+/// available must be accepted: the fixtures without a golden digest rely on
+/// it to notice an answer or deed that has stopped working.
+fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize, strict: bool) {
     let snapshot = session.snapshot();
     if let Some(answer) = snapshot
         .commands
         .iter()
         .find(|c| c.question.is_some() && c.unavailable.is_none() && c.id != pass)
     {
-        let _ = session.handle(InvokeCommand(answer.id.clone()));
+        let taken = session.handle(InvokeCommand(answer.id.clone()));
+        if strict {
+            if let Err(error) = taken {
+                panic!(
+                    "day {day}: the available answer {} was refused: {error:?}",
+                    answer.id
+                );
+            }
+        }
     }
     if day.is_multiple_of(3) {
         let snapshot = session.snapshot();
@@ -217,7 +228,12 @@ fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize) {
                 .map(|c| c.id.clone())
         });
         if let Some(deed) = deed {
-            let _ = session.handle(InvokeCommand(deed));
+            let done = session.handle(InvokeCommand(deed.clone()));
+            if strict {
+                if let Err(error) = done {
+                    panic!("day {day}: the available deed {deed} was refused: {error:?}");
+                }
+            }
         }
     }
     session
@@ -248,7 +264,7 @@ pub fn trace(
     let every = digest_every();
     let mut steps = vec![step("open".into(), &session.snapshot(), keep)];
     for day in 1..=days {
-        builder_day(&mut session, pass, day);
+        builder_day(&mut session, pass, day, false);
         if digested(day, days, every) {
             steps.push(step(format!("day-{day:03}"), &session.snapshot(), keep));
         }
@@ -423,7 +439,7 @@ pub fn assert_every_fixture_replays_and_continues(
         );
         assert_wire_decodes(&opened, &format!("{at} opened"));
         for day in 1..=days {
-            builder_day(&mut session, pass, day);
+            builder_day(&mut session, pass, day, true);
             let snapshot = session.snapshot();
             assert!(
                 session.snapshot() == snapshot,
