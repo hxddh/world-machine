@@ -143,6 +143,12 @@ impl ProjectionView {
         self.before_turn = None;
         self.reading.page = None;
         self.reading.back.clear();
+        // A beat's scene was asked for in the old language: asked again,
+        // its words in the new one (the World's revision is the same).
+        self.looking.scene = None;
+        self.looking.scene_world = None;
+        self.looking.film_dock = None;
+        self.beat_scene();
     }
 
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
@@ -241,9 +247,23 @@ impl ProjectionView {
                     }
                     _ => None,
                 });
+            // The World as it draws, made once for the whole beat.
+            self.looking.scene_world = script.as_ref().and_then(|script| {
+                match crate::diorama::staging::scene_snapshot(script, &self.snapshot) {
+                    std::borrow::Cow::Owned(world) => Some(std::rc::Rc::new(world)),
+                    std::borrow::Cow::Borrowed(_) => None,
+                }
+            });
             self.looking.scene = Some((key, script));
         }
         self.played_scene()
+    }
+
+    /// The World as the scene being played draws it, when that is not the
+    /// World as it stands: its cast as they looked, and whoever of them
+    /// has since gone.
+    fn scene_world(&self) -> Option<std::rc::Rc<ProjectionSnapshot>> {
+        self.played_scene().and(self.looking.scene_world.clone())
     }
 
     /// How far into the beat being told: since its clock started (held at

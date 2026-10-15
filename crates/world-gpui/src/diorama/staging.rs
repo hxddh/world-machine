@@ -2146,6 +2146,10 @@ pub(super) fn paint_storm(window: &mut dyn Brush, frame: &Frame, (ox, oy, w, h):
 /// A scene `t` seconds in, on `stage` (laid out from `snapshot`): who the
 /// script stages, where and how; its props; its camera; who is speaking;
 /// its weather. `t` is held to the scene's length.
+///
+/// Its people are of [`scene_snapshot`]: draw them from that, not from
+/// `snapshot` (anyone of the cast since gone is after everything on its
+/// canvas).
 pub fn stage_scene(
     script: &SceneScript,
     stage: &Stage,
@@ -2153,7 +2157,126 @@ pub fn stage_scene(
     t: f32,
 ) -> Staged {
     let t = t.clamp(0.0, script.seconds.max(0.0));
-    Blocking::new(script, stage, snapshot).at(t)
+    let world = scene_snapshot(script, snapshot);
+    Blocking::new(script, stage, &world).at(t)
+}
+
+/// The World as a scene draws it: everyone with a part in it looking as
+/// the script has them (as they were then: a baby still a baby), and
+/// anyone of them since gone (left, or died) put back on its canvas after
+/// everything on it, in the order the script casts them, so they are
+/// staged and drawn as they were rather than dropped (v0.30 S3c review:
+/// a farewell without the one leaving). Whoever of the cast has nothing
+/// to do in it (the one a funeral is for) is left as the World has them.
+/// The same script on the same World is always the same canvas, and one
+/// that needs nothing changed is borrowed: a canvas this has made already
+/// is handed back as it is.
+pub fn scene_snapshot<'a>(
+    script: &SceneScript,
+    snapshot: &'a ProjectionSnapshot,
+) -> std::borrow::Cow<'a, ProjectionSnapshot> {
+    use std::borrow::Cow;
+    let items = &snapshot.canvas.items;
+    let acting = script
+        .cues
+        .iter()
+        .filter_map(|cue| cue.who)
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    // (who, how they look, their item if on the canvas)
+    let parts = script
+        .cast
+        .iter()
+        .filter(|(who, _)| acting.contains(who) && seen.insert(*who))
+        .map(|(who, look)| (*who, *look, items.iter().position(|item| item.id == *who)))
+        .filter(|(_, _, at)| at.is_none_or(|at| items[at].kind == CanvasItemKind::Actor))
+        .collect::<Vec<_>>();
+    let changed = parts.iter().any(|(_, look, at)| match at {
+        None => true,
+        Some(at) => look.is_some() && items[*at].look != *look,
+    });
+    if !changed {
+        return Cow::Borrowed(snapshot);
+    }
+    let mut world = snapshot.clone();
+    for (who, look, at) in parts {
+        match at {
+            Some(at) => {
+                if look.is_some() {
+                    world.canvas.items[at].look = look;
+                }
+            }
+            None => world.canvas.items.push(CanvasItem {
+                id: who,
+                kind: CanvasItemKind::Actor,
+                look,
+                ..CanvasItem::default()
+            }),
+        }
+    }
+    Cow::Owned(world)
+}
+
+/// A scene shown still, with Reduce Motion on: held at one moment, with
+/// no walk, glide or fade played over the beat, which still lasts its
+/// seconds. The moment is where its payoff shows: its last line being
+/// said by whoever says it, the camera come to rest, as few as can be
+/// caught mid-step; with no line, as few mid-step as can be, the latest
+/// such. Pure, like [`stage_scene`], whose people it has.
+pub fn stage_still(script: &SceneScript, stage: &Stage, snapshot: &ProjectionSnapshot) -> Staged {
+    let seconds = script.seconds.max(0.0);
+    let world = scene_snapshot(script, snapshot);
+    let blocking = Blocking::new(script, stage, &world);
+    let said = script
+        .cues
+        .iter()
+        .filter(|cue| matches!(cue.act, Act::Say(_)))
+        .map(|cue| cue.at)
+        .reduce(f32::max);
+    let cameras = script
+        .cues
+        .iter()
+        .filter(|cue| matches!(cue.act, Act::Camera { .. }))
+        .map(|cue| cue.at)
+        .collect::<Vec<_>>();
+    // The camera at rest: its latest cue by `t` eased in.
+    let settled = |t: f32| {
+        cameras
+            .iter()
+            .filter(|at| **at <= t)
+            .all(|at| t - at >= CAMERA_EASE - 1e-4)
+    };
+    // From the line, or else the whole scene, a quarter
+    // of a second apart.
+    let from = said.map_or(0.0, |said| said.min(seconds));
+    let steps = ((seconds - from) / 0.25).floor().max(0.0) as usize;
+    let mut best: Option<((bool, bool, usize, f32), Staged)> = None;
+    for n in 0..=steps {
+        let t = (from + n as f32 * 0.25).min(seconds);
+        let staged = blocking.at(t);
+        let heard = staged.bubble.is_some();
+        let walking = staged
+            .people
+            .iter()
+            .filter(|person| person.walk.is_some())
+            .count();
+        // Better: heard, at rest, fewer mid-step; then, with a line, soon
+        // after it, or with none, later.
+        let when = match said {
+            Some(said) => -(t - (said + 0.6)).abs(),
+            None => t,
+        };
+        let score = (heard, settled(t), usize::MAX - walking, when);
+        if best.as_ref().is_none_or(|(kept, _)| {
+            (score.0, score.1, score.2)
+                .cmp(&(kept.0, kept.1, kept.2))
+                .then(score.3.total_cmp(&kept.3))
+                .is_gt()
+        }) {
+            best = Some((score, staged));
+        }
+    }
+    best.map_or_else(|| blocking.at(seconds), |(_, staged)| staged)
 }
 
 /// Paints a scene's prop standing at screen (`x`, `foot`), for a grown-up

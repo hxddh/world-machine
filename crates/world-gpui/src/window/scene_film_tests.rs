@@ -511,3 +511,112 @@ fn scene_pictures() {
     }
     crate::scene::pin_hour(None);
 }
+
+/// With Reduce Motion on, a beat's scene is held at one moment, its
+/// payoff in view (its line said), however far into the beat the wall
+/// clock is, rather than played in jumps a few frames a second; and the
+/// beat still lasts as long as its scene.
+#[gpui::test]
+fn with_reduce_motion_a_scene_holds_still_and_its_beat_still_lasts(cx: &mut gpui::TestAppContext) {
+    use gpui::VisualTestContext;
+    let (snapshot, scenes) = film();
+    let festival = scenes[&event(9001)].clone();
+    let (speaker, words) = festival.speech()[0];
+    let (speaker, words) = (speaker.unwrap(), words.to_string());
+    // Well before the line is said.
+    let said = festival
+        .cues
+        .iter()
+        .find(|cue| matches!(cue.act, Act::Say(_)))
+        .expect("a line")
+        .at;
+    assert!(said > 1.0);
+    cx.update(|cx| cx.set_reduce_motion(true));
+    let window = cx.add_window(move |_, _| {
+        let (mut view, _) = view_of(snapshot, scenes);
+        view.looking.beat_clock = Some(0.5);
+        view
+    });
+    let view = window.root(cx).expect("the World");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+    cx.run_until_parked();
+    view.update(cx, |view, cx| {
+        view.retelling = Some(0);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    // Held where its line is said, half a second into the beat.
+    let heard = view.read_with(cx, |view, _| view.looking.babbled.clone());
+    assert_eq!(heard, Some((speaker, words)));
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.retelling, Some(0), "still on the beat");
+    });
+    // Past the scene's own length: the film goes on.
+    view.update(cx, |view, cx| {
+        view.looking.beat_clock = Some(festival.seconds + 0.2);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        assert_ne!(view.retelling, Some(0), "the next beat");
+    });
+    cx.update(|_, cx| cx.set_reduce_motion(false));
+}
+
+/// A World that stages a beat's scene in whatever language the app is
+/// shown in.
+struct Speaking {
+    snapshot: ProjectionSnapshot,
+    scene: SceneScript,
+}
+
+impl crate::ProjectionController for Speaking {
+    fn snapshot(&self) -> ProjectionSnapshot {
+        self.snapshot.clone()
+    }
+
+    fn handle(&mut self, _: ProjectionIntent) -> Result<ProjectionSnapshot, String> {
+        Ok(self.snapshot.clone())
+    }
+
+    fn story(&mut self, request: StoryRequest) -> Option<StoryPage> {
+        let StoryRequest::Scene(_) = request else {
+            return None;
+        };
+        let words = match world_i18n::language() {
+            world_i18n::Language::SimplifiedChinese => "真是个好日子。",
+            _ => "What a day for it.",
+        };
+        let mut scene = self.scene.clone();
+        for cue in &mut scene.cues {
+            if let Act::Say(said) = &mut cue.act {
+                *said = words.into();
+            }
+        }
+        Some(StoryPage::Scene(scene))
+    }
+}
+
+/// A change of language shows a beat's scene anew, its words in the new
+/// language, though the World itself has not moved on.
+#[test]
+fn a_change_of_language_asks_for_the_beat_scene_again() {
+    let (snapshot, scenes) = film();
+    let scene = scenes[&event(9002)].clone();
+    let mut view = ProjectionView::controlled(Speaking { snapshot, scene });
+    view.retelling = Some(1);
+    let words = |view: &ProjectionView| {
+        view.played_scene()
+            .map(|script| script.speech()[0].1.to_string())
+    };
+    world_i18n::set_thread_language(Some(world_i18n::Language::English));
+    view.show_in_language_now();
+    view.beat_scene();
+    assert_eq!(words(&view).as_deref(), Some("What a day for it."));
+    world_i18n::set_thread_language(Some(world_i18n::Language::SimplifiedChinese));
+    view.show_in_language_now();
+    let shown = words(&view);
+    world_i18n::set_thread_language(None);
+    assert_eq!(shown.as_deref(), Some("真是个好日子。"));
+}

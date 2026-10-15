@@ -7,7 +7,7 @@
 use super::living_stage as ls;
 use super::staging::*;
 use super::*;
-use world_projection::{Act, Cue, Mark, MomentKind, Prop, SceneScript};
+use world_projection::{Act, AgeStage, Cue, Look, Mark, MomentKind, Prop, SceneScript};
 
 /// The kinds a return film stages most, as the art director judges them.
 const KINDS: [MomentKind; 7] = [
@@ -932,4 +932,211 @@ fn a_bare_script_stages_nothing_and_looks_at_its_place() {
     let staged = stage_scene(&script, &stage, &snapshot, 1.0);
     assert!(staged.people.is_empty() && staged.props.is_empty());
     assert!(staged.camera.is_some());
+}
+
+/// The town with `id` gone from it (left, or died), laid out as the
+/// window lays it out now.
+fn without(snapshot: &ProjectionSnapshot, id: SelectionId) -> (ProjectionSnapshot, Stage) {
+    let mut gone = snapshot.clone();
+    gone.canvas.items.retain(|item| item.id != id);
+    let stage = stage_at(&gone, VIEW.0, VIEW.1, Clock::at(11));
+    (gone, stage)
+}
+
+/// A scene drawn as the window draws it: its cast put on the stage, and
+/// everyone drawn from the World as the scene draws it.
+fn drawn(script: &SceneScript, stage: &Stage, snapshot: &ProjectionSnapshot, t: f32) -> Frame {
+    let staged = stage_scene(script, stage, snapshot, t);
+    let world = scene_snapshot(script, snapshot);
+    let cast = cast_on(stage, &staged);
+    let lives = living_staged(
+        &cast,
+        &world,
+        t,
+        Daylight::Day,
+        &BTreeSet::new(),
+        None,
+        Some(&staged),
+    );
+    super::frame(
+        &world,
+        &cast,
+        &lives,
+        Camera::whole(&cast),
+        0.0,
+        Daylight::Day,
+        &Glows::new(),
+        1.0,
+    )
+}
+
+/// A farewell played back after its leaver has gone still has them: put
+/// back on the canvas as the script has them look, staged with their bag,
+/// off to the ferry and aboard it, and drawn (v0.30 S3c review: the one
+/// leaving was dropped, the farewell played without them). One of the
+/// cast with no part of their own (gone too) is not brought back.
+#[test]
+fn a_farewell_whose_leaver_has_gone_still_stages_and_draws_them() {
+    let (snapshot, stage) = town();
+    let mut script = scene(&snapshot, &stage, MomentKind::Farewell);
+    let leaver = script.cast[0].0;
+    let look = world_projection::Look {
+        clothes: Some(0xc0302a),
+        ..Default::default()
+    };
+    script.cast[0].1 = Some(look);
+    let (gone, stage) = without(&snapshot, leaver);
+    // Someone else long gone, cast but with nothing to do.
+    let dead = SelectionId::from_stable_key("entity-999999").expect("an id");
+    script.cast.push((dead, Some(look)));
+    let world = scene_snapshot(&script, &gone);
+    assert_eq!(world.canvas.items.len(), gone.canvas.items.len() + 1);
+    let index = gone.canvas.items.len();
+    assert_eq!(world.canvas.items[index].id, leaver);
+    assert_eq!(world.canvas.items[index].look, Some(look));
+    // Made once: the canvas it made needs nothing more.
+    assert!(matches!(
+        scene_snapshot(&script, &world),
+        std::borrow::Cow::Borrowed(_)
+    ));
+    // Staged: bag in hand at the start, walking off, aboard at the end;
+    // the same whether the window hands it the World or the scene's.
+    let start = stage_scene(&script, &stage, &gone, 0.0);
+    assert_eq!(start, stage_scene(&script, &stage, &world, 0.0));
+    let at_start = person(&start, index);
+    assert_eq!(at_start.who, leaver);
+    assert!(start
+        .props
+        .iter()
+        .any(|prop| prop.prop == Prop::Suitcase && prop.held_by == Some(index)));
+    let going = stage_scene(&script, &stage, &gone, 5.0);
+    assert!(person(&going, index).walk.is_some());
+    let end = stage_scene(&script, &stage, &gone, script.seconds - 0.3);
+    assert!(person(&end, index).aboard, "{end:?}");
+    assert!(end.people.iter().all(|person| person.who != dead));
+    // Drawn, as the script has them look.
+    let frame = drawn(&script, &stage, &gone, 2.0);
+    let figure = frame
+        .people
+        .iter()
+        .find(|person| person.index == index)
+        .map(|person| person.figure)
+        .expect("the leaver drawn");
+    assert_eq!(figure, Figure::of(&leaver.stable_key(), Some(look)));
+    assert!(frame.people.len() <= world.canvas.items.len());
+}
+
+/// A birth played back years on draws its baby as the baby they were, as
+/// the script has them look, not as they look today; and everyone else of
+/// the cast as they looked then too.
+#[test]
+fn a_birth_played_later_draws_the_baby_as_a_baby() {
+    let (snapshot, stage) = town();
+    let mut script = scene(&snapshot, &stage, MomentKind::Birth);
+    let parent = script.cast[1].0;
+    // Someone out now, grown, who was the baby.
+    let baby = stage
+        .people
+        .iter()
+        .map(|spot| &snapshot.canvas.items[spot.index])
+        .find(|item| {
+            script.cast.iter().all(|(who, _)| *who != item.id)
+                && item
+                    .look
+                    .is_none_or(|look| look.age != Some(AgeStage::Baby))
+        })
+        .map(|item| item.id)
+        .expect("someone grown");
+    let then = Look {
+        age: Some(AgeStage::Baby),
+        ..Default::default()
+    };
+    script.cast.push((baby, Some(then)));
+    script.cues.push(Cue {
+        at: 0.0,
+        who: Some(baby),
+        act: Act::WalkTo {
+            to: Mark::Beside(parent, 0),
+            stance: Stance::Standing,
+        },
+    });
+    let index = who(&snapshot, baby);
+    let world = scene_snapshot(&script, &snapshot);
+    assert_eq!(world.canvas.items.len(), snapshot.canvas.items.len());
+    assert_eq!(world.canvas.items[index].look, Some(then));
+    let figure = |frame: &Frame| {
+        frame
+            .people
+            .iter()
+            .find(|person| person.index == index)
+            .map(|person| person.figure)
+    };
+    let frame = drawn(&script, &stage, &snapshot, 3.0);
+    assert_eq!(figure(&frame).expect("the baby drawn").age, Age::Baby);
+    // Today, as they are.
+    let today = living(
+        &stage,
+        &snapshot,
+        3.0,
+        Daylight::Day,
+        &BTreeSet::new(),
+        None,
+    );
+    let now = super::frame(
+        &snapshot,
+        &stage,
+        &today,
+        Camera::whole(&stage),
+        0.0,
+        Daylight::Day,
+        &Glows::new(),
+        1.0,
+    );
+    assert_ne!(figure(&now).expect("out today").age, Age::Baby);
+}
+
+/// With Reduce Motion on a scene is shown at one moment of it: its last
+/// line said by whoever says it, the camera come to rest, nobody of the
+/// cast caught mid-walk where that can be helped, every prop out all
+/// there; the same moment however often it is asked for.
+#[test]
+fn a_still_scene_is_held_where_its_payoff_shows() {
+    let (snapshot, stage) = town();
+    for kind in KINDS {
+        let script = scene(&snapshot, &stage, kind);
+        let still = stage_still(&script, &stage, &snapshot);
+        assert_eq!(still, stage_still(&script, &stage, &snapshot));
+        let t = still.t;
+        assert!((0.0..=script.seconds).contains(&t), "{kind:?} {t}");
+        assert_eq!(still, stage_scene(&script, &stage, &snapshot, t));
+        // Said, if it is ever heard as the scene plays (a storm's speaker
+        // can be in out of the rain before their line).
+        let heard = (0..=(script.seconds * 4.0) as usize).any(|n| {
+            stage_scene(&script, &stage, &snapshot, n as f32 / 4.0)
+                .bubble
+                .is_some()
+        });
+        assert_eq!(
+            still.bubble.is_some(),
+            heard,
+            "{kind:?} at {t}: the line said"
+        );
+        // The camera has come to rest on its latest view.
+        let settled = script
+            .cues
+            .iter()
+            .filter(|cue| matches!(cue.act, Act::Camera { .. }) && cue.at <= t)
+            .all(|cue| t - cue.at >= CAMERA_EASE - 1e-4);
+        assert!(settled, "{kind:?} at {t}");
+        // Every prop out at that moment is all there.
+        assert!(
+            still
+                .props
+                .iter()
+                .filter(|prop| !is_transport(prop.prop))
+                .all(|prop| prop.shown >= 1.0),
+            "{kind:?} at {t}: {:?}",
+            still.props
+        );
+    }
 }

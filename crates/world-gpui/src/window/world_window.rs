@@ -426,6 +426,9 @@ pub(crate) struct Looking {
     /// the World's revision and the beat's index): none for a beat that is
     /// no recorded Event, or one the World stages no scene for.
     pub(crate) scene: Option<((u64, usize), Option<BeatScene>)>,
+    /// The World as that scene draws it ([`diorama::staging::scene_snapshot`]),
+    /// made once with it: none when it is the World as it stands.
+    pub(crate) scene_world: Option<std::rc::Rc<ProjectionSnapshot>>,
     /// Where the return film's card docked for a beat, kept through it.
     pub(crate) film_dock: Option<((u64, usize), Dock)>,
     /// A test's clock for the beat: how far into it, whatever the wall
@@ -2769,13 +2772,18 @@ impl ProjectionView {
         // The beat's scene, as far in as its clock (held at its start until
         // the camera is there and the place painted): its cast put on the
         // stage where it has them, everyone else about their day.
+        // With Reduce Motion on, it is held at one moment, its payoff in
+        // view: nobody walks, no camera glides, no prop fades in jumps a
+        // few frames a second. The beat still lasts as long as its scene.
+        let scene_world = self.scene_world();
         let staged = self.played_scene().map(|script| {
-            diorama::staging::stage_scene(
-                &script,
-                &stage,
-                &self.snapshot,
-                self.beat_clock().min(script.seconds),
-            )
+            let world = scene_world.as_deref().unwrap_or(&self.snapshot);
+            if still {
+                diorama::staging::stage_still(&script, &stage, world)
+            } else {
+                let t = self.beat_clock().min(script.seconds);
+                diorama::staging::stage_scene(&script, &stage, world, t)
+            }
         });
         // A return beat's card docks once for the whole of its scene, clear
         // of what the scene is about all through it.
@@ -2788,7 +2796,8 @@ impl ProjectionView {
                     } else {
                         0.0
                     };
-                let dock = scene_dock(&script, &stage, &self.snapshot, (room, height));
+                let world = scene_world.as_deref().unwrap_or(&self.snapshot);
+                let dock = scene_dock(&script, &stage, world, (room, height));
                 self.looking.film_dock = Some((key, dock));
             }
         }
@@ -2941,9 +2950,12 @@ impl ProjectionView {
                 since(self.looking.turn_at) / diorama::WALK_SECONDS,
             )
         });
+        // Everyone drawn as the scene has them look, and whoever of its
+        // cast has since gone drawn too: the World as the scene draws it.
+        let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
         let mut living = diorama::living_staged(
             &stage,
-            &self.snapshot,
+            drawn,
             seconds,
             daylight,
             &pinned,
@@ -2957,7 +2969,7 @@ impl ProjectionView {
             .poked
             .map(|(who, at)| [(who, at.elapsed().as_secs_f32())].into_iter().collect())
             .unwrap_or_default();
-        diorama::wave(&mut living, &stage, &self.snapshot, &poked, still);
+        diorama::wave(&mut living, &stage, drawn, &poked, still);
         let grew = self
             .before_turn
             .as_ref()
@@ -2968,7 +2980,7 @@ impl ProjectionView {
             1.0
         };
         let mut frame = diorama::frame(
-            &self.snapshot,
+            drawn,
             &stage,
             &living,
             camera,
@@ -3012,14 +3024,9 @@ impl ProjectionView {
         }
         // Whoever is speaking is drawn talking.
         if let Some((speaker, ..)) = &line {
+            let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
             for person in &mut frame.people {
-                if self
-                    .snapshot
-                    .canvas
-                    .items
-                    .get(person.index)
-                    .map(|item| item.id)
-                    == Some(*speaker)
+                if drawn.canvas.items.get(person.index).map(|item| item.id) == Some(*speaker)
                     && person.stance != world_projection::Stance::Walking
                 {
                     person.stance = world_projection::Stance::Talking;
@@ -3028,8 +3035,9 @@ impl ProjectionView {
         }
         // Everyone nearby turns to whoever is speaking.
         if let Some((speaker, _, fade, _)) = &line {
-            if let Some(index) = self
-                .snapshot
+            if let Some(index) = scene_world
+                .as_deref()
+                .unwrap_or(&self.snapshot)
                 .canvas
                 .items
                 .iter()
@@ -3191,15 +3199,20 @@ impl ProjectionView {
         );
         // Named on hover, or while speaking; never two names over one
         // another, and none before the scene is painted.
+        let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
         let speaker_x = line.as_ref().and_then(|(who, ..)| {
             frame
                 .people
                 .iter()
-                .find(|person| self.snapshot.canvas.items[person.index].id == *who)
+                .find(|person| {
+                    drawn.canvas.items.get(person.index).map(|item| item.id) == Some(*who)
+                })
                 .map(|person| person.x)
         });
         for (person, reach) in frame.people.iter().zip(reach) {
-            let item = &self.snapshot.canvas.items[person.index];
+            let Some(item) = drawn.canvas.items.get(person.index) else {
+                continue;
+            };
             let selection = item.id;
             let group = SharedString::from(format!("person-{}", selection.stable_key()));
             let speaking = line.as_ref().is_some_and(|(who, ..)| *who == selection);
@@ -3208,6 +3221,11 @@ impl ProjectionView {
                 painted && !speaking && speaker_x.is_none_or(|x| (x - person.x).abs() > NAME_ROOM);
             heads.push((selection, person.x, person.y - person.height * 1.08));
             bodies.push((selection, person.x, person.y - person.height, person.y));
+            // Someone a scene brings back who is gone from the World now:
+            // drawn, and spoken over, but nobody to ask anything.
+            if person.index >= self.snapshot.canvas.items.len() {
+                continue;
+            }
             root = root.child(
                 div()
                     .id(SharedString::from(format!(
