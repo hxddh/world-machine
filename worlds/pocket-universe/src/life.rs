@@ -1170,6 +1170,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         },
         kin: crate::places::Place::of(state).map(crate::kin::of),
         kind: crate::arrival::first_days,
+        pronouns: lives::they_all,
     }
 }
 

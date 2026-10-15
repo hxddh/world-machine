@@ -83,6 +83,7 @@ pub fn memory(world: &World, cast: &Cast, writer: EntityId) -> Option<String> {
             .iter()
             .filter(|event| quiet::MEMORABLE.contains(&event.kind.as_str())),
     )
+    .map(|(told, _)| told)
 }
 
 /// What the index-backed answers give, and what reading every event
@@ -132,7 +133,9 @@ pub fn compare(world: &World, cast: &Cast) -> Result<(), String> {
                 cast,
                 writer,
                 world.events_of_kind(&quiet::MEMORABLE).into_iter(),
-            ) == memory(world, cast, writer),
+            )
+            .map(|(told, _)| told)
+                == memory(world, cast, writer),
         )?;
     }
     Ok(())

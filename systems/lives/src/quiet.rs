@@ -165,18 +165,32 @@ const SUBJECT_INTROS: [&str; 6] = [
 ];
 
 /// What someone thinks of someone else, said for the first time: two ways
-/// for each way two people can stand.
-fn view_of(state: &WorldState, person: EntityId, other: EntityId, seed: u64) -> &'static str {
+/// for each way two people can stand, speaking of them as `other_is`.
+fn view_of(
+    state: &WorldState,
+    person: EntityId,
+    other: EntityId,
+    other_is: Pronouns,
+    seed: u64,
+) -> String {
     let view = opinion(state, person, other);
+    let them = other_is.them();
     let lines: [&str; 2] = if partner(state, person) == Some(other) {
-        ["I'd be lost without them.", "They make every day easier."]
+        [
+            "I'd be lost without {them}.",
+            match other_is {
+                Pronouns::He => "He makes every day easier.",
+                Pronouns::She => "She makes every day easier.",
+                Pronouns::They => "They make every day easier.",
+            },
+        ]
     } else if view >= 50 {
         [
             "One of the best people I know.",
-            "I'd trust them with anything.",
+            "I'd trust {them} with anything.",
         ]
     } else if view >= 20 {
-        ["I like them. I really do.", "Good company, always."]
+        ["I like {them}. I really do.", "Good company, always."]
     } else if view > -20 {
         [
             "We get on well enough.",
@@ -189,11 +203,11 @@ fn view_of(state: &WorldState, person: EntityId, other: EntityId, seed: u64) -> 
         ]
     } else {
         [
-            "I'd rather not talk about them, to be honest.",
+            "I'd rather not talk about {them}, to be honest.",
             "We fell out. It still stings.",
         ]
     };
-    lines[(seed % 2) as usize]
+    fill(lines[(seed % 2) as usize], &[("them", them)])
 }
 
 fn texts(value: Option<&Value>) -> Vec<String> {
@@ -241,7 +255,7 @@ fn pushed(mut list: Vec<String>, item: String, most: usize) -> Value {
 /// grown now, with a trade of their own" in Greta's own letter is "I'm
 /// grown now, with a trade of my own"; "Leo and Greta made it up" is "Leo
 /// and I made it up"; "Leo gave Greta a gift" is "Leo gave me a gift".
-pub(crate) fn in_own_words(told: &str, first: &str) -> String {
+pub(crate) fn in_own_words(told: &str, first: &str, first_is: Pronouns) -> String {
     if first.is_empty()
         || !told
             .split(|c: char| !c.is_alphanumeric())
@@ -334,6 +348,7 @@ pub(crate) fn in_own_words(told: &str, first: &str) -> String {
             .replace(" of their ", " of my ")
             // "I went fishing with Miri, and they had words": we did.
             .replace(", and they ", ", and we ");
+        line = first_is.as_mine(&line);
     }
     line
 }
@@ -566,7 +581,7 @@ fn next_first(
             let said = format!(
                 "{} {}",
                 fill_owned(intro, &[("other", other_name.clone())]),
-                view_of(state, who, other, seed >> 8)
+                view_of(state, who, other, pronouns(state, cast, other), seed >> 8)
             );
             let told = format!(
                 "{} spoke of {other_name} for the first time",
@@ -710,7 +725,7 @@ pub(crate) fn memory<'a>(
     cast: &Cast,
     writer: EntityId,
     memorable: impl Iterator<Item = &'a Event>,
-) -> Option<String> {
+) -> Option<(String, &'a Event)> {
     let state = world.state();
     let now = period(state, cast);
     let recalled = texts(component(state, writer, RECALLED));
@@ -722,42 +737,71 @@ pub(crate) fn memory<'a>(
         .filter(|event| event.actor == Some(writer) || event.targets.contains(&writer))
         .filter_map(|event| match event.payload.get("told") {
             Some(Value::Text(told)) if !told.is_empty() && !recalled.contains(told) => {
-                Some(told.clone())
+                Some((told.clone(), event))
             }
             _ => None,
         })
-        .max_by_key(|told| mix(&[writer.0, told.len() as u64, now, 103]))
+        .max_by_key(|(told, _)| mix(&[writer.0, told.len() as u64, now, 103]))
 }
 
 /// What a letter from `writer` could tell: fresh news from the harbour's
 /// year not yet written about, or else something the writer was part of
 /// a while ago and has not recalled before. The lines, and what to note
-/// as told.
-fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, ActionRequest)> {
+/// as told. When the record shows the player brought what it tells about,
+/// the letter says what they did, and names that as its cause.
+pub(crate) fn letter_body(
+    world: &World,
+    cast: &Cast,
+    writer: EntityId,
+) -> Option<(String, ActionRequest)> {
     let state = world.state();
     let writer_name = first_name(state, writer);
     // "Nia Chen shared supper" in Nia's own letter is "I shared supper".
     let full_name = name(state, writer);
-    let own = |told: &str| in_own_words(&told.replace(&full_name, &writer_name), &writer_name);
+    let writer_is = pronouns(state, cast, writer);
+    let own = |told: &str| {
+        in_own_words(
+            &told.replace(&full_name, &writer_name),
+            &writer_name,
+            writer_is,
+        )
+    };
     let now = period(state, cast);
     let span = cast.period.max(1);
     let seed = mix(&[writer.0, now, 101]);
     let told_news = texts(component(state, cast.notes, LETTER_NEWS));
-    let news = news_since(
+    let news = news_events_since(
         world,
         world.world_time().saturating_sub(NEWS_PERIODS * span),
     )
     .into_iter()
     .rev()
-    .find(|told| !told_news.contains(told));
+    .find(|(told, _)| !told_news.contains(told));
     let request = ActionRequest::new("lives_leaves_keepsake")
         .actor(writer)
         .arg("who", Value::Entity(writer))
         .arg("letter", "yes");
-    if let Some(news) = news {
+    // What the player did, if they brought it about, after the line;
+    // unless the line already tells it ("came because of the bench you
+    // built"). Either way the letter names it as its cause.
+    let citing = |body: String, request: ActionRequest, about: &Event| {
+        let told = match about.payload.get("told") {
+            Some(Value::Text(told)) => told.as_str(),
+            _ => "",
+        };
+        match player_act(world, about) {
+            Some((act, how)) if crate::retold::tells(told, &how) => (body, request.caused_by(act)),
+            Some((act, how)) => (
+                format!("{body} {}", cited(&how, seed >> 5)),
+                request.caused_by(act),
+            ),
+            None => (body, request),
+        }
+    };
+    if let Some((news, about)) = news {
         let lead = pick(&NEWS_LEADS, seed)?;
         let body = fill_owned(lead, &[("told", own(&inside(&news)))]);
-        return Some((body, request.arg("news", news)));
+        return Some(citing(body, request.arg("news", news), about));
     }
     let memory = memory(
         world,
@@ -765,25 +809,28 @@ fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, 
         writer,
         world.events_of_kind(&MEMORABLE).into_iter(),
     );
-    if let Some(memory) = memory {
+    if let Some((memory, about)) = memory {
         let lead = pick(&MEMORY_LEADS, seed)?;
         let body = fill_owned(lead, &[("told", own(&inside(&memory)))]);
-        return Some((body, request.arg("recalled", memory)));
+        return Some(citing(body, request.arg("recalled", memory), about));
     }
     // With no news and nothing yet to look back on, what the writer did
-    // with their own day, which is news of a kind.
+    // with their own day, which is news of a kind; never one the year has
+    // heard enough of.
     let since = world.world_time().saturating_sub(NEWS_PERIODS * span);
-    let everyday = world
+    let year = year_length(cast);
+    let (everyday, about) = world
         .events()
         .iter()
         .rev()
         .take_while(|event| event.world_time >= since)
         .filter(|event| event.kind == "lived" && event.actor == Some(writer))
-        .find_map(crate::told)
-        .filter(|told| !told_news.contains(told))?;
+        .filter_map(|event| Some((crate::told(event)?, event)))
+        .filter(|(told, _)| !told_news.contains(told))
+        .find(|(_, event)| !told_enough(world, event, year))?;
     let lead = pick(&EVERYDAY_LEADS, seed / 3)?;
     let body = fill_owned(lead, &[("told", own(&inside(&everyday)))]);
-    Some((body, request.arg("news", everyday)))
+    Some(citing(body, request.arg("news", everyday), about))
 }
 
 /// The changes a letter's news or memory makes to the notes.
@@ -971,6 +1018,29 @@ mod rhythm {
 #[cfg(test)]
 mod own_words {
     use super::in_own_words;
+    use crate::Pronouns;
+
+    /// What a writer says of themselves in their own pronouns is said as
+    /// "I", "me" and "my".
+    #[test]
+    fn a_letter_reads_its_writers_pronouns_in_the_first_person() {
+        for (told, pronouns, written) in [
+            ("Greta kept to herself", Pronouns::She, "I kept to myself"),
+            (
+                "Greta confided she was sweet on Leo",
+                Pronouns::She,
+                "I confided I was sweet on Leo",
+            ),
+            ("Greta went on his own", Pronouns::He, "I went on my own"),
+            (
+                "Greta told you a secret, and you told them to share it",
+                Pronouns::They,
+                "I told you a secret, and you told me to share it",
+            ),
+        ] {
+            assert_eq!(in_own_words(told, "Greta", pronouns), written);
+        }
+    }
 
     /// A writer never writes of themselves by name.
     #[test]
@@ -1029,7 +1099,7 @@ mod own_words {
                 "A few of us made something of our own: a mural on the arcade wall",
             ),
         ] {
-            assert_eq!(in_own_words(told, "Greta"), written);
+            assert_eq!(in_own_words(told, "Greta", crate::Pronouns::They), written);
         }
     }
 }
