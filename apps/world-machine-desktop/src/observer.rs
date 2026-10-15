@@ -40,20 +40,48 @@ pub struct Ledger {
 }
 
 impl Ledger {
+    fn store(&self) -> ObserverStore {
+        ObserverStore::new(self.root.clone())
+    }
+
     /// The sitting as the ledger has it now: how many days it has left.
     pub fn sitting(&self) -> Option<Sitting> {
-        let store = ObserverStore::new(self.root.clone());
-        let ledger = store.ledger(&self.key).ok()?;
+        let ledger = self.store().ledger(&self.key).ok()?;
         Some(world_observer::sitting_at(&ledger, self.began_on))
+    }
+
+    /// The morning read this sitting, by its moment's stable key.
+    pub fn morning_read(&self) -> Option<String> {
+        let ledger = self.store().ledger(&self.key).ok()?;
+        (ledger.began_on == Some(self.began_on))
+            .then_some(ledger.morning_read)
+            .flatten()
     }
 
     /// One of the sitting's days passed. A ledger that cannot be written
     /// is let be: the next sitting comes all the same.
     pub fn spend_day(&self) {
-        let store = ObserverStore::new(self.root.clone());
-        if let Err(error) = store.spend_day(&self.key, self.began_on) {
+        if let Err(error) = self.store().spend_day(&self.key, self.began_on) {
             eprintln!("could not write the sitting down: {error}");
         }
+    }
+
+    /// The morning (by its moment's stable key) was read: written down, so
+    /// it shows once however often the World is opened that day.
+    pub fn read_morning(&self, moment: &str) {
+        if let Err(error) = self.store().read_morning(&self.key, self.began_on, moment) {
+            eprintln!("could not write the morning down: {error}");
+        }
+    }
+
+    /// Whether a new sitting has begun since this one: a new day of the
+    /// player's (or a clock put right), with a window left open overnight.
+    pub fn new_day_due(&self) -> bool {
+        self.new_day_due_on(today())
+    }
+
+    fn new_day_due_on(&self, today: i64) -> bool {
+        today != self.began_on
     }
 }
 
@@ -66,9 +94,11 @@ pub fn sit(
     sit_on(session, registry, library, today())
 }
 
-/// The sitting that opening the World on local day `today` is: written
-/// down if it is new, and then the World told a sitting began, so its
-/// morning comes. A World that keeps no morning refuses, and that is all.
+/// The sitting that opening the World on local day `today` is, written
+/// down if it is new; and the World told a sitting began on every opening
+/// of it until it passes a day, so a morning lost (the app closed between
+/// the two) still comes. The World keeps its morning to one a day and refuses the rest,
+/// as does a World that keeps none.
 fn sit_on(
     session: &mut DurableWorldSession,
     registry: &world_host::WorldRegistry,
@@ -81,7 +111,10 @@ fn sit_on(
     let sitting = store
         .sit(&key, today)
         .map_err(|error| format!("could not read the sittings: {error}"))?;
-    let morning = sitting.new
+    // Told on every opening until the sitting passes its first day: the
+    // morning belongs to the sitting's first World day, never to a day the
+    // player passed into (whose morning is the next sitting's).
+    let morning = sitting.left == sitting.allowance
         && session
             .handle(
                 ProjectionIntent::InvokeCommand(SITTING_BEGINS_COMMAND.into()),
@@ -108,12 +141,22 @@ fn sit_on(
 }
 
 /// How many seconds until the next sitting can begin: the next midnight on
-/// this device's calendar.
+/// this device's calendar, as the calendar has it that night (a change of
+/// clocks between now and then included).
 pub fn next_sitting_in() -> Option<u64> {
+    use chrono::TimeZone;
     let now = chrono::Local::now();
-    let offset = now.offset().local_minus_utc() as i64;
-    let next = (local_day(now.timestamp(), offset) + 1) * world_observer::SECONDS_PER_DAY - offset;
-    u64::try_from(next - now.timestamp()).ok()
+    let midnight = now.date_naive().succ_opt()?.and_hms_opt(0, 0, 0)?;
+    let next = chrono::Local
+        .from_local_datetime(&midnight)
+        .earliest()
+        // A midnight the clocks skip: the first hour after it.
+        .or_else(|| {
+            chrono::Local
+                .from_local_datetime(&(midnight + chrono::TimeDelta::hours(1)))
+                .earliest()
+        })?;
+    u64::try_from(next.timestamp() - now.timestamp()).ok()
 }
 
 /// Whether opening a library World now begins a new sitting: a new day of
@@ -173,10 +216,15 @@ mod tests {
     const PACK: &str = "world-machine.desktop-observer-test";
 
     /// How much a morning moves the test World's time: so its time, which
-    /// its archive keeps, counts the mornings it was told of.
+    /// its archive keeps, counts the mornings it was told of. Its lowest
+    /// bit says this day has had its morning; a day passing clears it.
     const MORNING: u64 = 100;
 
-    /// A World that hears of each sitting, and keeps the count in its time.
+    /// The test World's own day passing.
+    const DAY: &str = "observer-test.day";
+
+    /// A World that hears of each sitting, keeps its morning to one a day,
+    /// and keeps the count in its time.
     struct MockSession {
         time: u64,
         keeps_mornings: bool,
@@ -204,9 +252,15 @@ mod tests {
             match intent {
                 // A sitting is told as it is, and nothing else: no clock.
                 ProjectionIntent::InvokeCommand(command)
-                    if command == SITTING_BEGINS_COMMAND && self.keeps_mornings =>
+                    if command == SITTING_BEGINS_COMMAND
+                        && self.keeps_mornings
+                        && self.time.is_multiple_of(2) =>
                 {
-                    self.time += MORNING;
+                    self.time += MORNING + 1;
+                    Ok(self.snapshot())
+                }
+                ProjectionIntent::InvokeCommand(command) if command == DAY => {
+                    self.time = (self.time | 1) + 1;
                     Ok(self.snapshot())
                 }
                 _ => Err(HostError::Session("no morning here".into())),
@@ -286,16 +340,31 @@ mod tests {
 
         let first = sit_on(&mut session, &registry, &library, 100).unwrap();
         assert!(first.sitting.new && first.morning);
+        assert!(!first.ledger().new_day_due_on(100));
+        assert!(
+            first.ledger().new_day_due_on(101),
+            "a window left open overnight"
+        );
+        assert!(first.ledger().new_day_due_on(99), "a clock put right");
         assert_eq!(first.sitting.left, FIRST_SITTING_DAYS);
-        assert_eq!(session.snapshot().world_time, MORNING, "one morning");
-        // Opened again the same day: the same sitting, no second morning.
+        assert_eq!(session.snapshot().world_time, MORNING + 1, "one morning");
+        // Opened again the same day: the same sitting; the World, told
+        // again, keeps to one morning.
         let again = sit_on(&mut session, &registry, &library, 100).unwrap();
         assert!(!again.sitting.new && !again.morning);
-        assert_eq!(session.snapshot().world_time, MORNING);
+        assert_eq!(session.snapshot().world_time, MORNING + 1);
         // The window writes each day down as it passes.
         for _ in 0..FIRST_SITTING_DAYS {
+            session
+                .handle(
+                    ProjectionIntent::InvokeCommand(DAY.into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
             again.ledger().spend_day();
         }
+        let days = MORNING + 1 + 5;
         let spent = sit_on(&mut session, &registry, &library, 100).unwrap();
         assert_eq!(spent.sitting.left, 0, "the first sitting spent");
         // A month away: a new sitting of one day, and one morning.
@@ -303,11 +372,32 @@ mod tests {
         assert!(back.sitting.new && back.morning);
         assert_eq!(back.sitting.left, SITTING_DAYS);
         assert_eq!(back.sitting.days_away, 30);
-        assert_eq!(session.snapshot().world_time, 2 * MORNING);
-        // The World saved its mornings; nothing else moved it.
+        assert_eq!(session.snapshot().world_time, days + MORNING + 1);
+        // The World saved its mornings and days; nothing else moved it.
         drop(session);
         let reopened = DurableWorldSession::open(document_id, &registry, &library).unwrap();
-        assert_eq!(reopened.snapshot().world_time, 2 * MORNING);
+        assert_eq!(reopened.snapshot().world_time, days + MORNING + 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_morning_lost_between_the_ledger_and_the_world_still_comes() {
+        let root = temp_root("lost-morning");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        let document_id = WorldDocumentId::new("lost").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
+        // The sitting written down, and the app closed before the World
+        // heard of it.
+        let store = ObserverStore::new(observer_root(&library));
+        store
+            .sit(&ObserverKey::new("library:lost").unwrap(), 70)
+            .unwrap();
+        let sat = sit_on(&mut session, &registry, &library, 70).unwrap();
+        assert!(!sat.sitting.new);
+        assert!(sat.morning, "the morning comes on the next opening");
+        assert_eq!(session.snapshot().world_time, MORNING + 1);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -335,6 +425,10 @@ mod tests {
         let mut session =
             DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
         let sat = sit_on(&mut session, &registry, &library, 50).unwrap();
+        // The morning, once read, is kept for the sitting.
+        assert_eq!(sat.ledger().morning_read(), None);
+        sat.ledger().read_morning("event-7");
+        assert_eq!(sat.ledger().morning_read().as_deref(), Some("event-7"));
         // Past midnight, the window still writes to the sitting of the 50th.
         sat.ledger().spend_day();
         let store = ObserverStore::new(observer_root(&library));

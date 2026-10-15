@@ -122,10 +122,20 @@ struct SharedDocumentState {
     session: DurableWorldSession,
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
-    /// Where this sitting's days are written down (v0.30 S4): every window
-    /// onto the World shares the one sitting. `None` for a World that has
-    /// no sittings (one opened in the demo).
-    sitting: Option<observer::Ledger>,
+    /// This sitting (v0.30 S4): every window onto the World shares it.
+    /// `None` for a World that has no sittings (one opened in the demo).
+    sitting: Option<SittingKept>,
+}
+
+/// Where a World's sitting is kept.
+#[cfg(gui)]
+#[derive(Clone)]
+enum SittingKept {
+    /// In the observer's ledger, written down day by day.
+    Ledger(observer::Ledger),
+    /// Nowhere: the ledger could not be read. One day, all the same, never
+    /// days without end.
+    Unreadable,
 }
 
 #[cfg(gui)]
@@ -369,19 +379,25 @@ fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionVie
     let view = world_gpui::ProjectionView::controlled(controller)
         .without_header()
         .with_strip(|window, cx| window.dispatch_action(Box::new(about::ShowAsStrip), cx));
-    let Some(ledger) = sitting else {
-        return view;
-    };
-    let Some(now) = ledger.sitting() else {
-        return view;
-    };
-    view.with_allowance(
-        world_gpui::Allowance {
-            left: now.left,
-            of: now.allowance,
-        },
-        move || ledger.spend_day(),
-    )
+    // A ledger that cannot be read gives one day, never days without end.
+    let one_day = world_gpui::Allowance { left: 1, of: 1 };
+    match sitting {
+        None => view,
+        Some(SittingKept::Unreadable) => view.with_allowance(one_day, || {}),
+        Some(SittingKept::Ledger(ledger)) => {
+            let allowance = ledger
+                .sitting()
+                .map(|now| world_gpui::Allowance {
+                    left: now.left,
+                    of: now.allowance,
+                })
+                .unwrap_or(one_day);
+            let reads = ledger.clone();
+            let read = ledger.morning_read();
+            view.with_morning_read(read.as_deref(), move |moment| reads.read_morning(moment))
+                .with_allowance(allowance, move || ledger.spend_day())
+        }
+    }
 }
 
 /// `view`'s window asks it before closing (see
@@ -397,6 +413,16 @@ pub(crate) fn ask_before_closing(
         asked
             .update(cx, |view, cx| view.ready_to_close(window, cx))
             .unwrap_or(true)
+    });
+    // A window left open overnight wakes when it is next brought forward
+    // (by Home, its strip, or a click), on a new sitting (v0.30 S4).
+    view.update(cx, |_, cx| {
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.wake_if_new_day(cx);
+            }
+        })
+        .detach();
     });
     view
 }
@@ -547,7 +573,7 @@ impl WorldDocumentView {
         session: DurableWorldSession,
         registry: Arc<world_host::WorldRegistry>,
         library: Arc<WorldLibrary>,
-        sitting: Option<observer::Ledger>,
+        sitting: Option<SittingKept>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self::with_document(
@@ -757,6 +783,48 @@ impl WorldDocumentView {
         .detach();
     }
 
+    /// A new sitting, if one has begun since this window's (a window left
+    /// open overnight, or a clock put right): it is written down, the World
+    /// told, and the page asked anew, so the window wakes with the new
+    /// day's allowance and its morning.
+    fn wake_if_new_day(&mut self, cx: &mut Context<Self>) {
+        let due = matches!(
+            &self.document.borrow().sitting,
+            Some(SittingKept::Ledger(ledger)) if ledger.new_day_due()
+        );
+        if !due {
+            return;
+        }
+        let sat = {
+            let Ok(mut state) = self.document.try_borrow_mut() else {
+                return;
+            };
+            let SharedDocumentState {
+                session,
+                registry,
+                library,
+                sitting,
+            } = &mut *state;
+            match observer::sit(session, registry, library) {
+                Ok(sat) => {
+                    *sitting = Some(SittingKept::Ledger(sat.ledger()));
+                    true
+                }
+                Err(error) => {
+                    diagnostics::error(format!("could not begin a new sitting: {error}"));
+                    false
+                }
+            }
+        };
+        if sat {
+            self.next_move_at = observer::next_sitting_in()
+                .zip(unix_now())
+                .map(|(remaining, now)| now + remaining);
+            self.rebuild_projection(cx);
+            cx.notify();
+        }
+    }
+
     fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
         let controller =
             HostProjectionController::new(Rc::clone(&self.document), Rc::clone(&self.demo_cue));
@@ -936,11 +1004,20 @@ impl Render for WorldDocumentView {
         };
         // Nor while the demo's farewell shows: there is no next day there.
         let farewell = self.projection.read(cx).farewell_shown();
+        // Asleep, or its sitting's days spent: it says so (v0.30 S4).
+        let asleep = {
+            let view = self.projection.read(cx);
+            view.asleep()
+                || view.goodnight_shown()
+                || view
+                    .allowance()
+                    .is_some_and(|allowance| allowance.left == 0)
+        };
         let keeps_going = self
             .next_move_at
             .filter(|_| moves_alone && !farewell)
             .zip(unix_now())
-            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit));
+            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit, asleep));
         // The World is called by its name, and only by its name; which file
         // it lives in is for Export and Show in Finder to say.
         let identity = div()
@@ -1873,8 +1950,8 @@ impl WorldMachineHome {
             None
         };
         let (ledger, sitting_error) = match sat {
-            Some(Ok(sat)) => (Some(sat.ledger()), None),
-            Some(Err(error)) => (None, Some(error)),
+            Some(Ok(sat)) => (Some(SittingKept::Ledger(sat.ledger())), None),
+            Some(Err(error)) => (Some(SittingKept::Unreadable), Some(error)),
             None => (None, None),
         };
         let registry = Arc::clone(&self.registry);
@@ -2663,8 +2740,7 @@ impl WorldMachineHome {
             .display_moves_alone
             .then(|| observer::new_day_waiting(&document.id, &self.library))
             .flatten()
-            .filter(|waiting| *waiting)
-            .map(|_| 1);
+            .filter(|waiting| *waiting);
         let unit = document
             .display_calendar
             .as_ref()
@@ -2721,7 +2797,7 @@ impl WorldMachineHome {
                 })),
             ),
         );
-        if let Some(periods) = waiting {
+        if waiting.is_some() {
             cover = cover.child(
                 div()
                     .absolute()
@@ -2745,7 +2821,7 @@ impl WorldMachineHome {
                         div()
                             .text_xs()
                             .text_color(ui::color(tokens::TEXT))
-                            .child(time_waiting_line(periods, &unit)),
+                            .child(new_day_waiting_line(&unit)),
                     ),
             );
         }
@@ -3881,13 +3957,6 @@ fn has_begun(document: &WorldDocumentSummary) -> bool {
 #[cfg(gui)]
 const WORLD_COVER_HEIGHT: f32 = 196.0;
 
-/// How long a World has been living without you, in its own unit:
-/// "1 sol has passed", "3 nights have passed".
-#[cfg(gui)]
-fn time_waiting_line(periods: u64, unit: &str) -> String {
-    world_gpui::i18n::time_passed(periods, unit)
-}
-
 /// The line under a World's name on Home.
 #[cfg(gui)]
 fn world_card_meta(
@@ -4144,8 +4213,8 @@ mod file_type_tests {
             world_card_meta("Pocket Universe", "Pocket Universe", 0, Some(&sols)),
             "just begun"
         );
-        assert_eq!(time_waiting_line(1, "sol"), "1 sol has passed");
-        assert_eq!(time_waiting_line(3, "night"), "3 nights have passed");
+        assert_eq!(new_day_waiting_line("sol"), "A new sol is waiting");
+        assert_eq!(new_day_waiting_line("day"), "A new day is waiting");
     }
 
     #[test]
@@ -4172,16 +4241,16 @@ mod file_type_tests {
     #[test]
     fn a_world_says_when_it_next_moves_on_its_own() {
         assert_eq!(
-            keeps_going_line(5 * 3600 + 10, "sol"),
-            "Keeps going without you · next sol in 6 h"
+            keeps_going_line(5 * 3600 + 10, "sol", false),
+            "Waits for you · a new sol in 6 h"
         );
         assert_eq!(
-            keeps_going_line(20 * 60, "night"),
-            "Keeps going without you · next night in 20 min"
+            keeps_going_line(20 * 60, "night", true),
+            "Asleep · a new night in 20 min"
         );
         assert_eq!(
-            keeps_going_line(0, "day"),
-            "Keeps going without you · a new day waits for your next visit"
+            keeps_going_line(0, "day", false),
+            "Waits for you · a new day comes with tomorrow's visit"
         );
     }
 
