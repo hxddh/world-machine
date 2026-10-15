@@ -1,145 +1,135 @@
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
-use world_observer::{CatchUpPolicy, ObserverKey, ObserverStore};
+//! Sittings (v0.30 S4, "one day a day"): a World moves one of its days a
+//! sitting, and a sitting is a day of the player's own. The observer's
+//! ledger, beside the Library on this device, says which sitting opening a
+//! World begins and how many of its days it may pass (`world_observer`);
+//! the World is only told that a sitting began, never when. Time away no
+//! longer moves a World on its own.
 
-/// How much World time one wall-clock stretch is worth, and how much of a long
-/// absence is ever caught up at once.
-///
-/// The cap used to be seven periods, from when a World had a fixed amount of
-/// story in it and burning through it unattended was the risk. Eras removed
-/// that ceiling, so the cap now says something simpler and truer: a World lives
-/// through at most a week of your absence. A day away moves it four periods; a
-/// week away moves it 28; a month away still moves it 28, because a return
-/// should be readable rather than exhaustive.
-const DEFAULT_SECONDS_PER_PERIOD: u64 = 6 * 60 * 60;
-const DEFAULT_MAX_PERIODS: u64 = 4 * 7;
+use std::path::{Path, PathBuf};
+use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
+use world_observer::{local_day, ObserverKey, ObserverStore, Sitting};
+use world_projection::{ProjectionIntent, SITTING_BEGINS_COMMAND};
+
 const OBSERVER_DIRECTORY: &str = "Observer";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CatchUpOutcome {
-    pub periods: u64,
-    pub world_time: u64,
+/// A World opened for a sitting: the sitting, and where to write down each
+/// of its days as it passes.
+#[derive(Clone, Debug)]
+pub struct Sat {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub sitting: Sitting,
+    /// Whether the World answered the new sitting with its morning.
+    pub morning: bool,
+    ledger: Ledger,
 }
 
-pub fn catch_up(
-    session: &mut DurableWorldSession,
-    registry: &world_host::WorldRegistry,
-    library: &WorldLibrary,
-) -> Result<Option<CatchUpOutcome>, String> {
-    catch_up_at(
-        session,
-        registry,
-        library,
-        current_unix_seconds()?,
-        default_policy(),
-        demo_periods,
-    )
+impl Sat {
+    /// What the window writes down as each of the sitting's days passes.
+    pub fn ledger(&self) -> Ledger {
+        self.ledger.clone()
+    }
 }
 
-/// Claims the time away that is due at `now_unix_seconds` and lives the
-/// World through as much of it as `periods_for` allows (all of it in the
-/// full app; see [`demo_periods`]), rolling the claim back if that fails.
-fn catch_up_at(
-    session: &mut DurableWorldSession,
-    registry: &world_host::WorldRegistry,
-    library: &WorldLibrary,
-    now_unix_seconds: u64,
-    policy: CatchUpPolicy,
-    periods_for: fn(&DurableWorldSession, u64) -> u64,
-) -> Result<Option<CatchUpOutcome>, String> {
-    let store = ObserverStore::new(observer_root(library));
-    let key = observer_key(session)?;
-    let claim = store
-        .claim_due(&key, now_unix_seconds, policy)
-        .map_err(|error| format!("could not update observer clock: {error}"))?;
-    if !claim.is_due() {
-        return Ok(None);
+/// Where a sitting's days are written down: the observer's ledger for one
+/// World, and the local day its sitting began on.
+#[derive(Clone, Debug)]
+pub struct Ledger {
+    root: PathBuf,
+    key: ObserverKey,
+    began_on: i64,
+}
+
+impl Ledger {
+    /// The sitting as the ledger has it now: how many days it has left.
+    pub fn sitting(&self) -> Option<Sitting> {
+        let store = ObserverStore::new(self.root.clone());
+        let ledger = store.ledger(&self.key).ok()?;
+        Some(world_observer::sitting_at(&ledger, self.began_on))
     }
 
-    let periods = periods_for(session, claim.periods());
-    if periods == 0 {
-        return Ok(None);
-    }
-    match session.advance_background_if_changed(periods, registry, library) {
-        Ok(Some(snapshot)) => Ok(Some(CatchUpOutcome {
-            periods,
-            world_time: snapshot.world_time,
-        })),
-        Ok(None) => Ok(None),
-        Err(error) => {
-            if let Err(rollback) = store.rollback(&claim) {
-                return Err(format!(
-                    "background catch-up failed: {error}; observer rollback also failed: {rollback}"
-                ));
-            }
-            Err(format!("background catch-up failed: {error}"))
+    /// One of the sitting's days passed. A ledger that cannot be written
+    /// is let be: the next sitting comes all the same.
+    pub fn spend_day(&self) {
+        let store = ObserverStore::new(self.root.clone());
+        if let Err(error) = store.spend_day(&self.key, self.began_on) {
+            eprintln!("could not write the sitting down: {error}");
         }
     }
 }
 
-/// How much of `periods` away a World lives through: all of it, except in
-/// the demo, which never carries a World past its last day.
-fn demo_periods(session: &DurableWorldSession, periods: u64) -> u64 {
-    if !world_machine_desktop::demo::ENABLED {
-        return periods;
-    }
-    let snapshot = session.snapshot();
-    // A day that cannot be counted is past the last: nothing moves.
-    let day = snapshot
-        .calendar
-        .map(|calendar| world_machine_desktop::demo::day_of(snapshot.world_time, calendar.length));
-    world_machine_desktop::demo::periods_to_catch_up(&session.pack().id, day, periods)
+/// Opens this World's sitting for today on this device's calendar.
+pub fn sit(
+    session: &mut DurableWorldSession,
+    registry: &world_host::WorldRegistry,
+    library: &WorldLibrary,
+) -> Result<Sat, String> {
+    sit_on(session, registry, library, today())
 }
 
-/// How many seconds until this World next moves on its own: a period after
-/// it was last caught up to. It moves when it is next opened after that.
-pub fn next_move_in(session: &DurableWorldSession, library: &WorldLibrary) -> Option<u64> {
-    let store = ObserverStore::new(observer_root(library));
-    let key = observer_key(session).ok()?;
-    let last = store.last_seen(&key).ok()??;
-    let now = current_unix_seconds().ok()?;
-    Some(seconds_until_next_period(
-        last,
-        now,
-        DEFAULT_SECONDS_PER_PERIOD,
-    ))
+/// The sitting that opening the World on local day `today` is: written
+/// down if it is new, and then the World told a sitting began, so its
+/// morning comes. A World that keeps no morning refuses, and that is all.
+fn sit_on(
+    session: &mut DurableWorldSession,
+    registry: &world_host::WorldRegistry,
+    library: &WorldLibrary,
+    today: i64,
+) -> Result<Sat, String> {
+    let root = observer_root(library);
+    let store = ObserverStore::new(root.clone());
+    let key = observer_key(session)?;
+    let sitting = store
+        .sit(&key, today)
+        .map_err(|error| format!("could not read the sittings: {error}"))?;
+    let morning = sitting.new
+        && session
+            .handle(
+                ProjectionIntent::InvokeCommand(SITTING_BEGINS_COMMAND.into()),
+                registry,
+                library,
+            )
+            .is_ok();
+    // The ledger is written down by the day it began: a sitting that goes
+    // on past midnight is still that day's.
+    let began_on = store
+        .ledger(&key)
+        .ok()
+        .and_then(|ledger| ledger.began_on)
+        .unwrap_or(today);
+    Ok(Sat {
+        sitting,
+        morning,
+        ledger: Ledger {
+            root,
+            key,
+            began_on,
+        },
+    })
 }
 
-/// How many of its periods a library World has lived without being looked
-/// at, as far as the next opening will catch it up: none if it was never
-/// opened here.
-pub fn periods_waiting(document: &WorldDocumentId, library: &WorldLibrary) -> Option<u64> {
+/// How many seconds until the next sitting can begin: the next midnight on
+/// this device's calendar.
+pub fn next_sitting_in() -> Option<u64> {
+    let now = chrono::Local::now();
+    let offset = now.offset().local_minus_utc() as i64;
+    let next = (local_day(now.timestamp(), offset) + 1) * world_observer::SECONDS_PER_DAY - offset;
+    u64::try_from(next - now.timestamp()).ok()
+}
+
+/// Whether opening a library World now begins a new sitting: a new day of
+/// its own waits for the player. `None` if it was never opened here.
+pub fn new_day_waiting(document: &WorldDocumentId, library: &WorldLibrary) -> Option<bool> {
     let store = ObserverStore::new(observer_root(library));
     let key = ObserverKey::new(format!("library:{}", document.as_str())).ok()?;
-    let last = store.last_seen(&key).ok()??;
-    let now = current_unix_seconds().ok()?;
-    Some(periods_between(
-        last,
-        now,
-        DEFAULT_SECONDS_PER_PERIOD,
-        DEFAULT_MAX_PERIODS,
-    ))
+    let ledger = store.ledger(&key).ok()?;
+    ledger.began_on?;
+    Some(world_observer::sitting_at(&ledger, today()).new)
 }
 
-fn periods_between(last: u64, now: u64, period: u64, most: u64) -> u64 {
-    (now.saturating_sub(last) / period.max(1)).min(most)
-}
-
-fn seconds_until_next_period(last: u64, now: u64, period: u64) -> u64 {
-    period.saturating_sub(now.saturating_sub(last))
-}
-
-fn default_policy() -> CatchUpPolicy {
-    CatchUpPolicy::new(DEFAULT_SECONDS_PER_PERIOD, DEFAULT_MAX_PERIODS)
-        .expect("desktop observer policy is valid")
-}
-
-fn current_unix_seconds() -> Result<u64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .map_err(|error| format!("system clock is before the Unix epoch: {error}"))
+/// Today, on this device's calendar.
+fn today() -> i64 {
+    let now = chrono::Local::now();
+    local_day(now.timestamp(), now.offset().local_minus_utc() as i64)
 }
 
 fn observer_root(library: &WorldLibrary) -> PathBuf {
@@ -171,39 +161,25 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
-
-    #[test]
-    fn the_next_period_is_counted_from_the_last_catch_up() {
-        assert_eq!(seconds_until_next_period(1_000, 1_000, 600), 600);
-        assert_eq!(seconds_until_next_period(1_000, 1_450, 600), 150);
-        assert_eq!(seconds_until_next_period(1_000, 5_000, 600), 0);
-    }
-
-    #[test]
-    fn time_waiting_counts_whole_periods_up_to_what_a_return_catches_up() {
-        assert_eq!(periods_between(1_000, 1_500, 600, 7), 0);
-        assert_eq!(periods_between(1_000, 2_300, 600, 7), 2);
-        assert_eq!(periods_between(1_000, 100_000, 600, 7), 7);
-        assert_eq!(periods_between(5_000, 1_000, 600, 7), 0);
-    }
     use std::process;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
+    use world_observer::{FIRST_SITTING_DAYS, SITTING_DAYS};
     use world_persistence::{
         WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
     };
-    use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
+    use world_projection::{ProjectionCapabilities, ProjectionSnapshot};
 
     const PACK: &str = "world-machine.desktop-observer-test";
 
-    /// The observer's own mechanics, apart from what the demo allows: all
-    /// the time away that is due.
-    fn every_period(_: &DurableWorldSession, periods: u64) -> u64 {
-        periods
-    }
+    /// How much a morning moves the test World's time: so its time, which
+    /// its archive keeps, counts the mornings it was told of.
+    const MORNING: u64 = 100;
 
+    /// A World that hears of each sitting, and keeps the count in its time.
     struct MockSession {
         time: u64,
-        fail_background: bool,
+        keeps_mornings: bool,
     }
 
     impl WorldSession for MockSession {
@@ -224,55 +200,33 @@ mod tests {
             }
         }
 
-        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
-            Err(HostError::Session("unused in observer tests".into()))
-        }
-
-        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
-            if self.fail_background {
-                return Err(HostError::Session("injected background failure".into()));
+        fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            match intent {
+                // A sitting is told as it is, and nothing else: no clock.
+                ProjectionIntent::InvokeCommand(command)
+                    if command == SITTING_BEGINS_COMMAND && self.keeps_mornings =>
+                {
+                    self.time += MORNING;
+                    Ok(self.snapshot())
+                }
+                _ => Err(HostError::Session("no morning here".into())),
             }
-            self.time += periods;
-            Ok(self.snapshot())
         }
 
         fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-            Ok(Some(archive(self.time)))
-        }
-    }
-
-    struct StaticSession {
-        time: u64,
-    }
-
-    impl WorldSession for StaticSession {
-        fn pack(&self) -> WorldPackRef {
-            WorldPackRef::new(PACK, "1")
-        }
-
-        fn snapshot(&self) -> ProjectionSnapshot {
-            ProjectionSnapshot {
-                title: "Static Observer Test".into(),
+            Ok(Some(WorldArchive {
+                format: WORLD_ARCHIVE_FORMAT.into(),
+                format_version: WORLD_ARCHIVE_VERSION,
+                pack: WorldPackRef::new(PACK, "1"),
                 world_time: self.time,
-                capabilities: ProjectionCapabilities {
-                    fork: false,
-                    background: false,
-                    talk: false,
-                },
-                ..ProjectionSnapshot::default()
-            }
-        }
-
-        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
-            Err(HostError::Session("unused in static observer tests".into()))
-        }
-
-        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-            Ok(Some(archive(self.time)))
+                events: Vec::new(),
+                pending: Vec::new(),
+                checkpoint: None,
+            }))
         }
     }
 
-    fn registry(fail_background: bool) -> WorldRegistry {
+    fn registry(keeps_mornings: bool) -> WorldRegistry {
         let mut registry = WorldRegistry::new();
         registry
             .register(
@@ -280,58 +234,24 @@ mod tests {
                     WorldDescriptor {
                         pack: WorldPackRef::new(PACK, "1"),
                         title: "Observer Test".into(),
-                        description: "Desktop catch-up test".into(),
+                        description: "Desktop sitting test".into(),
                     },
                     move || {
                         Ok(Box::new(MockSession {
                             time: 0,
-                            fail_background,
+                            keeps_mornings,
                         }))
                     },
                 )
                 .with_archive_opener(move |archive| {
                     Ok(Box::new(MockSession {
                         time: archive.world_time,
-                        fail_background,
+                        keeps_mornings,
                     }))
                 }),
             )
             .unwrap();
         registry
-    }
-
-    fn static_registry() -> WorldRegistry {
-        let mut registry = WorldRegistry::new();
-        registry
-            .register(
-                WorldRegistration::new(
-                    WorldDescriptor {
-                        pack: WorldPackRef::new(PACK, "1"),
-                        title: "Static Observer Test".into(),
-                        description: "Desktop no-op catch-up test".into(),
-                    },
-                    || Ok(Box::new(StaticSession { time: 0 })),
-                )
-                .with_archive_opener(|archive| {
-                    Ok(Box::new(StaticSession {
-                        time: archive.world_time,
-                    }))
-                }),
-            )
-            .unwrap();
-        registry
-    }
-
-    fn archive(time: u64) -> WorldArchive {
-        WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: WorldPackRef::new(PACK, "1"),
-            world_time: time,
-            events: Vec::new(),
-            pending: Vec::new(),
-            checkpoint: None,
-        }
     }
 
     fn temp_root(label: &str) -> PathBuf {
@@ -346,14 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn policy_is_bounded_and_device_local() {
-        assert_eq!(default_policy().seconds_per_period, 6 * 60 * 60);
-        assert_eq!(default_policy().max_periods, 28);
-        assert_eq!(
-            default_policy().max_periods * default_policy().seconds_per_period,
-            7 * 24 * 60 * 60,
-            "the catch-up cap is meant to read as exactly one week of World time"
-        );
+    fn the_ledger_lives_beside_the_library() {
         let library = WorldLibrary::new(PathBuf::from("/tmp/World Machine/Worlds"));
         assert_eq!(
             observer_root(&library),
@@ -362,136 +275,82 @@ mod tests {
     }
 
     #[test]
-    fn successful_claim_advances_durable_world() {
-        let root = temp_root("success");
+    fn a_new_sitting_tells_the_world_and_gives_its_days() {
+        let root = temp_root("sitting");
         let library = WorldLibrary::new(root.join("Worlds"));
-        let registry = registry(false);
-        let document_id = world_library::WorldDocumentId::new("living").unwrap();
-        let mut session =
-            DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
-        let policy = CatchUpPolicy::new(60, 3).unwrap();
-
-        assert!(
-            catch_up_at(&mut session, &registry, &library, 100, policy, every_period)
-                .unwrap()
-                .is_none()
-        );
-        let outcome = catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(outcome.periods, 3);
-        assert_eq!(outcome.world_time, 3);
-        assert_eq!(session.snapshot().world_time, 3);
-        // One session per World: closed before it is opened again.
-        drop(session);
-        let reopened = DurableWorldSession::open(
-            world_library::WorldDocumentId::new("living").unwrap(),
-            &registry,
-            &library,
-        )
-        .unwrap();
-        assert_eq!(reopened.snapshot().world_time, 3);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn static_world_consumes_elapsed_time_without_reporting_progress() {
-        let root = temp_root("static");
-        let library = WorldLibrary::new(root.join("Worlds"));
-        let registry = static_registry();
-        let document_id = world_library::WorldDocumentId::new("static").unwrap();
+        let registry = registry(true);
+        let document_id = WorldDocumentId::new("living").unwrap();
         let mut session =
             DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
-        let policy = CatchUpPolicy::new(60, 3).unwrap();
-        catch_up_at(&mut session, &registry, &library, 100, policy, every_period).unwrap();
-        let before = fs::read(library.path(&document_id)).unwrap();
+        assert_eq!(new_day_waiting(&document_id, &library), None);
 
-        assert!(
-            catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(session.snapshot().world_time, 0);
-        assert_eq!(fs::read(library.path(&document_id)).unwrap(), before);
-        assert!(
-            catch_up_at(&mut session, &registry, &library, 280, policy, every_period)
-                .unwrap()
-                .is_none()
-        );
+        let first = sit_on(&mut session, &registry, &library, 100).unwrap();
+        assert!(first.sitting.new && first.morning);
+        assert_eq!(first.sitting.left, FIRST_SITTING_DAYS);
+        assert_eq!(session.snapshot().world_time, MORNING, "one morning");
+        // Opened again the same day: the same sitting, no second morning.
+        let again = sit_on(&mut session, &registry, &library, 100).unwrap();
+        assert!(!again.sitting.new && !again.morning);
+        assert_eq!(session.snapshot().world_time, MORNING);
+        // The window writes each day down as it passes.
+        for _ in 0..FIRST_SITTING_DAYS {
+            again.ledger().spend_day();
+        }
+        let spent = sit_on(&mut session, &registry, &library, 100).unwrap();
+        assert_eq!(spent.sitting.left, 0, "the first sitting spent");
+        // A month away: a new sitting of one day, and one morning.
+        let back = sit_on(&mut session, &registry, &library, 130).unwrap();
+        assert!(back.sitting.new && back.morning);
+        assert_eq!(back.sitting.left, SITTING_DAYS);
+        assert_eq!(back.sitting.days_away, 30);
+        assert_eq!(session.snapshot().world_time, 2 * MORNING);
+        // The World saved its mornings; nothing else moved it.
+        drop(session);
+        let reopened = DurableWorldSession::open(document_id, &registry, &library).unwrap();
+        assert_eq!(reopened.snapshot().world_time, 2 * MORNING);
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn failed_durable_catch_up_rolls_back_observer_claim() {
-        let root = temp_root("rollback");
-        let library = WorldLibrary::new(root.join("Worlds"));
-        let good_registry = registry(false);
-        let failing_registry = registry(true);
-        let document_id = world_library::WorldDocumentId::new("living").unwrap();
-        let mut session =
-            DurableWorldSession::create(document_id, PACK, &good_registry, &library).unwrap();
-        let policy = CatchUpPolicy::new(60, 3).unwrap();
-        catch_up_at(
-            &mut session,
-            &good_registry,
-            &library,
-            100,
-            policy,
-            every_period,
-        )
-        .unwrap();
-
-        assert!(catch_up_at(
-            &mut session,
-            &failing_registry,
-            &library,
-            280,
-            policy,
-            every_period
-        )
-        .is_err());
-        assert_eq!(session.snapshot().world_time, 0);
-
-        let retry = catch_up_at(
-            &mut session,
-            &good_registry,
-            &library,
-            280,
-            policy,
-            every_period,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(retry.periods, 3);
-        assert_eq!(session.snapshot().world_time, 3);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    /// The app's own cap: the full app lives through all the time away; the
-    /// demo moves no World of a Pack it does not offer (it fails closed),
-    /// and its claim is spent, so the time is not caught up later either.
-    #[test]
-    fn the_demo_moves_no_world_it_does_not_offer() {
-        let root = temp_root("demo");
+    fn a_world_that_keeps_no_morning_still_has_its_sitting() {
+        let root = temp_root("no-morning");
         let library = WorldLibrary::new(root.join("Worlds"));
         let registry = registry(false);
-        let document_id = world_library::WorldDocumentId::new("living").unwrap();
+        let document_id = WorldDocumentId::new("quiet").unwrap();
         let mut session =
             DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
-        let policy = CatchUpPolicy::new(60, 3).unwrap();
-        assert!(!world_machine_desktop::demo::offers_pack(PACK));
-        catch_up_at(&mut session, &registry, &library, 100, policy, demo_periods).unwrap();
-
-        let outcome =
-            catch_up_at(&mut session, &registry, &library, 280, policy, demo_periods).unwrap();
-        if world_machine_desktop::demo::ENABLED {
-            assert_eq!(outcome, None);
-            assert_eq!(session.snapshot().world_time, 0);
-        } else {
-            assert_eq!(outcome.map(|outcome| outcome.periods), Some(3));
-            assert_eq!(session.snapshot().world_time, 3);
-        }
+        let sat = sit_on(&mut session, &registry, &library, 7).unwrap();
+        assert!(sat.sitting.new && !sat.morning);
+        assert_eq!(sat.sitting.left, FIRST_SITTING_DAYS);
+        assert_eq!(session.snapshot().world_time, 0);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_day_spent_is_written_to_the_day_the_sitting_began() {
+        let root = temp_root("midnight");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        let document_id = WorldDocumentId::new("late").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
+        let sat = sit_on(&mut session, &registry, &library, 50).unwrap();
+        // Past midnight, the window still writes to the sitting of the 50th.
+        sat.ledger().spend_day();
+        let store = ObserverStore::new(observer_root(&library));
+        let key = ObserverKey::new("library:late").unwrap();
+        assert_eq!(store.ledger(&key).unwrap().days_passed, 1);
+        assert_eq!(
+            world_observer::sitting_at(&store.ledger(&key).unwrap(), 51).left,
+            SITTING_DAYS,
+            "and the 51st is a new sitting"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_next_sitting_is_within_a_day() {
+        let seconds = next_sitting_in().unwrap();
+        assert!(seconds <= 24 * 60 * 60 + 3600, "{seconds}");
     }
 }
