@@ -14,7 +14,7 @@ Persistent worlds that remember and evolve. A World grows a day at a time: each 
 
 ## What is inside
 
-- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. Left alone, it keeps going without you and says what it decided.
+- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. It grows a day at a time, and each morning says what changed.
 - **Tiny Society**: a harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.
 - Every World is a `.world` document in your library. Open, rename, export, and import them; history is replayed from events, never re-run through an AI.
 

@@ -215,7 +215,7 @@ Windows と Linux には対応していません。
 - **"A day passes when you say so" / "28 days, no more":** a turn passes the day only when "Let the day pass" is chosen (the command's `PassesTime` role); nothing moves a World while its window is open. The cap is 28 periods, a week of absence (`DEFAULT_MAX_PERIODS`). The demo's time away is the World's own background days, the same `advance_background` the observer runs (`apps/world-machine-desktop/src/demo.rs`, `demo/pacing.json`).
 - **"Every drawing is made by the game's own code":** the scene is drawn by `world-gpui`, the key art by its `key_art` example, the app icon by `scripts/render_app_icon.py`. The only image files in the source are the test goldens those make.
 - **"20 to 30 minutes":** `apps/world-machine-desktop/tests/demo_walk.rs` walks the demo at the intended pace in `demo/pacing.json`.
-- **"Every six hours … up to a week":** `apps/world-machine-desktop/src/observer.rs` (`DEFAULT_SECONDS_PER_PERIOD`, `DEFAULT_MAX_PERIODS`).
+- **"One day a visit":** `crates/world-observer/src/sitting.rs` (`sitting_at`).
 - **"Two deeds a day":** docs/KNOWN_ISSUES.md ("Your hands allow two deeds a period").
 - **"Never more than two letters a week":** docs/KNOWN_ISSUES.md and the three-year tests.
 - **"Three whole years in testing":** `cargo test -p tiny-society --lib long_run -- --ignored`, and Pocket Universe's by default.

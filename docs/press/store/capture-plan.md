@@ -15,7 +15,7 @@ Every beat is a moment that `scripts/release-shots.sh` already plays and checks 
 | 0:20–0:25 | Dusk on the quay, then night: the lamps along the water, and windows that say who is home. | `places` (Tiny Society at dusk and night) | Lamps lit with their pools and broken reflections; lit windows. |
 | 0:25–0:30 | Pull back over a year-three harbour, every zoom level painted, to the whole town. | `zoom` | A continuous pull from street level to the whole town; then the title card. |
 
-The title card is the game's own paper card, as in [../trailer.json](../trailer.json): "World Machine", and under it "A little harbour town that goes on living while you are away".
+The title card is the game's own paper card, as in [../trailer.json](../trailer.json): "World Machine", and under it "A little harbour town that grows a day at a time".
 
 ## How to record it
 
