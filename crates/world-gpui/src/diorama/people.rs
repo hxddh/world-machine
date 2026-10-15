@@ -1485,6 +1485,8 @@ pub struct PersonPaint {
     /// The thing (an item index) they stand behind, keeping it: drawn over
     /// them wherever people are painted over the still layers.
     pub behind: Option<usize>,
+    /// How a scene has them hold themselves over their stance.
+    pub posture: Option<super::staging::Posture>,
 }
 
 /// A baby out and about is carried: in the arms of a grown-up from their
@@ -2178,7 +2180,10 @@ pub(super) fn paint_person_body(
             person.pose.facing,
         );
     }
+    use super::staging::Posture;
+    let hammering = person.posture == Some(Posture::Hammering) && person.pose.stride.is_none();
     let (stance, pose) = match (person.stance, person.beat) {
+        _ if hammering => (Stance::Working, person.pose),
         (Stance::Dancing, beat) => dance(beat.unwrap_or(0), person.pose, person.height),
         (stance, _) => (stance, person.pose),
     };
@@ -2187,17 +2192,34 @@ pub(super) fn paint_person_body(
         .zip(person.drawing.as_ref())
         .filter(|_| stance == Stance::Sitting)
         .map(|(seat, drawing)| seated(drawing, seat, person.figure.bird));
+    // Arms folded, or hands on hips: their own arms, put another way.
+    let postured = person
+        .posture
+        .filter(|_| person.pose.stride.is_none() && !person.figure.bird)
+        .zip(person.drawing.as_ref())
+        .and_then(|(posture, drawing)| postured(drawing, posture));
+    let stance = if postured.is_some() {
+        Stance::Standing
+    } else {
+        stance
+    };
     age::paint_person(
         &mut tinted,
         x,
         y,
         person.height,
         &person.figure,
-        on_bench.as_ref().or(person.drawing.as_ref()),
+        postured
+            .as_ref()
+            .or(on_bench.as_ref())
+            .or(person.drawing.as_ref()),
         stance,
         person.mood,
         pose,
     );
+    if hammering && !person.figure.bird {
+        paint_hammer(&mut tinted, person, (x, y));
+    }
     if stance == Stance::Carrying && !person.figure.bird {
         paint_load(&mut tinted, frame.setting, person, (x, y));
     }
@@ -2212,6 +2234,127 @@ pub(super) fn paint_person_body(
             person.pose.bob,
             baby,
             &person.figure,
+        );
+    }
+}
+
+/// `drawing` holding itself as `posture` has it, from its own parts: its
+/// standing self with the arms it works with (the parts it shows working
+/// and not standing) put another way: folded across the chest, or bent
+/// with the hands on the hips. None for a posture that is no
+/// rearrangement, or a drawing with no arms of its own to work with.
+pub(super) fn postured(drawing: &Drawing, posture: super::staging::Posture) -> Option<Drawing> {
+    use super::staging::Posture;
+    use world_projection::DrawShape;
+    if !matches!(posture, Posture::ArmsFolded | Posture::HandsOnHips) {
+        return None;
+    }
+    let arms = drawing
+        .parts
+        .iter()
+        .filter(|part| part.shows_in(Stance::Working) && !part.shows_in(Stance::Standing))
+        .cloned()
+        .collect::<Vec<_>>();
+    if arms.is_empty() {
+        return None;
+    }
+    let mut out = drawing.clone();
+    // Standing, but without the arms it stands with.
+    out.parts
+        .retain(|part| part.shows_in(Stance::Standing) && part.shows_in(Stance::Working));
+    let every = |mut part: world_projection::DrawPart| {
+        part.stances = Vec::new();
+        part.swing = 0.0;
+        part
+    };
+    for part in arms {
+        match (posture, &part.shape) {
+            // From the shoulder across the chest to the other side.
+            (Posture::ArmsFolded, DrawShape::Line { from, width, .. }) => {
+                let mut arm = part.clone();
+                arm.shape = DrawShape::Line {
+                    from: *from,
+                    to: (-from.0 * 0.62, from.1 - 0.075),
+                    width: *width,
+                };
+                out.parts.push(every(arm));
+            }
+            // The hands tucked away at the far elbow.
+            (Posture::ArmsFolded, DrawShape::Ellipse { x, y, rx, ry }) => {
+                let mut hand = part.clone();
+                hand.shape = DrawShape::Ellipse {
+                    x: -x * 2.1,
+                    y: y + 0.08,
+                    rx: *rx * 0.8,
+                    ry: *ry,
+                };
+                out.parts.push(every(hand));
+            }
+            // Out to the elbow, and back in to the hip.
+            (Posture::HandsOnHips, DrawShape::Line { from, width, .. }) => {
+                let elbow = (from.0 * 1.55, from.1 - 0.13);
+                let hip = (from.0 * 1.04, from.1 - 0.24);
+                for (a, b) in [(*from, elbow), (elbow, hip)] {
+                    let mut arm = part.clone();
+                    arm.shape = DrawShape::Line {
+                        from: a,
+                        to: b,
+                        width: *width,
+                    };
+                    out.parts.push(every(arm));
+                }
+            }
+            (Posture::HandsOnHips, DrawShape::Ellipse { x, y, rx, ry }) => {
+                let mut hand = part.clone();
+                hand.shape = DrawShape::Ellipse {
+                    x: x.signum() * (x.abs() * 2.9).min(0.4),
+                    y: y - 0.085,
+                    rx: *rx,
+                    ry: *ry,
+                };
+                out.parts.push(every(hand));
+            }
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// A hammer in a worker's hand at their front, on its `beat` of a swing:
+/// raised, coming down, struck, back up.
+fn paint_hammer(brush: &mut dyn Brush, person: &PersonPaint, (x, y): (f32, f32)) {
+    let h = person.height;
+    let f = if person.pose.facing < 0.0 { -1.0 } else { 1.0 };
+    let hand = (x + f * h * 0.16, y - h * 0.47 - person.pose.bob);
+    // From up and back over the shoulder to down at the work.
+    let angle: f32 = match person.beat.unwrap_or(0) {
+        0 => 1.35,
+        1 => 0.7,
+        2 => -0.25,
+        _ => 0.7,
+    };
+    let reach = h * 0.3;
+    let (dx, dy) = (angle.cos() * reach * f, -angle.sin() * reach);
+    let head = (hand.0 + dx, hand.1 + dy);
+    art::line(brush, hand, head, (h * 0.045).max(1.2), art::hex(0x8a6446));
+    // The head, square across the end of the handle.
+    let (nx, ny) = (-dy / reach, dx / reach);
+    let half = h * 0.07;
+    art::line(
+        brush,
+        (head.0 - nx * half, head.1 - ny * half),
+        (head.0 + nx * half, head.1 + ny * half),
+        (h * 0.075).max(2.0),
+        art::hex(0x4a4f56),
+    );
+    // A spark of the strike.
+    if person.beat == Some(2) {
+        art::circle(
+            brush,
+            head.0 + f * h * 0.04,
+            head.1 + h * 0.05,
+            h * 0.03,
+            art::hex(0xf4e2b0),
         );
     }
 }

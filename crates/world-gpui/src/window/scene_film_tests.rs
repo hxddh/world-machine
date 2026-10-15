@@ -281,6 +281,129 @@ fn the_window_draws_the_scene_its_cast_and_its_words(cx: &mut gpui::TestAppConte
     assert_eq!(said, Some((speaker, words)));
 }
 
+/// The kinds a return film stages most, as the art director judges them.
+const KINDS: [MomentKind; 7] = [
+    MomentKind::Arrival,
+    MomentKind::Quarrel,
+    MomentKind::Festival,
+    MomentKind::Build,
+    MomentKind::Birth,
+    MomentKind::Farewell,
+    MomentKind::Storm,
+];
+
+/// The card of a return beat keeps clear of its scene: at every camera
+/// cue (once the camera is there) and at its end, whoever the camera is
+/// on (or else whom the scene is about) and every prop it has out stand
+/// clear of the card, docked where it docks for the whole beat (v0.30
+/// S3c round 3: a farewell's ferry and its leaver under the card).
+#[test]
+fn the_card_keeps_clear_of_each_scene_at_every_camera_cue() {
+    // The stage as the window lays it out, under its gauges.
+    let size = (1100.0, 848.0 - world_window::CHROME);
+    let snapshot = town();
+    for hour in [11, 14] {
+        let stage = diorama::stage_at(&snapshot, size.0, size.1, diorama::Clock::at(hour));
+        for kind in KINDS {
+            let script = staging::sample(&snapshot, &stage, kind).expect("a scene");
+            let dock = world_window::scene_dock(&script, &stage, &snapshot, size);
+            let card = world_window::film_card_rect(dock, size);
+            let cameras = script
+                .cues
+                .iter()
+                .filter_map(|cue| match cue.act {
+                    Act::Camera { on, .. } => Some((cue.at, on)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let moments = cameras
+                .iter()
+                .enumerate()
+                .map(|(n, (at, on))| {
+                    let next = cameras
+                        .get(n + 1)
+                        .map_or(script.seconds, |(next, _)| next - 0.01);
+                    ((at + staging::CAMERA_EASE).min(next), *on)
+                })
+                .chain([(script.seconds - 0.3, cameras.last().expect("a camera").1)]);
+            for (t, on) in moments {
+                let staged = staging::stage_scene(&script, &stage, &snapshot, t);
+                let subject = match on {
+                    Mark::Place(id) if script.cast.iter().any(|(who, _)| *who == id) => id,
+                    _ => script.cast[0].0,
+                };
+                let under = world_window::scene_under_card(&staged, &stage, card, size.0);
+                let named = format!("person {subject:?}");
+                assert!(
+                    !under.contains(&named),
+                    "{kind:?} at {hour}h, {t}: {named} under the card {dock:?}"
+                );
+                let props = under
+                    .iter()
+                    .filter(|what| what.starts_with("prop"))
+                    .collect::<Vec<_>>();
+                assert!(
+                    props.is_empty(),
+                    "{kind:?} at {hour}h, {t}: {props:?} under the card {dock:?}"
+                );
+            }
+        }
+    }
+}
+
+/// A return beat's card stands in one place for the whole of the beat,
+/// however far into it the window is first drawn: its place is the
+/// scene's, not the moment's (v0.30 S3c round 3: across a storm it went
+/// left, centre, right and back).
+#[gpui::test]
+fn a_beat_card_stands_still_through_its_scene(cx: &mut gpui::TestAppContext) {
+    use gpui::VisualTestContext;
+    let snapshot = town();
+    let stage = diorama::stage_at(
+        &snapshot,
+        1100.0,
+        848.0 - world_window::CHROME,
+        diorama::Clock::at(11),
+    );
+    let storm = staging::sample(&snapshot, &stage, MomentKind::Storm).expect("a storm");
+    let mut briefed = snapshot.clone();
+    briefed.briefing = Some(BriefingProjection {
+        items: vec![beat("The storm", Some(event(9001)))],
+        eyebrow: String::new(),
+        title: String::new(),
+        returned: true,
+    });
+    let scenes = BTreeMap::from([(event(9001), storm.clone())]);
+    let window = cx.add_window(move |_, _| view_of(briefed, scenes).0);
+    let view = window.root(cx).expect("the World");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_resize(gpui::size(px(1100.0), px(848.0)));
+    cx.run_until_parked();
+    let mut rects = Vec::new();
+    for n in 0..=6 {
+        let t = storm.seconds * n as f32 / 6.0;
+        view.update(cx, |view, cx| {
+            view.retelling = Some(0);
+            view.looking.beat_clock = Some(t);
+            // As if the window were first drawn this far in.
+            view.looking.film_dock = None;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let card = cx.debug_bounds("bottom-card").expect("the card");
+        rects.push((
+            f32::from(card.origin.x).round(),
+            f32::from(card.size.width).round(),
+        ));
+        // No taller than the room the film keeps for it.
+        assert!(
+            f32::from(card.origin.y) >= 848.0 - 16.0 - world_window::FILM_CARD_ROOM - 1.0,
+            "{card:?}"
+        );
+    }
+    assert!(rects.windows(2).all(|pair| pair[0] == pair[1]), "{rects:?}");
+}
+
 /// The World window over the three-year town playing `script`, `t`
 /// seconds in, drawn through GPUI and the reference rasteriser (no text).
 fn scene_picture(script: &SceneScript, t: f32, size: (f32, f32)) -> image::RgbaImage {
@@ -334,7 +457,13 @@ fn scene_pictures() {
     crate::scene::pin_hour(Some(14));
     let size = (1100.0, 848.0);
     let snapshot = town();
-    let stage = diorama::stage_at(&snapshot, size.0, size.1, diorama::Clock::at(14));
+    // Staged on the stage the window lays out, under its gauges.
+    let stage = diorama::stage_at(
+        &snapshot,
+        size.0,
+        size.1 - world_window::CHROME,
+        diorama::Clock::at(14),
+    );
     let kinds = [
         MomentKind::Arrival,
         MomentKind::Quarrel,

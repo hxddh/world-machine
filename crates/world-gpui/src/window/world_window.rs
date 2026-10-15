@@ -2777,6 +2777,21 @@ impl ProjectionView {
                 self.beat_clock().min(script.seconds),
             )
         });
+        // A return beat's card docks once for the whole of its scene, clear
+        // of what the scene is about all through it.
+        if let (Some(index), Some(script)) = (self.retelling, self.played_scene()) {
+            let key = (self.revision, index);
+            if self.looking.film_dock.is_none_or(|(at, _)| at != key) {
+                let room = width
+                    - if self.looking.drawer {
+                        DRAWER_WIDTH
+                    } else {
+                        0.0
+                    };
+                let dock = scene_dock(&script, &stage, &self.snapshot, (room, height));
+                self.looking.film_dock = Some((key, dock));
+            }
+        }
         if let Some(staged) = &staged {
             stage = diorama::staging::cast_on(&stage, staged);
         }
@@ -4752,10 +4767,17 @@ impl ProjectionView {
             } else {
                 0.0
             };
+        let film = self.retelling.and_then(|index| {
+            self.looking
+                .film_dock
+                .filter(|(at, _)| *at == (self.revision, index))
+                .map(|(_, dock)| dock)
+        });
         let (from, to) = if is_beginning(&self.snapshot) {
             (0.0, width)
         } else {
-            card_dock(room, asker_x, crowd).span(room)
+            film.unwrap_or_else(|| card_dock(room, asker_x, crowd))
+                .span(room)
         };
         let tall = self.card_room();
         areas.push(Area {
@@ -5633,6 +5655,126 @@ pub(crate) fn card_dock(width: f32, asker_x: Option<f32>, crowd: &[(f32, f32)]) 
         }
     }
     best
+}
+
+/// How tall the return film's card stands at the foot of the stage,
+/// generously (it is a caption and a button or two).
+pub(crate) const FILM_CARD_ROOM: f32 = 200.0;
+
+/// The card's three places on a stage `width` wide: centred, and docked
+/// to either side clear of the middle.
+fn docks(width: f32) -> [Dock; 3] {
+    let full = (CARD_WIDTH * crate::text_scale().sqrt()).min(width - CARD_MARGIN * 2.0);
+    let side = |side| Dock {
+        side,
+        w: full.min(width / 2.0 - CARD_CLEAR),
+    };
+    [
+        Dock {
+            side: DockSide::Centre,
+            w: full,
+        },
+        side(DockSide::Left),
+        side(DockSide::Right),
+    ]
+}
+
+/// The screen rect (left, top, right, bottom) of the film's card docked
+/// as `dock` on a stage `width` by `height`.
+pub(crate) fn film_card_rect(dock: Dock, (width, height): (f32, f32)) -> (f32, f32, f32, f32) {
+    let (left, right) = dock.span(width);
+    (
+        left,
+        height - CARD_MARGIN - FILM_CARD_ROOM,
+        right,
+        height - CARD_MARGIN,
+    )
+}
+
+/// What of a scene, staged as `staged`, stands on screen under a card at
+/// `card` (left, top, right, bottom) on a stage `width` wide: everyone it
+/// stages and every prop it has out (but bunting, which is overhead), each
+/// by the box it is drawn in, wherever the scene's camera has them, named
+/// `person <who>` or `prop <what>`. Those off the screen are not counted.
+pub(crate) fn scene_under_card(
+    staged: &diorama::staging::Staged,
+    stage: &Stage,
+    card: (f32, f32, f32, f32),
+    width: f32,
+) -> Vec<String> {
+    let Some(camera) = staged.camera else {
+        return Vec::new();
+    };
+    let z = camera.zoom;
+    let fig = stage.figure_h * z;
+    let boxes = staged
+        .people
+        .iter()
+        .map(|person| {
+            let (x, y) = camera.at(stage, person.x, person.y);
+            (
+                format!("person {:?}", person.who),
+                (x - fig * 0.22, y - fig, x + fig * 0.22, y),
+            )
+        })
+        .chain(
+            staged
+                .props
+                .iter()
+                .filter(|prop| {
+                    prop.held_by.is_none()
+                        && !matches!(
+                            prop.prop,
+                            world_projection::Prop::Bunting | world_projection::Prop::Rain
+                        )
+                })
+                .map(|prop| {
+                    let (x, y) = camera.at(stage, prop.x, prop.y);
+                    let (w, h) = (prop.w * z, prop.h * z);
+                    (
+                        format!("prop {:?}", prop.prop),
+                        (x - w / 2.0, y - h, x + w / 2.0, y),
+                    )
+                }),
+        );
+    let (left, top, right, bottom) = card;
+    boxes
+        .filter(|(_, (x0, _, x1, _))| *x1 > 0.0 && *x0 < width)
+        .filter(|(_, (x0, y0, x1, y1))| *x1 > left && *x0 < right && *y1 > top && *y0 < bottom)
+        .map(|(what, _)| what)
+        .collect()
+}
+
+/// Where a return beat's card docks for the whole of its scene, on a
+/// stage `width` by `height`: of the centre and either side, wherever it
+/// covers least of the scene (its people and props wherever its camera
+/// has them, half a second apart all through it), the centre before a
+/// side. A function of the scene, the stage and the window alone, so the
+/// same whenever in the beat it is first asked, and steady through it
+/// (v0.30 S3c round 3: the card jumped about across a storm, and sat on a
+/// farewell's ferry).
+pub(crate) fn scene_dock(
+    script: &world_projection::SceneScript,
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+) -> Dock {
+    let [centre, left, right] = docks(width);
+    if width < 720.0 {
+        return centre;
+    }
+    let mut costs = [0_usize; 3];
+    let moments = (script.seconds / 0.5).ceil().max(0.0) as usize;
+    for n in 0..=moments {
+        let t = (n as f32 * 0.5).min(script.seconds);
+        let staged = diorama::staging::stage_scene(script, stage, snapshot, t);
+        for (cost, dock) in costs.iter_mut().zip([centre, left, right]) {
+            *cost += scene_under_card(&staged, stage, film_card_rect(dock, (width, height)), width)
+                .len();
+        }
+    }
+    let best = (0..3).min_by_key(|n| (costs[*n], *n)).unwrap_or(0);
+    [centre, left, right][best]
 }
 
 /// The narrowest a card at the foot of the stage is made to keep clear of

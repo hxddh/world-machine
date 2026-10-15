@@ -313,7 +313,8 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
     let seconds = match beat.kind {
         MomentKind::Arrival => {
             // Someone new comes on with a bag, and those already here wave.
-            stage.camera(0.0, place, 1.0);
+            // Close from the first frame: the newcomer is who it is about.
+            stage.camera(0.0, place, 1.4);
             if let Some(transport) = transport {
                 stage.prop(0.0, transport, Mark::Offstage(false), true);
                 stage.prop(6.5, transport, Mark::Offstage(false), false);
@@ -324,7 +325,9 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
                 stage.walk(0.0, a, Mark::Offstage(false), Stance::Carrying);
                 stage.prop(0.0, Prop::Suitcase, beside(at(a), 0), true);
                 stage.walk(0.5, a, place, Stance::Walking);
-                stage.camera(1.0, at(a), 1.6);
+                // In a little on the place they come to, not following
+                // them: the boat stays at the edge, and they walk in to it.
+                stage.camera(1.0, place, 1.6);
                 stage.strike(4.0, a, Stance::Waving);
             }
             for who in &others {
@@ -334,8 +337,9 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
             8.0
         }
         MomentKind::Quarrel => {
-            // Words between two, and one of them goes off home.
-            stage.camera(0.0, a.map(at).unwrap_or(place), 1.8);
+            // Words between two, and one of them goes off home. As close
+            // as the camera goes: it is in how they stand.
+            stage.camera(0.0, a.map(at).unwrap_or(place), 2.0);
             if let Some(a) = a {
                 stage.walk(0.0, a, place, Stance::Talking);
                 if let Some(b) = b {
@@ -412,7 +416,7 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
             // Bunting and tables, everyone coming from home, and dancing.
             stage.prop(0.0, Prop::Bunting, place, true);
             stage.prop(0.0, Prop::Table, beside(place, 2), true);
-            stage.camera(0.0, place, 0.9);
+            stage.camera(0.0, place, 1.2);
             for (n, who) in cast.iter().enumerate() {
                 stage.walk(0.0, *who, home(*who), Stance::Standing);
                 stage.walk(
@@ -425,11 +429,11 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
             }
             say(&mut stage, 4.5);
             // In close while they gather, so the dance is seen.
-            stage.camera(1.5, place, 1.3);
+            stage.camera(1.5, place, 1.6);
             9.0
         }
         MomentKind::Storm => {
-            // Rain sets in, and everyone hurries home to a lit lamp.
+            // Rain sets in, everyone hurries home, and a lamp is lit.
             stage.cue(0.0, None, Act::Weather(Prop::Rain));
             stage.camera(0.0, place, 0.8);
             crowd(&mut stage, cast, 1, Stance::Standing);
@@ -437,24 +441,24 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
                 stage.walk(1.0, *who, home(*who), Stance::Walking);
             }
             say(&mut stage, 2.0);
-            if let Some(a) = a {
-                stage.prop(3.0, Prop::Lamp, home(a), true);
-            }
+            // A lamp lit on the place against it, where the camera is.
+            stage.prop(3.0, Prop::Lamp, beside(place, 2), true);
             8.0
         }
         MomentKind::Birth => {
-            // A parent carries the baby out, the cradle by them, and the
-            // neighbours come to see.
+            // A parent brings the baby out, the cradle beside them (never
+            // left alone), and the neighbours come to see.
             let parent = b.or(a);
             if let Some(parent) = parent {
-                stage.walk(0.0, parent, place, Stance::Carrying);
-                stage.camera(1.5, at(parent), 1.8);
+                stage.walk(0.0, parent, place, Stance::Standing);
+                stage.camera(1.5, at(parent), 2.0);
             }
             if let (Some(baby), Some(parent)) = (a, b) {
                 stage.walk(0.0, baby, beside(at(parent), 0), Stance::Standing);
             }
-            stage.camera(0.0, place, 1.2);
-            stage.prop(0.0, Prop::Cradle, beside(place, 1), true);
+            stage.camera(0.0, place, 1.6);
+            let cradle = parent.map(|parent| beside(at(parent), 1));
+            stage.prop(0.0, Prop::Cradle, cradle.unwrap_or(beside(place, 1)), true);
             for (n, who) in rest.iter().enumerate() {
                 stage.walk(0.0, *who, beside(place, spread(n, 5)), Stance::Standing);
                 stage.walk(1.0, *who, beside(place, spread(n, 2)), Stance::Walking);
@@ -501,11 +505,14 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
             8.0
         }
         MomentKind::Farewell => {
-            // Bag in hand, a last wave, and off the edge of the stage.
+            // Bag in hand, a last wave, and off to the boat (or whatever
+            // takes them) waiting at the edge of the view, which sails as
+            // the scene ends. The view stays on them all, so the boat and
+            // the one leaving are in it to the last.
             stage.camera(0.0, place, 1.2);
             if let Some(transport) = transport {
                 stage.prop(0.0, transport, Mark::Offstage(true), true);
-                stage.prop(7.0, transport, Mark::Offstage(true), false);
+                stage.prop(7.4, transport, Mark::Offstage(true), false);
             }
             let others = cast.iter().skip(1).copied().collect::<Vec<_>>();
             crowd(&mut stage, &others, 1, Stance::Standing);
@@ -516,7 +523,6 @@ pub fn script(beat: &Beat<'_>) -> SceneScript {
                 stage.walk(0.0, a, place, Stance::Carrying);
                 stage.prop(0.0, Prop::Suitcase, beside(at(a), 0), true);
                 stage.walk(3.5, a, Mark::Offstage(true), Stance::Walking);
-                stage.camera(3.5, at(a), 1.2);
             }
             say(&mut stage, 2.0);
             8.0

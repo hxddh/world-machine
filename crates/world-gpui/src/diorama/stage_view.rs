@@ -301,6 +301,8 @@ pub struct PoseKey {
     pub seat: Option<u8>,
     pub level: usize,
     pub light: Light,
+    /// How a scene has them hold themselves (a hammer's swing is `step`).
+    pub posture: Option<super::staging::Posture>,
 }
 
 impl PoseKey {
@@ -334,6 +336,7 @@ impl PoseKey {
                 .map(|seat| (seat * 20.0).round().clamp(0.0, 255.0) as u8),
             level,
             light,
+            posture: person.posture,
         }
     }
 }
@@ -350,7 +353,9 @@ pub(super) fn bake_pose(
     let height = frame.figure_h * person.figure.age.height();
     let facing = if key.right { 1.0 } else { -1.0 };
     let tau = std::f32::consts::TAU;
-    let dancing = key.stance == world_projection::Stance::Dancing;
+    // A dance's beat, or a hammer's, rather than a step of a walk.
+    let dancing = key.stance == world_projection::Stance::Dancing
+        || key.posture == Some(super::staging::Posture::Hammering);
     let pose = match key.step.filter(|_| !dancing) {
         Some(step) => {
             let phase = step as f32 / ls::WALK_FRAMES as f32;

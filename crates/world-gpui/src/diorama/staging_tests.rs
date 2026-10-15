@@ -181,6 +181,62 @@ fn a_quarrel_has_two_face_to_face_and_one_goes_off_home() {
     assert_eq!(person(&end, a).stance, Stance::LookingAround);
 }
 
+/// A quarrel reads in the body, not only in faces too small to see: one
+/// squares up with hands on hips and the other folds their arms (never
+/// the open hand of talking), the one who goes stomps off having turned
+/// their back, and the one left folds their arms and turns away.
+#[test]
+fn a_quarrel_is_in_how_they_stand() {
+    let (snapshot, stage) = town();
+    let script = scene(&snapshot, &stage, MomentKind::Quarrel);
+    let (a, b) = (
+        who(&snapshot, script.cast[0].0),
+        who(&snapshot, script.cast[1].0),
+    );
+    let mut t = 0.0;
+    while t <= script.seconds {
+        let staged = stage_scene(&script, &stage, &snapshot, t);
+        for index in [a, b] {
+            let Some(person) = staged.person(index) else {
+                continue;
+            };
+            let posture = person.posture.expect("cross in the body");
+            match person.walk {
+                Some(_) => assert_eq!(posture, Posture::Stomping, "at {t}: {person:?}"),
+                None => assert!(
+                    matches!(posture, Posture::ArmsFolded | Posture::HandsOnHips),
+                    "at {t}: {person:?}"
+                ),
+            }
+        }
+        t += 0.25;
+    }
+    let start = stage_scene(&script, &stage, &snapshot, 0.0);
+    assert_eq!(person(&start, a).posture, Some(Posture::HandsOnHips));
+    assert_eq!(person(&start, b).posture, Some(Posture::ArmsFolded));
+    // Just before setting off, their back already turned.
+    let leaving = script
+        .cues
+        .iter()
+        .find(|cue| {
+            cue.who == Some(script.cast[1].0)
+                && cue.at > 0.0
+                && matches!(cue.act, Act::WalkTo { .. })
+        })
+        .expect("one goes")
+        .at;
+    let going = stage_scene(&script, &stage, &snapshot, leaving + 0.5);
+    let (from, to, ..) = person(&going, b).walk.expect("off");
+    let turning = stage_scene(&script, &stage, &snapshot, leaving - 0.3);
+    let pb = person(&turning, b);
+    assert_eq!(pb.facing, (to - from).signum(), "{pb:?}");
+    // Left alone, arms folded, turned from where the other went.
+    let end = stage_scene(&script, &stage, &snapshot, script.seconds);
+    let pa = person(&end, a);
+    assert_eq!(pa.posture, Some(Posture::ArmsFolded));
+    assert_eq!(pa.facing, (pa.x - to).signum(), "{pa:?} turned away");
+}
+
 #[test]
 fn a_festival_gathers_everyone_under_bunting_to_dance() {
     let (snapshot, stage) = town();
@@ -246,6 +302,11 @@ fn a_build_goes_up_in_scaffolding_and_comes_down_to_a_cheer() {
         .people
         .iter()
         .all(|person| person.stance == Stance::Working));
+    // At it with hammers.
+    assert!(working
+        .people
+        .iter()
+        .any(|person| person.posture == Some(Posture::Hammering)));
     assert!(end.props.is_empty(), "{:?}", end.props);
     assert!(end
         .people
@@ -310,6 +371,102 @@ fn a_birth_a_farewell_and_a_storm_play_their_parts() {
         })
         .count();
     assert!(moved >= 1, "someone hurried home");
+}
+
+/// A birth's cradle is never left alone: its parent stands beside it the
+/// whole scene, on the people's line, back from the water.
+#[test]
+fn a_cradle_has_its_parent_beside_it_all_through() {
+    let snapshot = super::tests::real_1082();
+    // As the tests lay it out, and as the World window does (under its
+    // gauges), at two hours.
+    for (hour, height) in [(11, VIEW.1), (14, VIEW.1 - 52.0)] {
+        let stage = stage_at(&snapshot, VIEW.0, height, Clock::at(hour));
+        cradle_by_parent(&snapshot, &stage);
+    }
+}
+
+fn cradle_by_parent(snapshot: &ProjectionSnapshot, stage: &Stage) {
+    let (snapshot, stage) = (snapshot.clone(), stage.clone());
+    let fig = stage.figure_h;
+    let script = scene(&snapshot, &stage, MomentKind::Birth);
+    let parent = who(&snapshot, script.cast[1].0);
+    let mut t = 0.0;
+    while t <= script.seconds {
+        let staged = stage_scene(&script, &stage, &snapshot, t);
+        let cradle = staged
+            .props
+            .iter()
+            .find(|prop| prop.prop == Prop::Cradle)
+            .expect("the cradle");
+        let by = person(&staged, parent);
+        assert!(by.walk.is_none(), "at {t}: {by:?}");
+        assert!(
+            (by.x - cradle.x).abs() < fig * 2.0,
+            "at {t}: {by:?} {cradle:?}"
+        );
+        // On land, on its parent's line, back from the water's edge.
+        assert!(
+            (cradle.y - by.y).abs() < fig * 0.2,
+            "at {t}: {cradle:?} {by:?}"
+        );
+        assert!(cradle.y < stage.front - fig * 0.5, "at {t}: {cradle:?}");
+        t += 0.25;
+    }
+}
+
+/// A farewell ends with its payoff in view: the one leaving aboard the
+/// ferry, waving, and the ferry still there to be seen.
+#[test]
+fn a_farewell_ends_aboard_the_ferry() {
+    let (snapshot, stage) = town();
+    let script = scene(&snapshot, &stage, MomentKind::Farewell);
+    let a = who(&snapshot, script.cast[0].0);
+    let end = stage_scene(&script, &stage, &snapshot, script.seconds - 0.3);
+    let leaver = person(&end, a);
+    assert!(leaver.aboard, "{leaver:?}");
+    assert_eq!(leaver.stance, Stance::Waving);
+    let ferry = end
+        .props
+        .iter()
+        .find(|prop| prop.prop == Prop::Ferry)
+        .expect("the ferry");
+    assert!(
+        (leaver.x - ferry.x).abs() < ferry.w / 2.0,
+        "{leaver:?} {ferry:?}"
+    );
+    let (left, right) = seen(&stage, end.camera.expect("a camera"));
+    assert!(leaver.x > left && leaver.x < right, "in view");
+    assert!(ferry.x - ferry.w / 2.0 < right, "the ferry in view");
+}
+
+/// Everyone of the town out in a storm's view heads home out of the rain,
+/// or off out of the view: by its end nobody stands about on the shore, in
+/// any fixture.
+#[test]
+fn a_storm_leaves_the_quay_empty() {
+    for (name, snapshot) in fixtures() {
+        let stage = stage_at(&snapshot, VIEW.0, VIEW.1, Clock::at(11));
+        let Some(script) = sample(&snapshot, &stage, MomentKind::Storm) else {
+            continue;
+        };
+        let end = stage_scene(&script, &stage, &snapshot, script.seconds);
+        let (left, right) = seen(&stage, end.camera.expect("a camera"));
+        let fig = stage.figure_h;
+        let shown = |x: f32| x > left + fig * 0.2 && x < right - fig * 0.2;
+        for person in &end.people {
+            assert!(
+                person.walk.is_some() || !shown(person.x),
+                "{name}: {person:?} still out in it"
+            );
+        }
+        for spot in stage.people.iter().filter(|spot| shown(spot.x)) {
+            assert!(
+                end.person(spot.index).is_some() || end.indoors.contains(&spot.index),
+                "{name}: {spot:?} left standing in the rain"
+            );
+        }
+    }
 }
 
 /// At each camera cue: once the camera has eased there, whoever it is on
@@ -417,6 +574,24 @@ fn nobody_staged_is_in_a_building_or_on_a_prop() {
                 )
             })
             .collect::<Vec<_>>();
+        // Tall, thin things in the water in front of the shore.
+        let posts = stage
+            .things
+            .iter()
+            .filter(|spot| spot.y >= stage.front - 1.0)
+            .filter(|spot| {
+                matches!(
+                    snapshot.canvas.items[spot.index].shape,
+                    Some(
+                        MarkShape::Signpost
+                            | MarkShape::Lamp
+                            | MarkShape::Lantern
+                            | MarkShape::Flag
+                    )
+                )
+            })
+            .map(|spot| (spot.x, spot.w * 0.3 + fig * 0.3))
+            .collect::<Vec<_>>();
         for kind in KINDS {
             let Some(script) = sample(&snapshot, &stage, kind) else {
                 continue;
@@ -501,6 +676,45 @@ fn nobody_staged_is_in_a_building_or_on_a_prop() {
                         assert!(
                             apart >= fig * APART * 0.99 || (person.y - other.y).abs() >= fig * 0.7,
                             "{name} {kind:?} at {t}: {person:?} on {other:?}"
+                        );
+                    }
+                }
+                // Scaffolding, the whole of it, ladder too, stands clear
+                // of every thing but what it is round, and of the posts.
+                for prop in staged
+                    .props
+                    .iter()
+                    .filter(|prop| prop.prop == Prop::Scaffold)
+                {
+                    let own = script.cues.iter().find_map(|cue| match cue.act {
+                        Act::Prop {
+                            prop: Prop::Scaffold,
+                            at: Mark::Place(id),
+                            ..
+                        } => snapshot.canvas.items.iter().position(|item| item.id == id),
+                        _ => None,
+                    });
+                    let own_x = own.and_then(|own| {
+                        stage
+                            .things
+                            .iter()
+                            .find(|spot| spot.index == own)
+                            .map(|spot| spot.x)
+                    });
+                    let (from, to) = scaffold_span(prop.x, prop.w);
+                    for (x, half) in things
+                        .iter()
+                        .filter(|(x, _)| own_x.is_none_or(|own| (own - x).abs() > 0.5))
+                    {
+                        assert!(
+                            to <= x - half || from >= x + half,
+                            "{name} {kind:?} at {t}: {prop:?} over a thing at {x}"
+                        );
+                    }
+                    for (x, reach) in &posts {
+                        assert!(
+                            to <= x - reach * 0.5 || from >= x + reach * 0.5,
+                            "{name} {kind:?} at {t}: {prop:?} over a post at {x}"
                         );
                     }
                 }

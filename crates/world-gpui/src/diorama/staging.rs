@@ -32,6 +32,11 @@ pub const PROP_FADE: f32 = 0.4;
 /// the view, or go.
 pub const TRANSPORT_SLIDE: f32 = 1.4;
 
+/// How far in from the edge of the view a ferry, shuttle, bus or sled comes
+/// to rest, in its own lengths from its middle: all of it in sight, with
+/// whoever boards or leaves it (v0.30 S3c round 3).
+const TRANSPORT_IN: f32 = 0.55;
+
 /// How brisk a scene's walk is, as a share of a stroll; and the most a
 /// walk is hurried so someone is where their next cue needs them.
 const BRISK: f32 = 1.15;
@@ -85,6 +90,28 @@ pub struct StagedPerson {
     /// How they look, when the scene says: cross in a quarrel, happy at
     /// a cheer or a dance.
     pub mood: Option<world_projection::Mood>,
+    /// How they hold themselves over their stance, when the scene says:
+    /// arms folded or hands on hips in a quarrel, a stomp off, a hammer
+    /// swung at a build.
+    pub posture: Option<Posture>,
+    /// Aboard the boat (or whatever carries people off) that came in for
+    /// them: stood on its deck, out over the water.
+    pub aboard: bool,
+}
+
+/// How someone holds themselves in a scene, over their stance: their
+/// drawing's own parts put another way, so a quarrel reads in the body
+/// and not only in a face too small to see (v0.30 S3c round 3).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Posture {
+    /// Arms folded across the chest: shut off.
+    ArmsFolded,
+    /// Hands on hips, elbows out: squaring up.
+    HandsOnHips,
+    /// A hammer swung at the work.
+    Hammering,
+    /// Quick, hard steps away (walking only).
+    Stomping,
 }
 
 impl StagedPerson {
@@ -92,6 +119,13 @@ impl StagedPerson {
     /// their own `pace`.
     pub(super) fn living(&self, breathe: f32, pace: f32, figure_h: f32) -> Living {
         if let Some((from, to, since, length)) = self.walk {
+            if self.posture == Some(Posture::Stomping) {
+                // Quick, hard steps, leaning into them.
+                let mut life = walking(from, to, (since, length), pace * 2.2, false, figure_h);
+                life.pose.lean += life.pose.facing * 0.05;
+                life.pose.bob *= 1.6;
+                return life;
+            }
             return walking(from, to, (since, length), pace, self.loaded, figure_h);
         }
         let waving = self.stance == Stance::Waving;
@@ -174,6 +208,11 @@ impl Staged {
                 .iter()
                 .filter_map(|person| Some((person.index, person.mood?)))
                 .collect(),
+            postures: self
+                .people
+                .iter()
+                .filter_map(|person| Some((person.index, person.posture?)))
+                .collect(),
         }
     }
 }
@@ -187,6 +226,8 @@ pub struct Dress {
     pub storm: f32,
     /// How the cast look, by item index, when the scene says.
     pub moods: Vec<(usize, world_projection::Mood)>,
+    /// How the cast hold themselves, by item index, when the scene says.
+    pub postures: Vec<(usize, Posture)>,
 }
 
 impl Frame {
@@ -196,6 +237,14 @@ impl Frame {
         for person in &mut self.people {
             if let Some((_, mood)) = dress.moods.iter().find(|(at, _)| *at == person.index) {
                 person.mood = *mood;
+            }
+            if let Some((_, posture)) = dress.postures.iter().find(|(at, _)| *at == person.index) {
+                person.posture = Some(*posture);
+                // A hammer's swing, in four beats, each worker on their own.
+                if *posture == Posture::Hammering && person.pose.stride.is_none() {
+                    let swing = self.seconds * 3.2 + (person.index % 7) as f32 * 0.6;
+                    person.beat = Some((swing.max(0.0) as u32 % 4) as u8);
+                }
             }
         }
         self.scene = Some(Arc::new(dress));
@@ -247,12 +296,19 @@ pub fn cast_on(stage: &Stage, staged: &Staged) -> Stage {
         out.doing.remove(&person.index);
         out.shown_from.remove(&person.index);
         let y = person.y.max(stage.feet - stage.figure_h * 0.4);
+        // Aboard, out over the water: their own size, not the nearer
+        // ground's.
+        let scale = if person.aboard {
+            1.0
+        } else {
+            1.0 + (y - stage.feet) / stage.figure_h.max(1.0) * 0.35
+        };
         let spot = Spot {
             index: person.index,
             x: person.x,
             y,
             w: stage.figure_h * 0.5,
-            scale: 1.0 + (y - stage.feet) / stage.figure_h.max(1.0) * 0.35,
+            scale,
         };
         match out
             .people
@@ -297,6 +353,8 @@ struct Part {
     /// Whom their marks put them with (at or beside), so the two face
     /// each other.
     with: Option<SelectionId>,
+    /// Aboard a boat from when, and which (of the props): away with it.
+    aboard: Option<(f32, usize)>,
 }
 
 impl Part {
@@ -405,10 +463,19 @@ struct Blocking<'a> {
     /// tide board, a lamp on the point): nobody stands right behind one,
     /// sliced by it. Where, and how far either side.
     posts: Vec<(f32, f32)>,
+    /// The nearest line anyone the scene stages stands on, at any moment
+    /// of it (ashore): the camera keeps it clear of the card.
+    nearest: f32,
 }
 
 fn ls_inside(footprint: (f32, f32, f32, f32), x: f32, y: f32) -> bool {
     super::living_stage::inside(footprint, x, y)
+}
+
+/// The span scaffolding `w` wide standing at `x` takes up, left to right:
+/// its poles, and its ladder leaning against its right side.
+pub fn scaffold_span(x: f32, w: f32) -> (f32, f32) {
+    (x - w / 2.0, x + w / 2.0 + w * 0.11)
 }
 
 /// Whether a prop is how people come and go.
@@ -465,6 +532,7 @@ impl<'a> Blocking<'a> {
             parts: Vec::new(),
             props: Vec::new(),
             taken: Vec::new(),
+            nearest: 0.0,
             posts: stage
                 .things
                 .iter()
@@ -497,6 +565,14 @@ impl<'a> Blocking<'a> {
         let half = stage.view_w / camera.zoom / 2.0;
         blocking.edges = (camera.x - half, camera.x + half);
         blocking.block();
+        let fig = blocking.fig();
+        blocking.nearest = blocking
+            .parts
+            .iter()
+            .filter(|part| part.aboard.is_none())
+            .flat_map(|part| part.legs.iter().map(|leg| leg.to.1))
+            .fold(0.0, f32::max)
+            .min(stage.feet + fig * 0.6);
         blocking
     }
 
@@ -730,6 +806,7 @@ impl<'a> Blocking<'a> {
             legs: Vec::new(),
             strikes: Vec::new(),
             with: None,
+            aboard: None,
         });
         Some(self.parts.len() - 1)
     }
@@ -772,7 +849,24 @@ impl<'a> Blocking<'a> {
         let (x, y) = self.spot_or_middle(mark, t);
         let y = self.on_ground(y);
         let offstage = matches!(mark, Mark::Offstage(_));
-        let (x, y) = if offstage {
+        let (x, y) = if let Mark::Offstage(right) = mark {
+            // Out of the view, and on no thing out there either.
+            let out = if right { 1.0 } else { -1.0 };
+            let x = (0..200)
+                .map(|k| x + out * k as f32 * fig * 0.2)
+                .find(|x| {
+                    let off = *x < 0.0 || *x > self.stage.width;
+                    (off || self.clear_at(*x, y, fig * 0.21, true, None, false))
+                        && self
+                            .taken
+                            .iter()
+                            .filter(|taken| !taken.person)
+                            .all(|taken| {
+                                (x - taken.x).abs() >= taken.half + fig * 0.21
+                                    || (y - taken.y).abs() >= fig * taken.depth
+                            })
+                })
+                .unwrap_or(x);
             (x, y)
         } else {
             let close = self.up_against(mark);
@@ -860,6 +954,12 @@ impl<'a> Blocking<'a> {
         };
         let pace = fig * STROLL * BRISK;
         let pace = if self.raining(t) { pace * 1.6 } else { pace };
+        // Off out of a quarrel: briskly.
+        let pace = if self.script.kind == MomentKind::Quarrel {
+            pace * 1.5
+        } else {
+            pace
+        };
         let most = fig * STROLL * BRISK * HURRIED;
         let next = self.next_cue(who, t);
         let room = (next.unwrap_or(self.script.seconds - 0.6) - t - 0.15).max(0.3);
@@ -1070,10 +1170,19 @@ impl<'a> Blocking<'a> {
                     shown: on,
                 } => {
                     if *on {
+                        if let (Prop::Cradle, Mark::Beside(id, _)) = (prop, at) {
+                            self.room_beside(*id, prop_size(*prop, fig).0);
+                        }
                         let still = self.prop_at(*prop, *at, t, &shown);
                         if let Some((x, y, w, _)) = still {
                             if takes_ground(*prop) {
                                 self.take(x, y, w / 2.0, None);
+                                // Nobody stands right in front of a cradle.
+                                if *prop == Prop::Cradle {
+                                    if let Some(taken) = self.taken.last_mut() {
+                                        taken.depth = 1.0;
+                                    }
+                                }
                             } else if *prop == Prop::Bunting {
                                 // Its two poles.
                                 for pole in [x - w / 2.0, x + w / 2.0] {
@@ -1101,6 +1210,267 @@ impl<'a> Blocking<'a> {
         // A cast member with nothing to do in the scene is not staged.
         self.parts.retain(|part| !part.legs.is_empty());
         self.props = shown;
+        self.board();
+        if self.script.kind == MomentKind::Storm {
+            self.take_shelter(&cast);
+            // Whoever a building stops short of home goes in under its
+            // cover: nobody is left standing out in it.
+            for part in &mut self.parts {
+                if let Some(last) = part.legs.last_mut() {
+                    if last.t0 > 0.0 && !last.indoors {
+                        last.indoors = true;
+                        last.pause = GOING_IN;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Room for something `w` wide right at the side of `id`, one of the
+    /// cast standing still where the scene opens: if there is none either
+    /// side of them, they stand at the nearest spot that has it (a cradle
+    /// is never left away from its parent).
+    fn room_beside(&mut self, id: SelectionId, w: f32) {
+        let fig = self.fig();
+        let Some(at) = self.parts.iter().position(|part| part.who == id) else {
+            return;
+        };
+        let part = &self.parts[at];
+        if part.legs.len() != 1 || part.legs[0].t1 > part.legs[0].t0 {
+            return;
+        }
+        let (px, py) = part.legs[0].to;
+        // As far off them as the cradle's own first try (`prop_at`).
+        let reach = fig * 0.2 + w / 2.0 + fig * 0.16;
+        let Some(mine) = self.taken.iter().position(|taken| taken.who == Some(id)) else {
+            return;
+        };
+        let me = self.taken.remove(mine);
+        let room = |x: f32| {
+            [1.0, -1.0]
+                .iter()
+                .any(|side| self.clear_at(x + side * reach, py, w / 2.0, false, None, false))
+        };
+        let spot = (0..=30)
+            .flat_map(|n| [n, -n])
+            .map(|n| px + n as f32 * fig * 0.2)
+            .find(|x| room(*x) && self.clear_at(*x, py, fig * 0.21, true, None, false))
+            .unwrap_or(px);
+        let leg = &mut self.parts[at].legs[0];
+        leg.from.0 = spot;
+        leg.to.0 = spot;
+        self.taken.push(Taken { x: spot, ..me });
+    }
+
+    /// In a storm, everyone of the town out in its view hurries home out
+    /// of the rain, or off out of the view, from the moment it comes: the
+    /// shore is left empty (v0.30 S3c round 3: five stayed out on it).
+    fn take_shelter(&mut self, cast: &BTreeSet<usize>) {
+        let fig = self.fig();
+        let from = self.rain_from().unwrap_or(0.0);
+        let (left, right) = (self.edges.0 - fig, self.edges.1 + fig);
+        let middle = (self.edges.0 + self.edges.1) / 2.0;
+        let out = self
+            .stage
+            .people
+            .iter()
+            .filter(|spot| !cast.contains(&spot.index))
+            .filter(|spot| spot.x > left && spot.x < right)
+            .map(|spot| (spot.index, spot.x, spot.y))
+            .collect::<Vec<_>>();
+        for (n, (index, x, y)) in out.into_iter().enumerate() {
+            // Each a moment after the rain comes, as they notice it.
+            let from = from + 0.8 + 0.12 * (n % 6) as f32;
+            let who = self.snapshot.canvas.items[index].id;
+            if self.snapshot.canvas.items[index].kind != CanvasItemKind::Actor {
+                continue;
+            }
+            // Theirs to stage only once they set off: till then, their day.
+            self.parts.push(Part {
+                index,
+                who,
+                legs: vec![Leg {
+                    t0: from,
+                    t1: from,
+                    from: (x, y),
+                    to: (x, y),
+                    after: Stance::Standing,
+                    moving: Stance::Walking,
+                    lane: None,
+                    indoors: false,
+                    pause: 0.0,
+                }],
+                strikes: Vec::new(),
+                with: None,
+                aboard: None,
+            });
+            let at = self.parts.len() - 1;
+            // Home, if they have a door to go in at; else out of the view
+            // the nearer way.
+            let home = self
+                .find(Mark::Home(who), from)
+                .and_then(|(.., anchor)| anchor?.building)
+                .is_some();
+            let mark = if home {
+                Mark::Home(who)
+            } else {
+                Mark::Offstage(x > middle)
+            };
+            self.walk(at, mark, Stance::Walking, from);
+            // Stopped short of it by a building: in under its cover.
+            if let Some(last) = self.parts[at].legs.last_mut() {
+                if !last.indoors {
+                    last.indoors = true;
+                    last.pause = GOING_IN;
+                }
+            }
+        }
+    }
+
+    /// Whoever walks off the edge of the view that a boat (a shuttle, a
+    /// bus, a sled) came in at, while it waits there, goes aboard it: along
+    /// the shore to it, a step down onto its deck, and away with it, waving
+    /// (v0.30 S3c round 3: the leaver was lost off the edge, the ferry
+    /// left empty).
+    fn board(&mut self) {
+        let fig = self.fig();
+        for at in 0..self.parts.len() {
+            let Some(leg) = self.parts[at].legs.last().copied() else {
+                continue;
+            };
+            let right = leg.to.0 > self.edges.1;
+            if !leg.indoors || !(right || leg.to.0 < self.edges.0) {
+                continue;
+            }
+            let Some(boat) = self.props.iter().position(|part| {
+                is_transport(part.prop)
+                    && part.mark == Mark::Offstage(right)
+                    && part.from <= leg.t0
+                    && part.until.is_none_or(|until| until > leg.t1)
+            }) else {
+                continue;
+            };
+            let (w, h) = prop_size(self.props[boat].prop, fig);
+            let side = if right { 1.0 } else { -1.0 };
+            let edge = if right { self.edges.1 } else { self.edges.0 };
+            let rest = edge - side * w * TRANSPORT_IN;
+            // On deck at its near end, clear of its cabin.
+            let deck = (
+                rest - side * w * 0.33,
+                self.transport_y(self.props[boat].prop) - h * 0.36,
+            );
+            let landing = deck.0 - side * fig * 0.35;
+            let share = ((landing - leg.from.0) / (leg.to.0 - leg.from.0)).clamp(0.0, 1.0);
+            let t1 = leg.t0 + (leg.t1 - leg.t0) * share;
+            let y = leg.lane.unwrap_or(leg.to.1);
+            let ferry = self.props[boat].prop == Prop::Ferry;
+            let part = &mut self.parts[at];
+            let last = part.legs.len() - 1;
+            if !ferry {
+                // A lander, a bus, a sled: up to its near end, and in.
+                let door = rest - side * w * 0.42;
+                let share = ((door - leg.from.0) / (leg.to.0 - leg.from.0)).clamp(0.0, 1.0);
+                part.legs[last] = Leg {
+                    to: (door, leg.to.1),
+                    t1: leg.t0 + (leg.t1 - leg.t0) * share,
+                    pause: 0.0,
+                    ..leg
+                };
+                continue;
+            }
+            part.legs[last] = Leg {
+                to: (landing, y),
+                t1,
+                indoors: false,
+                pause: 0.0,
+                after: Stance::Standing,
+                ..leg
+            };
+            part.legs.push(Leg {
+                t0: t1,
+                t1: t1 + 0.5,
+                from: (landing, y),
+                to: deck,
+                after: Stance::Waving,
+                moving: Stance::Walking,
+                lane: None,
+                indoors: false,
+                pause: 0.0,
+            });
+            part.aboard = Some((t1 + 0.25, boat));
+        }
+    }
+
+    /// Where a boat (or a lander, a bus, a sled) that comes in stands: a
+    /// ferry well out on the water, its cabin below the shore's edge.
+    fn transport_y(&self, prop: Prop) -> f32 {
+        match prop {
+            Prop::Ferry => self.stage.front + (self.stage.height - self.stage.front) * 0.42,
+            _ => self.stage.feet + self.fig() * 0.6,
+        }
+    }
+
+    /// Where a boat that comes in to the edge of the view is `t` in: its
+    /// x, its foot, and how far it has gone off since it came to rest.
+    fn transport_at(&self, part: &PropPart, t: f32) -> Option<(f32, f32, f32)> {
+        if t < part.from {
+            return None;
+        }
+        let (w, _) = prop_size(part.prop, self.fig());
+        let right = match part.mark {
+            Mark::Offstage(right) => right,
+            _ => true,
+        };
+        let edge = if right { self.edges.1 } else { self.edges.0 };
+        let side = if right { 1.0 } else { -1.0 };
+        // In to the edge of the view, all of it in sight.
+        let rest = edge - side * w * TRANSPORT_IN;
+        let came = ease((t - part.from) / TRANSPORT_SLIDE);
+        let went = part
+            .until
+            .map_or(0.0, |until| ease((t - until) / TRANSPORT_SLIDE));
+        if went >= 1.0 {
+            return None;
+        }
+        let x = rest + side * w * ((TRANSPORT_IN + 0.25) * (1.0 - came) + went);
+        Some((x, self.transport_y(part.prop), x - rest))
+    }
+
+    /// Whether scaffolding `w` wide at `x`, its foot on line `y`, stands
+    /// clear all along its span, ladder too: of every thing on the
+    /// people's ground but `own` (what it is round), of the props out, of
+    /// the posts in the water, and (`ground`) on open ground.
+    fn scaffold_clear(&self, x: f32, y: f32, w: f32, own: Option<usize>, ground: bool) -> bool {
+        let fig = self.fig();
+        let (left, right) = scaffold_span(x, w);
+        let room = fig * CLEAR;
+        let steps = ((right - left) / (fig * 0.2)).ceil().max(1.0) as usize;
+        let own_x = own.and_then(|own| {
+            self.stage
+                .things
+                .iter()
+                .find(|spot| spot.index == own)
+                .map(|spot| spot.x)
+        });
+        (!ground
+            || (0..=steps).all(|k| {
+                let at = left + (right - left) * k as f32 / steps as f32;
+                self.ground
+                    .open(at, y, fig * 0.5, own.unwrap_or(usize::MAX))
+            }))
+            && self
+                .taken
+                .iter()
+                .filter(|taken| !taken.person)
+                .filter(|taken| own_x.is_none_or(|own| (taken.x - own).abs() > 0.5))
+                .all(|taken| {
+                    right + room <= taken.x - taken.half
+                        || left - room >= taken.x + taken.half
+                        || (y - taken.y).abs() >= fig * taken.depth
+                })
+            && self.posts.iter().all(|(post, reach)| {
+                right + room <= post - reach * 0.5 || left - room >= post + reach * 0.5
+            })
     }
 
     /// Where a prop that stands still stands, shown at `t`: (x, foot, w,
@@ -1142,33 +1512,91 @@ impl<'a> Blocking<'a> {
         };
         match prop {
             Prop::Scaffold => {
+                // Round what is going up, if the whole of it (its ladder
+                // too) stands clear there of everything else; else on the
+                // nearest open ground along the line, clear of everything.
+                let own = match mark {
+                    Mark::Place(id) => self.index_of.get(&id).copied(),
+                    _ => None,
+                };
                 if let Some((a, (base, height))) = anchor.and_then(|a| a.building.map(|b| (a, b))) {
-                    return Some((a.x, base, a.half * 2.3, height * 0.95));
+                    let w = a.half * 2.3;
+                    if self.scaffold_clear(a.x, base, w, own, false) {
+                        return Some((a.x, base, w, height * 0.95));
+                    }
                 }
                 if let Some((a, (base, width))) = anchor.and_then(|a| a.thing.map(|b| (a, b))) {
-                    return Some((a.x, base, (width * 1.4).max(fig * 1.6), fig * 2.0));
+                    for w in [(width * 1.4).max(fig * 1.6), (width * 1.1).max(fig * 1.2)] {
+                        if self.scaffold_clear(a.x, base, w, own, true) {
+                            return Some((a.x, base, w, fig * 2.0));
+                        }
+                    }
                 }
+                let (w, h) = (fig * 1.6, fig * 2.0);
                 let y = self.on_ground(y) - fig * 0.15;
-                {
-                    let (x, y) = self.open_near(x, y, w / 2.0, false, None);
-                    Some((x, y, w, h))
-                }
+                let step = fig * 0.2;
+                let x = (0..=200)
+                    .flat_map(|n| [n, -n])
+                    .map(|n| x + n as f32 * step)
+                    .find(|x| self.scaffold_clear(*x, y, w, None, true))
+                    .unwrap_or(x);
+                Some((x, y, w, h))
             }
             Prop::Tools => {
-                // Against the scaffolding round the same work, if it is up.
+                // Against the scaffolding round the same work, if it is up:
+                // outside it where that is clear, else just inside it.
                 let scaffold = shown
                     .iter()
                     .filter(|part| part.prop == Prop::Scaffold && part.until.is_none())
                     .find_map(|part| part.at);
                 if let Some((sx, base, sw, _)) = scaffold {
                     let side = if x < sx { -1.0 } else { 1.0 };
-                    return Some((sx + side * (sw / 2.0 + w * 0.35), base, w, h));
+                    let (left, right) = scaffold_span(sx, sw);
+                    let outside = if side < 0.0 {
+                        left - w * 0.35
+                    } else {
+                        right + w * 0.35
+                    };
+                    let inside = sx + side * (sw / 2.0 - w * 0.45);
+                    let x = if self.clear_at(outside, base, w / 2.0, false, None, false) {
+                        outside
+                    } else {
+                        inside
+                    };
+                    return Some((x, base, w, h));
                 }
                 let _ = by;
                 let y = self.on_ground(y) - fig * 0.12;
                 {
                     let (x, y) = self.open_near(x, y, w / 2.0, false, None);
                     Some((x, y, w, h))
+                }
+            }
+            // On the people's line, back from the water, by whoever it is
+            // beside.
+            Prop::Cradle => {
+                // Right at the side of whoever it is beside (either side,
+                // the side asked first), on their line: never left alone,
+                // never down at the water.
+                let (cx, cy, close) = match by.filter(|_| matches!(mark, Mark::Beside(..))) {
+                    Some(a) => (a.x, a.y, a.half),
+                    None => (x, y, 0.0),
+                };
+                let first = match mark {
+                    Mark::Beside(_, steps) if steps < 0 => -1.0,
+                    _ => 1.0,
+                };
+                let y = self.on_ground(cy);
+                let spot = (0..=24)
+                    .flat_map(|k| [(k, first), (k, -first)])
+                    .map(|(k, side)| cx + side * (close + w / 2.0 + fig * (0.16 + 0.1 * k as f32)))
+                    .find(|x| self.clear_at(*x, y, w / 2.0, false, None, false));
+                match spot {
+                    Some(x) => Some((x, y, w, h)),
+                    None => {
+                        let (x, y) = self.open_near(x, y - fig * 0.12, w / 2.0, false, None);
+                        Some((x, y, w, h))
+                    }
                 }
             }
             // Over the people's heads, across the place, its poles on open
@@ -1220,8 +1648,11 @@ impl<'a> Blocking<'a> {
             let (x, y) = self.spot_or_middle(on, t);
             let zoom = scene_zoom(zoom);
             // The people's ground a little below the middle, room above
-            // for the roofs and below for the words.
-            let ground = self.on_ground(y) - self.stage.height * 0.1 / zoom;
+            // for the roofs and below for the words: the ground the
+            // nearest of those it stages stand on, so none is down in the
+            // card's band (v0.30 S3c round 3: a dancer's legs under it).
+            let nearest = self.on_ground(y).max(self.nearest);
+            let ground = nearest - self.stage.height * 0.1 / zoom;
             // On a building further back: up to take in its roof too, its
             // people still above the words.
             let building = self
@@ -1280,6 +1711,18 @@ impl<'a> Blocking<'a> {
             .filter(|part| !part.gone_in(t))
             .filter_map(|part| {
                 let (x, y) = part.at(t)?;
+                // Aboard: away with the boat as it goes.
+                let aboard = part.aboard.filter(|(from, _)| t >= *from);
+                let (x, y) = match aboard {
+                    Some((_, boat)) => {
+                        let gone = self
+                            .props
+                            .get(boat)
+                            .and_then(|boat| self.transport_at(boat, t));
+                        (x + gone.map_or(0.0, |(.., gone)| gone), y)
+                    }
+                    None => (x, y),
+                };
                 let holding = held(part.index, t);
                 let plain = |stance: Stance| {
                     if holding && stance == Stance::Carrying {
@@ -1310,6 +1753,29 @@ impl<'a> Blocking<'a> {
                 } else {
                     None
                 };
+                // A quarrel is in the body: the one squares up, hands on
+                // hips, the other folds their arms, and whoever goes off
+                // stomps. Once the other has gone, arms folded.
+                let posture = if quarrel.contains(&part.index) {
+                    let other = quarrel.iter().find(|other| **other != part.index);
+                    let left = other
+                        .and_then(|other| self.parts.iter().find(|p| p.index == *other))
+                        .is_some_and(|other| other.walking(t).is_some() || other.gone_in(t));
+                    Some(if walk.is_some() {
+                        Posture::Stomping
+                    } else if quarrel.first() == Some(&part.index) && !left {
+                        Posture::HandsOnHips
+                    } else {
+                        Posture::ArmsFolded
+                    })
+                } else if self.script.kind == MomentKind::Build
+                    && walk.is_none()
+                    && stance == Stance::Working
+                {
+                    Some(Posture::Hammering)
+                } else {
+                    None
+                };
                 Some(StagedPerson {
                     index: part.index,
                     who: part.who,
@@ -1320,6 +1786,8 @@ impl<'a> Blocking<'a> {
                     walk,
                     loaded,
                     mood,
+                    posture,
+                    aboard: aboard.is_some(),
                 })
             })
             .collect::<Vec<_>>();
@@ -1346,8 +1814,37 @@ impl<'a> Blocking<'a> {
             .iter()
             .map(|person| (person.who, (person.x, person.walk.is_some())))
             .collect::<BTreeMap<_, _>>();
+        // A quarrel's two: whoever is about to go turns their back first,
+        // and whoever is left turns away from the one gone.
+        let quarrel_at = quarrel
+            .iter()
+            .filter_map(|index| {
+                let part = self.parts.iter().find(|part| part.index == *index)?;
+                let (x, _) = part.at(t)?;
+                Some((*index, x, part.walking(t).is_some() || part.gone_in(t)))
+            })
+            .collect::<Vec<_>>();
+        let turned =
+            |index: usize, x: f32| -> Option<f32> {
+                if !quarrel.contains(&index) {
+                    return None;
+                }
+                let part = self.parts.iter().find(|part| part.index == index)?;
+                // About to set off: already turned the way they will go.
+                if let Some(leg) = part.legs.iter().find(|leg| {
+                    leg.t0 > t && leg.t0 <= t + 0.7 && (leg.to.0 - leg.from.0).abs() > 1.0
+                }) {
+                    return Some((leg.to.0 - leg.from.0).signum());
+                }
+                let (_, other, gone) = quarrel_at.iter().find(|(other, ..)| *other != index)?;
+                (*gone && (other - x).abs() > 1.0).then(|| -(other - x).signum())
+            };
         for (n, person) in people.iter_mut().enumerate() {
             if person.walk.is_some() {
+                continue;
+            }
+            if let Some(away) = turned(person.index, person.x) {
+                person.facing = away;
                 continue;
             }
             let partner = with(person.who)
@@ -1409,30 +1906,11 @@ impl<'a> Blocking<'a> {
                 }
                 let (w, h) = prop_size(part.prop, fig);
                 if is_transport(part.prop) {
-                    let right = match part.mark {
-                        Mark::Offstage(right) => right,
-                        _ => true,
+                    let side = match part.mark {
+                        Mark::Offstage(false) => -1.0,
+                        _ => 1.0,
                     };
-                    let edge = if right { self.edges.1 } else { self.edges.0 };
-                    let side = if right { 1.0 } else { -1.0 };
-                    // In to the edge of the view, its near end in sight.
-                    let rest = edge - side * w * 0.25;
-                    let came = ease((t - part.from) / TRANSPORT_SLIDE);
-                    let went = part
-                        .until
-                        .map_or(0.0, |until| ease((t - until) / TRANSPORT_SLIDE));
-                    let x = rest + side * w * ((1.0 - came) + went);
-                    if went >= 1.0 {
-                        return None;
-                    }
-                    let y = match part.prop {
-                        // Well out on the water, its cabin below the shore's
-                        // edge.
-                        Prop::Ferry => {
-                            self.stage.front + (self.stage.height - self.stage.front) * 0.42
-                        }
-                        _ => self.stage.feet + fig * 0.6,
-                    };
+                    let (x, y, _) = self.transport_at(part, t)?;
                     return Some(StagedProp {
                         prop: part.prop,
                         x,
@@ -1554,24 +2032,79 @@ pub(super) fn paint_storm(window: &mut dyn Brush, frame: &Frame, (ox, oy, w, h):
     if storm <= 0.0 {
         return;
     }
-    window.rect(ox, oy, w, h, 0.0, art::hex(0x1e2a3a).opacity(0.26 * storm));
+    // The sky darkens; the land keeps near its day value, only a little
+    // cooler, so the place still reads (never greyed: the art bible's §4).
+    let horizon = (oy + frame.at(0.0, frame.horizon).1).clamp(oy, oy + h);
+    let cool = art::hex(0x1e2a3a);
+    if horizon > oy {
+        window.gradient(
+            ox,
+            oy,
+            w,
+            horizon - oy,
+            180.0,
+            (cool.opacity(0.22 * storm), 0.0),
+            (cool.opacity(0.06 * storm), 1.0),
+        );
+    }
+    window.rect(
+        ox,
+        horizon,
+        w,
+        oy + h - horizon,
+        0.0,
+        cool.opacity(0.06 * storm),
+    );
     let z = frame.camera.zoom;
     let fig = frame.figure_h * z;
+    // The stones by the water wet and shining.
+    if frame.water {
+        let front = oy + frame.at(0.0, frame.front).1;
+        let reach = fig * 1.3;
+        window.gradient(
+            ox,
+            front - reach,
+            w,
+            reach,
+            180.0,
+            (art::hex(0x2a3442).opacity(0.0), 0.0),
+            (art::hex(0x2a3442).opacity(0.32 * storm), 1.0),
+        );
+        let sheen = art::hex(0xe8eef4).opacity(0.35 * storm);
+        let pan = frame.pan() * z;
+        for streak in 0..22 {
+            let x = ox + ((streak as f32 * 131.0 - pan).rem_euclid(w + 60.0)) - 30.0;
+            let y = front - reach * (0.1 + 0.75 * ((streak * 7) % 6) as f32 / 6.0);
+            let long = fig * (0.35 + 0.1 * (streak % 3) as f32);
+            window.rect(x, y, long, (1.6 * z.sqrt()).max(1.5), 0.8, sheen);
+        }
+    }
+    // A lamp lit against the rain: a warm pool round it that reads at the
+    // window's own zoom, and on the wet ground under it.
     for prop in frame
         .scene_props()
         .iter()
         .filter(|prop| prop.prop == Prop::Lamp)
     {
         let (x, foot) = frame.at(prop.x, prop.y);
-        let (x, y) = (ox + x, oy + foot - prop.h * z * 0.86);
+        let (x, foot) = (ox + x, oy + foot);
+        let y = foot - prop.h * z * 0.86;
         let a = prop.shown * storm;
         window.soft(
             x,
             y,
-            fig * 1.1,
-            fig * 1.1,
-            fig * 0.7,
-            art::hex(0xffc36a).opacity(0.5 * a),
+            fig * 2.0,
+            fig * 2.0,
+            fig * 1.2,
+            art::hex(0xffb24a).opacity(0.42 * a),
+        );
+        window.soft(
+            x,
+            y,
+            fig * 0.8,
+            fig * 0.8,
+            fig * 0.5,
+            art::hex(0xffcf7a).opacity(0.7 * a),
         );
         window.soft(
             x,
@@ -1579,7 +2112,15 @@ pub(super) fn paint_storm(window: &mut dyn Brush, frame: &Frame, (ox, oy, w, h):
             fig * 0.3,
             fig * 0.3,
             fig * 0.2,
-            art::hex(0xffe2a0).opacity(0.9 * a),
+            art::hex(0xfff0c0).opacity(0.95 * a),
+        );
+        window.soft(
+            x,
+            foot,
+            fig * 1.4,
+            fig * 0.25,
+            fig * 0.3,
+            art::hex(0xffc36a).opacity(0.45 * a),
         );
     }
     // Rain in slanting streaks, thicker than a shower's.
@@ -2080,7 +2621,7 @@ pub fn sample(
         [art::Setting::from_key(snapshot.canvas.setting.as_deref()) as usize];
     let seconds = match kind {
         MomentKind::Arrival => {
-            cue(0.0, None, camera(here, 1.0));
+            cue(0.0, None, camera(here, 1.4));
             cue(0.0, None, prop(transport, Mark::Offstage(false), true));
             cue(6.5, None, prop(transport, Mark::Offstage(false), false));
             for (n, who) in cast.iter().skip(1).enumerate() {
@@ -2093,7 +2634,7 @@ pub fn sample(
             cue(0.0, Some(a), walk(Mark::Offstage(false), Stance::Carrying));
             cue(0.0, None, prop(Prop::Suitcase, Mark::Beside(a, 0), true));
             cue(0.5, Some(a), walk(here, Stance::Walking));
-            cue(1.0, None, camera(at(a), 1.6));
+            cue(1.0, None, camera(here, 1.6));
             cue(4.0, Some(a), Act::Strike(Stance::Waving));
             for who in cast.iter().skip(1) {
                 cue(4.2, Some(*who), Act::Strike(Stance::Waving));
@@ -2102,7 +2643,7 @@ pub fn sample(
             8.0
         }
         MomentKind::Quarrel => {
-            cue(0.0, None, camera(at(a), 1.8));
+            cue(0.0, None, camera(at(a), 2.0));
             cue(0.0, Some(a), walk(here, Stance::Talking));
             if let Some(b) = b {
                 cue(0.0, Some(b), walk(Mark::Beside(a, 1), Stance::Talking));
@@ -2122,7 +2663,7 @@ pub fn sample(
         MomentKind::Festival => {
             cue(0.0, None, prop(Prop::Bunting, here, true));
             cue(0.0, None, prop(Prop::Table, beside(here, 2), true));
-            cue(0.0, None, camera(here, 0.9));
+            cue(0.0, None, camera(here, 1.2));
             for (n, who) in cast.iter().enumerate() {
                 cue(0.0, Some(*who), walk(home(*who), Stance::Standing));
                 cue(
@@ -2133,13 +2674,48 @@ pub fn sample(
                 cue(4.0, Some(*who), Act::Strike(Stance::Dancing));
             }
             cue(4.5, Some(a), Act::Say(said));
-            cue(1.5, None, camera(here, 1.3));
+            cue(1.5, None, camera(here, 1.6));
             9.0
         }
         MomentKind::Build => {
             // What goes up is a thing on the people's ground, as a work
             // built by hand is: the nearest of them to the place.
             // The one with the most room about it, for those who build it.
+            // Of those, one the whole of whose scaffolding (its ladder
+            // too) stands on open ground clear of everything else.
+            let posts = stage
+                .things
+                .iter()
+                .filter(|spot| spot.y >= stage.front - 1.0)
+                .filter(|spot| {
+                    matches!(
+                        items[spot.index].shape,
+                        Some(
+                            MarkShape::Signpost
+                                | MarkShape::Lamp
+                                | MarkShape::Lantern
+                                | MarkShape::Flag
+                        )
+                    )
+                })
+                .map(|spot| (spot.x, spot.w * 0.3 + fig * 0.3))
+                .collect::<Vec<_>>();
+            let fits = |spot: &Spot| {
+                let w = thing_width(stage, snapshot, spot, setting).max(spot.w);
+                let (left, right) = scaffold_span(spot.x, (w * 1.4).max(fig * 1.6));
+                let room = fig * CLEAR;
+                let steps = ((right - left) / (fig * 0.2)).ceil().max(1.0) as usize;
+                (0..=steps).all(|k| {
+                    let at = left + (right - left) * k as f32 / steps as f32;
+                    ground.open(at, spot.y, fig * 0.5, spot.index)
+                }) && standing
+                    .iter()
+                    .filter(|(at, _)| (at - spot.x).abs() > 0.5)
+                    .all(|(at, half)| right + room <= at - half || left - room >= at + half)
+                    && posts.iter().all(|(post, reach)| {
+                        right + room <= post - reach * 0.5 || left - room >= post + reach * 0.5
+                    })
+            };
             let made = stage
                 .things
                 .iter()
@@ -2147,8 +2723,8 @@ pub fn sample(
                 .filter(|spot| stage.shows(spot.index, 1.0))
                 .filter(|spot| (spot.x - middle).abs() < stage.view_w * 0.45)
                 .max_by(|a, b| {
-                    (room_at(a.x), -(a.x - middle).abs())
-                        .partial_cmp(&(room_at(b.x), -(b.x - middle).abs()))
+                    (fits(a), room_at(a.x), -(a.x - middle).abs())
+                        .partial_cmp(&(fits(b), room_at(b.x), -(b.x - middle).abs()))
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map_or(here, |spot| Mark::Place(items[spot.index].id));
@@ -2175,10 +2751,10 @@ pub fn sample(
         }
         MomentKind::Birth => {
             let parent = b.unwrap_or(a);
-            cue(0.0, Some(parent), walk(here, Stance::Carrying));
-            cue(1.5, None, camera(at(parent), 1.8));
-            cue(0.0, None, camera(here, 1.2));
-            cue(0.0, None, prop(Prop::Cradle, beside(here, 1), true));
+            cue(0.0, Some(parent), walk(here, Stance::Standing));
+            cue(1.5, None, camera(at(parent), 2.0));
+            cue(0.0, None, camera(here, 1.6));
+            cue(0.0, None, prop(Prop::Cradle, Mark::Beside(parent, 1), true));
             for (n, who) in rest.iter().enumerate() {
                 cue(
                     0.0,
@@ -2199,7 +2775,7 @@ pub fn sample(
         MomentKind::Farewell => {
             cue(0.0, None, camera(here, 1.2));
             cue(0.0, None, prop(transport, Mark::Offstage(true), true));
-            cue(7.0, None, prop(transport, Mark::Offstage(true), false));
+            cue(7.4, None, prop(transport, Mark::Offstage(true), false));
             for (n, who) in cast.iter().skip(1).enumerate() {
                 cue(
                     0.0,
@@ -2211,7 +2787,6 @@ pub fn sample(
             cue(0.0, Some(a), walk(here, Stance::Carrying));
             cue(0.0, None, prop(Prop::Suitcase, Mark::Beside(a, 0), true));
             cue(3.5, Some(a), walk(Mark::Offstage(true), Stance::Walking));
-            cue(3.5, None, camera(at(a), 1.2));
             cue(2.0, Some(a), Act::Say(said));
             8.0
         }
@@ -2229,7 +2804,7 @@ pub fn sample(
                 cue(1.0, Some(*who), walk(home(*who), Stance::Walking));
             }
             cue(2.0, Some(a), Act::Say(said));
-            cue(3.0, None, prop(Prop::Lamp, home(a), true));
+            cue(3.0, None, prop(Prop::Lamp, beside(here, 2), true));
             8.0
         }
         _ => return None,

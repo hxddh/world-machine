@@ -666,6 +666,7 @@ pub fn frame(
                     .fixture
                     .filter(|(_, how)| *how == Use::Keep)
                     .map(|(thing, _)| thing),
+                posture: None,
             }
         })
         .collect::<Vec<_>>();
