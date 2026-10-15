@@ -251,6 +251,101 @@ pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: 
     FirstScreen { centre, residents }
 }
 
+/// The art director's bar for a World's first screen at rest at `hour`
+/// (v0.30 S1c round 2), in a window `view` large, measured on the window's
+/// own layout and opening view ([`first_screen_busy`]):
+/// - By day (nine to four), at least six residents on it busy or with
+///   someone, or all that are out of doors where fewer are; at noon, when
+///   the Packs hold no stretch of the town over 60%, as many as that
+///   allows.
+/// - Of an evening (seven to nine), at least six, or all not abed where
+///   fewer are: everyone but babies, children from eight and elders from
+///   nine at home.
+/// - On it, no three turned to the camera in one row, one at a time
+///   talking in each conversation, and at least half of those standing
+///   with someone turned to them.
+/// - Anywhere in the place, nobody on or in a thing
+///   ([`crate::diorama::on_a_thing`]).
+///
+/// Returns how many are busy on it, or what falls short.
+pub fn first_screen_bar(
+    snapshot: &ProjectionSnapshot,
+    view: (f32, f32),
+    hour: u8,
+) -> Result<usize, String> {
+    use crate::diorama::{self, Camera, Clock};
+    use world_projection::{AgeStage, CanvasItemKind};
+    let screen = first_screen_busy(snapshot, view, hour);
+    let stage = diorama::stage_at(snapshot, view.0, view.1, Clock::at(hour));
+    let rest = Camera::rest_zoom(&stage);
+    let outdoors = stage
+        .people
+        .iter()
+        .filter(|spot| stage.shows(spot.index, rest))
+        .count();
+    let people = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
+        .collect::<Vec<_>>();
+    let awake = people
+        .iter()
+        .filter(|item| {
+            let age = item
+                .look
+                .as_ref()
+                .and_then(|look| look.age)
+                .unwrap_or_default();
+            let Some(stop) = world_projection::stop_at(&item.day, hour) else {
+                return false;
+            };
+            let home = stop.inside && item.home == Some(stop.at);
+            match age {
+                AgeStage::Baby => false,
+                AgeStage::Child => !home || hour < 20,
+                AgeStage::Elder => !home || hour < 21,
+                _ => true,
+            }
+        })
+        .count();
+    let wanted = match hour {
+        12 => 6.min(outdoors).min(people.len() * 3 / 5),
+        9..=16 => 6.min(outdoors),
+        19..=21 => 6.min(awake),
+        _ => 0,
+    };
+    let mut short = Vec::new();
+    if screen.busy() < wanted || screen.residents.len() > outdoors {
+        short.push(format!(
+            "{} busy of {:?} (wanted {wanted}; {outdoors} out, {awake} not abed)",
+            screen.busy(),
+            screen.residents
+        ));
+    }
+    let gathering = diorama::gathering_at_rest(snapshot, &stage, hour, screen.centre, 3.0);
+    if gathering.front_in_a_row >= 3
+        || gathering.most_talking > 1
+        || (gathering.together >= 2 && gathering.facing * 2 < gathering.together)
+    {
+        short.push(format!("rows: {gathering:?}"));
+    }
+    let on = diorama::on_a_thing(&stage, snapshot, rest);
+    if !on.is_empty() {
+        short.push(format!(
+            "on a thing: {:?}",
+            on.iter()
+                .map(|index| snapshot.canvas.items[*index].label.clone())
+                .collect::<Vec<_>>()
+        ));
+    }
+    if short.is_empty() {
+        Ok(screen.busy())
+    } else {
+        Err(short.join("; "))
+    }
+}
+
 /// What the first screen shows when the view is centred at `centre`:
 /// how many residents are out on it, and how many buildings stand on it
 /// (most of each building in the window). The camera stops at the ends of
@@ -375,7 +470,9 @@ pub(crate) fn busiest_view(stage: &crate::diorama::Stage, speaker: Option<f32>) 
         (half, stage.width - half)
     };
     let near = speaker.unwrap_or(stage.width / 2.0);
-    let margin = half * 0.2;
+    // (A tenth of the way in: their card fits, and a gathering they stand
+    // at the end of is on the screen with them, v0.30 S1c round 2.)
+    let margin = half * 0.1;
     let score = |centre: f32| {
         let heard = speaker.is_none_or(|x| (x - centre).abs() <= half - margin);
         let (residents, whole, cut) = rest_screen(stage, centre);

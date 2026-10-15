@@ -24,7 +24,7 @@ mod stories;
 #[cfg(test)]
 mod walk;
 mod world_window;
-pub use arrival::{first_screen_busy, FirstScreen};
+pub use arrival::{first_screen_bar, first_screen_busy, FirstScreen};
 pub use farewell::{Farewell, FarewellAction};
 #[cfg(test)]
 pub(crate) use stories::{moment_strip, panel_scenes, strip_layout};

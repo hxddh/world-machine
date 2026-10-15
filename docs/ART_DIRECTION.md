@@ -142,7 +142,8 @@ A screen at rest keeps 1–3 of these: the framing strip, the focal cluster whol
 - People gather in twos and threes, facing each other, on the spine, porches and benches.
 - Never more than three people stand in a row at rest (four on the overview).
 - At rest, people stand at three or four depths, and are turned every way a body turns: to the camera, three-quarter, in profile and from behind. Most pairs are not both facing the camera.
-- Someone is always in view on the first screen; by day, at least six where six are out of doors.
+- Someone is always in view on the first screen; by day, at least six where six are out of doors; of an evening (7 to 9 pm), at least six by lamplight where six are not abed, gathered in front of the pub or the hall, or round a lamp (v0.30 S1c round 2). At noon the Packs' bar (no stretch over 60% of the town) caps a small town's first screen.
+- In a gathering one talks at a time with a hand up and the rest listen; pairs face each other and stand a little apart in depth; every second pair of four or more sits down to talk. Nobody stands on or in a thing: a keeper stands behind a counter only, and beside anything else kept as a stall.
 
 **Overlays:**
 - A card never covers the person it speaks for.

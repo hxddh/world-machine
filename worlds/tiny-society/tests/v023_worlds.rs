@@ -199,3 +199,51 @@ fn six_residents_busy_on_first_screen_by_day() {
         "{full} of {seen} first screens with six busy"
     );
 }
+
+/// The first screen at rest, morning to night (v0.30 S1c round 2): in every
+/// fixture, and in a harbour on its first day, at every hour from nine to
+/// ten at night, the window's opening view meets the art director's bar
+/// (`world_gpui::first_screen_bar`): six busy by day, or everyone out; six
+/// by lamplight of an evening, or everyone not abed; no rows turned to the
+/// camera, one talking at a time, most turned to whoever they are with;
+/// and nobody anywhere on or in a thing.
+#[test]
+fn the_first_screen_at_rest_morning_to_night() {
+    let registry = registry();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+    let mut fixtures = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "world"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    let mut places = fixtures
+        .into_iter()
+        .map(|fixture| {
+            let bytes = std::fs::read(&fixture).unwrap();
+            let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+            let session = registry.open_archive(&archive).unwrap();
+            (fixture.display().to_string(), session.snapshot())
+        })
+        .collect::<Vec<_>>();
+    // A harbour on its first day: eight people, and the art director's
+    // first screen.
+    let mut young = registry.create(tiny_society::TINY_SOCIETY_PACK_ID).unwrap();
+    builder(&mut young, 1);
+    places.push(("day 1".into(), young.snapshot()));
+    let (mut short, mut evenings) = (Vec::new(), 0);
+    for (name, snapshot) in &places {
+        for hour in 9..=22 {
+            match world_gpui::first_screen_bar(snapshot, (1100.0, 848.0), hour) {
+                Ok(busy) => evenings += usize::from((19..=21).contains(&hour) && busy >= 6),
+                Err(why) => short.push(format!("{name} at {hour}: {why}")),
+            }
+        }
+    }
+    assert!(short.is_empty(), "{}", short.join("\n"));
+    // Most evenings are inhabited: six or more by lamplight.
+    assert!(
+        evenings * 2 > places.len() * 3,
+        "{evenings} evenings of six"
+    );
+}

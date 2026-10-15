@@ -1117,6 +1117,10 @@ pub const HUB_APART: f32 = 0.25;
 const HUB_FRONT: f32 = 0.72;
 /// The most standing at an hour's hubs: a crowd beyond that.
 pub const HUB_MOST: usize = 9;
+/// The most who come to any one hub: more, and they stand strung along the
+/// front past the window's edges (v0.30 S1c round 2); the rest go to the
+/// other hub of two.
+pub const HUB_EACH: usize = 6;
 /// How far either side of the middle of an hour's hubs, in screens, one
 /// window with the camera at rest sees.
 pub const HUB_VIEW: f32 = 0.19;
@@ -1185,30 +1189,7 @@ pub(crate) fn gather_at_hubs(
         .filter(|item| item.kind != CanvasItemKind::Actor && seat(item))
         .map(|item| item.id)
         .collect::<BTreeSet<_>>();
-    let doorways = items
-        .iter()
-        .filter(|item| item.kind == CanvasItemKind::Place && item.y >= 0.8)
-        .filter_map(|item| item.px)
-        .collect::<Vec<_>>();
-    let hubs = items
-        .iter()
-        .filter(|item| item.kind != CanvasItemKind::Actor)
-        .filter(|item| item.shape != Some(MarkShape::Boat))
-        // What stands by itself: a thing kept at a place is not somewhere
-        // anyone stands (the scene stands them at its place instead), but
-        // for a seat, where they sit.
-        .filter(|item| item.at.is_none() || seat(item))
-        // Nor on the water line, whose doors open onto the front: nobody
-        // stands in front of them.
-        .filter(|item| item.y < 0.8)
-        // Nor a place standing in the front row itself (a bridge's foot): those
-        // come to it would stand off past its ends.
-        .filter(|item| item.y < HUB_FRONT || item.kind != CanvasItemKind::Place)
-        .filter_map(|item| Some((item.px?, item.id)))
-        // Nor right behind a building on the water line: the ground in front
-        // of it is that building's doorway.
-        .filter(|(px, _)| !doorways.iter().any(|door| (door - px).abs() < 0.12))
-        .collect::<Vec<_>>();
+    let hubs = hub_spots(items);
     let shape_of = items
         .iter()
         .filter_map(|item| Some((item.id, item.shape?)))
@@ -1368,10 +1349,16 @@ pub(crate) fn gather_at_hubs(
                     let to = stretch_at(pair[hub].0);
                     // Three to a seat.
                     let seat = seats.contains(&pair[hub].1);
-                    let room = (!seat
-                        || gathered.iter().filter(|(_, at)| *at == hub).count() < SEAT_MOST)
-                        && (seat || !sits(&stop));
-                    room && (to == from || counts.get(&to).copied().unwrap_or(0) < cap)
+                    let here = gathered.iter().filter(|(_, at)| *at == hub).count();
+                    let room =
+                        (!seat || here < SEAT_MOST) && here < HUB_EACH && (seat || !sits(&stop));
+                    // (The share is the noon bar's: held at noon, when
+                    // the Packs measure it. Other hours a window at rest
+                    // gathers six or more even of a town of eight, v0.30
+                    // S1c round 2.)
+                    room && (to == from
+                        || hour != NOON
+                        || counts.get(&to).copied().unwrap_or(0) < cap)
                 };
                 let Some(hub) = [turn, (turn + 1) % pair.len()]
                     .into_iter()
@@ -1451,30 +1438,312 @@ pub(crate) fn gather_at_hubs(
                 .filter(|(_, at_hub)| *at_hub == hub)
                 .map(|(at, _)| *at)
                 .collect::<Vec<_>>();
-            for (nth, at) in here.iter().enumerate() {
-                let partner = if nth % 2 == 0 {
-                    here.get(nth + 1)
-                } else {
-                    here.get(nth - 1)
-                };
-                moved.entry(*at).or_default().insert(
-                    hour,
-                    RoutineStop {
-                        from_hour: hour,
-                        at: *hub_id,
-                        inside: false,
-                        // On a seat, sitting together; else standing, talking.
-                        stance: Some(if seats.contains(hub_id) {
-                            Stance::Sitting
-                        } else {
-                            Stance::Talking
-                        }),
-                        with: partner.map(|other| items[*other].id),
-                    },
-                );
-            }
+            two_by_two(
+                items,
+                &mut moved,
+                hour,
+                *hub_id,
+                &here,
+                seats.contains(hub_id),
+            );
         }
     }
+    apply_moves(items, moved);
+}
+
+/// Where people can gather in a place: what stands by itself on the land
+/// (a place, a thing; a seat even kept at a place), as (where, what), but
+/// never a boat, nor on the water line, nor a place standing in the front
+/// row itself (a bridge's foot), nor right behind a building on the water
+/// line.
+fn hub_spots(items: &[CanvasItem]) -> Vec<(f32, SelectionId)> {
+    let seat = |item: &CanvasItem| item.shape == Some(MarkShape::Bench);
+    let doorways = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Place && item.y >= 0.8)
+        .filter_map(|item| item.px)
+        .collect::<Vec<_>>();
+    items
+        .iter()
+        .filter(|item| item.kind != CanvasItemKind::Actor)
+        .filter(|item| item.shape != Some(MarkShape::Boat))
+        // What stands by itself: a thing kept at a place is not somewhere
+        // anyone stands (the scene stands them at its place instead), but
+        // for a seat, where they sit.
+        .filter(|item| item.at.is_none() || seat(item))
+        // Nor on the water line, whose doors open onto the front: nobody
+        // stands in front of them.
+        .filter(|item| item.y < 0.8)
+        // Nor a place standing in the front row itself (a bridge's foot): those
+        // come to it would stand off past its ends.
+        .filter(|item| item.y < HUB_FRONT || item.kind != CanvasItemKind::Place)
+        .filter_map(|item| Some((item.px?, item.id)))
+        // Nor right behind a building on the water line: the ground in front
+        // of it is that building's doorway.
+        .filter(|(px, _)| !doorways.iter().any(|door| (door - px).abs() < 0.12))
+        .collect::<Vec<_>>()
+}
+
+/// The hours people gather of an evening (v0.30 S1c round 2): seven to
+/// nine. At ten they are home (the town bars: three out at most).
+pub const EVENING_HOURS: std::ops::RangeInclusive<u8> = 19..=21;
+/// How many gather of an evening at most: a window at rest of them.
+pub const EVENING_MOST: usize = 8;
+
+/// Where people gather of an evening (v0.30 S1c round 2): each hour from
+/// seven to nine, out in front of where the evening is spent (the place
+/// most are in that is nobody's home: the pub, the hall), at a lamp near it
+/// if one stands there, else at what stands nearest it; with no such place,
+/// round whoever speaks, else round those out, else the middle of the town.
+/// Those out already near it stay; those out elsewhere, those in the
+/// evening's place and, up to [`EVENING_MOST`], those at home who are not
+/// abed come out to it (grown-ups until ten, elders until nine, children
+/// until eight; never a baby), whoever speaks first, then the nearest,
+/// two by two, talking (some sitting). The town is never all home at
+/// dusk, and the window has its people by lamplight. A festival is left
+/// as it is; someone dancing (a wedding's first dance) is where the evening
+/// is. Pure and unrecorded, as by day.
+pub(crate) fn gather_of_an_evening(items: &mut [CanvasItem], round: Option<SelectionId>) {
+    use world_projection::{AgeStage, Stance};
+    let hubs = hub_spots(items);
+    let people = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind == CanvasItemKind::Actor && !item.day.is_empty())
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    if people.is_empty() || hubs.is_empty() {
+        return;
+    }
+    let px_of = |id: SelectionId| {
+        let item = items.iter().find(|item| item.id == id)?;
+        item.px.or_else(|| {
+            let host = item.at?;
+            items.iter().find(|item| item.id == host)?.px
+        })
+    };
+    let homes = people
+        .iter()
+        .filter_map(|at| items[*at].home)
+        .collect::<BTreeSet<_>>();
+    let age = |at: usize| {
+        items[at]
+            .look
+            .as_ref()
+            .and_then(|look| look.age)
+            .unwrap_or_default()
+    };
+    let seats = items
+        .iter()
+        .filter(|item| item.kind != CanvasItemKind::Actor)
+        .filter(|item| item.shape == Some(MarkShape::Bench))
+        .map(|item| item.id)
+        .collect::<BTreeSet<_>>();
+    let lit = |id: SelectionId| {
+        items.iter().any(|item| {
+            item.id == id && matches!(item.shape, Some(MarkShape::Lamp | MarkShape::Lantern))
+        })
+    };
+    let mut moved = BTreeMap::<usize, BTreeMap<u8, RoutineStop>>::new();
+    for hour in EVENING_HOURS {
+        let now = people
+            .iter()
+            .filter_map(|at| Some((*at, *world_projection::stop_at(&items[*at].day, hour)?)))
+            .collect::<Vec<_>>();
+        // A festival (a third of the town dancing) is left as it is; one or
+        // two dancing (a wedding's first dance) is where the evening is.
+        let dancing = now
+            .iter()
+            .filter(|(_, stop)| stop.stance == Some(Stance::Dancing) && !stop.inside)
+            .filter_map(|(_, stop)| px_of(stop.at))
+            .collect::<Vec<_>>();
+        if !dancing.is_empty() && dancing.len() * 3 >= now.len() {
+            continue;
+        }
+        // The evening's place: the one most are in that is nobody's home.
+        let mut evening = BTreeMap::<SelectionId, usize>::new();
+        for (_, stop) in &now {
+            if stop.inside && !homes.contains(&stop.at) {
+                *evening.entry(stop.at).or_default() += 1;
+            }
+        }
+        let evening = evening
+            .into_iter()
+            .filter(|(at, _)| px_of(*at).is_some())
+            .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+            .map(|(at, _)| at);
+        let out = now
+            .iter()
+            .filter(|(at, stop)| !stop.inside && age(*at) != AgeStage::Baby)
+            .filter_map(|(at, stop)| Some((*at, px_of(stop.at).or(items[*at].px)?)))
+            .collect::<Vec<_>>();
+        let speaker = round.and_then(|who| {
+            let (at, stop) = now.iter().find(|(at, _)| items[*at].id == who)?;
+            (!stop.inside).then_some(())?;
+            px_of(stop.at).or(items[*at].px)
+        });
+        let target = dancing
+            .first()
+            .copied()
+            .or(evening.and_then(px_of))
+            .or(speaker)
+            .or_else(|| {
+                (!out.is_empty())
+                    .then(|| out.iter().map(|(_, px)| px).sum::<f32>() / out.len() as f32)
+            })
+            .unwrap_or_else(|| hubs.iter().map(|hub| hub.0).sum::<f32>() / hubs.len() as f32);
+        // A lamp near it on the street's front, else what stands near it
+        // that people stand about in front of (a place, a statue, a
+        // bandstand: not a well or a bed people stand only at the sides
+        // of, nor anything back up the hill), else what stands nearest it.
+        let rank = |id: SelectionId| {
+            let Some(item) = items.iter().find(|item| item.id == id) else {
+                return 3;
+            };
+            let front = item.y >= 0.6;
+            let beside = item.shape.is_some_and(|shape| use_of(shape).is_some());
+            match (lit(id) && front, item.kind == CanvasItemKind::Place, beside) {
+                (true, ..) => 0,
+                (false, true, _) => 1,
+                (false, false, false) if front => 1,
+                (false, false, false) => 2,
+                _ => 3,
+            }
+        };
+        let Some(&(hub_px, hub_id)) = hubs
+            .iter()
+            .filter(|hub| (hub.0 - target).abs() <= HUB_APART)
+            .min_by(|a, b| {
+                rank(a.1)
+                    .cmp(&rank(b.1))
+                    .then((a.0 - target).abs().total_cmp(&(b.0 - target).abs()))
+            })
+            .or_else(|| {
+                hubs.iter()
+                    .min_by(|a, b| (a.0 - target).abs().total_cmp(&(b.0 - target).abs()))
+            })
+        else {
+            continue;
+        };
+        // Those out who stay where they are (sitting, carrying, dancing)
+        // near it are there already; anyone else out comes to it.
+        let stays = |stop: &RoutineStop| {
+            matches!(
+                stop.stance,
+                Some(Stance::Carrying | Stance::Sitting | Stance::Dancing)
+            )
+        };
+        // (One standing about at it with nothing to do joins in.)
+        let idle = |stop: &RoutineStop| {
+            matches!(
+                stop.stance,
+                None | Some(Stance::Standing | Stance::LookingAround)
+            )
+        };
+        let there = now
+            .iter()
+            .filter(|(_, stop)| !stop.inside && (stays(stop) || (stop.at == hub_id && !idle(stop))))
+            .filter(|(at, _)| {
+                out.iter()
+                    .any(|(o, px)| o == at && (px - hub_px).abs() <= HUB_VIEW)
+            })
+            .count();
+        // Who comes, first first: whoever speaks; those out elsewhere; those
+        // in the evening's place (or another that is nobody's home); those
+        // at home not yet abed.
+        let awake = |at: usize, stop: &RoutineStop| -> Option<u8> {
+            let rank = if round == Some(items[at].id) {
+                0
+            } else if !stop.inside {
+                1
+            } else if !homes.contains(&stop.at) {
+                2
+            } else {
+                3
+            };
+            let abed = match age(at) {
+                AgeStage::Baby => true,
+                AgeStage::Child => hour >= 20,
+                AgeStage::Elder => hour >= 21,
+                _ => false,
+            };
+            (!abed || rank < 3).then_some(rank)
+        };
+        let mut coming = now
+            .iter()
+            .filter(|(at, _)| age(*at) != AgeStage::Baby)
+            .filter(|(_, stop)| stop.inside || (!stays(stop) && (stop.at != hub_id || idle(stop))))
+            .filter_map(|(at, stop)| {
+                let rank = awake(*at, stop)?;
+                let px = px_of(stop.at).or(items[*at].px).unwrap_or(hub_px);
+                Some((rank, (px - hub_px).abs(), *at))
+            })
+            .collect::<Vec<_>>();
+        coming.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then(a.1.total_cmp(&b.1))
+                .then(items[a.2].id.cmp(&items[b.2].id))
+        });
+        let here = coming
+            .into_iter()
+            .take(EVENING_MOST.saturating_sub(there))
+            .map(|(_, _, at)| at)
+            .collect::<Vec<_>>();
+        two_by_two(
+            items,
+            &mut moved,
+            hour,
+            hub_id,
+            &here,
+            seats.contains(&hub_id),
+        );
+    }
+    apply_moves(items, moved);
+}
+
+/// The hour the Packs' town bars measure a stretch's share at.
+const NOON: u8 = 12;
+
+/// Those `here` at a hub (`hub_id`) at `hour`, two by two, talking: on a
+/// seat (`seat`), sitting together; else standing, but for every second
+/// pair of four or more, who sit down on a seat of their own to talk (v0.30
+/// S1c round 2: a gathering all on its feet was a row).
+fn two_by_two(
+    items: &[CanvasItem],
+    moved: &mut BTreeMap<usize, BTreeMap<u8, RoutineStop>>,
+    hour: u8,
+    hub_id: SelectionId,
+    here: &[usize],
+    seat: bool,
+) {
+    use world_projection::Stance;
+    for (nth, at) in here.iter().enumerate() {
+        let partner = if nth % 2 == 0 {
+            here.get(nth + 1)
+        } else {
+            here.get(nth - 1)
+        };
+        let sits = seat || (here.len() >= 4 && nth / 2 % 2 == 1 && partner.is_some());
+        moved.entry(*at).or_default().insert(
+            hour,
+            RoutineStop {
+                from_hour: hour,
+                at: hub_id,
+                inside: false,
+                stance: Some(if sits {
+                    Stance::Sitting
+                } else {
+                    Stance::Talking
+                }),
+                with: partner.map(|other| items[*other].id),
+            },
+        );
+    }
+}
+
+/// Each person's day with the stops `moved` put in at their hours, the
+/// rest of it as it was.
+fn apply_moves(items: &mut [CanvasItem], moved: BTreeMap<usize, BTreeMap<u8, RoutineStop>>) {
     for (at, hours) in moved {
         let day = &items[at].day;
         let mut hourly = (0..24_u8)
@@ -1533,5 +1802,6 @@ pub fn gather_round_the_day(snapshot: &mut world_projection::ProjectionSnapshot)
         .map(|district| (district.from, district.to))
         .collect::<Vec<_>>();
     gather_at_hubs(&mut snapshot.canvas.items, &spans, speaker);
+    gather_of_an_evening(&mut snapshot.canvas.items, speaker);
     keep_company(&mut snapshot.canvas.items);
 }

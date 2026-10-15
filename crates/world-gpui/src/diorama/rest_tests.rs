@@ -226,3 +226,118 @@ fn rows_and_overlap_at_rest() {
         "{both_front} of {pairs} pairs both turned to the camera"
     );
 }
+
+/// Night reads as night at rest (v0.30 S1c round 2: at 21:00 the window
+/// was nine tenths dusk, a sepia day): from nine the look the camera at
+/// rest asks for first is the night light, alone, and at seven it is dusk.
+#[test]
+fn the_look_at_rest_by_nine_is_the_night() {
+    use super::living_stage::Light;
+    for (name, snapshot) in every_fixture() {
+        let stage = stage_at(&snapshot, 1100.0, 796.0, Clock::at(21));
+        let camera = Camera::rest(&stage, stage.width / 2.0);
+        let looks = |hour: f32| {
+            super::stage_view::wants(1, (stage.width, stage.view_w), camera, None, hour)
+                .into_iter()
+                .filter(|want| want.shown)
+                .map(|want| want.light)
+                .collect::<Vec<_>>()
+        };
+        for hour in [21.0, 21.5, 22.0, 23.0, 2.0] {
+            assert_eq!(looks(hour), vec![Light::Night], "{name} at {hour}");
+        }
+        assert_eq!(looks(19.5), vec![Light::Dusk], "{name} at 19:30");
+        assert_eq!(looks(20.5).first(), Some(&Light::Dusk), "{name} at 20:30");
+        assert_eq!(Light::blend(21.0), (Light::Night, Light::Night, 0.0));
+    }
+}
+
+/// Nobody stands on or in a thing at rest (v0.30 S1c round 2: a keeper
+/// under a solar panel with its pole through her, two on a sea pool's
+/// railing): in every fixture, every hour from nine to ten at night,
+/// everyone shown at rest stands on open ground, in no footprint and on
+/// no picture of a thing but the one they use.
+#[test]
+fn nobody_stands_on_a_thing_at_rest() {
+    let mut failures = Vec::new();
+    let mut seen = 0;
+    for (name, snapshot) in every_fixture() {
+        for hour in 9..=22 {
+            let stage = stage_at(&snapshot, 1100.0, 796.0, Clock::at(hour));
+            let rest = Camera::rest_zoom(&stage);
+            seen += stage.people.len();
+            for index in on_a_thing(&stage, &snapshot, rest) {
+                failures.push(format!(
+                    "{name} at {hour}: {} on a thing",
+                    snapshot.canvas.items[index].label
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(seen > 500, "{seen} people looked at");
+}
+
+/// Gatherings at rest are not rows (v0.30 S1c round 2): on every screen at
+/// rest along every fixture, by day and by lamplight, no three turned to the
+/// camera stand in one row, at most one in each conversation talks (a hand
+/// up) at once, and of those standing with someone at least half are turned
+/// to them.
+#[test]
+fn gatherings_at_rest_face_each_other() {
+    let mut failures = Vec::new();
+    let (mut together, mut facing) = (0, 0);
+    for (name, snapshot) in every_fixture() {
+        for hour in [10, 13, 16, 19, 21] {
+            let stage = stage_at(&snapshot, 1100.0, 796.0, Clock::at(hour));
+            let seen = stage.view_w / Camera::rest_zoom(&stage);
+            let mut centre = seen / 2.0;
+            while centre - seen / 2.0 < stage.width {
+                for seconds in [3.0, 9.0] {
+                    let screen = gathering_at_rest(&snapshot, &stage, hour, centre, seconds);
+                    together += screen.together;
+                    facing += screen.facing;
+                    if screen.front_in_a_row >= 3 {
+                        failures.push(format!(
+                            "{name} at {hour}, {centre:.0}: {} to the camera in a row",
+                            screen.front_in_a_row
+                        ));
+                    }
+                    if screen.most_talking > 1 {
+                        failures.push(format!(
+                            "{name} at {hour}, {centre:.0}: {} talking at once",
+                            screen.most_talking
+                        ));
+                    }
+                    if screen.together >= 2 && screen.facing * 2 < screen.together {
+                        failures.push(format!(
+                            "{name} at {hour}, {centre:.0}: {} of {} turned to someone",
+                            screen.facing, screen.together
+                        ));
+                    }
+                }
+                centre += seen;
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(together >= 60, "{together} standing with someone");
+    assert!(
+        facing * 10 >= together * 7,
+        "{facing} of {together} turned to someone"
+    );
+}
+
+/// A cluster's patch is ground, not a veil (v0.30 S1c round 2: at rest a
+/// plaza half seen through lay over the far field's beds as a pale ghost
+/// by the clock post): every patch on land covers what is under it nine
+/// tenths or more; one at the water lays nothing.
+#[test]
+fn a_patch_is_ground_not_a_veil() {
+    for patch in world_art::Ground::ALL {
+        let (rim, body) = super::ground::cover(patch, false);
+        assert!(body >= 0.9, "{patch:?}: {body}");
+        assert!(rim < body, "{patch:?}: a soft rim");
+        assert_eq!(super::ground::cover(patch, true), (0.0, 0.0));
+    }
+}

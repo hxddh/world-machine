@@ -965,6 +965,8 @@ pub(super) fn lay_out(
         }
     }
     let mut wanted = Vec::new();
+    let mut hub_of = BTreeMap::<usize, f32>::new();
+    let speaker = speaks_first(snapshot);
     let mut hosted = BTreeMap::<usize, Vec<usize>>::new();
     let mut loose = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -992,8 +994,17 @@ pub(super) fn lay_out(
                 members.insert(first + 1, partner);
             }
         }
+        // Whoever speaks first today stands in the middle of their
+        // gathering, and the window, which opens on them, on all of it
+        // (v0.30 S1c round 2: a speaker at a crowd's end left half of it
+        // off the first screen).
+        if let Some(at) = members.iter().position(|member| Some(*member) == speaker) {
+            let them = members.remove(at);
+            members.insert(members.len() / 2, them);
+        }
         let row = spacing * members.len().saturating_sub(1) as f32;
         for (position, member) in members.into_iter().enumerate() {
+            hub_of.insert(member, slot_x[&host]);
             wanted.push((
                 member,
                 slot_x[&host] - row / 2.0 + spacing * position as f32,
@@ -1007,14 +1018,29 @@ pub(super) fn lay_out(
     }
     // Those standing talking take their room first (v0.30 S1c: a crowd at
     // a hub stands at it), then everyone else along the line.
+    // (Sitting down with someone to talk, too, and dancing where the
+    // evening gathers: v0.30 S1c round 2.)
     let talking = |index: usize| {
-        doing
-            .get(&index)
-            .is_some_and(|what| what.stance == Some(Stance::Talking))
+        doing.get(&index).is_some_and(|what| {
+            matches!(what.stance, Some(Stance::Talking | Stance::Dancing))
+                || (what.stance == Some(Stance::Sitting)
+                    && what.with.is_some()
+                    && what.fixture.is_none())
+        })
     };
+    // (Of those talking, whoever speaks first, then the nearest the middle
+    // of their gathering: a crowd stands round its hub, not off one side.)
+    let off_middle =
+        |(index, x): &(usize, f32)| hub_of.get(index).map_or(0.0, |hub| (x - hub).abs());
     wanted.sort_by(|a, b| {
         talking(b.0)
             .cmp(&talking(a.0))
+            .then((Some(b.0) == speaker).cmp(&(Some(a.0) == speaker)))
+            .then(if talking(a.0) && talking(b.0) {
+                off_middle(a).total_cmp(&off_middle(b))
+            } else {
+                std::cmp::Ordering::Equal
+            })
             .then(a.1.total_cmp(&b.1))
             .then(a.0.cmp(&b.0))
     });
@@ -1080,15 +1106,21 @@ pub(super) fn lay_out(
             -1
         };
         let (on, nearer) = (ground.1, ground.1 + lane);
-        let found = [(on, near), (nearer, near), (on, steps), (nearer, steps)]
-            .into_iter()
-            .find_map(|(y, steps)| {
-                (0..=steps)
-                    .flat_map(|step| [step, -step])
-                    .map(|step| want + step as f32 * nudge)
-                    .find(|x| clear(*x, y))
-                    .map(|x| (x, y))
-            });
+        // (Further along, someone talking takes the lane in front first,
+        // nearer their hub than a gap between benches down the line, v0.30
+        // S1c round 2.)
+        let order = if talking(index) {
+            [(on, near), (nearer, near), (nearer, steps), (on, steps)]
+        } else {
+            [(on, near), (nearer, near), (on, steps), (nearer, steps)]
+        };
+        let found = order.into_iter().find_map(|(y, steps)| {
+            (0..=steps)
+                .flat_map(|step| [step, -step])
+                .map(|step| want + step as f32 * nudge)
+                .find(|x| clear(*x, y))
+                .map(|x| (x, y))
+        });
         let (x, y) = found.unwrap_or((want.clamp(spacing * 0.5, width - spacing * 0.5), quay));
         if found.is_none() {
             // No room on the quay: this one waits for a closer look.
@@ -1121,7 +1153,13 @@ pub(super) fn lay_out(
         spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
     }
     // People stand in twos and threes facing each other, not in rows (A2).
-    super::people::gather(&mut people, figure_h, quay, &blocked, &fronted);
+    super::people::gather(
+        &mut people,
+        (figure_h, quay),
+        &blocked,
+        &fronted,
+        &|index| talking(index),
+    );
     // Each group at a depth of its own, so groups side by side read as
     // standing about, not along one line (v0.30 S1c).
     super::people::in_depth(&mut people, ground.0, ground.1, &blocked);
@@ -1175,15 +1213,23 @@ pub(super) fn lay_out(
         (ground.0, ground.1, ground.2, 30),
         &blocked,
         &fronted,
-        &|index| doing.get(&index).is_some_and(|what| what.fixture.is_some()),
+        // (Dancers keep the ground they dance on: whoever would hide them
+        // steps aside, v0.30 S1c round 2.)
+        &|index| {
+            doing
+                .get(&index)
+                .is_some_and(|what| what.fixture.is_some() || what.stance == Some(Stance::Dancing))
+        },
     );
+    // And nobody on or in a thing.
+    super::people::off_props(&mut stage, snapshot, &blocked, &fronted);
     (stage, walks)
 }
 
 /// How far, in figure heights, someone talking stands from where they
 /// would be, on the people's line or in the lane in front, before they go
 /// further along it.
-const NEAR_HUB: f32 = 1.5;
+const NEAR_HUB: f32 = 2.5;
 
 /// The quay's row, as [`compose`] keys rows (the Pack's `y` in hundredths).
 pub(super) const QUAY_ROW: i32 = 76;
@@ -2769,4 +2815,29 @@ pub(super) fn paint_land(canvas: &mut Canvas, frame: &Frame, view: (f32, f32)) {
             }
         }
     }
+}
+
+/// Who speaks first today, by item index: of today's moments, the first by
+/// routine (as the window opens on, and the days gather round).
+pub(super) fn speaks_first(snapshot: &ProjectionSnapshot) -> Option<usize> {
+    let today = |moment: SelectionId| {
+        snapshot
+            .timeline
+            .items
+            .iter()
+            .find(|item| item.id == moment)
+            .filter(|item| item.world_time == snapshot.world_time)
+            .map(|item| item.routine)
+    };
+    let speaker = snapshot
+        .voices
+        .iter()
+        .filter_map(|voice| Some((today(voice.moment)?, voice.speaker)))
+        .min_by_key(|(routine, _)| *routine)?
+        .1;
+    snapshot
+        .canvas
+        .items
+        .iter()
+        .position(|item| item.id == speaker)
 }

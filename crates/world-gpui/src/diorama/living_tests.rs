@@ -366,7 +366,7 @@ fn a_bake_takes_one_thread_on_a_small_machine() {
 }
 
 /// The light an hour fades into is baked ahead, before its fade begins,
-/// and only then: never at noon or late at dusk.
+/// and only then: never at noon or early at dusk.
 #[test]
 fn the_next_light_is_baked_before_its_fade_begins() {
     use ls::Light::{Dusk, Night, Noon};
@@ -388,6 +388,8 @@ fn the_next_light_is_baked_before_its_fade_begins() {
     assert_eq!(lights(17.0), vec![(Noon, true), (Dusk, true)]);
     assert_eq!(lights(19.5), vec![(Dusk, true)]);
     assert_eq!(lights(20.0), vec![(Dusk, true), (Night, false)]);
+    assert_eq!(lights(20.5), vec![(Dusk, true), (Night, true)]);
+    assert_eq!(lights(21.0), vec![(Night, true)]);
     assert_eq!(lights(4.6), vec![(Night, true), (Noon, false)]);
 }
 

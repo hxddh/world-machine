@@ -139,9 +139,44 @@ pub fn turned(drawing: &Drawing, turn: Turn) -> Drawing {
         Turn::Profile => (0.68, rx * 0.55, 0.0),
         Turn::Back => (0.96, 0.0, 1.0),
     };
+    // A lens of skin inside a rim on the face (glasses): part of the face,
+    // turning with it (v0.30 S1c round 2: in profile the rim moved to the
+    // nose and its lens stayed behind, a black blob off the face).
+    let centre = |part: &DrawPart| match part.shape {
+        DrawShape::Ellipse { x, y, .. } => Some((x, y)),
+        _ => None,
+    };
+    let rims = drawing
+        .parts
+        .iter()
+        .filter(|part| on_the_face(part, head))
+        .filter_map(centre)
+        .collect::<Vec<_>>();
+    let lens = |part: &DrawPart| {
+        part.ink == Ink::Skin
+            && centre(part).is_some_and(|(x, y)| {
+                (x - hx).abs() > 1e-4
+                    && rims
+                        .iter()
+                        .any(|(ox, oy)| (ox - x).abs() < 1e-3 && (oy - y).abs() < 1e-3)
+            })
+    };
+    // In profile a feature stands inside the head's edge, seen side on:
+    // each the same way, so a lens stays in its rim.
+    let edge = hx + rx * 0.92 + rx * 0.06;
+    let widest = drawing
+        .parts
+        .iter()
+        .filter(|part| on_the_face(part, head) || lens(part))
+        .filter_map(|part| match part.shape {
+            DrawShape::Ellipse { rx: r, .. } => Some(r * 0.6),
+            _ => None,
+        })
+        .fold(0.0_f32, f32::max);
+    let limit = edge - widest * 1.2;
     let mut parts = Vec::with_capacity(drawing.parts.len() + 1);
     for part in &drawing.parts {
-        let face = on_the_face(part, head);
+        let face = on_the_face(part, head) || lens(part);
         let (x, _, _, _) = extent(&part.shape);
         if face {
             match turn {
@@ -149,11 +184,24 @@ pub fn turned(drawing: &Drawing, turn: Turn) -> Drawing {
                 Turn::Profile if x < hx - rx * 0.06 => continue,
                 _ => {}
             }
-            let shape = mapped(&part.shape, 1.0, |px, py| {
+            let mut shape = mapped(&part.shape, 1.0, |px, py| {
                 let dx = px - hx;
                 let dx = if dx < 0.0 { dx * far } else { dx };
                 (hx + dx + shift, py)
             });
+            if turn == Turn::Profile {
+                match &mut shape {
+                    DrawShape::Ellipse { x, rx: r, .. } => {
+                        *r *= 0.6;
+                        *x = x.min(limit);
+                    }
+                    DrawShape::Line { from, to, .. } => {
+                        from.0 = from.0.min(edge - rx * 0.05);
+                        to.0 = to.0.min(edge - rx * 0.05);
+                    }
+                    _ => {}
+                }
+            }
             parts.push(DrawPart {
                 shape,
                 ..part.clone()
@@ -346,6 +394,59 @@ pub fn detailed(drawing: &Drawing) -> Drawing {
             parts.push(insert.clone());
         }
     }
+    // A light in each eye, so an eye reads as an eye and not a dot, and a
+    // thumb on each hand, toward the body, so a hand is not a mitten
+    // (v0.30 S1c round 2). Each shows when what it is on shows.
+    let eye = Ink::Colour(0x2a2522);
+    // Round as the head is round (a drawing's units are not square).
+    let round = |r: f32, h: f32| (r / rx - h / ry).abs() < 0.02;
+    for part in &drawing.parts {
+        match part.shape {
+            DrawShape::Ellipse { x, y, rx: r, ry: h }
+                if part.ink == eye
+                    && r <= rx * 0.14
+                    && round(r, h)
+                    && (y - hy).abs() <= ry * 0.3 =>
+            {
+                parts.push(DrawPart {
+                    shape: DrawShape::Ellipse {
+                        x: x + r * 0.35,
+                        y: y + h * 0.35,
+                        rx: r * 0.38,
+                        ry: h * 0.38,
+                    },
+                    ink: Ink::Colour(0xf4f1ea),
+                    tone: 0.0,
+                    stances: part.stances.clone(),
+                    moods: part.moods.clone(),
+                    swing: part.swing,
+                });
+            }
+            DrawShape::Ellipse { x, y, rx: r, ry: h }
+                if part.ink == Ink::Skin
+                    && round(r, h)
+                    && r < rx * 0.4
+                    && r > rx * 0.15
+                    && y < hy - ry * 0.4
+                    && (x - hx).abs() > rx * 0.2 =>
+            {
+                parts.push(DrawPart {
+                    shape: DrawShape::Ellipse {
+                        x: x - (x - hx).signum() * r * 0.78,
+                        y: y + h * 0.3,
+                        rx: r * 0.4,
+                        ry: h * 0.52,
+                    },
+                    ink: Ink::Skin,
+                    tone: -0.08,
+                    stances: part.stances.clone(),
+                    moods: part.moods.clone(),
+                    swing: part.swing,
+                });
+            }
+            _ => {}
+        }
+    }
     // A nose, a shade of the face, on it like the eyes (so it turns with
     // them and is gone from behind).
     parts.push(DrawPart {
@@ -421,5 +522,68 @@ mod tests {
         let detailed = detailed(&front);
         assert!(detailed.parts.len() >= front.parts.len() + 4);
         assert_eq!(head_of(&detailed), head_of(&front));
+    }
+
+    /// At 140 px a figure reads as drawn (v0.30 S1c round 2): a light in
+    /// each eye, a thumb on each hand; and glasses turn with the face, the
+    /// lens in its rim and both inside the head's edge in profile (not a
+    /// black blob off the nose).
+    #[test]
+    fn eyes_hands_and_glasses_read_at_rest() {
+        use world_projection::figure::{ellipse, line};
+        let dark = Ink::Colour(0x2a2522);
+        let mut glasses = Vec::new();
+        for side in [-1.0_f32, 1.0] {
+            glasses.push(ellipse(side * 0.58, 8.1, 0.42, 0.36, dark));
+            glasses.push(ellipse(side * 0.58, 8.1, 0.3, 0.25, Ink::Skin).tone(0.25));
+        }
+        glasses.push(line((-0.2, 8.15), (0.2, 8.15), 0.1, dark));
+        let front = person().with("someone", glasses);
+        let detailed = detailed(&front);
+        let lights = detailed
+            .parts
+            .iter()
+            .filter(|part| part.ink == Ink::Colour(0xf4f1ea))
+            .count();
+        assert!(lights >= 2, "{lights} lights in the eyes");
+        let hands = |drawing: &Drawing| {
+            drawing
+                .parts
+                .iter()
+                .filter(|part| part.ink == Ink::Skin)
+                .filter(|part| matches!(part.shape, DrawShape::Ellipse { y, .. } if y < 0.75))
+                .count()
+        };
+        assert!(
+            hands(&detailed) >= hands(&front) * 2,
+            "a thumb on each hand"
+        );
+        let (hx, _, rx, _) = head_of(&front).unwrap();
+        let profile = turned(&detailed, Turn::Profile);
+        let edge = hx + rx * 1.05;
+        let face = profile
+            .parts
+            .iter()
+            .filter(|part| part.ink == dark || part.ink == Ink::Skin)
+            .filter_map(|part| match part.shape {
+                DrawShape::Ellipse { x, y, rx: r, .. } if (y - 0.81).abs() < 0.01 => {
+                    Some((x, r, part.ink))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!face.is_empty());
+        for (x, r, _) in face.iter().filter(|(_, r, _)| *r < rx * 0.5) {
+            assert!(x + r <= edge, "{x} + {r} past the head's edge {edge}");
+        }
+        // The lens stands in its rim.
+        let rim = face
+            .iter()
+            .find(|(_, r, ink)| *ink == dark && *r > rx * 0.12);
+        let lens = face
+            .iter()
+            .find(|(_, r, ink)| *ink == Ink::Skin && *r < rx * 0.5);
+        let (rim, lens) = (rim.unwrap(), lens.unwrap());
+        assert!((rim.0 - lens.0).abs() < 1e-3, "{rim:?} {lens:?}");
     }
 }
