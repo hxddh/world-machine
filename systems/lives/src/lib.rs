@@ -41,6 +41,7 @@ mod pronouns;
 mod retold;
 pub use pronouns::{pronouns, they_all, Pronouns, A_SLOTS, B_SLOTS, PRONOUNS};
 pub use retold::{cited, player_act, told_enough, year_length, Act, MOST_TOLD_A_YEAR};
+use retold::{TOLD_NTH, TOLD_THIS_YEAR};
 mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
 #[doc(hidden)]
@@ -1104,7 +1105,20 @@ impl Action for Lives {
         }
         remember_saying(&mut moves, &heard, &said);
         remember_saying(&mut moves, &heard, &base);
+        // Which time this year this kind of day is told of them, this one
+        // included: counted on them, so a World resumed from a checkpoint,
+        // its earlier Events not kept, counts the year all the same.
+        let year = state.world_time() / year_length(&cast).max(1);
+        let key = format!("{TOLD_THIS_YEAR}.{}", activity.id);
+        let nth = text(state, person, &key)
+            .and_then(|kept| kept.split_once(':'))
+            .filter(|(kept_year, _)| kept_year.parse::<u64>().ok() == Some(year))
+            .and_then(|(_, told)| told.parse::<i64>().ok())
+            .unwrap_or(0)
+            + 1;
+        moves.set(person, &key, format!("{year}:{nth}"));
         let mut draft = EventDraft::new("lived");
+        draft.payload.insert(TOLD_NTH.into(), Value::Integer(nth));
         if let Some(who) = remembers {
             draft.payload.insert("remembers".into(), Value::Entity(who));
         }

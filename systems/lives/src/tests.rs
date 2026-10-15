@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const NOTES: EntityId = EntityId::new(100);
 const PUB: EntityId = EntityId::new(50);
@@ -1443,4 +1443,45 @@ fn the_same_story_is_told_of_someone_at_most_five_times_a_year() {
     assert_eq!(capped, vec![6, 7]);
     assert_eq!(world.events().len(), 10);
     assert_eq!(MOST_TOLD_A_YEAR, 5);
+}
+
+/// Which time this year a day is told is counted when it is lived and kept
+/// on the person, so a World resumed from a checkpoint, its earlier Events
+/// gone, caps the year as one that kept them all.
+#[test]
+fn a_day_carries_which_time_this_year_it_was_told() {
+    let (played, _) = play(200, true);
+    let year = year_length(&cast());
+    let mut counted = BTreeMap::<(EntityId, String, u64), i64>::new();
+    let mut days = 0;
+    for event in played.events().iter().filter(|event| event.kind == "lived") {
+        let (Some(who), Some(Value::Text(activity))) = (event.actor, event.payload.get("activity"))
+        else {
+            continue;
+        };
+        let nth = counted
+            .entry((who, activity.clone(), event.world_time / year))
+            .or_default();
+        *nth += 1;
+        assert_eq!(event.payload.get("told_nth"), Some(&Value::Integer(*nth)));
+        days += 1;
+    }
+    assert!(days > 0);
+    // Alone in the record, a sixth telling is still the sixth.
+    let (start, _) = world();
+    let ann = EntityId::new(1);
+    let sixth = with(
+        with(recorded(1, "lived", 60, Some(ann)), "activity", "odd_job"),
+        "told_nth",
+        6_i64,
+    );
+    let fifth = with(
+        with(recorded(2, "lived", 70, Some(ann)), "activity", "nap"),
+        "told_nth",
+        5_i64,
+    );
+    let resumed = World::from_history(start.state().clone(), &[sixth, fifth]).unwrap();
+    let event = |id: u64| resumed.event(EventId::new(id)).unwrap();
+    assert!(told_enough(&resumed, event(1), year));
+    assert!(!told_enough(&resumed, event(2), year));
 }

@@ -12,6 +12,14 @@ use std::collections::VecDeque;
 /// person.
 pub const MOST_TOLD_A_YEAR: usize = 5;
 
+/// Where someone keeps how often this year a kind of day was told of them
+/// (`lives.told_year.<activity>`, "<year>:<times>").
+pub(crate) const TOLD_THIS_YEAR: &str = "lives.told_year";
+
+/// Which time this year a lived day was, told on its Event when it was
+/// lived.
+pub(crate) const TOLD_NTH: &str = "told_nth";
+
 /// How far back along what caused something a letter looks for what the
 /// player did.
 const CAUSE_STEPS: usize = 6;
@@ -44,6 +52,12 @@ fn story_of(event: &Event) -> Option<(EntityId, &str, &str)> {
 /// index of Events by kind, reading back from `event` only as far as the
 /// year's start.
 pub fn told_enough(world: &World, event: &Event, year: u64) -> bool {
+    // Counted when it was lived, from what the person keeps: the same
+    // whether the World kept every Event or resumed from a checkpoint.
+    if let Some(Value::Integer(nth)) = event.payload.get(TOLD_NTH) {
+        return *nth > MOST_TOLD_A_YEAR as i64;
+    }
+    // A day from before it was counted: read back along the record.
     let Some(story) = story_of(event) else {
         return false;
     };
