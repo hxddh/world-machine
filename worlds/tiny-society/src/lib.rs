@@ -467,8 +467,9 @@ impl TinySocietyBranch {
 
     /// A sitting begins (v0.30 S4): this day's morning comes, if it has
     /// not, after the day's beginning, with its letter, its main question,
-    /// what was tended overnight and a find (the ritual System). Nothing
-    /// when the day has had its morning, or on the harbour's first day.
+    /// what was tended overnight and a find (the ritual System). Refused
+    /// when the day has had its morning, or on the harbour's first day, so
+    /// a host knows a morning came only when one did.
     pub fn morning(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         let day = self
@@ -477,11 +478,9 @@ impl TinySocietyBranch {
             .last()
             .map(|event| event.id);
         let questions = ritual::questions_put(&projection::available_commands(&self.world));
-        Ok(
-            ritual::morning(&mut self.world, actions, &life::rite(), day, &questions)?
-                .into_iter()
-                .collect(),
-        )
+        let came = ritual::morning(&mut self.world, actions, &life::rite(), day, &questions)?
+            .ok_or_else(|| std::io::Error::other("this day has had its morning"))?;
+        Ok(vec![came])
     }
 
     /// Someone from another of the player's Worlds visits: a letter for

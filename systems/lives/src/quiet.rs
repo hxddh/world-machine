@@ -866,9 +866,21 @@ pub(crate) fn letter_notes(
     changes
 }
 
+/// A letter's stock line as a morning letter has it: read in town at the
+/// start of the day, it greets the morning and asks the player round
+/// today. Any other line is as it is.
+fn in_the_morning(line: &str) -> &str {
+    match line {
+        "Hello from me." => "Morning! A bit of news.",
+        "Come by soon." => "Come and find me today.",
+        line => line,
+    }
+}
+
 /// A letter from whoever has written least, the fondest first, with news
-/// or a memory in it; `None` when nobody has anything to tell.
-fn letter(world: &World, cast: &Cast, people: &[EntityId]) -> Option<ActionRequest> {
+/// or a memory in it, worded for the morning when it is the morning's;
+/// `None` when nobody has anything to tell.
+fn letter(world: &World, cast: &Cast, people: &[EntityId], morning: bool) -> Option<ActionRequest> {
     let state = world.state();
     let now = period(state, cast);
     let mut writers = people.to_vec();
@@ -893,6 +905,14 @@ fn letter(world: &World, cast: &Cast, people: &[EntityId]) -> Option<ActionReque
         let closing = pick(&LETTER_CLOSINGS, seed >> 8)
             .map(|line| fill_owned(line, &words))
             .unwrap_or_default();
+        let (opening, closing) = if morning {
+            (
+                in_the_morning(opening),
+                in_the_morning(&closing).to_string(),
+            )
+        } else {
+            (opening, closing)
+        };
         Some(request.arg("why", format!("{opening} {body} {closing}")))
     })
 }
@@ -924,7 +944,7 @@ pub(crate) fn quiet_day(
         request.and_then(|request| world.execute(actions, &request).ok().map(|event| event.id))
     };
     if letter_now {
-        let request = letter(world, cast, people);
+        let request = letter(world, cast, people, false);
         if let Some(id) = attempt(world, request) {
             return Ok(Some(id));
         }
@@ -937,7 +957,7 @@ pub(crate) fn quiet_day(
         return Ok(Some(id));
     }
     if room && !letter_now {
-        let request = letter(world, cast, people);
+        let request = letter(world, cast, people, false);
         return Ok(attempt(world, request));
     }
     Ok(None)
@@ -954,7 +974,7 @@ pub fn morning_letter(world: &World, cast: &Cast) -> Option<ActionRequest> {
         .into_iter()
         .filter(|person| enrolled(state, *person) && !gone(state, *person))
         .collect::<Vec<_>>();
-    letter(world, cast, &people)
+    letter(world, cast, &people, true)
 }
 
 /// On the player's return: something to keep from whoever thinks best of
@@ -984,13 +1004,23 @@ pub fn welcome_back(
         .into_iter()
         .filter(|person| enrolled(state, *person) && !gone(state, *person))
         .collect::<Vec<_>>();
-    let request = letter(world, cast, &people);
+    let request = letter(world, cast, &people, false);
     Ok(request.and_then(|request| world.execute(actions, &request).ok().map(|event| event.id)))
 }
 
 #[cfg(test)]
 mod rhythm {
     use super::*;
+
+    #[test]
+    fn a_morning_letter_greets_the_morning_and_asks_you_round_today() {
+        assert_eq!(in_the_morning("Hello from me."), "Morning! A bit of news.");
+        assert_eq!(in_the_morning("Come by soon."), "Come and find me today.");
+        assert_eq!(in_the_morning("Yours, Ann."), "Yours, Ann.");
+        // Both are among the stock lines they stand in for.
+        assert!(LETTER_OPENINGS.contains(&"Hello from me."));
+        assert!(LETTER_CLOSINGS.contains(&"Come by soon."));
+    }
 
     const QUIET: QuietDays = QuietDays {
         letters_a_week: Some(2),

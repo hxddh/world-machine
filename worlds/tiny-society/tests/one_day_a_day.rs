@@ -44,11 +44,14 @@ fn play(first: i64, gap: i64, sittings: i64, label: &str) -> TinySocietyBranch {
         // The app opens the World twice the same day: one sitting.
         for _ in 0..2 {
             let sitting = store.sit(&key, today).unwrap();
-            if sitting.new {
-                // The harbour's own morning, if it has one today.
-                branch
+            // The app tells the World on every open until the sitting
+            // passes a day; the World keeps its morning to one a day, and
+            // refuses the rest.
+            if sitting.left == sitting.allowance {
+                let came = branch
                     .invoke_projection_command(SITTING_BEGINS_COMMAND)
-                    .unwrap();
+                    .is_ok();
+                assert!(sitting.new || !came, "a second morning the same day");
             }
             for _ in 0..sitting.left {
                 pass_one_day(&mut branch);
@@ -140,9 +143,11 @@ fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
     for today in 500..506 {
         let sitting = store.sit(&key, today).unwrap();
         assert!(sitting.new);
-        branch
+        // A morning comes on every day but the harbour's first.
+        let came = branch
             .invoke_projection_command(SITTING_BEGINS_COMMAND)
-            .unwrap();
+            .is_ok();
+        assert_eq!(came, today > 500);
         let snapshot = branch.projection_snapshot();
         if today > 500 {
             let morning = snapshot.morning.clone().expect("this day's morning");
@@ -150,7 +155,13 @@ fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
             finds += 1;
             lines.push(find.line.clone());
             lines.extend(morning.tended.map(|tended| tended.line));
-            lines.extend(morning.letter.map(|letter| letter.note));
+            if let Some(letter) = morning.letter {
+                // Read in town at the start of the day, never "come by soon".
+                for stock in ["Hello from me.", "Come by soon."] {
+                    assert!(!letter.note.contains(stock), "{}", letter.note);
+                }
+                lines.push(letter.note);
+            }
             if let Some(question) = morning.question {
                 // The day's question is one the harbour puts now.
                 assert!(snapshot
@@ -180,14 +191,15 @@ fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
     assert_eq!(finds, 5);
     let unique = lines.iter().collect::<BTreeSet<_>>();
     assert_eq!(unique.len(), lines.len(), "a line came twice: {lines:#?}");
-    // A sitting begun twice on one World day brings no second morning.
+    // A sitting begun twice on one World day brings no second morning: the
+    // World refuses it, and records nothing.
     branch
         .invoke_projection_command(SITTING_BEGINS_COMMAND)
         .unwrap();
     let before = branch.world().events().len();
-    branch
+    assert!(branch
         .invoke_projection_command(SITTING_BEGINS_COMMAND)
-        .unwrap();
+        .is_err());
     assert_eq!(branch.world().events().len(), before);
     let _ = std::fs::remove_dir_all(root);
 }
