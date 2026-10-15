@@ -701,7 +701,10 @@ pub fn frame(
         .filter_map(|link| {
             let (x1, y1, h) = where_is(link.from)?;
             let (x2, y2, _) = where_is(link.to)?;
-            ((x1 - x2).abs() < h * 1.4).then(|| {
+            // Only a pair side by side: one behind the other (a ring's
+            // back and its front, v0.30 S1d round 2) would wear it on the
+            // hand of whoever talks at the back.
+            ((x1 - x2).abs() < h * 1.4 && (y1 - y2).abs() < h * 0.2).then(|| {
                 let lift = (seconds * 2.2).sin() * 1.5;
                 (
                     (x1 + x2) / 2.0,

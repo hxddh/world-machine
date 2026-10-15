@@ -187,6 +187,11 @@ pub struct Stage {
     /// date), and the World's day: an errand is a function of these.
     pub clock: Clock,
     pub day: u64,
+    /// Everyone out of doors where the hour has them once nobody is on
+    /// their way any more (as at [`Clock::at`]), across the whole place:
+    /// item index, feet and scale. What the camera at rest frames round
+    /// ([`Camera::rest_y`]), the same all through the hour.
+    pub settled: std::sync::Arc<Vec<(usize, f32, f32)>>,
 }
 
 /// What someone out of doors is doing at the stop their day has them at
@@ -203,6 +208,9 @@ pub struct Doing {
     pub errand: Option<Errand>,
     /// Carrying a load on their way to or from where they carry it.
     pub loaded: bool,
+    /// Standing in a ring with the rest of a gathering at their hub, and
+    /// where its middle is along the stage (v0.30 S1d): they face into it.
+    pub ring: Option<f32>,
 }
 
 /// How someone stands to the thing they use at a stop.
@@ -983,6 +991,39 @@ pub(super) fn lay_out(
             None => loose.push(index),
         }
     }
+    // Whoever speaks first, out at a thing they keep or work at (a solar
+    // array, a stall), stays at it; the gathering nearest it within one
+    // window at rest forms round them there, not at its place's door the
+    // width of the window away (v0.30 S1d: in the colony the speaker at the
+    // array stood a screen from her listeners, at the window's other edge).
+    let talks = |index: &usize| {
+        doing.get(index).is_some_and(|what| {
+            matches!(what.stance, Some(Stance::Talking))
+                || (what.stance == Some(Stance::Sitting) && what.with.is_some())
+        })
+    };
+    let speaker_at = speaker
+        .filter(|speaker| doing.contains_key(speaker))
+        .and_then(routine)
+        .and_then(|(now, _)| index_of.get(&now.at).copied())
+        .and_then(|thing| things.iter().find(|spot| spot.index == thing))
+        .map(|spot| spot.x)
+        .and_then(|x| {
+            hosted
+                .iter()
+                .filter(|(host, members)| {
+                    !members.contains(&speaker.unwrap_or(usize::MAX))
+                        && members.iter().filter(|member| talks(member)).count() >= 2
+                        && (slot_x[*host] - x).abs() <= view_w * SPEAKER_HUB_REACH
+                })
+                .min_by(|a, b| {
+                    (slot_x[a.0] - x)
+                        .abs()
+                        .total_cmp(&(slot_x[b.0] - x).abs())
+                        .then(a.0.cmp(b.0))
+                })
+                .map(|(host, _)| (*host, x))
+        });
     for (host, mut members) in hosted {
         for (a, b) in &pairs {
             let find = |id: &SelectionId, members: &[usize]| {
@@ -1002,13 +1043,14 @@ pub(super) fn lay_out(
             let them = members.remove(at);
             members.insert(members.len() / 2, them);
         }
+        let hub = match speaker_at {
+            Some((nearest, x)) if nearest == host => x,
+            _ => slot_x[&host],
+        };
         let row = spacing * members.len().saturating_sub(1) as f32;
         for (position, member) in members.into_iter().enumerate() {
-            hub_of.insert(member, slot_x[&host]);
-            wanted.push((
-                member,
-                slot_x[&host] - row / 2.0 + spacing * position as f32,
-            ));
+            hub_of.insert(member, hub);
+            wanted.push((member, hub - row / 2.0 + spacing * position as f32));
         }
     }
     for index in loose {
@@ -1200,6 +1242,7 @@ pub(super) fn lay_out(
         doing,
         clock,
         day: snapshot.world_time,
+        settled: Default::default(),
     };
     let mut stage = stage;
     // Those who use something where they are stand to it: on a bench, round
@@ -1221,10 +1264,33 @@ pub(super) fn lay_out(
                 .is_some_and(|what| what.fixture.is_some() || what.stance == Some(Stance::Dancing))
         },
     );
+    // A gathering at a hub stands round it in a ring, open to the viewer,
+    // rather than along the line (v0.30 S1d).
+    super::people::in_a_ring(&mut stage, snapshot, &hub_of, speaker, &fronted);
     // And nobody on or in a thing.
     super::people::off_props(&mut stage, snapshot, &blocked, &fronted);
+    // Where everyone stands once all have arrived: this layout's own, or,
+    // while some are still on their way, the hour's settled one's.
+    let settled = Clock::at(clock.hour);
+    stage.settled = if stage.routes.is_empty() || clock.into_hour == settled.into_hour {
+        std::sync::Arc::new(
+            stage
+                .people
+                .iter()
+                .map(|spot| (spot.index, spot.y, spot.scale))
+                .collect(),
+        )
+    } else {
+        stage_at(snapshot, width, height, settled).settled
+    };
     (stage, walks)
 }
+
+/// How far from what whoever speaks first works at, in windows (at one
+/// window), the gathering that forms round them may stand at its own place
+/// (v0.30 S1d): about one window with the camera at rest, as the days
+/// system gathers people (`days::town::HUB_VIEW`, either side).
+pub(super) const SPEAKER_HUB_REACH: f32 = 0.25;
 
 /// How far, in figure heights, someone talking stands from where they
 /// would be, on the people's line or in the lane in front, before they go
@@ -1627,6 +1693,20 @@ pub const ZOOM_MOST: f32 = 3.4;
 /// rest, in window pixels (v0.30 S1c: the art director's 120 to 160 px).
 pub const REST_FIGURE: f32 = 140.0;
 
+/// The lowest the people's line stands in the window with the camera at
+/// rest, as a share of its height (v0.30 S1d): over the card's band at the
+/// window's foot (its lower 22%), with the lane in front clear of it too.
+pub const REST_LINE_MOST: f32 = 0.72;
+/// The lowest the people's line may stand to keep the street's front roofs
+/// in a short window at rest.
+pub const REST_LINE_LOWEST: f32 = 0.745;
+/// The band of sky over the horizon the camera at rest goes up to at most,
+/// as a share of the window's height.
+pub const REST_SKY: f32 = 0.08;
+/// How much the camera at rest shows over the street's front roofs, at
+/// the least, as a share of the window's height.
+pub const REST_OVER_ROOFS: f32 = 0.06;
+
 /// How much closer than rest the camera can always go, at the least: most
 /// of a press of the zoom control.
 const REST_ROOM: f32 = 1.12;
@@ -1734,19 +1814,76 @@ impl Camera {
     }
 
     /// Where a camera `zoom` times closer looks up and down the stage at
-    /// rest: the street's front row of roofs a little below the window's
-    /// top, unless that leaves the water's edge low in the window, where the
-    /// card at its foot would cover the people standing there; then the
-    /// water's edge at 0.78 of the window's height, the roofs going over
-    /// the top.
+    /// rest (v0.30 S1d, the art director's framing): as high up the place
+    /// as keeps the people's line no lower than [`REST_LINE_MOST`] of the
+    /// window (above the card's band at its foot), but no higher than a
+    /// band of sky ([`REST_SKY`]) over the horizon. The street's front roofs
+    /// stay in the frame with a little above them: where the people's line
+    /// leaves them over the top (a short window), the line may stand lower,
+    /// to [`REST_LINE_LOWEST`]. The water's edge may go under the card,
+    /// which covers only water there. Nobody is cut by the window's top
+    /// ([`Camera::rest_top`]).
     pub fn rest_y(stage: &Stage, zoom: f32) -> f32 {
         let seen = stage.height / zoom.max(1.0);
         let roofs = stage.street - stage.building_h * row_aged(0.60, stage.grown).1;
-        let mut top = roofs - seen * 0.05;
-        if stage.front > top + seen * 0.78 {
-            top = stage.front - seen * 0.78;
+        let mut top = (stage.feet - seen * REST_LINE_MOST).max(stage.horizon - seen * REST_SKY);
+        if top > roofs - seen * REST_OVER_ROOFS {
+            top = (roofs - seen * REST_OVER_ROOFS).max(stage.feet - seen * REST_LINE_LOWEST);
         }
-        top + seen / 2.0
+        Self::rest_top(stage, zoom, top, roofs) + seen / 2.0
+    }
+
+    /// Where the window's top stands at rest, near `top`, so that nobody
+    /// shown is cut by it (v0.30 S1d round 2, the art director: in the
+    /// town three years on, the raised camera sliced the people round the
+    /// pond across their heads): each wholly in the frame or wholly out of
+    /// it, out for choice. Lower, to leave them out, no lower than keeps
+    /// the street's front roofs whole (`roofs`, their top: the room over
+    /// them, [`REST_OVER_ROOFS`], may go, the roofs never); else higher, to take them in, while the people's
+    /// line stays no lower than [`REST_LINE_LOWEST`]; else where it was
+    /// (round 3: the roofs are never given up for anyone).
+    ///
+    /// Whom it keeps whole: everyone the place shows at rest, the whole
+    /// place along, where the hour has them once all have arrived
+    /// ([`Stage::settled`]). So the camera at rest stands at one height
+    /// wherever it pans, and keeps it all through the hour, whoever walks
+    /// where; it moves, if at all, as the hour turns.
+    fn rest_top(stage: &Stage, zoom: f32, top: f32, roofs: f32) -> f32 {
+        let seen = stage.height / zoom.max(1.0);
+        // From the feet to over the head, a hat and a hand up.
+        let people = stage
+            .settled
+            .iter()
+            .filter(|(index, ..)| stage.shows(*index, zoom))
+            .map(|(_, feet, scale)| (feet - stage.figure_h * scale * 1.2, *feet))
+            .collect::<Vec<_>>();
+        let room = 2.0 / zoom.max(1.0);
+        let cut = |top: f32| people.iter().any(|(head, feet)| *head < top && *feet > top);
+        if !cut(top) {
+            return top;
+        }
+        let mut lower = people
+            .iter()
+            .map(|(_, feet)| feet + room)
+            .filter(|at| *at > top && !cut(*at))
+            .collect::<Vec<_>>();
+        lower.sort_by(f32::total_cmp);
+        let mut higher = people
+            .iter()
+            .map(|(head, _)| head - room)
+            .filter(|at| *at < top && !cut(*at))
+            .collect::<Vec<_>>();
+        higher.sort_by(|a, b| b.total_cmp(a));
+        lower
+            .iter()
+            .find(|at| **at <= roofs)
+            .or_else(|| {
+                higher
+                    .iter()
+                    .find(|at| stage.feet - **at <= seen * REST_LINE_LOWEST)
+            })
+            .copied()
+            .unwrap_or(top)
     }
 
     /// The furthest out the camera goes: one window, or for a panorama the

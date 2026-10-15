@@ -3215,13 +3215,12 @@ impl ProjectionView {
         // person nearest the pointer and two are never named at once.
         let mut heads = Vec::new();
         let mut bodies = Vec::new();
-        let reach = diorama::reach_of(
-            &frame
-                .people
-                .iter()
-                .map(|person| (person.x, person.y, person.height))
-                .collect::<Vec<_>>(),
-        );
+        let standing = frame
+            .people
+            .iter()
+            .map(|person| (person.x, person.y, person.height))
+            .collect::<Vec<_>>();
+        let reach = diorama::reach_of(&standing);
         // Named on hover, or while speaking; never two names over one
         // another, and none before the scene is painted.
         let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
@@ -3234,7 +3233,7 @@ impl ProjectionView {
                 })
                 .map(|person| person.x)
         });
-        for (person, reach) in frame.people.iter().zip(reach) {
+        for (nth, (person, reach)) in frame.people.iter().zip(reach).enumerate() {
             let Some(item) = drawn.canvas.items.get(person.index) else {
                 continue;
             };
@@ -3270,11 +3269,39 @@ impl ProjectionView {
                     .flex_col()
                     .justify_end()
                     .items_center()
-                    .child(name_tag(first_name(&item.label)).when(!named, |tag| {
-                        tag.opacity(0.0).when(hover, |tag| {
-                            tag.group_hover(group, |style| style.opacity(1.0))
-                        })
-                    }))
+                    .child({
+                        // A name stands at their feet, in one box whether
+                        // centred or slid aside. Whoever speaks has theirs
+                        // where it covers nobody: under their feet, slid
+                        // aside, or beside them; or, nowhere being clear, not
+                        // at all (v0.30 S1d round 2). Only theirs is placed.
+                        let name = first_name(&item.label);
+                        let w = diorama::name_w(&name, crate::text_scale());
+                        let h_name = diorama::NAME_H * crate::text_scale().max(1.0);
+                        let under = person.x - w / 2.0;
+                        let spot = if named {
+                            diorama::name_spot(&standing, nth, (w, h_name))
+                        } else {
+                            Some((under, person.y))
+                        };
+                        let (left, top) = spot.unwrap_or((under, person.y));
+                        let tag = name_tag(name)
+                            .mt_0()
+                            .when(named && spot.is_none(), |tag| tag.opacity(0.0))
+                            .when(!named, |tag| {
+                                tag.opacity(0.0).when(hover, |tag| {
+                                    tag.group_hover(group, |style| style.opacity(1.0))
+                                })
+                            });
+                        let place = div().absolute().top(px(top - (person.y - person.height)));
+                        if (left - under).abs() < 0.5 {
+                            place.left_0().right_0().flex().justify_center().child(tag)
+                        } else if left > person.x {
+                            place.left(px(left - (person.x - reach))).child(tag)
+                        } else {
+                            place.right(px(person.x + reach - (left + w))).child(tag)
+                        }
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         if this.place_at(selection, cx) {

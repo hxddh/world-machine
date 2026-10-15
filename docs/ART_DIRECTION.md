@@ -126,7 +126,7 @@ Heights are given in **P**, the height of a standing adult resident.
 ## 6. Composing each screen
 
 The camera has two framings (v0.30 S1c):
-- **At rest**, the World window's own view and its first screen: close enough that a grown-up on the quay stands 120–160 px tall (about 140 px; the zoom is 140 px over a resident's height at one window). It frames the street's front roofs down to the water's edge. The sky and the back row may be out of frame here; the town's people, doors and the ground between them are the picture.
+- **At rest**, the World window's own view and its first screen: close enough that a grown-up on the quay stands 120–160 px tall (about 140 px; the zoom is 140 px over a resident's height at one window). It frames the street's front roofs, whole with a little over them, down to the people's line at no lower than 0.72 of the window (above the card's band); the water's edge may go under the card (v0.30 S1d). It goes up the place no further than a band of sky over the horizon, but at 140 px the people's line keeps the sky and the back row out of frame in most windows; the town's people, doors and the ground between them are the picture.
 - **The overview**, one scroll out: the whole window's width of the place, as every screen was before v0.30. The sky rule below applies to it, and to the postcard, the strip and the key art.
 
 Each overview screen is composed from front to back:
@@ -143,6 +143,7 @@ A screen at rest keeps 1–3 of these: the framing strip, the focal cluster whol
 - Never more than three people stand in a row at rest (four on the overview).
 - At rest, people stand at three or four depths, and are turned every way a body turns: to the camera, three-quarter, in profile and from behind. Most pairs are not both facing the camera.
 - Someone is always in view on the first screen; by day, at least six where six are out of doors; of an evening (7 to 9 pm), at least six by lamplight where six are not abed, gathered in front of the pub or the hall, or round a lamp (v0.30 S1c round 2). At noon the Packs' bar (no stretch over 60% of the town) caps a small town's first screen.
+- Four or more gathered at a hub stand in a ring open to the viewer: an arc whose ends are a step nearer and whose back is well behind the line, and from five one more in front, seen from behind, in a gap of the arc. Whoever speaks first stands at the back in the middle; if they stay at what they work at, the ring forms in front of them (v0.30 S1d).
 - In a gathering one talks at a time with a hand up and the rest listen; pairs face each other and stand a little apart in depth; every second pair of four or more sits down to talk. Nobody stands on or in a thing: a keeper stands behind a counter only, and beside anything else kept as a stall.
 
 **Overlays:**
