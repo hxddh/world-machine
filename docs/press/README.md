@@ -18,10 +18,10 @@ Everything a store page, a journalist or a festival submission needs, in one pla
 | Release | Early release on GitHub since v0.2. Store date: *owner's decision* |
 | Price | *Owner's decision.* Comparable titles sell at $6.99–$19.99 (docs/REVIEW_v0.23.md). |
 | Demo | Free: 20 to 30 minutes of Tiny Society, from its first morning to an evening at dusk, with a few days the town lives on its own (the demo skips the wait). When it ends, the World is kept for the full game. |
-| Genre | A cozy life sim that keeps going while you are away: part idle game, part diorama, part story generator |
+| Genre | A cozy life sim that grows a day at a time: part idle game, part diorama, part story generator |
 | Languages | English, Simplified Chinese; Japanese with v0.26 |
 | Worlds included | Tiny Society (a harbour town) and Pocket Universe (a Mars colony, Maple Street in 1987, and Icebridge) |
-| Time away | One day for every six hours away, up to a week each return |
+| Time away | One day each visit, three on the first; a month away is still one day |
 | Story tested over | Three in-game years (1,080 days) in every place, by scripted players |
 | Account, telemetry | None. Worlds are files on the player's Mac. |
 | AI | Optional, off by default, with the player's own key or their Mac's model; see [ai-disclosure.md](ai-disclosure.md) |

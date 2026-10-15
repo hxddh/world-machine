@@ -35,6 +35,7 @@ members = [
   "systems/calendar",
   "systems/days",
   "systems/chronicle",
+  "systems/ritual",
   "worlds/tiny-society",
   "worlds/pocket-universe",
   "apps/tiny-society-pack",

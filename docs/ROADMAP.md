@@ -6,6 +6,8 @@ World Machine is no longer only a kernel experiment. The repository now has a du
 
 This roadmap separates the stable runtime foundation from the current product frontier.
 
+Since v0.30 (S4, "one day a day") a World grows a day at a time: one World day each sitting, with a morning, and time away no longer moves it. Entries below that speak of a World living on while you are away describe releases before that.
+
 ## Phase I — Semantic World Runtime
 
 ### M0 — Repository and architecture guardrails

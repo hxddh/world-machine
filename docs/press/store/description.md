@@ -10,7 +10,7 @@ Checked against the code at `v0.28` (see "Where each claim comes from" below). L
 
 ### Short description (264 characters)
 
-A little harbour town of cut paper and paint that goes on living while you are away. Answer what its eight neighbours ask, build with your own hands, then close the window. When you come back, the town shows you what happened, and it is the town your answers made.
+A little harbour town of cut paper and paint that grows a day at a time. Answer what its eight neighbours ask, build with your own hands, then say goodnight. When you come back, a morning shows you what changed, and it is the town your answers made.
 
 ### Opening of the long description
 
@@ -50,11 +50,11 @@ The harbour is a diorama of cut paper and gouache, lit by your Mac's own clock: 
 
 ## What the clock does, and who drew it (v0.29)
 
-Two lines for the long description, after its opening, in each language. They were checked against the code at v0.29: while the window is open a day passes only when the player lets it; while it is closed a World lives a day for every six hours, catching up at most a week of absence (28 days) when it is next opened; the light follows the computer's clock. **The Chinese and Japanese were written by a model and need a native reader before the page is public.**
+Two lines for the long description, after its opening, in each language. The English was checked against the code at S4 (v0.30): each visit passes one World day, three on the first, and time away adds nothing more. **The Chinese and Japanese below still describe v0.29's clock and must be rewritten to match before the page is public.** **The Chinese and Japanese were written by a model and need a native reader before the page is public.**
 
 **English**
 
-- **The town keeps its own time.** While you play, a day passes when you choose "Let the day pass". Close the window and it keeps living by the real clock: a day for every six hours you are away, up to 28 days, told back as a short film when you return. The light follows your own clock, so an evening visit finds it at dusk.
+- **The town keeps its own time.** Each visit is one day: a morning with a letter, today's choice, something looked after and a find, then your day, then goodnight. Miss a day and nothing is lost; the town waits for you.
 - **Every drawing is made by the game's own code.** No image files and no AI-generated art: the town, its people, its sky and its key art are drawn by World Machine itself.
 - **The demo** is 20 to 30 minutes, ends at dusk, and skips one wait so you can see a return: the town lives a few days on its own (its own real days, not a recording), then shows you what happened. Your town carries over to the full game.
 
@@ -81,9 +81,9 @@ Two lines for the long description, after its opening, in each language. They we
 | Everything at human scale, where it belongs | `the_bibles_ladder_holds`, `water_works_stand_on_the_water_line` |
 | What you build stays, in its own corner | the named clusters (`days::town`), scaffolding on its own site from the first answer |
 | Eight neighbours | Tiny Society's core residents (KNOWN_ISSUES: "Tiny Society's eight") |
-| Goes on living while you are away | a day for every six hours, up to a week (KNOWN_ISSUES, "Background time is bounded") |
+| Grows a day at a time | one day a visit, three on the first (KNOWN_ISSUES, "One day a visit") |
 | Shows you what happened | the return film |
-| A day passes when you let it; 28 days at most away | the `PassesTime` command role; `DEFAULT_MAX_PERIODS` in `apps/world-machine-desktop/src/observer.rs` |
+| A day passes when you let it; one day a visit | the `PassesTime` command role; `sitting_at` in `crates/world-observer/src/sitting.rs` |
 | Every drawing is the game's own code | `world-gpui` (scene), its `key_art` example, `scripts/render_app_icon.py` (icon); no image files in the source but test goldens |
 | A 20–30 minute demo that ends at dusk and carries over | `apps/world-machine-desktop/demo/pacing.json`, `tests/demo_walk.rs`; `demo::FAREWELL_HOUR` |
 

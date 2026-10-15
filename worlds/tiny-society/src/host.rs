@@ -208,7 +208,7 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
             pack: tiny_society_pack_ref(),
             title: "Tiny Society".into(),
             description:
-                "A small harbour town that keeps living while you are away, where friendships, money and luck become its history."
+                "A small harbour town that grows a day at a time, where friendships, money and luck become its history."
                     .into(),
         },
         move || TinySocietySession::fresh(listener()),

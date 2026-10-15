@@ -13,10 +13,21 @@ pub(crate) fn unix_now() -> Option<u64> {
         .map(|elapsed| elapsed.as_secs())
 }
 
-/// "Keeps going without you · next sol in 5 h": what the app is about, in
-/// one line, with the one number that makes it true.
-pub(crate) fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
-    world_gpui::i18n::keeps_going(remaining_seconds, unit)
+/// "Waits for you · a new sol in 5 h", or "Asleep · …" while the World
+/// sleeps: what the app is about, in one line, with the one number that
+/// makes it true.
+pub(crate) fn keeps_going_line(
+    remaining_seconds: u64,
+    unit: &str,
+    rest: world_gpui::i18n::Rest,
+) -> String {
+    world_gpui::i18n::keeps_going(remaining_seconds, unit, rest)
+}
+
+/// "A new day is waiting": a World on Home whose next opening begins a new
+/// sitting.
+pub(crate) fn new_day_waiting_line(unit: &str) -> String {
+    world_gpui::i18n::new_day_waiting(unit)
 }
 
 pub(crate) fn new_document_id(

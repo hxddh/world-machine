@@ -907,6 +907,41 @@ const MARS_NAMES: &[&str] = &[
     "Omar Farouk",
 ];
 
+/// What a sitting's morning can turn up for the book (v0.30 S4), in the
+/// order it turns up, each once: small things any of the places keeps.
+pub(crate) const FINDS: &[&str] = &[
+    "a smooth grey pebble",
+    "a lost button",
+    "a folded paper star",
+    "a tiny brass bell",
+    "a glass marble",
+    "a key on a ribbon",
+    "a pressed flower",
+    "a wind-up toy",
+    "a postcard with no stamp",
+    "a blue glass bead",
+    "a pencil stub",
+    "a hair ribbon",
+    "a bent spoon",
+    "a little tin box",
+    "a lucky coin",
+    "a seed packet",
+    "a crayon drawing",
+    "a whistle on a cord",
+    "a thimble",
+    "a spinning top",
+    "a striped sock",
+    "a paper crown",
+    "a cracked compass",
+    "a jar of buttons",
+    "a hand-drawn map",
+];
+
+/// The morning as this World keeps it: its people, and its finds.
+pub(crate) fn rite() -> ritual::Rite {
+    ritual::Rite { cast, finds: FINDS }
+}
+
 /// The cast as the World stands, worked out once for each way it stands:
 /// a screen asks for it once for every person on it.
 pub(crate) struct KeptCast(pub(crate) Cast);

@@ -40,20 +40,11 @@ pub struct Farewell {
     pub hour: u32,
 }
 
-/// A farewell let go (put away, or its window closed) lets the clock have
-/// the sky again.
-impl Drop for Farewell {
-    fn drop(&mut self) {
-        crate::scene::hold_hour(None);
-    }
-}
-
 impl ProjectionView {
     /// Shows `farewell` over the World: the sky held at its hour, every
     /// card and pointer put away (a chapter just ended is taken as read),
     /// and the camera on whoever says goodbye.
     pub fn show_farewell(&mut self, farewell: Farewell) {
-        let hour = farewell.hour;
         self.looking.asking = None;
         self.looking.drawer = false;
         self.looking.hands = None;
@@ -67,9 +58,9 @@ impl ProjectionView {
         }
         self.looking.farewell_panned = false;
         self.looking.farewell_speaker = None;
-        // Any farewell before it is let go first, then the sky is held.
+        // The sky is held at its hour, in this window alone, while it
+        // shows (`ProjectionView::held_hour`).
         self.looking.farewell = Some(farewell);
-        crate::scene::hold_hour(Some(hour));
     }
 
     /// Whether a farewell is showing.
@@ -338,11 +329,15 @@ mod tests {
         cx.run_until_parked();
         assert!(cx.debug_bounds("farewell").is_some(), "the farewell shows");
         assert!(cx.debug_bounds("bottom-card").is_none(), "no card under it");
-        assert_eq!(
-            crate::scene::daylight_at(crate::scene::hour_now()),
-            crate::scene::Daylight::Dusk,
-            "at dusk ({clock}:30)"
-        );
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                crate::scene::daylight_at(view.looking.drawn_at_hour.expect("drawn")),
+                crate::scene::Daylight::Dusk,
+                "drawn at dusk ({clock}:30)"
+            );
+        });
+        // The farewell's hour is this window's alone.
+        assert!(crate::scene::pinned_hour().is_none());
         view.read_with(cx, |view, _| {
             assert!(
                 view.looking.pan.is_some(),
@@ -373,10 +368,10 @@ mod tests {
             );
             assert_eq!(view.looking.asking, None, "nor anyone's under it");
         });
-        assert!(
-            crate::scene::pinned_hour().is_none(),
-            "the clock has the sky again"
-        );
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.held_hour(), None, "the clock has the sky again");
+            assert_eq!(view.looking.drawn_at_hour, Some(clock));
+        });
         assert_eq!(crate::scene::hour_now(), clock, "the clock's own hour");
         assert!(
             cx.debug_bounds("bottom-card").is_some(),

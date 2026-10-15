@@ -42,6 +42,8 @@ world-host = { path = "../../crates/world-host" }
 world-document = { path = "../../crates/world-document" }
 world-library = { path = "../../crates/world-library" }
 world-observer = { path = "../../crates/world-observer" }
+# The sitting's day, on this device's own calendar (src/observer.rs).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 world-gpui = { path = "../../crates/world-gpui" }
 world-i18n = { path = "../../crates/world-i18n" }
 world-sound = { path = "../../crates/world-sound" }

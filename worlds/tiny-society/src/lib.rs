@@ -449,6 +449,7 @@ impl TinySocietyBranch {
             MEND_BOAT_TOGETHER_COMMAND => self.mend_sea_finch_together(),
             TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
             story::WAIT_COMMAND => self.pass_days(1, false),
+            world_projection::SITTING_BEGINS_COMMAND => self.morning(),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
             _ if kin::parse_command(command_id).is_some() => self.place_memorial(command_id),
@@ -462,6 +463,24 @@ impl TinySocietyBranch {
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
         }
+    }
+
+    /// A sitting begins (v0.30 S4): this day's morning comes, if it has
+    /// not, after the day's beginning, with its letter, its main question,
+    /// what was tended overnight and a find (the ritual System). Refused
+    /// when the day has had its morning, or on the harbour's first day, so
+    /// a host knows a morning came only when one did.
+    pub fn morning(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let actions = build_action_registry()?;
+        let day = self
+            .world
+            .events_of_kind(&[calendar::DAY_BEGAN])
+            .last()
+            .map(|event| event.id);
+        let questions = ritual::questions_put(&projection::available_commands(&self.world));
+        let came = ritual::morning(&mut self.world, actions, &life::rite(), day, &questions)?
+            .ok_or_else(|| std::io::Error::other("this day has had its morning"))?;
+        Ok(vec![came])
     }
 
     /// Someone from another of the player's Worlds visits: a letter for
@@ -1026,6 +1045,7 @@ fn make_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     staffing::register_actions(&mut actions)?;
     story::register_actions(&mut actions)?;
     years::register_actions(&mut actions)?;
+    ritual::register_actions(&mut actions, life::rite())?;
     Ok(actions)
 }
 

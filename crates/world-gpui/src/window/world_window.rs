@@ -543,6 +543,12 @@ pub(crate) struct Looking {
     /// While someone is being talked to (and the camera has moved in on
     /// them), where it was: so putting them away leaves the camera there.
     pub(crate) held: Option<Camera>,
+    /// The hour this view last drew its scene at: its own held hour, or
+    /// the clock's (v0.30 S4: one window asleep, another awake).
+    pub(crate) drawn_at_hour: Option<u32>,
+    /// This sitting: how many days it may still pass, its morning read, its
+    /// goodnight, and whether the World sleeps (v0.30 S4). UI state only.
+    pub(crate) sitting: super::sitting::Sitting,
 }
 
 /// Something the player's hands can make or do, for the build card.
@@ -735,7 +741,14 @@ pub(crate) fn resting_text(snapshot: &ProjectionSnapshot) -> Vec<String> {
 /// own order.
 pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<Vec<usize>> {
     let mut cards = snapshot.cards();
-    cards.sort_by_key(|card| snapshot.commands[card[0]].asker.is_none());
+    // The morning's main question first (v0.30 S4), then whoever asks.
+    cards.sort_by_key(|card| {
+        let command = &snapshot.commands[card[0]];
+        (
+            !super::sitting::is_days_question(snapshot, command),
+            command.asker.is_none(),
+        )
+    });
     cards
 }
 
@@ -743,12 +756,12 @@ pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<Vec<usize>> {
 pub const RESTING_WORD_LIMIT: usize = 40;
 
 /// How many words a World window shows at rest, the bar above it included:
-/// the World's name, when it next moves ("Keeps going without you · next
+/// the World's name, when its next day comes ("Waits for you · a new
 /// sol in 6 h"), and everything `resting_text` lists.
 pub fn words_at_rest(snapshot: &ProjectionSnapshot) -> usize {
     let bar = [
         snapshot.title.clone(),
-        "Keeps going without you · next day in 6 h".to_string(),
+        "Waits for you · a new day in 6 h".to_string(),
     ];
     word_count(&bar) + word_count(&resting_text(snapshot))
 }
@@ -2080,7 +2093,7 @@ impl ProjectionView {
     /// their words; on a chapter's ending it turns the page; on the card
     /// in front it chooses, and lets a day pass only from the day's own
     /// card with the scene holding the keyboard (see `arrival`).
-    fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use super::arrival::{enter_does, passes_day, EnterContext, EnterDoes};
         if self.controller.is_some() {
             if let Some(number) = chapter_just_ended(&self.snapshot, self.looking.chapter_read)
@@ -2096,7 +2109,10 @@ impl ProjectionView {
             asking: self.looking.asking.is_some(),
             covered: self.looking.drawer
                 || self.looking.hands.is_some()
-                || self.looking.marking.card.is_some(),
+                || self.looking.marking.card.is_some()
+                // The morning, the Goodnight card and the World asleep hide
+                // the cards under them (v0.30 S4).
+                || self.sitting_covers(),
             card_shown: card.is_some(),
             card_passes_day: card.is_some_and(passes_day),
             scene_focused: self
@@ -2652,7 +2668,7 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn card_command(&self) -> Option<&ProjectionCommand> {
+    pub(crate) fn card_command(&self) -> Option<&ProjectionCommand> {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
             return None;
         }
@@ -3491,6 +3507,11 @@ impl ProjectionView {
             // A farewell has the place to itself: no card, no handles.
             return root.child(farewell).into_any_element();
         }
+        if let Some(sitting) = lit(|| self.render_sitting(cx)) {
+            // The morning, the Goodnight card and the World asleep each
+            // have the place to themselves: no card, no handles.
+            return root.child(sitting).into_any_element();
+        }
         root = root.child(self.render_hud(pointing, cx));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
             let hint = pointing
@@ -4252,6 +4273,17 @@ impl ProjectionView {
         // Who asks, with the card's way round (the dots, More) beside it:
         // one line for both keeps the card low over the quay.
         let names_line = names.join(" & ");
+        // The morning's main question says so, over what it asks (v0.30 S4).
+        let weighty = super::sitting::is_days_question(&self.snapshot, command);
+        if weighty {
+            text = text.child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color(tokens::ACCENT_TEXT))
+                    .child(ui::t("Today's choice")),
+            );
+        }
         // A question's card says what is asked; a lone choice says itself.
         text = text.child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(
             crate::wrap::text(match &question {
@@ -4407,8 +4439,13 @@ impl ProjectionView {
             .rounded_2xl()
             .bg(scene_paper())
             .shadow_lg()
-            .border_1()
-            .border_color(color(tokens::BORDER))
+            // The day's question is weighted: a heavier edge in the accent.
+            .when(weighty, |card| {
+                card.border_2().border_color(color(tokens::ACCENT))
+            })
+            .when(!weighty, |card| {
+                card.border_1().border_color(color(tokens::BORDER))
+            })
             .flex()
             .flex_col()
             .gap_2()

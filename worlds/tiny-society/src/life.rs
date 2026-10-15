@@ -755,6 +755,47 @@ pub(crate) fn cast_in(state: &WorldState) -> Cast {
     }
 }
 
+/// What a sitting's morning can turn up for the book (v0.30 S4), in the
+/// order it turns up: each once.
+pub(crate) const FINDS: &[&str] = &[
+    "a gull's feather",
+    "a piece of green sea glass",
+    "a cork float off a net",
+    "a brass button",
+    "a child's paper boat",
+    "a smooth white pebble",
+    "a key on a string",
+    "a bottle with a note in it",
+    "a starfish",
+    "an old coin",
+    "a pressed sea pink",
+    "a carved whistle",
+    "a lost mitten",
+    "a skimming stone",
+    "a spool of red thread",
+    "a tin soldier",
+    "a fishing fly",
+    "a scallop shell",
+    "a chipped blue cup",
+    "a copper nail",
+    "a lucky horseshoe",
+    "a ribbon from the fair",
+    "a crab's claw",
+    "a ship in a bottle",
+    "a page of an old sea chart",
+    "a knotted rope bracelet",
+    "a jar of beach plums",
+    "a mermaid's purse",
+];
+
+/// The morning as the harbour keeps it: its people, and its finds.
+pub(crate) fn rite() -> ritual::Rite {
+    ritual::Rite {
+        cast: cast_in,
+        finds: FINDS,
+    }
+}
+
 const LIFE_COMMAND: &str = "tiny-society.life.";
 
 /// The situation and answer a command gives, if it is one of these.

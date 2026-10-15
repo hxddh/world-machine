@@ -33,7 +33,7 @@ Copy Diagnostics	复制诊断信息
 Show Log in Finder	在访达中显示日志
 About World Machine	关于 World Machine
 Copied	已复制
-Small worlds that keep living while you are away.	你不在的时候，小世界仍在继续生活。
+Small worlds that grow a day at a time.	一天一天长大的小世界。
 Not yet notarized by Apple: the first launch asks once.	尚未通过苹果公证：首次启动会询问一次。
 Worlds: {library}	世界：{library}
 Log: {log}	日志：{log}
@@ -156,10 +156,10 @@ Micro Company	微型公司
 Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.	经营一家微型产品公司，两位创始人做出一个个小决定，公司要么找到客户，要么耗尽现金。
 Choose a direction · Watch demand and cash · Adapt	选择方向 · 关注需求与现金 · 随机应变
 Tiny Society	小小社会
-A harbour town that keeps living while you are away.	一座即使你不在，也照常生活的港口小镇。
+A harbour town that grows a day at a time.	一座一天一天长大的港口小镇。
 Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	镇上的人们对你有所求，大海与日历带来风暴与盛宴，每个季节都为小镇的故事合上一个篇章。
 Answer what people ask · Build the pier · See how the chapter ends	回应人们的请求 · 修建码头 · 看看这一章如何收尾
-A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.	一个即使你不在也照常生活的小小世界：开启它，让它成长，再回来看看有什么变化。
+A tiny world that grows a day at a time: begin it, let it grow, and come back each day to see what changed.	一个一天一天长大的小小世界：开启它，让它成长，每天回来看看有什么变化。
 The harbour, saved the old way.	按旧方式保存的港口。
 no key	没有密钥
 World Machine · World voice	World Machine · 世界之声
@@ -266,7 +266,7 @@ Rename	重命名
 Export…	导出…
 Where it branched from	它的分支来源
 Open	打开
-START HERE · A WORLD THAT KEEPS LIVING	从这里开始 · 一个持续生活的世界
+START HERE · A WORLD THAT GROWS A DAY AT A TIME	从这里开始 · 一个一天一天长大的世界
 {identity} · Included external World · reviewed before it runs	{identity} · 内置的外部世界 · 运行前已审查
 Review & Start	审查并开始
 {identity} · Included external Pack · review required	{identity} · 内置的外部包 · 需要审查
@@ -274,7 +274,7 @@ Review & Install	审查并安装
 Create {}	创建 {}
 {title} is ready	{title} 已就绪
 Start your first World.	开启你的第一个世界。
-It keeps living between visits, and you can always create another.	它在你两次到访之间也会继续生活，你随时都能再创建一个。
+It grows a day at a time, and you can always create another.	它一天一天地长大，你随时都能再创建一个。
 Not now	暂不
 Before this World starts	在这个世界开始之前
 A new Pack wants to install	一个新的包想要安装
@@ -300,7 +300,7 @@ Disable	禁用
 Test & Enable	测试并启用
 Start a World →	开始一个世界 →
 No Worlds yet.	还没有世界。
-Start one below; it keeps living while you are away.	在下面开始一个;你不在的时候它也会继续生活。
+Start one below; it grows a day at a time.	在下面开始一个;它会一天一天地长大。
 No Worlds match this Pack filter.	没有世界符合此包筛选条件。
 No Worlds match what you typed.	没有世界符合你输入的内容。
 All · {}	全部 · {}
@@ -811,7 +811,7 @@ The key's small model	密钥对应的小模型
 {} reads each answer with your key	{} 会用你的密钥读每个回答
 Needs an API key, saved above	需要在上方保存 API 密钥
 Stays on this Mac · free	留在这台 Mac 上 · 免费
-No Worlds yet. Start one below; it keeps living while you are away.	还没有世界。从下面开始一个吧，即使你不在，它也会照常生活。
+No Worlds yet. Start one below; it grows a day at a time.	还没有世界。从下面开始一个吧，它会一天一天地长大。
 For World makers	面向世界制作者
 The drawer shows each World's inner workings: its records and counters.	抽屉里会显示每个世界的内部运作：记录与计数。
 Find {name}	去找{name}
@@ -834,3 +834,15 @@ Reported	已举报
 Report this line	举报这句话
 Report	举报
 Here before you came	你来之前就在这里
+Today's choice	今天的选择
+That's the day	这一天过完了
+Goodnight	晚安
+Asleep until tomorrow	睡到明天
+A letter from {name}	{name}的来信
+For your book	收进你的书
+Good morning	早上好
+Begin the day	开始这一天
+Looked after	有人照看
+Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.	大家都在往家走。明天再来迎接早晨吧：一封信、今天的选择、有人照看的东西，还有给你的书的新发现。
+No hurry. The town will wait for you.	不着急。小镇会等你。
+Everyone's home. Come back tomorrow for the morning.	大家都到家了。明天再来迎接早晨吧。

@@ -52,7 +52,7 @@ pub use host::{
     guests_staying, host_guest, host_guest_with, GuestWords, Staying, GUEST_STAY_PERIODS,
     MOST_GUEST_TEXT,
 };
-pub use quiet::{firsts, firsts_count, welcome_back, Corner, QuietDays, Subject};
+pub use quiet::{firsts, firsts_count, morning_letter, welcome_back, Corner, QuietDays, Subject};
 use std::collections::{BTreeMap, BTreeSet};
 pub use suggest::{can_suggest, suggestion_request, Idea, IDEAS, SUGGEST_REST};
 pub use voice::{keepsake_of, own_lines, restyle, scene_of, Scene, Voice};

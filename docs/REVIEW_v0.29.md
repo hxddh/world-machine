@@ -585,6 +585,111 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 - No day's ritual repeats a line.
 - A five-day think-aloud test (decision 3).
 
+**S4 (2026-10-15): one day a sitting, a morning, and a goodnight.** The owner chose one day per sitting (decision 2). Time away no longer moves a World.
+- *The sitting ledger (v2, `world-observer`).*
+  - A device-local ledger beside the Library (`Observer/<key>.sitting`, format `world-observer-sitting-v2`) keeps how many sittings there have been, the local day the latest began, and how many World days it has passed.
+  - `sitting_at(ledger, today)` is pure. A new local day is a new sitting. The first sitting may pass 3 World days and every later one 1, however long the player was away: a month away is one day. Opening again the same day goes on with the same sitting and what it has left. A clock turned back counts as the same day, so no sitting is won by turning the clock.
+  - Wall-clock time lives only in this ledger. The World is told only that a sitting began (`world_projection::SITTING_BEGINS_COMMAND`, an ordinary command id with no clock in it). Its days pass, as before, only from the day's own card.
+  - The desktop app no longer catches up time away (`observer::catch_up` is gone). Opening a World sits it (`observer::sit`): a new sitting tells the World, and the window gets the allowance. Home's badge says a new day waits (always one day). The title bar counts to the next local midnight. The demo keeps no sittings: its own last day ends it.
+  - `examples/pretend_away` now also backdates the ledger, so the next open is a new sitting.
+- *The window (`world-gpui`, `window/sitting.rs`). UI state only.*
+  - `ProjectionView::with_allowance(Allowance { left, of }, spend)`. A day-passing command (by its role) passes only while the sitting has days left, and the host writes each one down (`spend`).
+  - Once the last allowed day passes, a Goodnight card comes up: "Everyone is going home. Come back tomorrow for the morning…", with "There's no hurry. A day you miss costs nothing." "Goodnight" puts the World to sleep: the sky is held at 23:00, so everyone is home with their windows lit, and the place is dimmed under a note, "Asleep until tomorrow". There are no cards and no handles. A sitting with nothing left opens asleep.
+  - Without an allowance (tests, previews, the demo) days pass as they always have, so the first-screen tests are unchanged.
+  - The morning the World brings is shown first, once: its letter, "Today's question", what was tended overnight, and the find, then "Begin the day". The day's main question leads the cards, weighted with an accent edge and a "Today's question" label.
+- *`systems/ritual`, a new System, wired into both Packs.* When a sitting begins, the World's morning comes (`ritual_morning_comes`), following the day's `day_began`. It comes once a World day and never on a World's first day. Following from it, each checked by its own Action:
+  - **a letter** (`lives::morning_letter`, S5a's letters, which cite the player's acts; caused by the morning and by the act);
+  - **the day's main question**, one the World already puts, never one asked on a morning before;
+  - **something tended overnight** by someone of the place: what the player made (planted, built, put up), the least-tended first, or else the place itself, never a line told before;
+  - **one find for the book**, the next of the Pack's own list (28 in Tiny Society, 25 in Pocket Universe), each once, on a new "Finds" shelf.
+
+  A part the World refuses is left out, and the rest still comes. Nothing in `world-core` changed. The lines are in the systems, Tiny Society and Pocket Universe catalogs in Chinese and Japanese.
+- *Tests.*
+  - `world-observer`: six on `sitting_at` (three days then one; a month away is one day; the same day goes on; a clock turned back; the ledger alone decides; local midnight) and two on the ledger file.
+  - `ritual`: seven: the first day has no morning; the four parts each follow from it; no line repeats over 30 mornings; the same World gives the same morning and replays without re-running; a refused part leaves the rest; a thing named for its place; every line's slots.
+  - `world-gpui`: five GPUI-window tests: a spent sitting says goodnight and sleeps with the sky held; a first sitting passes three days; a spent sitting opens asleep; no allowance passes days as before; the morning is read once and its question leads.
+  - Tiny Society `tests/one_day_a_day.rs`:
+    - `no_event_or_state_carries_the_wall_clock`: the same four sittings on two far-apart calendars, a day apart and a month apart, record identical events and state, and no day or midnight of either clock, nor the run's own clock, appears in the archive or the state.
+    - Three days then one each, with a morning each.
+    - Five mornings, each with a find and a tending, and no line twice.
+  - Pocket Universe `tests/one_day_a_day.rs`: every place's morning, once a period, from its `day_began`, with no line twice, and replayed from the record alone.
+  - The desktop's sitting tests (with `linux-window`) replace the catch-up tests.
+- *Digests.* `replayed-state.digest` is unchanged for both Packs. The four replay digests were re-blessed (`tiny-society/tests/golden/replay/v020-harbour`, `v027-harbour`; `pocket-universe/tests/golden/replay/v020-ice`, `v027-mars`). The cause is the new `ProjectionSnapshot::morning` field in the snapshot's `Debug` text. Every snapshot step is exactly 19 bytes longer (`    morning: None,`), and every `events` step is byte-identical. The wire JSON digests (`snapshot_json/`) are unchanged, since the field is skipped when empty. No golden picture changed.
+- *Pictures* (`scratchpad/v030/s4/shots/`, the real release window under Xvfb, a 12-day harbour, a day away):
+  - before: `before-morning` (the 7-beat return film, day 13 to day 17), `before-turn`, `before-daycard`, and `before-goodnight` (the day passes, and on to the next with no end);
+  - after: `after-morning`, `after-day` (chapter end), `after-card` (today's question weighted), `after-daycard`, `after-goodnight`, `after-asleep`, and `after-reopened-same-day` (opens asleep).
+- *Left.*
+  - The title bar still says "Keeps going without you" before the count to the next day. Home's badge reads "1 day has passed", where it should say a new day waits.
+  - The real-day option of decision 2, where the town follows the real day, is not built. This build has one day a sitting only.
+  - The five-day think-aloud test with people is not run.
+  - Pocket Universe's finds are one list for all its places.
+  - A sitting that runs past midnight stays that day's sitting.
+
+**S4 round 2 (2026-10-15): the art director's NO and the code review, answered.**
+- *Copy.*
+  - **Title bar:** "Waits for you · a new day in 3 h". Asleep or spent, it reads "Asleep · a new day in 3 h". With no countdown, it reads "Waits for you · a new day comes with tomorrow's visit". The unit is kept (sol, night), and the zh and ja lines are rewritten.
+  - **Home badge:** "A new day is waiting" ("A new sol is waiting"), with no count.
+  - **Labels:** "Today's choice" (it was "Today's question") on the morning and on the weighted card. "Looked after" (it was "Tended overnight"); the ritual's lines are unchanged.
+  - **Goodnight:** "Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book." The small line is "No hurry. The town will wait for you."
+  - **Asleep note:** "Everyone's home. Come back tomorrow for the morning." It now sits on an opaque paper in the text's own ink, at least 4.5:1 on the night paper (tested). The veil is eased from 0.38 to 0.33.
+  - **Letters:** on a morning, "Hello from me." becomes "Morning! A bit of news." and "Come by soon." becomes "Come and find me today". This is in the morning path only (`lives::morning_letter`). Letters written while away keep their lines, so no digest changed.
+- *Code review.*
+  - **A clock that was once ahead:** a day before the ledger's begins a new sitting of one day, re-dated to today. It never locks the World asleep, and never gives the first sitting's three.
+  - **A window left open overnight:** the World window wakes when it is next activated (from Home, its strip, or a click) if a new sitting has begun (`WorldDocumentView::wake_if_new_day`). The new sitting is written down, the World is told, and the page is asked anew, with the new allowance and the morning.
+  - **Enter:** it chooses nothing under the morning, the Goodnight card or the sleep (`sitting_covers`, tested).
+  - **The morning is told while the sitting has passed no day**, on every opening. A morning lost between the ledger and the World therefore still comes, and a reopened spent sitting never takes the next World day's morning.
+  - **Tiny Society refuses** a second morning, as Pocket Universe does, so `Sat.morning` is true only when a morning came.
+  - **The night hold is reference-counted**, so a view rebuilt while asleep keeps the night.
+  - **"Morning read" is kept in the sitting ledger** (UI-side), so the morning shows once however often the World is opened that day.
+  - **A World with a v0.29 stamp and no ledger, or with an unreadable ledger,** has a later sitting of one day, not three. An I/O error on opening gives one day, not days without end.
+  - **Saturating counts.**
+  - **The countdown** is to the next local midnight as that night's clock has it, so a change of clocks is included.
+- *Pictures:* `scratchpad/v030/s4/r2/`:
+  - Home (the badge);
+  - the morning, with the title bar awake;
+  - a reopen after the morning was read (no second morning);
+  - today's choice;
+  - the day card;
+  - Goodnight, with the title bar asleep;
+  - asleep;
+  - a same-day reopen, asleep.
+- *Left (the art director's leftovers):*
+  - "Overnight, " should be folded into the label.
+  - The flag's "pegs".
+  - The find's "by {place}".
+  - "Morning! A bit of news. The news here is…" says news twice.
+  - A camera glide to what was looked after.
+  - A dusk fade behind Goodnight.
+  - A day number on the cards.
+  - The same-day reopen framed where it was put to bed.
+  - Home's subtitle, "Small worlds that keep living while you are away", now contradicts S4. It was not in the brief.
+
+**S4 round 3 (2026-10-15): the old promise retired.** Copy only.
+- *Everywhere the player reads it, "keeps living while you are away" now says the World grows a day at a time*, with the zh and ja catalogs to match:
+  - Home's subtitle and the About window: "Small worlds that grow a day at a time."
+  - The empty Home: "No Worlds yet. Start one below; it grows a day at a time."
+  - The first-World card: "START HERE · A WORLD THAT GROWS A DAY AT A TIME", with "It grows a day at a time, and you can always create another."
+  - The Tiny Society and Pocket Universe blurbs, and the included Pack's description.
+  - README, ROADMAP (a note that its older entries describe releases before S4), the store page and the trailer's cards.
+- *The morning letter's opening* is now "Something to tell you." It was "Morning! A bit of news.", which said "news" twice under "Good morning".
+- *The title bar* says "Heading home · a new day in N h" while the Goodnight card is up. It says "Asleep · …" only once Goodnight is pressed, or when the World is opened asleep (`ProjectionView::rest`, tested).
+- *No digest, golden or ratchet changed.*
+- *Pictures:* `scratchpad/v030/s4/r3/` (Home, morning, Goodnight).
+- *Left:* `docs/press/store/description.md` and `capture-plan.md` still describe the old clock. They are not part of the brief.
+
+**S4 round 4 (2026-10-15): two P2s from Codex.**
+- *A held hour is each window's own.* The World asleep (and the demo's farewell) held every window's sky through a process-wide hour (`scene::hold_hour`), so one sleeping World put every open World to bed. Now a view draws its own scene at its own held hour, `ProjectionView::held_hour`, and only while it draws (`scene::with_view_hour`). The global hold is gone. Tested: one window asleep at 23:00 and another awake at the clock's noon, drawn in turn, each at its own hour; the farewell test now checks the window's own hour.
+- *A window active across midnight wakes.* Each World window arms a timer for a moment past the next local midnight (`observer::wake_wait`). It then takes the same wake path as activation (`wake_if_new_day`) and arms again. The task is kept on the window and dropped with it. Tested: the wait falls just after midnight, and the next day's wake begins a new sitting. The timer itself is not driven in a test.
+
+**S4 round 5 (2026-10-15): a World saved as or imported keeps its sitting.** After Save As, the sitting (the morning read too) is written under the new file's key, and the window charges its days there. The World saved from keeps its own sitting. A World file imported into the Library carries over the sittings it had as a file. Tested both ways.
+
+**S4 round 6 (2026-10-15): the morning in the reader's language.** `world_gpui::i18n::localize` now puts every part of `snapshot.morning` into the reader's language, as it does the rest of the snapshot: the letter, the day's choice, what was looked after, and the find.
+- *Tests:*
+  - a localize test for each part (the question's id stays the World's);
+  - `world-builtins/tests/morning_in_every_language.rs`, where eight harbour mornings and six colony mornings read whole in Chinese and Japanese through the installed catalogs, with no English word left.
+- *Pictures:* `scratchpad/v030/s4/r6/` (the morning in Chinese and in Japanese).
+- *Also:* the "### S5" heading, lost in the round-4 entry, is restored.
+
 ### S5. Residents become people (small, focused)
 
 - **Letters:** about you and what you did together, replacing the one template.

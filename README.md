@@ -1,6 +1,6 @@
 # World Machine
 
-Persistent worlds that remember and evolve. A World keeps living while you are away and tells you what changed when you return.
+Persistent worlds that remember and evolve. A World grows a day at a time: each day you sit down with it, a morning brings a letter, a choice, something looked after and a find, and you let the day pass when you are ready.
 
 > **Early release for macOS.** No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on — see [privacy](docs/PRIVACY.md). Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
 
@@ -14,7 +14,7 @@ Persistent worlds that remember and evolve. A World keeps living while you are a
 
 ## What is inside
 
-- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. Left alone, it keeps going without you and says what it decided.
+- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. It grows a day at a time, and each morning says what changed.
 - **Tiny Society**: a harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.
 - Every World is a `.world` document in your library. Open, rename, export, and import them; history is replayed from events, never re-run through an AI.
 

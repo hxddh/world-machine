@@ -426,6 +426,12 @@ impl PocketUniverse {
                 .ok_or_else(|| std::io::Error::other("nothing happened").into());
         }
 
+        // A sitting begins (v0.30 S4): this period's morning, if it has
+        // not come, after the period's beginning (the ritual System).
+        if command_id == world_projection::SITTING_BEGINS_COMMAND {
+            return self.morning();
+        }
+
         // "Report this line": an Event caused by the exchange it reports.
         if let Some(spoken) = conversation::report::parse_command(command_id) {
             return conversation::report::report(&mut self.world, &self.actions, spoken)
@@ -550,6 +556,30 @@ impl PocketUniverse {
                 Ok(())
             })?;
         Ok(event)
+    }
+
+    /// A sitting begins (v0.30 S4): this period's morning comes, after the
+    /// period's beginning, with its letter, its main question, what was
+    /// tended overnight and a find. Refused when the period has had its
+    /// morning, on the World's first, or before it is begun.
+    pub fn morning(&mut self) -> Result<EventId, Box<dyn Error>> {
+        if seed_id(&self.world) == UNSEEDED {
+            return Err(std::io::Error::other("choose where this World begins first").into());
+        }
+        let day = self
+            .world
+            .events_of_kind(&[calendar::DAY_BEGAN])
+            .last()
+            .map(|event| event.id);
+        let questions = ritual::questions_put(&projection::commands_on_offer(&self.world));
+        ritual::morning(
+            &mut self.world,
+            &self.actions,
+            &life::rite(),
+            day,
+            &questions,
+        )?
+        .ok_or_else(|| std::io::Error::other("this period has had its morning").into())
     }
 
     /// `periods` passing on `candidate` while nobody watches.
@@ -1005,7 +1035,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         pack: pocket_universe_pack_ref(),
         title: "Pocket Universe".into(),
         description:
-            "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
+            "A tiny world that grows a day at a time: begin it, let it grow, and come back each day to see what changed.".into(),
     }
 }
 
@@ -1081,6 +1111,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     narrator::register_actions(&mut actions)?;
     story::register_actions(&mut actions)?;
     years::register_actions(&mut actions)?;
+    ritual::register_actions(&mut actions, life::rite())?;
     Ok(actions)
 }
 

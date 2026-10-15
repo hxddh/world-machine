@@ -33,7 +33,7 @@ Copy Diagnostics	診断情報をコピー
 Show Log in Finder	Finderでログを表示
 About World Machine	World Machineについて
 Copied	コピーしました
-Small worlds that keep living while you are away.	あなたがいない間も、小さな世界は暮らし続けます。
+Small worlds that grow a day at a time.	一日ずつ育っていく小さな世界。
 Not yet notarized by Apple: the first launch asks once.	まだAppleの公証を受けていません。初回の起動時に一度だけ確認されます。
 Worlds: {library}	ワールド：{library}
 Log: {log}	ログ：{log}
@@ -156,10 +156,10 @@ Micro Company	マイクロ・カンパニー
 Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.	小さなプロダクト会社を経営します。2人の創業者が小さな決断を重ね、会社は顧客を見つけるか、資金が尽きるかのどちらかです。
 Choose a direction · Watch demand and cash · Adapt	方針を選ぶ · 需要と資金を見守る · 臨機応変に
 Tiny Society	タイニー・ソサエティ
-A harbour town that keeps living while you are away.	あなたがいない間も暮らし続ける港町。
+A harbour town that grows a day at a time.	一日ずつ育っていく港町。
 Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	町の人たちはあなたに頼みごとをし、海と暦は嵐やお祭りを運んできます。季節がひとつ巡るたびに、町の物語の一章が閉じます。
 Answer what people ask · Build the pier · See how the chapter ends	頼みごとに答える · 桟橋を造る · 章の結末を見届ける
-A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.	あなたがいない間も暮らし続ける小さな世界。はじめて、育つのを見守って、また戻ってきたら何が変わったか確かめましょう。
+A tiny world that grows a day at a time: begin it, let it grow, and come back each day to see what changed.	一日ずつ育っていく小さな世界。はじめて、育つのを見守って、毎日戻ってきて何が変わったか確かめましょう。
 The harbour, saved the old way.	昔のやり方で保存された港。
 no key	キーなし
 World Machine · World voice	World Machine · ワールドの声
@@ -266,7 +266,7 @@ Rename	名前を変更
 Export…	書き出す…
 Where it branched from	分岐元
 Open	開く
-START HERE · A WORLD THAT KEEPS LIVING	ここからはじめる · 暮らし続けるワールド
+START HERE · A WORLD THAT GROWS A DAY AT A TIME	ここからはじめる · 一日ずつ育つワールド
 {identity} · Included external World · reviewed before it runs	{identity} · 同梱の外部ワールド · 実行前に確認します
 Review & Start	確認してはじめる
 {identity} · Included external Pack · review required	{identity} · 同梱の外部パック · 確認が必要です
@@ -274,7 +274,7 @@ Review & Install	確認してインストール
 Create {}	{}を作成
 {title} is ready	{title}の準備ができました
 Start your first World.	最初のワールドをはじめましょう。
-It keeps living between visits, and you can always create another.	訪れていない間も暮らしは続きます。ワールドはいつでも新しく作れます。
+It grows a day at a time, and you can always create another.	一日ずつ育っていきます。ワールドはいつでも新しく作れます。
 Not now	今はしない
 Before this World starts	このワールドをはじめる前に
 A new Pack wants to install	新しいパックがインストールを求めています
@@ -300,7 +300,7 @@ Disable	無効にする
 Test & Enable	テストして有効にする
 Start a World →	ワールドをはじめる →
 No Worlds yet.	まだワールドがありません。
-Start one below; it keeps living while you are away.	下からひとつはじめてみましょう。留守の間も暮らしは続きます。
+Start one below; it grows a day at a time.	下からひとつはじめてみましょう。一日ずつ育っていきます。
 No Worlds match this Pack filter.	このパックの絞り込みに合うワールドはありません。
 No Worlds match what you typed.	入力した内容に合うワールドはありません。
 All · {}	すべて · {}
@@ -811,7 +811,7 @@ The key's small model	キーの小型モデル
 {} reads each answer with your key	{}があなたのキーで答えをひとつずつ確かめます
 Needs an API key, saved above	上で保存したAPIキーが必要です
 Stays on this Mac · free	このMacの中だけ · 無料
-No Worlds yet. Start one below; it keeps living while you are away.	まだワールドがありません。下からはじめましょう。あなたがいない間も暮らし続けます。
+No Worlds yet. Start one below; it grows a day at a time.	まだワールドがありません。下からはじめましょう。一日ずつ育っていきます。
 For World makers	ワールドをつくる人向け
 The drawer shows each World's inner workings: its records and counters.	引き出しに、ワールドの内部の記録やカウンターを表示します。
 Find {name}	{name}を探す
@@ -834,3 +834,15 @@ Reported	報告済み
 Report this line	このせりふを報告
 Report	報告
 Here before you came	あなたが来る前からここにいる
+Today's choice	今日の選択
+That's the day	今日はここまで
+Goodnight	おやすみなさい
+Asleep until tomorrow	明日までおやすみ
+A letter from {name}	{name}からの手紙
+For your book	あなたの本に
+Good morning	おはようございます
+Begin the day	一日を始める
+Looked after	見守られたもの
+Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.	みんな家路についています。また明日、朝に来てください。手紙と、今日の選択と、見守られたものと、あなたの本に入る見つけものが待っています。
+No hurry. The town will wait for you.	急がなくて大丈夫。町はあなたを待っています。
+Everyone's home. Come back tomorrow for the morning.	みんな家にいます。また明日、朝に来てください。

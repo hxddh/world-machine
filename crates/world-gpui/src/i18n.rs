@@ -126,6 +126,21 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     for letter in &mut snapshot.letters {
         put(&mut letter.note);
     }
+    // The morning a sitting opens on (v0.30 S4): every part of it.
+    if let Some(morning) = &mut snapshot.morning {
+        if let Some(letter) = &mut morning.letter {
+            put(&mut letter.note);
+        }
+        if let Some(question) = &mut morning.question {
+            put(&mut question.prompt);
+        }
+        if let Some(tended) = &mut morning.tended {
+            put(&mut tended.line);
+        }
+        if let Some(find) = &mut morning.find {
+            put(&mut find.line);
+        }
+    }
     if let Some(favour) = &mut snapshot.favour {
         put(&mut favour.note);
         put(&mut favour.hint);
@@ -558,22 +573,56 @@ pub fn time_passed(periods: u64, unit: &str) -> String {
     format!("{} {verb} passed", count_of(periods, unit))
 }
 
-/// "Keeps going without you · next sol in 5 h": what the app is about, in
-/// one line, with the one number that makes it true. In Chinese and
+/// What a World is doing, as its window's title bar says it (v0.30 S4).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rest {
+    /// Awake, waiting for the player.
+    Waits,
+    /// Its sitting's last day passed: the Goodnight card is up, and
+    /// everyone is heading home.
+    HeadingHome,
+    /// Put to bed with "Goodnight", or opened again asleep.
+    Asleep,
+}
+
+/// "A new day is waiting": a World with a new sitting waiting for the
+/// player on Home (v0.30 S4). It is always one, however long they were
+/// away.
+pub fn new_day_waiting(unit: &str) -> String {
+    let unit = unit.to_lowercase();
+    match zh_unit(&unit).filter(|_| chinese() || japanese()) {
+        Some(zh) if japanese() => format!("{}が待っています", zh.next),
+        Some(zh) => format!("{}在等你", zh.next),
+        None => format!("A new {unit} is waiting"),
+    }
+}
+
+/// "Waits for you · a new sol in 5 h": what the app is about, in one line,
+/// with the one number that makes it true (v0.30 S4: a World moves a day a
+/// sitting, and a new sitting comes with the player's next day). `rest`
+/// says first what the World is doing: waiting, heading home under the
+/// Goodnight card, or asleep once it is said. With no
+/// countdown, the new day comes with tomorrow's visit. In Chinese and
 /// Japanese, whole sentences in their own order.
-pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
+pub fn keeps_going(remaining_seconds: u64, unit: &str, rest: Rest) -> String {
     let unit = unit.to_lowercase();
     let zh = zh_unit(&unit).filter(|_| chinese() || japanese());
+    let state = match (rest, japanese(), chinese()) {
+        (Rest::Asleep, true, _) => "おやすみ中",
+        (Rest::HeadingHome, true, _) => "家路の途中",
+        (Rest::Waits, true, _) => "あなたを待っています",
+        (Rest::Asleep, _, true) => "已经睡了",
+        (Rest::HeadingHome, _, true) => "大家正往家走",
+        (Rest::Waits, _, true) => "在等你",
+        (Rest::Asleep, ..) => "Asleep",
+        (Rest::HeadingHome, ..) => "Heading home",
+        (Rest::Waits, ..) => "Waits for you",
+    };
     if remaining_seconds == 0 {
         return match zh {
-            Some(zh) if japanese() => {
-                format!(
-                    "留守のあいだも暮らしは続きます · 次に来たときには{}",
-                    zh.next
-                )
-            }
-            Some(zh) => format!("你不在时，这里照常继续 · {}在等你下次到访", zh.next),
-            None => format!("Keeps going without you · a new {unit} waits for your next visit"),
+            Some(zh) if japanese() => format!("{state} · 明日来たときに{}", zh.next),
+            Some(zh) => format!("{state} · 明天来时便是{}", zh.next),
+            None => format!("{state} · a new {unit} comes with tomorrow's visit"),
         };
     }
     let (count, english, chinese_unit, japanese_unit) = if remaining_seconds >= 3600 {
@@ -582,15 +631,11 @@ pub fn keeps_going(remaining_seconds: u64, unit: &str) -> String {
         (remaining_seconds.div_ceil(60).max(1), "min", "分钟", "分")
     };
     match zh {
-        Some(zh) if japanese() => format!(
-            "留守のあいだも暮らしは続きます · あと{count}{japanese_unit}で{}",
-            zh.next
-        ),
-        Some(zh) => format!(
-            "你不在时，这里照常继续 · {count} {chinese_unit}后便是{}",
-            zh.next
-        ),
-        None => format!("Keeps going without you · next {unit} in {count} {english}"),
+        Some(zh) if japanese() => {
+            format!("{state} · あと{count}{japanese_unit}で{}", zh.next)
+        }
+        Some(zh) => format!("{state} · {count} {chinese_unit}后便是{}", zh.next),
+        None => format!("{state} · a new {unit} in {count} {english}"),
     }
 }
 
@@ -672,30 +717,64 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 50), "Sol 5");
         assert_eq!(time_passed(3, "night"), "3 nights have passed");
         assert_eq!(
-            keeps_going(5 * 3600 + 10, "sol"),
-            "Keeps going without you · next sol in 6 h"
+            keeps_going(5 * 3600 + 10, "sol", Rest::Waits),
+            "Waits for you · a new sol in 6 h"
         );
+        assert_eq!(
+            keeps_going(4 * 3600, "day", Rest::Asleep),
+            "Asleep · a new day in 4 h"
+        );
+        assert_eq!(
+            keeps_going(3 * 3600, "day", Rest::HeadingHome),
+            "Heading home · a new day in 3 h"
+        );
+        assert_eq!(
+            keeps_going(0, "night", Rest::Waits),
+            "Waits for you · a new night comes with tomorrow's visit"
+        );
+        assert_eq!(new_day_waiting("Day"), "A new day is waiting");
+        assert_eq!(new_day_waiting("sol"), "A new sol is waiting");
         set_thread_language(Some(Language::SimplifiedChinese));
         assert_eq!(moment_label(&calendar("Day"), 10820), "第1082天");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "第156个火星日");
         assert_eq!(moment_label(&calendar("Night"), 1200), "第120夜");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
         assert_eq!(time_passed(5, "day"), "已过去 5 天");
-        let line = keeps_going(6 * 3600, "day");
-        assert_eq!(line, "你不在时，这里照常继续 · 6 小时后便是新的一天");
+        let line = keeps_going(6 * 3600, "day", Rest::Waits);
+        assert_eq!(line, "在等你 · 6 小时后便是新的一天");
+        assert_eq!(
+            keeps_going(6 * 3600, "day", Rest::HeadingHome),
+            "大家正往家走 · 6 小时后便是新的一天"
+        );
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
+        assert_eq!(
+            keeps_going(6 * 3600, "day", Rest::Asleep),
+            "已经睡了 · 6 小时后便是新的一天"
+        );
+        assert_eq!(
+            keeps_going(0, "day", Rest::Waits),
+            "在等你 · 明天来时便是新的一天"
+        );
+        assert_eq!(new_day_waiting("day"), "新的一天在等你");
         assert_eq!(here_since("Day", 703), "自第703天起在这里");
         set_thread_language(Some(Language::Japanese));
         assert_eq!(moment_label(&calendar("Day"), 10820), "1082日目");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
         assert_eq!(time_passed(5, "day"), "5日が過ぎました");
-        let line = keeps_going(6 * 3600, "day");
-        assert_eq!(
-            line,
-            "留守のあいだも暮らしは続きます · あと6時間で新しい一日"
-        );
+        let line = keeps_going(6 * 3600, "day", Rest::Waits);
+        assert_eq!(line, "あなたを待っています · あと6時間で新しい一日");
+        assert!(!keeps_going(6 * 3600, "day", Rest::HeadingHome)
+            .chars()
+            .any(|c| c.is_ascii_alphabetic()));
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
+        assert_eq!(
+            keeps_going(6 * 3600, "day", Rest::Asleep),
+            "おやすみ中 · あと6時間で新しい一日"
+        );
+        assert!(!new_day_waiting("day")
+            .chars()
+            .any(|c| c.is_ascii_alphabetic()));
         assert_eq!(year_label(2), "2年目");
         assert_eq!(season_in_year("Spring", 2), "2年目 · 春");
         set_thread_language(None);
@@ -746,6 +825,50 @@ mod tests {
             set_thread_language(None);
             assert_eq!(found, shown, "{language:?}");
         }
+    }
+
+    /// Every part of the morning is shown in the reader's language, as
+    /// the rest of the snapshot is (v0.30 S4).
+    #[test]
+    fn the_morning_is_shown_in_the_readers_language() {
+        use world_projection::{Letter, Morning, MorningLine, Question, SelectionId};
+        world_i18n::install(
+            "Something to tell you.\t有件事想告诉你。\n\
+             Should we?\t我们要不要？\n\
+             Overnight, Quill swept the step.\t夜里，奎尔扫了台阶。\n\
+             You found a bell.\t你找到了一个铃铛。\n",
+        );
+        let someone = SelectionId::from_stable_key("entity-1").unwrap();
+        let line = |line: &str| MorningLine {
+            line: line.into(),
+            about: None,
+        };
+        let snapshot = ProjectionSnapshot {
+            morning: Some(Morning {
+                moment: someone,
+                letter: Some(Letter {
+                    from: someone,
+                    note: "Something to tell you.".into(),
+                    moment: someone,
+                }),
+                question: Some(Question {
+                    id: "q".into(),
+                    prompt: "Should we?".into(),
+                }),
+                tended: Some(line("Overnight, Quill swept the step.")),
+                find: Some(line("You found a bell.")),
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        set_thread_language(Some(Language::SimplifiedChinese));
+        let shown = localize(snapshot).morning.unwrap();
+        set_thread_language(None);
+        assert_eq!(shown.letter.unwrap().note, "有件事想告诉你。");
+        let question = shown.question.unwrap();
+        assert_eq!(question.prompt, "我们要不要？");
+        assert_eq!(question.id, "q", "the id stays the World's");
+        assert_eq!(shown.tended.unwrap().line, "夜里，奎尔扫了台阶。");
+        assert_eq!(shown.find.unwrap().line, "你找到了一个铃铛。");
     }
 
     fn calendar_at(unit: &str, world_time: u64) -> ProjectionSnapshot {
