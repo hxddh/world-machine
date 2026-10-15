@@ -382,6 +382,39 @@ The stop list:
 7. Split `world_window.rs`, desktop `main.rs` and `conversation/lib.rs` before S1 starts (about one agent-week of mechanical work).
 8. Delete what nothing uses. Keep `world-compare` and the fork intent for leap C.
 
+#### S8.1 done: 64 continuation digests cut to 8
+
+Kept, per Pack, the oldest and the newest fixture in each digest family (`tests/golden/{replay,snapshot_json}/`):
+
+| Pack | Kept | Removed |
+|---|---|---|
+| Tiny Society | `v020-harbour`, `v027-harbour` (×2 families) | `v021`–`v026-harbour` (×2) = 12 |
+| Pocket Universe | `v020-ice`, `v027-mars` (×2 families) | every other place and release (×2) = 44 |
+
+That leaves 8 digests instead of 64. Both `replayed-state.digest` files are unchanged: they were not re-blessed and not removed. The kept fixtures are named in each Pack's test (`GOLDEN_FIXTURES`). A named fixture without its digest now fails instead of being skipped quietly, and no new fixture gets a digest on its own.
+
+What each removed digest guarded, and what guards it now:
+
+| Removed digest guarded | Now guarded by |
+|---|---|
+| `replay/<fixture>`, step 1: the fixture opens and replays event for event | `every_fixture_replays_and_plays_on` (new, in each Pack's `replay_identical.rs`) asserts that the replayed events equal the stored ones, for every fixture. `every_release.rs` also asserts that `world().replay()` state equals the resumed state, for every fixture. |
+| `replay/<fixture>`, the `open` snapshot: what loading the save shows | `every_fixture_replays_and_plays_on`: two separate opens give equal snapshots, and the opened snapshot round-trips through the wire. The state underneath is pinned for every fixture, never re-blessed, by `replayed-state.digest`. |
+| `replay/<fixture>`, days 1–30 and `events`: what play after a load does, byte for byte | The oldest and newest digests per Pack, which run the same builder over 30 days. For every fixture, `every_fixture_replays_and_plays_on` plays 3 days of the same builder (answers, deeds, the day passing). It checks: no panic; events only appended; each day's snapshot the same when looked at again; the played-on World reopens from its own events to the very snapshot it showed. |
+| `snapshot_json/<fixture>`: the wire JSON a Pack process sends, over 12 days, and the same when looked at again | The oldest and newest digests per Pack. For every fixture, `assert_wire_decodes` checks that each snapshot's wire JSON decodes to the same wire value, and that value to the same snapshot, on open and on each of 3 played days. The looked-at-again equality is checked too. |
+
+What is given up: a byte-exact pin on the presentation that the middle releases' saves show after a load. The rules that run after a load do not depend on which release wrote the file, so the oldest and newest fixtures cover them. Any difference between saves is in their recorded events, which stay pinned by replay equality and `replayed-state.digest`. An ordinary content change now re-blesses 8 files instead of 64.
+
+Test time in a debug build on the dev container (`cargo test -p <pack>`, built, `-j 2`):
+
+| Suite | Before | After |
+|---|---|---|
+| Tiny Society, whole suite (wall) | 129 s | 105 s |
+| … `replay_identical` + `snapshot_json` | 18.5 + 9.5 s | 5.7 + 2.3 s |
+| Pocket Universe, whole suite (wall) | 175 s | 130 s |
+| … `replay_identical` + `snapshot_json` | 42.4 + 23.9 s | 15.2 + 2.1 s |
+
+The two suites drop by about 70 s together. The other binaries vary by several seconds from run to run on a shared machine.
+
 ### The order
 
 1. S7 and S8's splits and CI cuts, alongside the S0 spike.
