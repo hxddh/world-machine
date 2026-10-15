@@ -469,6 +469,38 @@ pub(crate) fn group_centres(people: &[Spot], figure_h: f32) -> Vec<Option<f32>> 
     centres
 }
 
+/// Someone walking from `from` to `to` along their line, `since` seconds
+/// into a walk `length` long: planted steps, a lean into the walk, a coat
+/// that swings as they start and stop. Shorter, slower steps for someone
+/// who takes their time (`pace`); a load held as they go.
+pub(super) fn walking(
+    from: f32,
+    to: f32,
+    (since, length): (f32, f32),
+    pace: f32,
+    loaded: bool,
+    figure_h: f32,
+) -> Living {
+    let t = since / length.max(0.01);
+    let facing = (to - from).signum();
+    let phase = (since * 1.7 * pace.sqrt()).rem_euclid(1.0);
+    let start = 1.0 - settle(since);
+    let lean = facing * (0.05 * start + 0.018 * (phase * std::f32::consts::TAU * 2.0).sin());
+    Living {
+        x: from + (to - from) * ease(t),
+        pose: Pose {
+            stride: Some(phase),
+            bob: (phase * std::f32::consts::TAU).sin().abs() * figure_h * 0.035,
+            facing,
+            squash: 1.0 - 0.03 * (phase * std::f32::consts::TAU * 2.0).cos().max(0.0),
+            lean,
+        },
+        stance: None,
+        using: None,
+        loaded,
+    }
+}
+
 /// Where each person is this frame, `seconds` into looking at the World.
 ///
 /// Between turns everyone goes about their day. Where they stand, what
@@ -488,6 +520,23 @@ pub fn living(
     daylight: Daylight,
     pinned: &BTreeSet<SelectionId>,
     before: Option<(&Stage, &ProjectionSnapshot, f32)>,
+) -> Vec<Living> {
+    living_staged(stage, snapshot, seconds, daylight, pinned, before, None)
+}
+
+/// [`living`], with a scene playing: whoever the scene stages
+/// (`staged`, see [`super::staging`]) stands, walks and faces as it
+/// has them, and everyone else keeps their day. The stage is the one the
+/// scene was cast onto ([`super::staging::cast_on`]), so each of them
+/// stands on its line where the scene puts them.
+pub fn living_staged(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    seconds: f32,
+    daylight: Daylight,
+    pinned: &BTreeSet<SelectionId>,
+    before: Option<(&Stage, &ProjectionSnapshot, f32)>,
+    staged: Option<&super::staging::Staged>,
 ) -> Vec<Living> {
     let items = &snapshot.canvas.items;
     let figure_h = stage.figure_h;
@@ -525,25 +574,7 @@ pub fn living(
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
     let walk = |from: f32, to: f32, since: f32, length: f32, pace: f32, loaded: bool| {
-        let t = since / length.max(0.01);
-        let facing = (to - from).signum();
-        // Shorter, slower steps for someone who takes their time.
-        let phase = (since * 1.7 * pace.sqrt()).rem_euclid(1.0);
-        let start = 1.0 - settle(since);
-        let lean = facing * (0.05 * start + 0.018 * (phase * std::f32::consts::TAU * 2.0).sin());
-        Living {
-            x: from + (to - from) * ease(t),
-            pose: Pose {
-                stride: Some(phase),
-                bob: (phase * std::f32::consts::TAU).sin().abs() * figure_h * 0.035,
-                facing,
-                squash: 1.0 - 0.03 * (phase * std::f32::consts::TAU * 2.0).cos().max(0.0),
-                lean,
-            },
-            stance: None,
-            using: None,
-            loaded,
-        }
+        walking(from, to, (since, length), pace, loaded, figure_h)
     };
     // Just arrived: the coat swings on past the stop and settles back.
     let arrived = |life: Living, since: f32, facing: f32| Living {
@@ -579,6 +610,10 @@ pub fn living(
             };
             let breathe = (seconds * 1.7 + (seed % 100) as f32 * 0.07).sin();
             let pace = item.look.map_or(1.0, |look| Age::of(&look).pace());
+            // In a scene: where it has them, as it has them.
+            if let Some(cast) = staged.and_then(|staged| staged.person(spot.index)) {
+                return cast.living(breathe, pace, figure_h);
+            }
             // Walking over to where a turn put them.
             if let Some((old_stage, old_snapshot, progress)) = before {
                 if let Some(old) = old_stage.person(item.id, old_snapshot) {
@@ -678,6 +713,9 @@ pub fn living(
                 || at_fixture
                 || what.with.is_some()
                 || daylight == Daylight::Night
+                // While a scene plays, everyone else stays where they are,
+                // so its cast is staged clear of them.
+                || staged.is_some()
             {
                 return still;
             }
@@ -732,6 +770,72 @@ pub(super) fn footprints(
             super::living_stage::footprint(spot.x, spot.y, w, h)
         })
         .collect()
+}
+
+/// The ground of a stage someone can stand on: what every building and
+/// thing on it covers.
+pub(super) struct Ground {
+    width: f32,
+    footprints: Vec<(f32, f32, f32, f32)>,
+    /// Each building's foot and size: (x, base, width, height).
+    boxes: Vec<(f32, f32, f32, f32)>,
+    /// Each thing, props too: (item, x, base, width).
+    things: Vec<(usize, f32, f32, f32)>,
+}
+
+impl Ground {
+    pub(super) fn of(stage: &Stage, snapshot: &ProjectionSnapshot) -> Self {
+        let setting = art::Setting::from_key(snapshot.canvas.setting.as_deref());
+        Self {
+            width: stage.width,
+            footprints: footprints(stage, snapshot),
+            boxes: stage
+                .buildings
+                .iter()
+                .map(|spot| {
+                    let (w, h) = super::building_size(stage, snapshot, spot, setting);
+                    (spot.x, spot.y, w, h)
+                })
+                .collect(),
+            // Every thing, props too: a pool's rail, a pier, a cart. Nobody
+            // is stood on one.
+            things: stage
+                .things
+                .iter()
+                .map(|spot| {
+                    let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
+                    (spot.index, spot.x, spot.y, w)
+                })
+                .collect(),
+        }
+    }
+
+    /// Every building's footprint (left, back, right, front).
+    pub(super) fn footprints(&self) -> &[(f32, f32, f32, f32)] {
+        &self.footprints
+    }
+
+    /// Open ground for someone `p` tall with their feet at (`x`, `y`): in
+    /// no building's footprint, nor standing at or behind a building's foot
+    /// where its picture is (they would read as on its wall), nor in a
+    /// thing standing at their depth (but `own`, the thing they use).
+    pub(super) fn open(&self, x: f32, y: f32, p: f32, own: usize) -> bool {
+        let body = p * 0.25;
+        x > body
+            && x < self.width - body
+            && self
+                .footprints
+                .iter()
+                .all(|footprint| !super::living_stage::inside(*footprint, x, y))
+            && self.boxes.iter().all(|(bx, by, w, h)| {
+                (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
+            })
+            && self.things.iter().all(|(index, tx, ty, tw)| {
+                *index == own
+                    || (x - tx).abs() >= tw / 2.0 + body * 0.6
+                    || (y - ty).abs() >= p * 0.45
+            })
+    }
 }
 
 /// How far apart, in figure heights, two people sit side by side on a
@@ -877,44 +981,8 @@ pub(super) fn at_their_stops(
             }
         })
     };
-    // Open ground for someone `p` tall with their feet at (`x`, `y`): in no
-    // building's footprint, nor standing at or behind a building's foot
-    // where its picture is (they would read as on its wall), nor in a thing
-    // standing at their depth.
-    let boxes = stage
-        .buildings
-        .iter()
-        .map(|spot| {
-            let (w, h) = super::building_size(stage, snapshot, spot, setting);
-            (spot.x, spot.y, w, h)
-        })
-        .collect::<Vec<_>>();
-    // Every thing, props too: a pool's rail, a pier, a cart. Nobody is
-    // stood on one.
-    let things_at = stage
-        .things
-        .iter()
-        .map(|spot| {
-            let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
-            (spot.index, spot.x, spot.y, w)
-        })
-        .collect::<Vec<_>>();
-    let open = |x: f32, y: f32, p: f32, own: usize| {
-        let body = p * 0.25;
-        x > body
-            && x < stage.width - body
-            && footprints
-                .iter()
-                .all(|footprint| !super::living_stage::inside(*footprint, x, y))
-            && boxes.iter().all(|(bx, by, w, h)| {
-                (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
-            })
-            && things_at.iter().all(|(index, tx, ty, tw)| {
-                *index == own
-                    || (x - tx).abs() >= tw / 2.0 + body * 0.6
-                    || (y - ty).abs() >= p * 0.45
-            })
-    };
+    let ground = Ground::of(stage, snapshot);
+    let open = |x: f32, y: f32, p: f32, own: usize| ground.open(x, y, p, own);
     for (thing, mut members) in by_thing {
         let spot = *stage
             .things
@@ -1417,6 +1485,8 @@ pub struct PersonPaint {
     /// The thing (an item index) they stand behind, keeping it: drawn over
     /// them wherever people are painted over the still layers.
     pub behind: Option<usize>,
+    /// How a scene has them hold themselves over their stance.
+    pub posture: Option<super::staging::Posture>,
 }
 
 /// A baby out and about is carried: in the arms of a grown-up from their
@@ -2047,7 +2117,7 @@ pub(super) fn paint_person_ground(
     let t = frame.seconds;
     let night = frame.daylight == Daylight::Night;
     let (across, high) = sun_at(frame.hour);
-    let day = sun_out(frame.weather) && high > 0.02 && !night;
+    let day = sun_out(frame.shown_weather()) && high > 0.02 && !night;
     let long = 0.22 + 0.9 * (1.0 - high.max(0.0)).powi(2);
     let away = if across < 0.0 { 1.0 } else { -1.0 };
     let (x, y) = (ox + person.x, oy + person.y);
@@ -2110,7 +2180,10 @@ pub(super) fn paint_person_body(
             person.pose.facing,
         );
     }
+    use super::staging::Posture;
+    let hammering = person.posture == Some(Posture::Hammering) && person.pose.stride.is_none();
     let (stance, pose) = match (person.stance, person.beat) {
+        _ if hammering => (Stance::Working, person.pose),
         (Stance::Dancing, beat) => dance(beat.unwrap_or(0), person.pose, person.height),
         (stance, _) => (stance, person.pose),
     };
@@ -2119,17 +2192,34 @@ pub(super) fn paint_person_body(
         .zip(person.drawing.as_ref())
         .filter(|_| stance == Stance::Sitting)
         .map(|(seat, drawing)| seated(drawing, seat, person.figure.bird));
+    // Arms folded, or hands on hips: their own arms, put another way.
+    let postured = person
+        .posture
+        .filter(|_| person.pose.stride.is_none() && !person.figure.bird)
+        .zip(person.drawing.as_ref())
+        .and_then(|(posture, drawing)| postured(drawing, posture));
+    let stance = if postured.is_some() {
+        Stance::Standing
+    } else {
+        stance
+    };
     age::paint_person(
         &mut tinted,
         x,
         y,
         person.height,
         &person.figure,
-        on_bench.as_ref().or(person.drawing.as_ref()),
+        postured
+            .as_ref()
+            .or(on_bench.as_ref())
+            .or(person.drawing.as_ref()),
         stance,
         person.mood,
         pose,
     );
+    if hammering && !person.figure.bird {
+        paint_hammer(&mut tinted, person, (x, y));
+    }
     if stance == Stance::Carrying && !person.figure.bird {
         paint_load(&mut tinted, frame.setting, person, (x, y));
     }
@@ -2144,6 +2234,127 @@ pub(super) fn paint_person_body(
             person.pose.bob,
             baby,
             &person.figure,
+        );
+    }
+}
+
+/// `drawing` holding itself as `posture` has it, from its own parts: its
+/// standing self with the arms it works with (the parts it shows working
+/// and not standing) put another way: folded across the chest, or bent
+/// with the hands on the hips. None for a posture that is no
+/// rearrangement, or a drawing with no arms of its own to work with.
+pub(super) fn postured(drawing: &Drawing, posture: super::staging::Posture) -> Option<Drawing> {
+    use super::staging::Posture;
+    use world_projection::DrawShape;
+    if !matches!(posture, Posture::ArmsFolded | Posture::HandsOnHips) {
+        return None;
+    }
+    let arms = drawing
+        .parts
+        .iter()
+        .filter(|part| part.shows_in(Stance::Working) && !part.shows_in(Stance::Standing))
+        .cloned()
+        .collect::<Vec<_>>();
+    if arms.is_empty() {
+        return None;
+    }
+    let mut out = drawing.clone();
+    // Standing, but without the arms it stands with.
+    out.parts
+        .retain(|part| part.shows_in(Stance::Standing) && part.shows_in(Stance::Working));
+    let every = |mut part: world_projection::DrawPart| {
+        part.stances = Vec::new();
+        part.swing = 0.0;
+        part
+    };
+    for part in arms {
+        match (posture, &part.shape) {
+            // From the shoulder across the chest to the other side.
+            (Posture::ArmsFolded, DrawShape::Line { from, width, .. }) => {
+                let mut arm = part.clone();
+                arm.shape = DrawShape::Line {
+                    from: *from,
+                    to: (-from.0 * 0.62, from.1 - 0.075),
+                    width: *width,
+                };
+                out.parts.push(every(arm));
+            }
+            // The hands tucked away at the far elbow.
+            (Posture::ArmsFolded, DrawShape::Ellipse { x, y, rx, ry }) => {
+                let mut hand = part.clone();
+                hand.shape = DrawShape::Ellipse {
+                    x: -x * 2.1,
+                    y: y + 0.08,
+                    rx: *rx * 0.8,
+                    ry: *ry,
+                };
+                out.parts.push(every(hand));
+            }
+            // Out to the elbow, and back in to the hip.
+            (Posture::HandsOnHips, DrawShape::Line { from, width, .. }) => {
+                let elbow = (from.0 * 1.55, from.1 - 0.13);
+                let hip = (from.0 * 1.04, from.1 - 0.24);
+                for (a, b) in [(*from, elbow), (elbow, hip)] {
+                    let mut arm = part.clone();
+                    arm.shape = DrawShape::Line {
+                        from: a,
+                        to: b,
+                        width: *width,
+                    };
+                    out.parts.push(every(arm));
+                }
+            }
+            (Posture::HandsOnHips, DrawShape::Ellipse { x, y, rx, ry }) => {
+                let mut hand = part.clone();
+                hand.shape = DrawShape::Ellipse {
+                    x: x.signum() * (x.abs() * 2.9).min(0.4),
+                    y: y - 0.085,
+                    rx: *rx,
+                    ry: *ry,
+                };
+                out.parts.push(every(hand));
+            }
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// A hammer in a worker's hand at their front, on its `beat` of a swing:
+/// raised, coming down, struck, back up.
+fn paint_hammer(brush: &mut dyn Brush, person: &PersonPaint, (x, y): (f32, f32)) {
+    let h = person.height;
+    let f = if person.pose.facing < 0.0 { -1.0 } else { 1.0 };
+    let hand = (x + f * h * 0.16, y - h * 0.47 - person.pose.bob);
+    // From up and back over the shoulder to down at the work.
+    let angle: f32 = match person.beat.unwrap_or(0) {
+        0 => 1.35,
+        1 => 0.7,
+        2 => -0.25,
+        _ => 0.7,
+    };
+    let reach = h * 0.3;
+    let (dx, dy) = (angle.cos() * reach * f, -angle.sin() * reach);
+    let head = (hand.0 + dx, hand.1 + dy);
+    art::line(brush, hand, head, (h * 0.045).max(1.2), art::hex(0x8a6446));
+    // The head, square across the end of the handle.
+    let (nx, ny) = (-dy / reach, dx / reach);
+    let half = h * 0.07;
+    art::line(
+        brush,
+        (head.0 - nx * half, head.1 - ny * half),
+        (head.0 + nx * half, head.1 + ny * half),
+        (h * 0.075).max(2.0),
+        art::hex(0x4a4f56),
+    );
+    // A spark of the strike.
+    if person.beat == Some(2) {
+        art::circle(
+            brush,
+            head.0 + f * h * 0.04,
+            head.1 + h * 0.05,
+            h * 0.03,
+            art::hex(0xf4e2b0),
         );
     }
 }

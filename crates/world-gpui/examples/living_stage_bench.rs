@@ -48,6 +48,8 @@ struct Options {
     /// The hour held (none: through a day every forty seconds, as CI's
     /// windowed run has it).
     hour: Option<f32>,
+    /// A scene played over and over in the window (`--scene festival`).
+    scene: Option<world_projection::MomentKind>,
 }
 
 fn options() -> Options {
@@ -62,6 +64,7 @@ fn options() -> Options {
         size: (1280.0, 800.0),
         dpr: 1.0,
         hour: Some(12.0),
+        scene: None,
     };
     let mut positional = 0;
     while let Some(arg) = args.next() {
@@ -72,6 +75,7 @@ fn options() -> Options {
             "--seconds" => options.seconds = value().parse().unwrap_or(10.0),
             "--dpr" => options.dpr = value().parse().unwrap_or(1.0),
             "--hour" => options.hour = value().parse().ok(),
+            "--scene" => options.scene = Some(world_projection::MomentKind::from_id(&value())),
             "--levels" => {
                 options.levels = value()
                     .split(',')
@@ -310,15 +314,17 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
             let (snapshot, bench) = (snapshot.clone(), bench.clone());
             let until = Duration::from_secs_f32(options.seconds);
             let hour = options.hour;
+            let scene = options.scene;
             cx.open_window(
                 size(px(options.size.0), px(options.size.1)),
                 move |_, cx: &mut App| {
-                    let view = StageBench::new(
+                    let mut view = StageBench::new(
                         snapshot,
                         stage::Time::Real(Instant::now()),
                         hour,
                         Some(until),
                     );
+                    view.scene = scene;
                     *bench.borrow_mut() = Some((
                         view.stats.clone(),
                         view.done.clone(),

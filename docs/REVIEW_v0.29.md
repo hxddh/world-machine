@@ -329,6 +329,178 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 - A stranger watching a 20-second clip can say what happened (4 of 5 testers).
 - Arranged outings always play.
 
+**S3c (2026-10-14): a scene staged on the living stage.** S3a–b gave every recorded Event a `SceneScript` (who walks where, props, camera, the recorded words), worked out from the record with no model. `diorama/staging.rs` plays one on the stage the window draws.
+- *Pure.* `stage_scene(script, stage, snapshot, t)` gives who stands where (position, facing, stance, a walk under way), the props out, the camera and who is saying what. It depends on the script, the stage and `t` and nothing else: no clock, no record.
+- *Marks.* Each mark is found on the stage:
+  - a place, or a person (where their part has them, or where they stand);
+  - someone's home;
+  - beside something, a step or more to its side;
+  - off the left or right edge of the scene's first view.
+
+  A mark it cannot find falls back to the scene's place. Everyone is put on open ground, using S2d's open-ground test (now `people::Ground`). That means in no building, on no thing, behind no post in the water, and clear of the props and of each other.
+- *Walks.* A walk at the start of a scene puts them there. A later one walks with the walk cycle everyone already uses (`people::walking`), along their line, stopping beside any building in the way (`kept_out`). If they need to be somewhere for their next cue, they hurry, up to twice a stroll. If even that is too slow, they set off from nearer.
+- *Facing.* A pair a mark put together (a quarrel's two) face each other. Anyone else faces the nearest of the others, else the camera's subject.
+- *Who is staged.* A cast member with no cues of their own is not drawn. Anyone cast who is indoors at that hour is brought out (`cast_on`). Everyone else keeps their day: `living_staged` takes the scene's part for its cast.
+- *Props.* Props are drawn live in depth with everyone, by `staging::paint_prop`: scaffolding and tools, bunting, a table, a cradle, a lamp, a wreath, a ribbon, a bag, a bouquet, a bench.
+  - A prop beside someone goes where they go.
+  - A ferry, shuttle, bus or sled only comes in to the edge of the view, and goes again.
+  - None of it is baked into the looks (`bake_key` is unchanged), so a scene never re-bakes the place.
+  - Rain from `Weather(Rain)` falls from its cue to the end of the scene, over a frame whose World weather is clear (`Frame::shown_weather`).
+- *Camera.* The camera eases over 1.2 s from one camera cue's view to the next, and follows a person it is on. A script's zoom maps to the window's as zoom + 0.2, from 1 to 2.2, so a long harbour never folds into a postcard mid-scene. On a building further back, the view rises to take in its roof, with the people still above the card.
+- *Tests* (`diorama/staging_tests.rs`, all on pinned clocks):
+  - positions at the start, middle and end of an arrival, a quarrel, a festival, a build, a birth, a farewell and a storm;
+  - the cast in view at each camera cue;
+  - `nobody_staged_is_in_a_building_or_on_a_prop`: every fixture, seven kinds, every quarter second;
+  - speech only as recorded, and none from a speaker who is not on the stage;
+  - only the cast with a part are staged;
+  - living takes the scene for the cast and the day for everyone else;
+  - a dressed frame bakes the same as an undressed one.
+
+**S3d (2026-10-14): the return film plays its scenes.**
+- *What plays.* A beat whose selection is a recorded Event asks the World once for `StoryRequest::Scene` (cached by revision and beat, asked as the beat begins).
+  - It holds for `script.seconds`.
+  - Its camera drives the film's camera, eased by the glide as it lands and then directly.
+  - Its cast stands and walks where it has them, with its props around them.
+  - Its Say cues are the speech bubbles, over whoever said them.
+  - The card's caption is as before.
+- *Unchanged.* A beat with no scene (no Event, or one the World stages nothing for) plays exactly as before: `BEAT_SECONDS`, the camera on `beat_box`, the beat's voice.
+- *What the player sees.* After a while away, each beat shows the event happening:
+  - the ferry comes in at the edge, someone walks off it with a bag, and the neighbours wave;
+  - two talk face to face, and one walks off home;
+  - bunting and a table go up, and everyone walks in and dances;
+  - scaffolding stands round the work, everyone works, and it comes down to a cheer;
+  - rain falls, and everyone hurries home while a lamp is lit.
+- *Tests* (`window/scene_film_tests.rs`):
+  - every beat with a scene plays it and lasts `script.seconds`, an arranged outing included; beats without one last `BEAT_SECONDS`; each scene is asked for once;
+  - in the window, a scene holds its beat past a beat's while, and the film goes on after the scene's length;
+  - only the scene's recorded words are heard.
+
+  The beat clocks are set, never waited on. A test-only `beat_clock` pins how far into a beat the pictures are.
+- *Numbers.* Headless `living_stage_bench -- window --dpr 2 --hour 12`, 30 s, 1100x848, day 1,082, three cores. Without a scene: plan p99 0.54 ms. With a festival or an arrival playing (new `--scene <kind>`, looped): p99 0.51–0.55 ms, mean 0.25 ms. With a quarrel (zoom 2): p99 0.54 ms. No interval was over 33 ms. The bar of 4 ms is met with room to spare.
+- *Pictures (for the art director, not goldens).* `WORLD_GPUI_SCENES=dir cargo test -p world-gpui -- --ignored scene_pictures` writes the start, middle and end of each of the seven kinds on the day-1,082 harbour in the World window, and a six-frame strip of one whole festival beat. They are drawn through the reference rasteriser, so there is no text. No golden picture changed, and `replayed-state.digest` was not touched.
+- *Left.*
+  - Someone who has left the World (the one who goes at a farewell long ago) is not on the canvas, so is not staged.
+  - Rain does not darken the light, only streaks.
+  - The capture's bubbles and card have no words.
+  - A "Play this" control on a moment's page is not added.
+  - Art review of the props on a real device.
+
+**S3c/S3d round 2 (2026-10-14): the art director's NO, answered.** Arrival and Farewell passed the stranger test. Festival and Birth half read. Quarrel, Build and Storm failed.
+- *Storm.*
+  - It now reads as a storm. The sun and blue sky go behind a cloud deck (`staging::paint_overcast`, drawn live over the sky's pictures and under the hills), and the gulls go.
+  - The light is cooled and dimmed (a cool wash, never grey: the art bible's §4). The rain is heavy streaks that read at the window's zoom, and the ground by the water is wet. The scene's lamp glows through all of it.
+  - All of this comes from the scene's weather (`Frame::shown_weather`, `scene_storm`) on the live layers. No look is baked again.
+  - It sets in over 1.5 s. There is no lightning flash over a scene's storm.
+  - Everyone hurries home (1.6x a walk) and goes in at their door. Someone gone in is drawn by nobody (`Staged::indoors`).
+- *Quarrel.*
+  - The two stand a clear gap apart, facing each other, cross (`Mood::Cross`, where the face shows mood).
+  - One walks home and goes in. If home is too far to reach, they walk well away.
+  - Nobody stands on the planter.
+- *Build.*
+  - The scaffolding stands round what is going up, at its own foot: a thing's or a building's.
+  - The tools lean against the scaffolding at its foot.
+  - The workers stand on that same ground.
+  - The sample (the bench's and the pictures') builds the thing on the people's ground with the most room about it.
+- *Overlaps.*
+  - Everyone the scene stages, and every prop, is put on the nearest open ground. That is ground clear of buildings' feet and faces, of every thing on the people's ground (taken at its depth: someone may stand a step in front of a planter, never on it), of the posts in the water, and of each other. It is tried on the people's line and a step or two in front of it.
+  - Two of the cast stand at least a body's width apart unless a cue puts one right up against the other (`APART`).
+  - Nobody of the town is stood on.
+  - Everyone else is held where their day has them while the scene plays (no errands, no strolls), so the scene's blocking stays clear of them.
+  - Bunting's poles stand on open ground, never on a boathouse door or a tide gauge, and whoever is nearer stands in front of them.
+  - Someone walking a distance goes along a near lane in front of whoever stands about, unless a building stands out into it. Then they keep to whichever line is clear, so no walk ever crosses a building's ground. A building that blocks the way stops them at the nearest open ground this side of it.
+  - Someone who could not be there in time, or could not get there at all, sets off from nearer.
+  - Someone who walks off the edge of the view is gone, not left standing there.
+- *Camera.*
+  - A festival's camera comes in at 1.5 s, not 5 s, in the template (`chronicle::scene`) and the sample.
+  - The ferry rides lower in the water, its cabin below the quay's edge.
+  - The return film's card docks once a beat and stays put (`Looking::film_dock`).
+- *Birth.* The neighbours cheer at 5.5 s, so the middle and the end differ. This is in the template too.
+- *The parcel on the quay steps* is no leftover of staging. It is the World's own "Bread crates for the hotel" (an order, `MarkShape::Parcel`) in the day-1,082 fixture. It is left as it is.
+- *Tests.*
+  - `nobody_staged_is_in_a_building_or_on_a_prop` now runs every fixture at 11 and at 14 o'clock, every quarter second. It checks:
+    - nobody's feet in a building, at any moment of a walk;
+    - nobody standing on a prop, on a thing, or on anyone of the town;
+    - the cast a body's width apart unless paired by a cue;
+    - every prop that stands on the ground, and bunting's poles, on open ground and not on a thing.
+  - The quarrel test checks the gap, the facing, the moods, and the one who goes home going in.
+  - The build test checks one work site: the tools against the scaffolding, at its foot, on the people's ground, and the workers by it.
+  - The storm test checks that it sets in and that people go in.
+- *Pictures.* `scratchpad/v030/s3c/r2/` has the seven kinds at start, middle and end, plus a festival strip and a storm strip.
+- *Numbers.* The blocking is worked out every frame. With a festival, a storm or a quarrel playing, the headless `living_stage_bench -- window --dpr 2 --hour 12 --scene <kind>` (20 s, day 1,082, three cores) has plan p99 0.62–0.63 ms and mean 0.31 ms (round 1: 0.51–0.55 ms). No interval was over 33 ms. The 4 ms bar is still met.
+- *Left.*
+  - The arrival's ferry, at the left edge, can still sit under the card when the card docks left.
+  - The camera follows a leaver to where they leave, so the waiting ferry can end up under the card.
+  - A real-device look at the cross faces, which are small at this zoom.
+
+**S3c/S3d round 3 (2026-10-15): the art director's second NO, answered.** Arrival, Festival and Storm passed the stranger test. Farewell, Build and Birth half passed, and Quarrel failed.
+- *Farewell (blocker 1).*
+  - The one leaving walks along the shore to the ferry waiting at the edge of the view, steps down onto its deck (`Blocking::board`) and waves from it. The ferry sails at 7.4 s, with them aboard.
+  - The camera stays on the place all through. The template no longer follows the leaver, so the ferry stays at the edge of the view and does not slide under the card.
+  - A ferry, shuttle, bus or sled now comes all the way into the view (`TRANSPORT_IN`). A shuttle, bus or sled is walked up to and gone into, not stood on.
+- *The card (blockers 1 and 5).*
+  - A return beat's card now docks once for the whole scene (`world_window::scene_dock`). It takes whichever of centre, left and right covers least of the scene. That is counted over everyone the scene stages and every prop it shows, wherever its camera has them, every half second of the scene.
+  - It depends only on the scene, the stage and the window. So it is the same however far into the beat the window is first drawn.
+  - The card jumping across the storm strip had two causes:
+    - Each frame was docked by the crowd at that moment.
+    - The pictures staged the scene on a stage taller than the window's. The window's stage sits under its gauges (`CHROME`).
+  - Both are fixed: the dock comes from the whole scene, and the pictures now use the window's stage.
+- *Quarrel (blocker 2).* It is now in the body, from each Pack drawing's own parts (`people::postured`). No Pack art was added and the Pack-name ratchet is unchanged.
+  - One squares up, hands on hips. The other folds their arms. Neither shows the open hand of talking.
+  - Just before going, the one leaving turns their back. They then stomp off: quick hard steps leaning forward, 1.5x a brisk walk (`Posture::Stomping`).
+  - The one left behind folds their arms and turns away from where the other went.
+  - The camera comes in as close as it goes (template zoom 2.0).
+  - The postures are carried as `StagedPerson::posture`, then `Dress::postures`, then `PersonPaint::posture`. `PoseKey` includes the posture, so a cached sprite is never the wrong pose.
+- *Build (blocker 3).*
+  - The scaffolding's whole span, ladder included (`staging::scaffold_span`), must be open ground. It must be clear of every thing but the one it surrounds, of every prop and of the posts in the water.
+  - Where it cannot stand round the work like that, it stands on the nearest open ground along the line.
+  - The sample picks a build site where it fits.
+  - The tools lean against it, outside where that is clear, otherwise just inside.
+  - Each worker who is working swings a hammer in four beats (`Posture::Hammering`, `people::paint_hammer`), each worker on their own beat.
+- *Storm (4).*
+  - The full-frame wash is gone. The sky darkens (`paint_overcast`, and a wash down to the horizon), and the land only cools a little (6%). It stays close to its day value, in line with the art bible's §4.
+  - The lamp is lit on the place, where the camera is (template: beside the place). Its glow is a warm pool round it and on the ground beneath it, and reads at the window's zoom.
+  - The stones by the water are wet and shine.
+  - Everyone of the town out in the view starts for home a moment after the rain comes (`Blocking::take_shelter`), as does the cast. Anyone a building stops short goes in under its cover. Nobody stands out in it at the end.
+- *Birth (6).*
+  - The parent stands, rather than carrying a crate, and the cradle is right at their side on their own line. If there is no room for it there, the parent stands at the nearest spot that has room (`Blocking::room_beside`).
+  - Nobody stands right in front of the cradle.
+  - The camera is closer: 1.6 at the start, then 2.0 on the parent.
+- *Openings (7).*
+  - Arrival opens at 1.4 and Festival at 1.2. Festival then closes in to 1.6.
+  - The arrival's camera comes in on the place rather than following the newcomer, so the ferry stays at the edge.
+  - Whoever stands off the edge at the start stands on no thing out there.
+- *Camera.* The view is framed on the nearest line anyone in the scene stands on, so the cast stays above the card's band where the stage allows.
+- *Templates.* `chronicle::scene` and the sample changed together:
+  - arrival zoom and camera;
+  - quarrel zoom;
+  - festival zooms;
+  - birth parent, cradle and zooms;
+  - farewell camera and when the ferry sails;
+  - storm lamp.
+- *Tests.*
+  - `a_quarrel_is_in_how_they_stand`, `a_cradle_has_its_parent_beside_it_all_through` (at 11 o'clock on the tests' stage and at 14 on the window's), `a_farewell_ends_aboard_the_ferry` and `a_storm_leaves_the_quay_empty` (every fixture).
+  - The build test now checks that someone is hammering.
+  - `nobody_staged_is_in_a_building_or_on_a_prop` now checks the scaffolding's full span against every thing (except the one it surrounds) and every post, in every fixture at both hours.
+  - In `window/scene_film_tests.rs`:
+    - `the_card_keeps_clear_of_each_scene_at_every_camera_cue`: on the window's stage, at 11 and 14 o'clock, for all seven kinds. At each camera cue and at the end, the camera's subject (or else whom the scene is about) and every prop it shows are outside the card's rect.
+    - `a_beat_card_stands_still_through_its_scene`: the storm beat's card is in the same place at seven moments, each docked afresh.
+- *Pictures.* `scratchpad/v030/s3c/r3/` has the seven kinds at start, middle and end, plus the festival and storm strips.
+- *Numbers.* Headless `living_stage_bench -- window --dpr 2 --hour 12 --seconds 20 --scene <kind>` on day 1,082 with the release build:
+
+  | Scene playing | Plan p99 | Plan mean |
+  |---|---|---|
+  | Festival | 0.66 ms | 0.32 ms |
+  | Storm (now with the town's walks home) | 0.65 ms | 0.33 ms |
+  | Quarrel | 0.67 ms | 0.33 ms |
+
+  Round 2 was 0.62–0.63 ms. No interval was over 33 ms, so the 4 ms bar is still met.
+  - The bench does not measure the beat's dock. It is worked out once a beat, on the beat's first frame, and stages the scene about 17 times. It is not timed here.
+- *Left.*
+  - At the festival's dance, on the window's stage, the nearest dancer's legs reach into the card's band. At that zoom the camera cannot go any lower on the stage. The dock picks the side that covers fewest, and the test checks only the subject and the props.
+  - The faces are still small at the window's zoom. The quarrel now reads from posture, but it still needs a look on a real device.
+  - The hammer's swing has four steps, so it is a little jerky.
+  - The scaffolding stands at the build site, around the thing being built only when it fits there. Elsewhere it stands on open ground beside the work.
+
 ### S4. One day a day
 
 - The town's day follows the real day, or follows each sitting, by the owner's choice (decision 2).

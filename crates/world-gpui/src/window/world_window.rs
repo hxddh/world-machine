@@ -60,7 +60,7 @@ pub(crate) fn pace(visible: bool, active: bool, still: bool) -> Pace {
 /// How long each thing someone says stays over them, and how long a beat
 /// of a return plays before the next.
 const LINE_SECONDS: f32 = 4.6;
-const BEAT_SECONDS: f32 = 5.2;
+pub(super) const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How many letters the drawer shows, newest first.
 pub(crate) const LETTERS_SHOWN: usize = 12;
@@ -398,6 +398,9 @@ pub(crate) enum Caret {
     Left,
 }
 
+/// The scene a return beat plays, as the World staged it.
+pub(crate) type BeatScene = std::rc::Rc<world_projection::SceneScript>;
+
 /// Presentation state: what the player is looking at, never what the
 /// World is.
 #[derive(Default)]
@@ -419,6 +422,19 @@ pub(crate) struct Looking {
     pub(crate) asking: Option<SelectionId>,
     pub(crate) answered: Option<(usize, Instant)>,
     pub(crate) beat_at: Option<Instant>,
+    /// The scene the return film's beat plays, asked for once a beat (by
+    /// the World's revision and the beat's index): none for a beat that is
+    /// no recorded Event, or one the World stages no scene for.
+    pub(crate) scene: Option<((u64, usize), Option<BeatScene>)>,
+    /// The World as that scene draws it ([`diorama::staging::scene_snapshot`]),
+    /// made once with it: none when it is the World as it stands.
+    pub(crate) scene_world: Option<std::rc::Rc<ProjectionSnapshot>>,
+    /// Where the return film's card docked for a beat, kept through it.
+    pub(crate) film_dock: Option<((u64, usize), Dock)>,
+    /// A test's clock for the beat: how far into it, whatever the wall
+    /// clock says.
+    #[cfg(test)]
+    pub(crate) beat_clock: Option<f32>,
     /// The camera's glide toward what it is sent to look at.
     pub(crate) glide: Glide,
     pub(crate) focus: Option<gpui::FocusHandle>,
@@ -2095,7 +2111,7 @@ impl ProjectionView {
     }
 
     /// Where the camera is now, moving toward where it was last sent.
-    fn camera(&mut self, stage: &Stage, window: &Window) -> Camera {
+    fn camera(&mut self, stage: &Stage, window: &Window, scene: Option<Camera>) -> Camera {
         let whole = Camera::whole(stage);
         // Whoever was being talked to is put away (Esc, the close button,
         // the drawer, a page): the camera stays where it is, never jumping
@@ -2110,11 +2126,15 @@ impl ProjectionView {
         } else if self.looking.asking.is_some() && self.current_beat().is_none() {
             self.looking.held = self.looking.camera_now.or(Some(whole));
         }
-        // A return looks at whatever its beat is about.
-        let target = self
-            .current_beat()
-            .and_then(|beat| beat_box(&self.snapshot, stage, beat))
-            .map(|subject| Camera::on(stage, subject))
+        // A return looks where its beat's scene looks, or else at
+        // whatever its beat is about.
+        let target = scene
+            .filter(|_| self.current_beat().is_some())
+            .or_else(|| {
+                self.current_beat()
+                    .and_then(|beat| beat_box(&self.snapshot, stage, beat))
+                    .map(|subject| Camera::on(stage, subject))
+            })
             // Talking to someone, the camera moves in on them.
             .or_else(|| {
                 let who = self.looking.asking?;
@@ -2647,6 +2667,9 @@ impl ProjectionView {
                     .arrived(Bound::Beat(index), Instant::now())
             });
         let film_painted = diorama::view_painted(window) && arrived;
+        // A beat that is a recorded Event plays its scene, for as long as
+        // the scene plays; any other beat is told for a beat's while.
+        let beat_seconds = self.beat_seconds();
         if self.retelling.is_some() {
             if self.looking.beat_at.is_none() || !film_painted {
                 self.looking.beat_at = Some(Instant::now());
@@ -2658,7 +2681,7 @@ impl ProjectionView {
                 // never came).
                 window.request_animation_frame();
             }
-            if since(self.looking.beat_at) > BEAT_SECONDS {
+            if self.beat_clock() > beat_seconds {
                 self.step_retelling(cx);
             }
         }
@@ -2746,7 +2769,42 @@ impl ProjectionView {
         let daylight = scene::daylight_now();
 
         let film_painted = self.keep_books(window, &stage, cx);
-        let camera = self.camera(&stage, window);
+        // The beat's scene, as far in as its clock (held at its start until
+        // the camera is there and the place painted): its cast put on the
+        // stage where it has them, everyone else about their day.
+        // With Reduce Motion on, it is held at one moment, its payoff in
+        // view: nobody walks, no camera glides, no prop fades in jumps a
+        // few frames a second. The beat still lasts as long as its scene.
+        let scene_world = self.scene_world();
+        let staged = self.played_scene().map(|script| {
+            let world = scene_world.as_deref().unwrap_or(&self.snapshot);
+            if still {
+                diorama::staging::stage_still(&script, &stage, world)
+            } else {
+                let t = self.beat_clock().min(script.seconds);
+                diorama::staging::stage_scene(&script, &stage, world, t)
+            }
+        });
+        // A return beat's card docks once for the whole of its scene, clear
+        // of what the scene is about all through it.
+        if let (Some(index), Some(script)) = (self.retelling, self.played_scene()) {
+            let key = (self.revision, index);
+            if self.looking.film_dock.is_none_or(|(at, _)| at != key) {
+                let room = width
+                    - if self.looking.drawer {
+                        DRAWER_WIDTH
+                    } else {
+                        0.0
+                    };
+                let world = scene_world.as_deref().unwrap_or(&self.snapshot);
+                let dock = scene_dock(&script, &stage, world, (room, height));
+                self.looking.film_dock = Some((key, dock));
+            }
+        }
+        if let Some(staged) = &staged {
+            stage = diorama::staging::cast_on(&stage, staged);
+        }
+        let camera = self.camera(&stage, window, staged.as_ref().and_then(|s| s.camera));
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
@@ -2791,6 +2849,13 @@ impl ProjectionView {
         } else if let Some((who, text, age)) = self.favour_line() {
             let length = LINE_SECONDS * speech_pages(&text).len() as f32;
             Some((who, text, age, true, length))
+        } else if let Some(staged) = staged.as_ref().filter(|_| self.retelling.is_some()) {
+            // A scene says only what its script records, by whoever said it.
+            staged
+                .bubble
+                .clone()
+                .filter(|_| film_painted)
+                .map(|(who, text, age)| (who, text, age, true, f32::MAX))
         } else if self.retelling.is_some() {
             beat_voice.filter(|_| film_painted).map(|voice| {
                 (
@@ -2885,22 +2950,26 @@ impl ProjectionView {
                 since(self.looking.turn_at) / diorama::WALK_SECONDS,
             )
         });
-        let mut living = diorama::living(
+        // Everyone drawn as the scene has them look, and whoever of its
+        // cast has since gone drawn too: the World as the scene draws it.
+        let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
+        let mut living = diorama::living_staged(
             &stage,
-            &self.snapshot,
+            drawn,
             seconds,
             daylight,
             &pinned,
             before
                 .as_ref()
                 .map(|(stage, snapshot, progress)| (stage, *snapshot, *progress)),
+            staged.as_ref(),
         );
         let poked = self
             .looking
             .poked
             .map(|(who, at)| [(who, at.elapsed().as_secs_f32())].into_iter().collect())
             .unwrap_or_default();
-        diorama::wave(&mut living, &stage, &self.snapshot, &poked, still);
+        diorama::wave(&mut living, &stage, drawn, &poked, still);
         let grew = self
             .before_turn
             .as_ref()
@@ -2911,7 +2980,7 @@ impl ProjectionView {
             1.0
         };
         let mut frame = diorama::frame(
-            &self.snapshot,
+            drawn,
             &stage,
             &living,
             camera,
@@ -2921,6 +2990,9 @@ impl ProjectionView {
             rising,
         )
         .stilled(still);
+        if let Some(staged) = &staged {
+            frame = frame.dressed(staged.dress());
+        }
         // Where the camera is going: its look is baked ahead.
         if let Some(to) = self.looking.glide.to {
             frame = frame.heading_to(to);
@@ -2952,14 +3024,9 @@ impl ProjectionView {
         }
         // Whoever is speaking is drawn talking.
         if let Some((speaker, ..)) = &line {
+            let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
             for person in &mut frame.people {
-                if self
-                    .snapshot
-                    .canvas
-                    .items
-                    .get(person.index)
-                    .map(|item| item.id)
-                    == Some(*speaker)
+                if drawn.canvas.items.get(person.index).map(|item| item.id) == Some(*speaker)
                     && person.stance != world_projection::Stance::Walking
                 {
                     person.stance = world_projection::Stance::Talking;
@@ -2968,8 +3035,9 @@ impl ProjectionView {
         }
         // Everyone nearby turns to whoever is speaking.
         if let Some((speaker, _, fade, _)) = &line {
-            if let Some(index) = self
-                .snapshot
+            if let Some(index) = scene_world
+                .as_deref()
+                .unwrap_or(&self.snapshot)
                 .canvas
                 .items
                 .iter()
@@ -3131,15 +3199,20 @@ impl ProjectionView {
         );
         // Named on hover, or while speaking; never two names over one
         // another, and none before the scene is painted.
+        let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
         let speaker_x = line.as_ref().and_then(|(who, ..)| {
             frame
                 .people
                 .iter()
-                .find(|person| self.snapshot.canvas.items[person.index].id == *who)
+                .find(|person| {
+                    drawn.canvas.items.get(person.index).map(|item| item.id) == Some(*who)
+                })
                 .map(|person| person.x)
         });
         for (person, reach) in frame.people.iter().zip(reach) {
-            let item = &self.snapshot.canvas.items[person.index];
+            let Some(item) = drawn.canvas.items.get(person.index) else {
+                continue;
+            };
             let selection = item.id;
             let group = SharedString::from(format!("person-{}", selection.stable_key()));
             let speaking = line.as_ref().is_some_and(|(who, ..)| *who == selection);
@@ -3148,6 +3221,11 @@ impl ProjectionView {
                 painted && !speaking && speaker_x.is_none_or(|x| (x - person.x).abs() > NAME_ROOM);
             heads.push((selection, person.x, person.y - person.height * 1.08));
             bodies.push((selection, person.x, person.y - person.height, person.y));
+            // Someone a scene brings back who is gone from the World now:
+            // drawn, and spoken over, but nobody to ask anything.
+            if person.index >= self.snapshot.canvas.items.len() {
+                continue;
+            }
             root = root.child(
                 div()
                     .id(SharedString::from(format!(
@@ -3438,8 +3516,24 @@ impl ProjectionView {
                     .find_map(|who| heads.iter().find(|(id, ..)| id == who))
                     .map(|(_, x, _)| *x)
                     .filter(|_| self.retelling.is_none());
+                // A return beat's card stays where it first docked for the
+                // whole beat, however its scene's people move.
+                let dock = match self.retelling {
+                    Some(index) => {
+                        let key = (self.revision, index);
+                        match self.looking.film_dock {
+                            Some((at, dock)) if at == key => dock,
+                            _ => {
+                                let dock = card_dock(room, asker_x, &crowd);
+                                self.looking.film_dock = Some((key, dock));
+                                dock
+                            }
+                        }
+                    }
+                    None => card_dock(room, asker_x, &crowd),
+                };
                 root = root.child(
-                    bottom_card(card, card_dock(room, asker_x, &crowd))
+                    bottom_card(card, dock)
                         .when(self.looking.drawer, |card| card.right(px(DRAWER_WIDTH))),
                 );
             }
@@ -4691,10 +4785,17 @@ impl ProjectionView {
             } else {
                 0.0
             };
+        let film = self.retelling.and_then(|index| {
+            self.looking
+                .film_dock
+                .filter(|(at, _)| *at == (self.revision, index))
+                .map(|(_, dock)| dock)
+        });
         let (from, to) = if is_beginning(&self.snapshot) {
             (0.0, width)
         } else {
-            card_dock(room, asker_x, crowd).span(room)
+            film.unwrap_or_else(|| card_dock(room, asker_x, crowd))
+                .span(room)
         };
         let tall = self.card_room();
         areas.push(Area {
@@ -5574,6 +5675,126 @@ pub(crate) fn card_dock(width: f32, asker_x: Option<f32>, crowd: &[(f32, f32)]) 
     best
 }
 
+/// How tall the return film's card stands at the foot of the stage,
+/// generously (it is a caption and a button or two).
+pub(crate) const FILM_CARD_ROOM: f32 = 200.0;
+
+/// The card's three places on a stage `width` wide: centred, and docked
+/// to either side clear of the middle.
+fn docks(width: f32) -> [Dock; 3] {
+    let full = (CARD_WIDTH * crate::text_scale().sqrt()).min(width - CARD_MARGIN * 2.0);
+    let side = |side| Dock {
+        side,
+        w: full.min(width / 2.0 - CARD_CLEAR),
+    };
+    [
+        Dock {
+            side: DockSide::Centre,
+            w: full,
+        },
+        side(DockSide::Left),
+        side(DockSide::Right),
+    ]
+}
+
+/// The screen rect (left, top, right, bottom) of the film's card docked
+/// as `dock` on a stage `width` by `height`.
+pub(crate) fn film_card_rect(dock: Dock, (width, height): (f32, f32)) -> (f32, f32, f32, f32) {
+    let (left, right) = dock.span(width);
+    (
+        left,
+        height - CARD_MARGIN - FILM_CARD_ROOM,
+        right,
+        height - CARD_MARGIN,
+    )
+}
+
+/// What of a scene, staged as `staged`, stands on screen under a card at
+/// `card` (left, top, right, bottom) on a stage `width` wide: everyone it
+/// stages and every prop it has out (but bunting, which is overhead), each
+/// by the box it is drawn in, wherever the scene's camera has them, named
+/// `person <who>` or `prop <what>`. Those off the screen are not counted.
+pub(crate) fn scene_under_card(
+    staged: &diorama::staging::Staged,
+    stage: &Stage,
+    card: (f32, f32, f32, f32),
+    width: f32,
+) -> Vec<String> {
+    let Some(camera) = staged.camera else {
+        return Vec::new();
+    };
+    let z = camera.zoom;
+    let fig = stage.figure_h * z;
+    let boxes = staged
+        .people
+        .iter()
+        .map(|person| {
+            let (x, y) = camera.at(stage, person.x, person.y);
+            (
+                format!("person {:?}", person.who),
+                (x - fig * 0.22, y - fig, x + fig * 0.22, y),
+            )
+        })
+        .chain(
+            staged
+                .props
+                .iter()
+                .filter(|prop| {
+                    prop.held_by.is_none()
+                        && !matches!(
+                            prop.prop,
+                            world_projection::Prop::Bunting | world_projection::Prop::Rain
+                        )
+                })
+                .map(|prop| {
+                    let (x, y) = camera.at(stage, prop.x, prop.y);
+                    let (w, h) = (prop.w * z, prop.h * z);
+                    (
+                        format!("prop {:?}", prop.prop),
+                        (x - w / 2.0, y - h, x + w / 2.0, y),
+                    )
+                }),
+        );
+    let (left, top, right, bottom) = card;
+    boxes
+        .filter(|(_, (x0, _, x1, _))| *x1 > 0.0 && *x0 < width)
+        .filter(|(_, (x0, y0, x1, y1))| *x1 > left && *x0 < right && *y1 > top && *y0 < bottom)
+        .map(|(what, _)| what)
+        .collect()
+}
+
+/// Where a return beat's card docks for the whole of its scene, on a
+/// stage `width` by `height`: of the centre and either side, wherever it
+/// covers least of the scene (its people and props wherever its camera
+/// has them, half a second apart all through it), the centre before a
+/// side. A function of the scene, the stage and the window alone, so the
+/// same whenever in the beat it is first asked, and steady through it
+/// (v0.30 S3c round 3: the card jumped about across a storm, and sat on a
+/// farewell's ferry).
+pub(crate) fn scene_dock(
+    script: &world_projection::SceneScript,
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    (width, height): (f32, f32),
+) -> Dock {
+    let [centre, left, right] = docks(width);
+    if width < 720.0 {
+        return centre;
+    }
+    let mut costs = [0_usize; 3];
+    let moments = (script.seconds / 0.5).ceil().max(0.0) as usize;
+    for n in 0..=moments {
+        let t = (n as f32 * 0.5).min(script.seconds);
+        let staged = diorama::staging::stage_scene(script, stage, snapshot, t);
+        for (cost, dock) in costs.iter_mut().zip([centre, left, right]) {
+            *cost += scene_under_card(&staged, stage, film_card_rect(dock, (width, height)), width)
+                .len();
+        }
+    }
+    let best = (0..3).min_by_key(|n| (costs[*n], *n)).unwrap_or(0);
+    [centre, left, right][best]
+}
+
 /// The narrowest a card at the foot of the stage is made to keep clear of
 /// people, at text size 1.
 const CARD_LEAST: f32 = 400.0;
@@ -6186,7 +6407,7 @@ mod tests {
     /// A World whose snapshot never changes, for the window tests.
     /// The place on its 1,082nd day, three years built.
     fn day_1082() -> ProjectionSnapshot {
-        crate::diorama::tests::harbour_1082()
+        crate::diorama::tests::real_1082()
     }
 
     struct Still(ProjectionSnapshot);

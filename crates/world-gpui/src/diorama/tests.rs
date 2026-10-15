@@ -396,6 +396,11 @@ fn zooming_keeps_the_point_under_the_pointer_and_stays_on_stage() {
     assert!(left.abs() < 0.01 && top.abs() < 0.01);
 }
 
+/// The three-year town, by its age (the fixture below).
+pub(crate) fn real_1082() -> ProjectionSnapshot {
+    harbour_1082()
+}
+
 /// A real harbour on day 1,082, a builder's three years on, as its
 /// Pack sends it (only what the scene draws): the composition's tests.
 pub(crate) fn harbour_1082() -> ProjectionSnapshot {

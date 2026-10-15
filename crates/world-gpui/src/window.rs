@@ -18,6 +18,8 @@ mod drawer;
 mod farewell;
 mod glide;
 mod marking;
+#[cfg(test)]
+mod scene_film_tests;
 mod stories;
 #[cfg(test)]
 mod walk;
@@ -141,6 +143,12 @@ impl ProjectionView {
         self.before_turn = None;
         self.reading.page = None;
         self.reading.back.clear();
+        // A beat's scene was asked for in the old language: asked again,
+        // its words in the new one (the World's revision is the same).
+        self.looking.scene = None;
+        self.looking.scene_world = None;
+        self.looking.film_dock = None;
+        self.beat_scene();
     }
 
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
@@ -217,6 +225,76 @@ impl ProjectionView {
         self.snapshot.briefing.as_ref()?.beats().get(index).copied()
     }
 
+    /// The scene the return film's beat plays, if the World stages one:
+    /// asked of the World once a beat, as the beat begins, and kept.
+    fn beat_scene(&mut self) -> Option<std::rc::Rc<world_projection::SceneScript>> {
+        let index = self.retelling?;
+        let key = (self.revision, index);
+        if self.looking.scene.as_ref().map(|(at, _)| *at) != Some(key) {
+            let event = match self.current_beat().and_then(|beat| beat.selection) {
+                Some(SelectionId::Event(event)) => Some(event),
+                _ => None,
+            };
+            let script = event
+                .and_then(|event| {
+                    self.controller
+                        .as_mut()?
+                        .story(world_projection::StoryRequest::Scene(event))
+                })
+                .and_then(|page| match page {
+                    world_projection::StoryPage::Scene(script) if script.seconds > 0.0 => {
+                        Some(std::rc::Rc::new(script))
+                    }
+                    _ => None,
+                });
+            // The World as it draws, made once for the whole beat.
+            self.looking.scene_world = script.as_ref().and_then(|script| {
+                match crate::diorama::staging::scene_snapshot(script, &self.snapshot) {
+                    std::borrow::Cow::Owned(world) => Some(std::rc::Rc::new(world)),
+                    std::borrow::Cow::Borrowed(_) => None,
+                }
+            });
+            self.looking.scene = Some((key, script));
+        }
+        self.played_scene()
+    }
+
+    /// The World as the scene being played draws it, when that is not the
+    /// World as it stands: its cast as they looked, and whoever of them
+    /// has since gone.
+    fn scene_world(&self) -> Option<std::rc::Rc<ProjectionSnapshot>> {
+        self.played_scene().and(self.looking.scene_world.clone())
+    }
+
+    /// How far into the beat being told: since its clock started (held at
+    /// its start until the camera is there and the place painted).
+    fn beat_clock(&self) -> f32 {
+        #[cfg(test)]
+        if let Some(clock) = self.looking.beat_clock {
+            return clock;
+        }
+        self.looking
+            .beat_at
+            .map_or(0.0, |at| at.elapsed().as_secs_f32())
+    }
+
+    /// How long the beat being told lasts: its scene's length, or a beat's
+    /// while for a beat with no scene.
+    fn beat_seconds(&mut self) -> f32 {
+        self.beat_scene()
+            .map_or(world_window::BEAT_SECONDS, |script| script.seconds)
+    }
+
+    /// The scene the beat being told plays, once asked for.
+    fn played_scene(&self) -> Option<std::rc::Rc<world_projection::SceneScript>> {
+        let index = self.retelling?;
+        self.looking
+            .scene
+            .as_ref()
+            .filter(|(at, _)| *at == (self.revision, index))
+            .and_then(|(_, script)| script.clone())
+    }
+
     /// The return film's next beat, however it is asked for (the Next
     /// button, a key, or the beat's own time running out): its clock starts
     /// again, so every beat is told for its full time.
@@ -232,6 +310,8 @@ impl ProjectionView {
             .retelling
             .map(|index| index + 1)
             .filter(|index| *index < count);
+        // Its scene asked for now, not on a frame.
+        self.beat_scene();
         cx.notify();
     }
 

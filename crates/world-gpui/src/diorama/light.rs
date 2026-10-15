@@ -504,7 +504,7 @@ pub(super) fn paint_clouds(
     let k = (height / 848.0).clamp(0.3, 1.3);
     let horizon = frame.at(0.0, frame.horizon).1;
     let sky = height * HORIZON;
-    let (clouds, cloud) = match (frame.daylight, frame.weather) {
+    let (clouds, cloud) = match (frame.daylight, frame.shown_weather()) {
         (Daylight::Night, _) => (4, art::hex(0x9aa4c8).opacity(0.14)),
         (_, Weather::Clear) => (4, gpui::white().opacity(0.78)),
         (_, Weather::Cloudy) => (7, art::hex(0xe4e8ec).opacity(0.88)),
@@ -515,8 +515,8 @@ pub(super) fn paint_clouds(
     };
     // Lit from below by a low sun.
     let cloud = match frame.daylight {
-        Daylight::Dusk if sun_out(frame.weather) => mix(cloud, art::hex(0xffc4a8), 0.45),
-        Daylight::Dawn if sun_out(frame.weather) => mix(cloud, art::hex(0xffe0cc), 0.35),
+        Daylight::Dusk if sun_out(frame.shown_weather()) => mix(cloud, art::hex(0xffc4a8), 0.45),
+        Daylight::Dawn if sun_out(frame.shown_weather()) => mix(cloud, art::hex(0xffe0cc), 0.35),
         _ => cloud,
     };
     let cloud = crate::setting::cloud_ink(frame.setting, cloud, art::hex(frame.scenery.far));
@@ -547,7 +547,7 @@ pub(super) fn paint_clouds(
             cloud,
         );
     }
-    if !night && sun_out(frame.weather) && frame.setting.has_gulls() {
+    if !night && sun_out(frame.shown_weather()) && frame.setting.has_gulls() {
         for gull in 0..3 {
             let span = width + 200.0;
             let x = ox + ((gull as f32 * 417.0 + t * (18.0 + gull as f32 * 5.0)) % span) - 100.0;
@@ -568,7 +568,7 @@ pub(super) fn paint_clouds(
 pub(super) fn wind(frame: &Frame) -> f32 {
     let seed = seed_of_scenery(&frame.scenery);
     let from = if seed.is_multiple_of(2) { 1.0 } else { -1.0 };
-    let strength = match frame.weather {
+    let strength = match frame.shown_weather() {
         Weather::Storm => 3.0,
         Weather::Rain | Weather::Snow | Weather::Dust => 1.8,
         Weather::Cloudy => 1.2,
@@ -601,9 +601,9 @@ pub(super) fn paint_weather(
         let x = (x0 * (width + 120.0) + y * drift) % (width + 120.0) - 60.0;
         (ox + x, oy + y)
     };
-    match frame.weather {
+    match frame.shown_weather() {
         Weather::Rain | Weather::Storm => {
-            let storm = frame.weather == Weather::Storm;
+            let storm = frame.shown_weather() == Weather::Storm;
             // Fine, sparse streaks: rain is seen, it does not veil the
             // place (the art bible's §4).
             let (count, speed, slant) = if storm {
@@ -620,7 +620,8 @@ pub(super) fn paint_weather(
                 window.stroke(&streak, 0.7, ink.opacity(0.6 + 0.1 * (index % 5) as f32));
             }
             // Now and then the sky lights up.
-            if storm && !frame.still {
+            // (Not over a scene's storm: its light is its own.)
+            if storm && !frame.still && frame.weather == Weather::Storm {
                 let beat = t % 7.3;
                 if beat < 0.12 || (0.2..0.26).contains(&beat) {
                     window.rect(ox, oy, width, height, 0.0, gpui::white().opacity(0.35));
