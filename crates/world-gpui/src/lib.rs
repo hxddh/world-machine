@@ -32,7 +32,7 @@ pub mod wrap;
 
 pub use window::{
     first_screen_bar, first_screen_busy, is_beginning, scene_share, speech_pages, words_at_rest,
-    Farewell, FarewellAction, FirstScreen, ProjectionView, RESTING_WORD_LIMIT,
+    Allowance, Farewell, FarewellAction, FirstScreen, ProjectionView, RESTING_WORD_LIMIT,
 };
 pub use world_i18n::{set_language, Language};
 pub use world_projection::{

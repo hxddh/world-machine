@@ -20,12 +20,14 @@ mod glide;
 mod marking;
 #[cfg(test)]
 mod scene_film_tests;
+mod sitting;
 mod stories;
 #[cfg(test)]
 mod walk;
 mod world_window;
 pub use arrival::{first_screen_bar, first_screen_busy, FirstScreen};
 pub use farewell::{Farewell, FarewellAction};
+pub use sitting::Allowance;
 #[cfg(test)]
 pub(crate) use stories::{moment_strip, panel_scenes, strip_layout};
 #[cfg(test)]
@@ -159,12 +161,29 @@ impl ProjectionView {
     }
 
     fn invoke_command(&mut self, command_id: String, cx: &mut Context<Self>) {
+        if self.controller.is_none() {
+            return;
+        }
+        // A day passes only as the sitting allows (v0.30 S4): once it has
+        // passed every day it may, the Goodnight card comes up instead.
+        let passes_day = self
+            .snapshot
+            .commands
+            .iter()
+            .any(|command| command.id == command_id && arrival::passes_day(command));
+        if passes_day && !self.day_may_pass() {
+            cx.notify();
+            return;
+        }
         let Some(controller) = self.controller.as_mut() else {
             return;
         };
 
         match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
             Ok(snapshot) => {
+                if passes_day {
+                    self.day_passed();
+                }
                 let previous = self.selected;
                 self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
                 self.revision += 1;

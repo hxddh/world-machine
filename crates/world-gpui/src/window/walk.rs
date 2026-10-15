@@ -766,6 +766,7 @@ fn no_words_go_on_screen_from_the_code_untranslated() {
         ("stories.rs", include_str!("stories.rs")),
         ("arrival.rs", include_str!("arrival.rs")),
         ("farewell.rs", include_str!("farewell.rs")),
+        ("sitting.rs", include_str!("sitting.rs")),
         ("panels.rs", include_str!("../panels.rs")),
         ("ui.rs", include_str!("../ui.rs")),
         ("strip.rs", include_str!("../strip.rs")),

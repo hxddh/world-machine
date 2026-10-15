@@ -543,6 +543,9 @@ pub(crate) struct Looking {
     /// While someone is being talked to (and the camera has moved in on
     /// them), where it was: so putting them away leaves the camera there.
     pub(crate) held: Option<Camera>,
+    /// This sitting: how many days it may still pass, its morning read, its
+    /// goodnight, and whether the World sleeps (v0.30 S4). UI state only.
+    pub(crate) sitting: super::sitting::Sitting,
 }
 
 /// Something the player's hands can make or do, for the build card.
@@ -735,7 +738,14 @@ pub(crate) fn resting_text(snapshot: &ProjectionSnapshot) -> Vec<String> {
 /// own order.
 pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<Vec<usize>> {
     let mut cards = snapshot.cards();
-    cards.sort_by_key(|card| snapshot.commands[card[0]].asker.is_none());
+    // The morning's main question first (v0.30 S4), then whoever asks.
+    cards.sort_by_key(|card| {
+        let command = &snapshot.commands[card[0]];
+        (
+            !super::sitting::is_days_question(snapshot, command),
+            command.asker.is_none(),
+        )
+    });
     cards
 }
 
@@ -2652,7 +2662,7 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn card_command(&self) -> Option<&ProjectionCommand> {
+    pub(crate) fn card_command(&self) -> Option<&ProjectionCommand> {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
             return None;
         }
@@ -3491,6 +3501,11 @@ impl ProjectionView {
             // A farewell has the place to itself: no card, no handles.
             return root.child(farewell).into_any_element();
         }
+        if let Some(sitting) = lit(|| self.render_sitting(cx)) {
+            // The morning, the Goodnight card and the World asleep each
+            // have the place to themselves: no card, no handles.
+            return root.child(sitting).into_any_element();
+        }
         root = root.child(self.render_hud(pointing, cx));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
             let hint = pointing
@@ -4252,6 +4267,17 @@ impl ProjectionView {
         // Who asks, with the card's way round (the dots, More) beside it:
         // one line for both keeps the card low over the quay.
         let names_line = names.join(" & ");
+        // The morning's main question says so, over what it asks (v0.30 S4).
+        let weighty = super::sitting::is_days_question(&self.snapshot, command);
+        if weighty {
+            text = text.child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color(tokens::ACCENT_TEXT))
+                    .child(ui::t("Today's question")),
+            );
+        }
         // A question's card says what is asked; a lone choice says itself.
         text = text.child(div().text_base().font_weight(FontWeight::SEMIBOLD).child(
             crate::wrap::text(match &question {
@@ -4407,8 +4433,13 @@ impl ProjectionView {
             .rounded_2xl()
             .bg(scene_paper())
             .shadow_lg()
-            .border_1()
-            .border_color(color(tokens::BORDER))
+            // The day's question is weighted: a heavier edge in the accent.
+            .when(weighty, |card| {
+                card.border_2().border_color(color(tokens::ACCENT))
+            })
+            .when(!weighty, |card| {
+                card.border_1().border_color(color(tokens::BORDER))
+            })
             .flex()
             .flex_col()
             .gap_2()
