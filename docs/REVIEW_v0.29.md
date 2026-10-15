@@ -331,7 +331,12 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
 - *5. The lamp on the point* (`point-lamp`) stands on a dressed-stone pier. The pier is laid in courses with staggered joints, lit on the left and shaded on the right, under a cap stone. It is wet at the foot, with lit boulders bedded close round it. The grey trapezoid on broad pale rocks is gone.
 - *6. Passers-by in the pan:* not done.
 - *Tests.* `the_camera_at_rest_frames_the_roofline_over_the_quay` replaces `..._frames_the_quay_above_the_card`. New tests: `a_gathering_at_a_hub_stands_in_a_ring`, `the_first_day_opens_on_a_ring`, `the_gathering_forms_round_whoever_speaks`, `laid_ground_has_a_kerb_not_a_soft_edge` and `the_point_lamp_stands_on_dressed_stone`. Two fixtures are added under `tests/fixtures/rest/`, as the Packs make them today: the first day, and the colony on day 14.
-- *Not re-blessed.* The `place-maple` golden differs in 1,695 pixels (0.29%). The difference is the kerb round its paved patches.
+- *Golden.* The `place-maple` golden was re-blessed for the kerb round its paved patches (1,695 pixels, 0.29%).
+
+**S1d round 2 (2026-10-15): the art director's two must-fixes.**
+- *A name covers nobody.* The speaker's name goes under their feet when that is clear. Otherwise it slides aside, as little as clears it, while still touching their feet. Failing that it goes beside their feet. If no spot is clear (a crowd seen from far off), it is not shown and the speech bubble says who speaks (`people::name_spot`). In a ring, nobody closes it in front of whoever speaks first, and no closer stands next to an end of the arc. The speaker takes the right of two middles, so the closer stands off to the left. A ring formed in front of a speaker at work leaves its middle open for them. Its back is then shallower, an arc rather than a funnel. A pair's heart is worn only when the two stand side by side, so it is no longer on the speaker's raised hand. Test: `no_name_covers_anyone_at_rest`.
+- *Nobody cut by the top.* `Camera::rest_top` moves the window's top at rest so that everyone shown is wholly in or wholly out of frame. It moves the top down to leave them out while the front roofs stay whole. Otherwise it moves the top up to take them in, keeping the people's line no lower than 0.745 of the window. Test: `nobody_is_cut_by_the_top_at_rest`, with a new rest fixture `three-years` (the town on day 1,082, trimmed of the book, letters and inspectors).
+- *Not done:* the pub's roof is still cut at 19:00 and 21:00 on day 1.
 
 ### S2. Residents who move
 

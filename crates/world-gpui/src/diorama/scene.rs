@@ -1801,7 +1801,8 @@ impl Camera {
     /// stay in the frame with a little above them: where the people's line
     /// leaves them over the top (a short window), the line may stand lower,
     /// to [`REST_LINE_LOWEST`]. The water's edge may go under the card,
-    /// which covers only water there.
+    /// which covers only water there. Nobody is cut by the window's top
+    /// ([`Camera::rest_top`]).
     pub fn rest_y(stage: &Stage, zoom: f32) -> f32 {
         let seen = stage.height / zoom.max(1.0);
         let roofs = stage.street - stage.building_h * row_aged(0.60, stage.grown).1;
@@ -1809,7 +1810,54 @@ impl Camera {
         if top > roofs - seen * REST_OVER_ROOFS {
             top = (roofs - seen * REST_OVER_ROOFS).max(stage.feet - seen * REST_LINE_LOWEST);
         }
-        top + seen / 2.0
+        Self::rest_top(stage, zoom, top, roofs - seen * REST_OVER_ROOFS) + seen / 2.0
+    }
+
+    /// Where the window's top stands at rest, near `top`, so that nobody
+    /// shown is cut by it (v0.30 S1d round 2, the art director: in the
+    /// town three years on, the raised camera sliced the people round the
+    /// pond across their heads): each wholly in the frame or wholly out of
+    /// it, out for choice. Lower, to leave them out, while the front roofs
+    /// stay whole (`roofs`, the highest the top may stand for that); else
+    /// higher, to take them in, while the people's line stays no lower than
+    /// [`REST_LINE_LOWEST`]; else lower all the same.
+    fn rest_top(stage: &Stage, zoom: f32, top: f32, roofs: f32) -> f32 {
+        let seen = stage.height / zoom.max(1.0);
+        // From the feet to over the head, a hat and a hand up.
+        let people = stage
+            .people
+            .iter()
+            .filter(|spot| stage.shows(spot.index, zoom))
+            .map(|spot| (spot.y - stage.figure_h * spot.scale * 1.2, spot.y))
+            .collect::<Vec<_>>();
+        let room = 2.0 / zoom.max(1.0);
+        let cut = |top: f32| people.iter().any(|(head, feet)| *head < top && *feet > top);
+        if !cut(top) {
+            return top;
+        }
+        let mut lower = people
+            .iter()
+            .map(|(_, feet)| feet + room)
+            .filter(|at| *at > top && !cut(*at))
+            .collect::<Vec<_>>();
+        lower.sort_by(f32::total_cmp);
+        let mut higher = people
+            .iter()
+            .map(|(head, _)| head - room)
+            .filter(|at| *at < top && !cut(*at))
+            .collect::<Vec<_>>();
+        higher.sort_by(|a, b| b.total_cmp(a));
+        lower
+            .iter()
+            .find(|at| **at <= roofs)
+            .or_else(|| {
+                higher
+                    .iter()
+                    .find(|at| stage.feet - **at <= seen * REST_LINE_LOWEST)
+            })
+            .or(lower.first())
+            .copied()
+            .unwrap_or(top)
     }
 
     /// The furthest out the camera goes: one window, or for a panorama the

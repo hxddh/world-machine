@@ -3215,13 +3215,12 @@ impl ProjectionView {
         // person nearest the pointer and two are never named at once.
         let mut heads = Vec::new();
         let mut bodies = Vec::new();
-        let reach = diorama::reach_of(
-            &frame
-                .people
-                .iter()
-                .map(|person| (person.x, person.y, person.height))
-                .collect::<Vec<_>>(),
-        );
+        let standing = frame
+            .people
+            .iter()
+            .map(|person| (person.x, person.y, person.height))
+            .collect::<Vec<_>>();
+        let reach = diorama::reach_of(&standing);
         // Named on hover, or while speaking; never two names over one
         // another, and none before the scene is painted.
         let drawn = scene_world.as_deref().unwrap_or(&self.snapshot);
@@ -3234,7 +3233,7 @@ impl ProjectionView {
                 })
                 .map(|person| person.x)
         });
-        for (person, reach) in frame.people.iter().zip(reach) {
+        for (nth, (person, reach)) in frame.people.iter().zip(reach).enumerate() {
             let Some(item) = drawn.canvas.items.get(person.index) else {
                 continue;
             };
@@ -3270,11 +3269,34 @@ impl ProjectionView {
                     .flex_col()
                     .justify_end()
                     .items_center()
-                    .child(name_tag(first_name(&item.label)).when(!named, |tag| {
-                        tag.opacity(0.0).when(hover, |tag| {
-                            tag.group_hover(group, |style| style.opacity(1.0))
-                        })
-                    }))
+                    .child({
+                        // Whoever speaks has their name where it covers
+                        // nobody: under their feet, or else beside them
+                        // (v0.30 S1d round 2).
+                        let name = first_name(&item.label);
+                        let w = diorama::name_w(&name);
+                        let spot = diorama::name_spot(&standing, nth, w);
+                        let (left, top) = spot.unwrap_or((person.x - w / 2.0, person.y));
+                        let under = (left - (person.x - w / 2.0)).abs() < 0.5;
+                        name_tag(name)
+                            .when(named && spot.is_none(), |tag| tag.opacity(0.0))
+                            .when(named && !under, |tag| {
+                                let tag = tag
+                                    .absolute()
+                                    .mt_0()
+                                    .top(px(top - (person.y - person.height)));
+                                if left > person.x {
+                                    tag.left(px(left - (person.x - reach)))
+                                } else {
+                                    tag.right(px(person.x + reach - (left + w)))
+                                }
+                            })
+                            .when(!named, |tag| {
+                                tag.opacity(0.0).when(hover, |tag| {
+                                    tag.group_hover(group, |style| style.opacity(1.0))
+                                })
+                            })
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         if this.place_at(selection, cx) {

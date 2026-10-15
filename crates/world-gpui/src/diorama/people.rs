@@ -1273,38 +1273,67 @@ pub(super) const RING_TO_SPEAKER: f32 = 6.0;
 /// behind; the gathering stands as it did.
 pub(super) const RING_SHIFT: i32 = 5;
 
-/// Where each of a ring stands, from its middle along the stage and from
-/// the people's line in depth, in figure heights (v0.30 S1d): `arc` on an
-/// arc open to the viewer, its ends a step nearer and its back well behind
-/// the line, and with `front` one more (the last) a step in front of the
-/// line in a gap of the arc, closing it, seen from behind.
-pub(super) fn ring_slots(arc: usize, front: bool) -> Vec<(f32, f32)> {
-    let half = (arc as f32 - 1.0) / 2.0;
-    let mut slots = (0..arc)
-        .map(|j| {
-            let off = if half > 0.0 {
-                (j as f32 - half) / half
-            } else {
-                0.0
-            };
-            (
-                (j as f32 - half) * RING_STEP,
-                RING_ENDS - (RING_ENDS + RING_BACK) * (1.0 - off.powi(2)),
-            )
+/// How far across, in figure heights, nobody of a ring stands in front of
+/// whoever speaks first, in it or with the ring formed round them: their
+/// name goes under their feet, and covers nobody (v0.30 S1d round 2, the
+/// art bible's §6).
+pub(super) const RING_CLEAR: f32 = 0.6;
+
+/// Where each of the arc of a ring stands, from its middle along the stage
+/// and from the people's line in depth, in figure heights (v0.30 S1d): `arc`
+/// on an arc open to the viewer, its ends a step nearer and its back well
+/// behind the line. With `free_middle` its middle is left open for whoever
+/// speaks first, standing behind it at what they work at (round 2): a step
+/// either side of the middle, and no deeper than three quarters of the way
+/// back, so the ring is an arc in front of them and not a funnel.
+pub(super) fn ring_slots(arc: usize, free_middle: bool) -> Vec<(f32, f32)> {
+    let across = if free_middle {
+        let left = arc / 2;
+        (0..left)
+            .rev()
+            .map(|i| -RING_STEP * (1.0 + i as f32))
+            .chain((0..arc - left).map(|i| RING_STEP * (1.0 + i as f32)))
+            .collect::<Vec<_>>()
+    } else {
+        let half = (arc as f32 - 1.0) / 2.0;
+        (0..arc)
+            .map(|j| (j as f32 - half) * RING_STEP)
+            .collect::<Vec<_>>()
+    };
+    let widest = across.iter().fold(0.0_f32, |most, x| most.max(x.abs()));
+    across
+        .into_iter()
+        .map(|x| {
+            let off = if widest > 0.0 { x / widest } else { 0.0 };
+            (x, RING_ENDS - (RING_ENDS + RING_BACK) * (1.0 - off.powi(2)))
         })
+        .collect()
+}
+
+/// Where whoever closes a ring stands across, in figure heights from its
+/// middle, a step in front of the line (v0.30 S1d): in a gap of its arc
+/// (`arc`, across) but those next to its ends, half hiding the two either
+/// side, off to the left of its middle, and never in front of anyone at `clear` (across: whoever
+/// speaks first), by [`RING_CLEAR`]. None if no gap will do.
+pub(super) fn ring_front(arc: &[f32], clear: &[f32]) -> Option<f32> {
+    let mut across = arc.to_vec();
+    across.sort_by(f32::total_cmp);
+    // (Not next to an end: they stand forward, and would be stood on.)
+    let inner = across.len().saturating_sub(1);
+    let mut gaps = across
+        .windows(2)
+        .enumerate()
+        .filter(|(j, _)| *j > 0 && j + 1 < inner)
+        .map(|(_, pair)| (pair[0] + pair[1]) / 2.0)
+        .filter(|gap| clear.iter().all(|c| (gap - c).abs() >= RING_CLEAR))
         .collect::<Vec<_>>();
-    if front {
-        // In a gap of the arc behind, half hiding the two either side, off
-        // to the left of its middle: whoever speaks there, with their name
-        // under their feet, stays clear.
-        let gap = if arc.is_multiple_of(2) {
-            -RING_STEP
-        } else {
-            -RING_STEP * 1.5
-        };
-        slots.push((gap, RING_FRONT));
-    }
-    slots
+    // Off to the left of the middle, a step or so.
+    gaps.sort_by(|a, b| {
+        (a + RING_STEP * 1.25)
+            .abs()
+            .total_cmp(&(b + RING_STEP * 1.25).abs())
+    });
+    gaps.first().copied()
 }
 
 /// A gathering at a hub stands in a ring (v0.30 S1d, the art director's
@@ -1398,38 +1427,21 @@ pub(super) fn in_a_ring(
                 }
             }
         }
-        // From five, one standing closes the ring, from just off its middle:
-        // not whoever speaks, nor anyone sitting.
-        let mut arc_members = ordered.clone();
-        let mut closing = None;
-        if n >= 5 {
-            let middle = (arc_members.len() as f32 - 1.0) / 2.0;
-            let pick = (0..arc_members.len())
-                .filter(|j| {
-                    let index = stage.people[arc_members[*j]].index;
-                    Some(index) != speaker
-                        && stage.doing.get(&index).and_then(|w| w.stance) == Some(Stance::Talking)
-                })
-                .min_by(|a, b| {
-                    (*a as f32 - middle)
-                        .abs()
-                        .total_cmp(&(*b as f32 - middle).abs())
-                        .then(a.cmp(b))
-                });
-            closing = pick.map(|pick| arc_members.remove(pick));
-        }
-        let slots = ring_slots(arc_members.len(), closing.is_some());
         // Whoever speaks first, at the back in the middle.
-        if let Some(j) = arc_members
-            .iter()
-            .position(|at| Some(stage.people[*at].index) == speaker)
-        {
-            let them = arc_members.remove(j);
-            arc_members.insert(arc_members.len() / 2, them);
-        }
-        let mut placing = arc_members.clone();
-        placing.extend(closing);
+        let arc_of = |mut arc: Vec<usize>| {
+            if let Some(j) = arc
+                .iter()
+                .position(|at| Some(stage.people[*at].index) == speaker)
+            {
+                // (Of two middles, the right: the one closing the ring
+                // stands off to the left.)
+                let them = arc.remove(j);
+                arc.insert(arc.len().div_ceil(2), them);
+            }
+            arc
+        };
         let mut centre = members.iter().map(|at| stage.people[*at].x).sum::<f32>() / n as f32;
+        let mut outside = false;
         // Whoever speaks first, standing near at what they work at (not one
         // of the ring), is its middle: the ring forms in front of them.
         if let Some(them) = stage
@@ -1448,6 +1460,49 @@ pub(super) fn in_a_ring(
             })
         {
             centre = them.x;
+            outside = true;
+        }
+        // From five, one standing closes the ring from a gap in front, off
+        // its middle: not whoever speaks first, nor anyone sitting, nor in
+        // front of whoever speaks first.
+        let free_middle = outside;
+        let mut placing = arc_of(ordered.clone());
+        let mut slots = ring_slots(placing.len(), free_middle);
+        if n >= 5 {
+            let middle = (ordered.len() as f32 - 1.0) / 2.0;
+            let mut picks = (0..ordered.len())
+                .filter(|j| {
+                    let index = stage.people[ordered[*j]].index;
+                    Some(index) != speaker
+                        && stage.doing.get(&index).and_then(|w| w.stance) == Some(Stance::Talking)
+                })
+                .collect::<Vec<_>>();
+            picks.sort_by(|a, b| {
+                (*a as f32 - middle)
+                    .abs()
+                    .total_cmp(&(*b as f32 - middle).abs())
+                    .then(a.cmp(b))
+            });
+            if let Some(pick) = picks.first() {
+                let mut arc = ordered.clone();
+                let closing = arc.remove(*pick);
+                let arc = arc_of(arc);
+                let arc_slots = ring_slots(arc.len(), free_middle);
+                let clear = arc
+                    .iter()
+                    .zip(&arc_slots)
+                    .filter(|(at, _)| Some(stage.people[**at].index) == speaker)
+                    .map(|(_, (x, _))| *x)
+                    .chain(free_middle.then_some(0.0))
+                    .collect::<Vec<_>>();
+                let across = arc_slots.iter().map(|(x, _)| *x).collect::<Vec<_>>();
+                if let Some(front) = ring_front(&across, &clear) {
+                    slots = arc_slots;
+                    slots.push((front, RING_FRONT));
+                    placing = arc;
+                    placing.push(closing);
+                }
+            }
         }
         let others = stage
             .people
@@ -1470,7 +1525,10 @@ pub(super) fn in_a_ring(
                         .all(|(ox, oy)| (ox - x).abs() >= fig * 0.45 || (oy - y).abs() >= fig * 0.6)
             })
         };
-        let Some(cx) = (0..=RING_SHIFT)
+        // (Round whoever speaks first, no further than keeps their column
+        // clear.)
+        let shift = if outside { 1 } else { RING_SHIFT };
+        let Some(cx) = (0..=shift)
             .flat_map(|step| [step, -step])
             .map(|step| centre + step as f32 * fig * 0.2)
             .find(|cx| fits(*cx))
@@ -3318,6 +3376,54 @@ pub(super) fn paint_load(
             skin,
         );
     }
+}
+
+/// How tall a name under someone on the scene is, on screen, with the
+/// little room over it (`world_window::name_tag`).
+pub const NAME_H: f32 = 22.0;
+
+/// How wide a name under someone on the scene is, on screen, at the most:
+/// its letters at the small type's widest and the pill's room either side.
+pub fn name_w(name: &str) -> f32 {
+    name.chars().count() as f32 * 7.5 + 16.0
+}
+
+/// Where the name of whoever speaks goes, on screen (v0.30 S1d round 2, the
+/// art bible's §6: a name never covers anyone): for `own` of the people at
+/// (`x`, feet `y`), `h` tall, the left and top of a name `w` wide. Under
+/// their feet, centred, where nobody else stands there; else under them
+/// slid aside, as little as clears it; else beside their feet, on
+/// whichever side is clear (their right first); else nowhere (a crowd
+/// seen from far off): their speech says who speaks.
+pub fn name_spot(people: &[(f32, f32, f32)], own: usize, w: f32) -> Option<(f32, f32)> {
+    let &(x, y, h) = people.get(own)?;
+    let half = h * BODY_W / 2.0;
+    let under = (x - w / 2.0, y);
+    // Under their feet, slid aside as far as keeps it touching them.
+    let step = w / 8.0;
+    let most = ((w / 2.0 + half - 4.0) / step).floor().max(0.0) as i32;
+    (0..=most)
+        .flat_map(|n| [n, -n])
+        .map(|n| (under.0 + n as f32 * step, y))
+        .chain([
+            (x + half + 4.0, y - NAME_H),
+            (x - half - 4.0 - w, y - NAME_H),
+        ])
+        .find(|spot| name_clear(people, own, *spot, w))
+}
+
+/// Whether a name `w` wide at (`left`, `top`) on screen covers none of the
+/// people at (`x`, feet `y`), `h` tall, but `own`: clear of each one's
+/// silhouette, from their feet to over their head.
+pub fn name_clear(people: &[(f32, f32, f32)], own: usize, (left, top): (f32, f32), w: f32) -> bool {
+    people.iter().enumerate().all(|(n, (x, y, h))| {
+        let half = h * BODY_W / 2.0;
+        n == own
+            || left + w <= x - half
+            || left >= x + half
+            || top + NAME_H <= y - h * 1.1
+            || top >= *y
+    })
 }
 
 /// How far either side of someone a click or the pointer finds them, on

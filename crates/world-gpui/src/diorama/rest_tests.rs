@@ -388,7 +388,8 @@ fn rings_of(stage: &Stage) -> BTreeMap<i64, Vec<usize>> {
 /// A gathering at a hub stands in a ring, not a line (v0.30 S1d, the art
 /// director: the first day "reads as one line in two depths"):
 /// in every fixture, by day and of an evening, each ring has four or more,
-/// stands at least 0.6 of a person deep from its back to its front, has
+/// stands at least 0.6 of a person deep from its back to its front (0.45
+/// formed in front of whoever speaks, who stands at its back), has
 /// one clearly behind another (closer across than 0.6 of a person, more
 /// than half a person further back) where it has five or more, and
 /// everyone off its middle faces into it.
@@ -413,7 +414,11 @@ fn a_gathering_at_a_hub_stands_in_a_ring() {
                 if ring.len() < super::people::RING_LEAST {
                     failures.push(format!("{name} at {hour}: a ring of {}", ring.len()));
                 }
-                if front - back < fig * 0.6 {
+                // (A ring formed in front of whoever speaks, its middle left
+                // open for them at its back, is shallower: they are its back.)
+                let open_middle = spots.iter().all(|s| (s.x - middle).abs() > fig * 0.3);
+                let deep = if open_middle { 0.45 } else { 0.6 };
+                if front - back < fig * deep {
                     failures.push(format!(
                         "{name} at {hour}: a ring {:.2} of a person deep",
                         (front - back) / fig
@@ -582,4 +587,141 @@ fn laid_ground_has_a_kerb_not_a_soft_edge() {
             "{patch:?}: a wandering edge {least}..{most}"
         );
     }
+}
+
+/// Everyone with something to say today, by item index: whose name goes
+/// under their feet while they say it (v0.30 S1d round 2).
+fn speaks_today(snapshot: &ProjectionSnapshot) -> BTreeSet<usize> {
+    let today = snapshot
+        .timeline
+        .items
+        .iter()
+        .filter(|item| item.world_time == snapshot.world_time)
+        .map(|item| item.id)
+        .collect::<BTreeSet<_>>();
+    snapshot
+        .voices
+        .iter()
+        .filter(|voice| today.contains(&voice.moment))
+        .filter_map(|voice| {
+            snapshot
+                .canvas
+                .items
+                .iter()
+                .position(|item| item.id == voice.speaker)
+        })
+        .collect()
+}
+
+/// The rest fixtures (`tests/fixtures/rest`) by name, with every scene
+/// fixture: the places as the Packs make them today, and as they were.
+fn rest_and_every_fixture() -> Vec<(String, ProjectionSnapshot)> {
+    ["first-day", "colony-day-14", "three-years"]
+        .map(|name| (format!("rest/{name}"), rest_fixture(name)))
+        .into_iter()
+        .chain(every_fixture())
+        .collect()
+}
+
+/// Each window's frame at rest along a place, its camera centred one
+/// window after another, at `hour` in a window `window_h` high.
+fn frames_at_rest(snapshot: &ProjectionSnapshot, hour: u8, window_h: f32) -> Vec<(f32, Frame)> {
+    let stage = stage_at(snapshot, 1100.0, window_h - CHROME, Clock::at(hour));
+    let daylight = crate::scene::daylight_at(u32::from(hour));
+    let living = living(&stage, snapshot, 3.0, daylight, &BTreeSet::new(), None);
+    let seen = stage.view_w / Camera::rest_zoom(&stage);
+    let mut frames = Vec::new();
+    let mut centre = seen / 2.0;
+    while centre - seen / 2.0 < stage.width {
+        let camera = Camera::rest(&stage, centre);
+        frames.push((
+            centre,
+            frame(
+                snapshot,
+                &stage,
+                &living,
+                camera,
+                3.0,
+                daylight,
+                &Glows::new(),
+                1.0,
+            ),
+        ));
+        centre += seen;
+    }
+    frames
+}
+
+/// A name covers nobody (v0.30 S1d round 2, the art director: in the
+/// rings the name of whoever spoke lay across the heads of those in front
+/// of them; the art bible's §6): in the rest fixtures and every scene
+/// fixture, at rest along the whole place, by day and of an evening, the
+/// name of each who has something to say today has a place
+/// ([`name_spot`]) clear of everyone else's silhouette.
+#[test]
+fn no_name_covers_anyone_at_rest() {
+    let (mut named, mut failures) = (0, Vec::new());
+    for (name, snapshot) in rest_and_every_fixture() {
+        let voiced = speaks_today(&snapshot);
+        for hour in [9, 10, 13, 15, 19, 21] {
+            for (centre, frame) in frames_at_rest(&snapshot, hour, 848.0) {
+                let standing = frame
+                    .people
+                    .iter()
+                    .map(|person| (person.x, person.y, person.height))
+                    .collect::<Vec<_>>();
+                for (nth, person) in frame.people.iter().enumerate() {
+                    if !voiced.contains(&person.index)
+                        || person.x <= 0.0
+                        || person.x >= frame.view_w
+                        || person.pose.stride.is_some()
+                    {
+                        continue;
+                    }
+                    named += 1;
+                    let label = &snapshot.canvas.items[person.index].label;
+                    let w = name_w(label.split_whitespace().next().unwrap_or_default());
+                    let spot = name_spot(&standing, nth, w);
+                    if spot.is_none_or(|spot| !name_clear(&standing, nth, spot, w)) {
+                        failures.push(format!("{name} at {hour}, {centre:.0}: {label}'s name"));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(named >= 40, "{named} names seen");
+}
+
+/// Nobody is cut by the window's top at rest (v0.30 S1d round 2, the art
+/// director: in the town three years on, the raised camera sliced the people
+/// round the pond across their heads): in the rest fixtures and every
+/// scene fixture, in windows 700 to 1,600 high, by day and of an evening,
+/// everyone standing in view is wholly in the frame or wholly out of it.
+#[test]
+fn nobody_is_cut_by_the_top_at_rest() {
+    let mut failures = Vec::new();
+    for (name, snapshot) in rest_and_every_fixture() {
+        for window_h in [700.0, 848.0, 1000.0, 1600.0] {
+            for hour in [10, 15, 21] {
+                for (centre, frame) in frames_at_rest(&snapshot, hour, window_h) {
+                    for person in &frame.people {
+                        if person.x <= 0.0
+                            || person.x >= frame.view_w
+                            || person.pose.stride.is_some()
+                        {
+                            continue;
+                        }
+                        if person.y > 0.0 && person.y - person.height < 0.0 {
+                            failures.push(format!(
+                                "{name} {window_h} at {hour}, {centre:.0}: {} cut",
+                                snapshot.canvas.items[person.index].label
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
