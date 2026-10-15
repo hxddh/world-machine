@@ -652,6 +652,18 @@ fn frames_at_rest(snapshot: &ProjectionSnapshot, hour: u8, window_h: f32) -> Vec
     frames
 }
 
+/// A name is measured at its widest (v0.30 S1d round 3): a Chinese,
+/// Japanese or Korean character takes a whole em of the small type, wider
+/// than a Latin letter, and larger text makes the whole name larger.
+#[test]
+fn a_name_is_measured_at_its_widest() {
+    assert!(name_w("林美玲", 1.0) >= 3.0 * 12.0 + 16.0);
+    assert!(name_w("김민준", 1.0) >= 3.0 * 12.0 + 16.0);
+    assert!(name_w("林美玲", 1.0) > name_w("Mia", 1.0));
+    assert!(name_w("Zoë", 1.0) >= name_w("Zoe", 1.0));
+    assert_eq!(name_w("Mia", 2.0), 2.0 * name_w("Mia", 1.0));
+}
+
 /// A name covers nobody (v0.30 S1d round 2, the art director: in the
 /// rings the name of whoever spoke lay across the heads of those in front
 /// of them; the art bible's §6): in the rest fixtures and every scene
@@ -680,10 +692,19 @@ fn no_name_covers_anyone_at_rest() {
                     }
                     named += 1;
                     let label = &snapshot.canvas.items[person.index].label;
-                    let w = name_w(label.split_whitespace().next().unwrap_or_default());
-                    let spot = name_spot(&standing, nth, w);
-                    if spot.is_none_or(|spot| !name_clear(&standing, nth, spot, w)) {
-                        failures.push(format!("{name} at {hour}, {centre:.0}: {label}'s name"));
+                    // Their own name, and a Chinese one as wide as most
+                    // (v0.30 S1d round 3: a character takes a whole em).
+                    for first in [
+                        label.split_whitespace().next().unwrap_or_default(),
+                        "林美玲",
+                    ] {
+                        let size = (name_w(first, 1.0), NAME_H);
+                        let spot = name_spot(&standing, nth, size);
+                        if spot.is_none_or(|spot| !name_clear(&standing, nth, spot, size)) {
+                            failures.push(format!(
+                                "{name} at {hour}, {centre:.0}: {label}'s name as {first}"
+                            ));
+                        }
                     }
                 }
             }
@@ -724,4 +745,66 @@ fn nobody_is_cut_by_the_top_at_rest() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The roofs are never given up for anyone (v0.30 S1d round 3, a review:
+/// in a short window someone a screen away straddling the top could
+/// lower it past the front roofs): in every fixture, in short windows,
+/// with someone anywhere along the place standing across the top at
+/// rest, the top stands no lower than it did or than the roofs' top,
+/// whichever is lower: the roofs stay whole.
+#[test]
+fn nobody_off_screen_costs_the_roofs() {
+    let mut tried = 0;
+    for (name, snapshot) in rest_and_every_fixture() {
+        for window_h in [700.0, 760.0, 848.0] {
+            let stage = stage_at(&snapshot, 1100.0, window_h - CHROME, Clock::at(12));
+            let zoom = Camera::rest_zoom(&stage);
+            let seen = stage.height / zoom;
+            let roofs = stage.street - stage.building_h * row_aged(0.60, stage.grown).1;
+            let bound = roofs;
+            let top = Camera::rest_y(&stage, zoom) - seen / 2.0;
+            let Some(someone) = stage
+                .people
+                .iter()
+                .find(|spot| stage.shows(spot.index, zoom))
+            else {
+                continue;
+            };
+            for share in [0.1, 0.4, 0.8] {
+                tried += 1;
+                let mut straddled = stage.clone();
+                let mut settled = straddled.settled.as_ref().clone();
+                settled.push((someone.index, top + stage.figure_h * share, 1.0));
+                straddled.settled = std::sync::Arc::new(settled);
+                let now = Camera::rest_y(&straddled, zoom) - seen / 2.0;
+                assert!(
+                    now <= top.max(bound) + 1e-3,
+                    "{name} {window_h}: the top from {top:.1} to {now:.1}, past the roofs' {bound:.1}"
+                );
+            }
+        }
+    }
+    assert!(tried >= 30, "{tried} tried");
+}
+
+/// The camera at rest keeps its height all through the hour (v0.30 S1d
+/// round 3): whoever is still on their way as it begins, the camera at
+/// rest stands where it will once all have arrived.
+#[test]
+fn the_rest_height_keeps_through_the_hour() {
+    for (name, snapshot) in rest_and_every_fixture() {
+        for hour in [8, 10, 15, 19] {
+            let settled = stage_at(&snapshot, 1100.0, 796.0, Clock::at(hour));
+            let zoom = Camera::rest_zoom(&settled);
+            for into_hour in [1.0, 20.0, 90.0] {
+                let early = stage_at(&snapshot, 1100.0, 796.0, Clock { hour, into_hour });
+                assert_eq!(
+                    Camera::rest_y(&early, zoom),
+                    Camera::rest_y(&settled, zoom),
+                    "{name} at {hour}, {into_hour} s in"
+                );
+            }
+        }
+    }
 }

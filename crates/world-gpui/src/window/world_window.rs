@@ -3270,32 +3270,37 @@ impl ProjectionView {
                     .justify_end()
                     .items_center()
                     .child({
-                        // Whoever speaks has their name where it covers
-                        // nobody: under their feet, or else beside them
-                        // (v0.30 S1d round 2).
+                        // A name stands at their feet, in one box whether
+                        // centred or slid aside. Whoever speaks has theirs
+                        // where it covers nobody: under their feet, slid
+                        // aside, or beside them; or, nowhere being clear, not
+                        // at all (v0.30 S1d round 2). Only theirs is placed.
                         let name = first_name(&item.label);
-                        let w = diorama::name_w(&name);
-                        let spot = diorama::name_spot(&standing, nth, w);
-                        let (left, top) = spot.unwrap_or((person.x - w / 2.0, person.y));
-                        let under = (left - (person.x - w / 2.0)).abs() < 0.5;
-                        name_tag(name)
+                        let w = diorama::name_w(&name, crate::text_scale());
+                        let h_name = diorama::NAME_H * crate::text_scale().max(1.0);
+                        let under = person.x - w / 2.0;
+                        let spot = if named {
+                            diorama::name_spot(&standing, nth, (w, h_name))
+                        } else {
+                            Some((under, person.y))
+                        };
+                        let (left, top) = spot.unwrap_or((under, person.y));
+                        let tag = name_tag(name)
+                            .mt_0()
                             .when(named && spot.is_none(), |tag| tag.opacity(0.0))
-                            .when(named && !under, |tag| {
-                                let tag = tag
-                                    .absolute()
-                                    .mt_0()
-                                    .top(px(top - (person.y - person.height)));
-                                if left > person.x {
-                                    tag.left(px(left - (person.x - reach)))
-                                } else {
-                                    tag.right(px(person.x + reach - (left + w)))
-                                }
-                            })
                             .when(!named, |tag| {
                                 tag.opacity(0.0).when(hover, |tag| {
                                     tag.group_hover(group, |style| style.opacity(1.0))
                                 })
-                            })
+                            });
+                        let place = div().absolute().top(px(top - (person.y - person.height)));
+                        if (left - under).abs() < 0.5 {
+                            place.left_0().right_0().flex().justify_center().child(tag)
+                        } else if left > person.x {
+                            place.left(px(left - (person.x - reach))).child(tag)
+                        } else {
+                            place.right(px(person.x + reach - (left + w))).child(tag)
+                        }
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();

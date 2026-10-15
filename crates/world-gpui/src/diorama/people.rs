@@ -3378,24 +3378,50 @@ pub(super) fn paint_load(
     }
 }
 
-/// How tall a name under someone on the scene is, on screen, with the
-/// little room over it (`world_window::name_tag`).
+/// How tall a name under someone on the scene is, on screen, at the
+/// player's text size 100% (`world_window::name_tag`, set at their feet).
 pub const NAME_H: f32 = 22.0;
 
-/// How wide a name under someone on the scene is, on screen, at the most:
-/// its letters at the small type's widest and the pill's room either side.
-pub fn name_w(name: &str) -> f32 {
-    name.chars().count() as f32 * 7.5 + 16.0
+/// How wide a name under someone on the scene is, on screen, at the most,
+/// with the player's text `scale`: each letter at the small type's widest
+/// (a Latin letter 7.5 px, a Chinese, Japanese or Korean character or a
+/// full-width form a whole em, 13 px, any other letter 9 px) and the pill's
+/// room either side.
+pub fn name_w(name: &str, scale: f32) -> f32 {
+    let letters = name
+        .chars()
+        .map(|letter| {
+            if letter.is_ascii() {
+                7.5
+            } else if ('\u{1100}'..='\u{11ff}').contains(&letter)
+                || ('\u{2e80}'..='\u{a4cf}').contains(&letter)
+                || ('\u{ac00}'..='\u{d7af}').contains(&letter)
+                || ('\u{f900}'..='\u{faff}').contains(&letter)
+                || ('\u{ff00}'..='\u{ffef}').contains(&letter)
+                || ('\u{20000}'..='\u{3ffff}').contains(&letter)
+            {
+                13.0
+            } else {
+                9.0
+            }
+        })
+        .sum::<f32>();
+    (letters + 16.0) * scale.max(0.5)
 }
 
 /// Where the name of whoever speaks goes, on screen (v0.30 S1d round 2, the
 /// art bible's §6: a name never covers anyone): for `own` of the people at
-/// (`x`, feet `y`), `h` tall, the left and top of a name `w` wide. Under
+/// (`x`, feet `y`), `h` tall, the left and top of a name `w` wide and
+/// `h_name` tall ([`name_w`], [`NAME_H`]). Under
 /// their feet, centred, where nobody else stands there; else under them
 /// slid aside, as little as clears it; else beside their feet, on
 /// whichever side is clear (their right first); else nowhere (a crowd
 /// seen from far off): their speech says who speaks.
-pub fn name_spot(people: &[(f32, f32, f32)], own: usize, w: f32) -> Option<(f32, f32)> {
+pub fn name_spot(
+    people: &[(f32, f32, f32)],
+    own: usize,
+    (w, h_name): (f32, f32),
+) -> Option<(f32, f32)> {
     let &(x, y, h) = people.get(own)?;
     let half = h * BODY_W / 2.0;
     let under = (x - w / 2.0, y);
@@ -3406,22 +3432,28 @@ pub fn name_spot(people: &[(f32, f32, f32)], own: usize, w: f32) -> Option<(f32,
         .flat_map(|n| [n, -n])
         .map(|n| (under.0 + n as f32 * step, y))
         .chain([
-            (x + half + 4.0, y - NAME_H),
-            (x - half - 4.0 - w, y - NAME_H),
+            (x + half + 4.0, y - h_name),
+            (x - half - 4.0 - w, y - h_name),
         ])
-        .find(|spot| name_clear(people, own, *spot, w))
+        .find(|spot| name_clear(people, own, *spot, (w, h_name)))
 }
 
-/// Whether a name `w` wide at (`left`, `top`) on screen covers none of the
+/// Whether a name `w` wide and `h_name` tall at (`left`, `top`) on screen
+/// covers none of the
 /// people at (`x`, feet `y`), `h` tall, but `own`: clear of each one's
 /// silhouette, from their feet to over their head.
-pub fn name_clear(people: &[(f32, f32, f32)], own: usize, (left, top): (f32, f32), w: f32) -> bool {
+pub fn name_clear(
+    people: &[(f32, f32, f32)],
+    own: usize,
+    (left, top): (f32, f32),
+    (w, h_name): (f32, f32),
+) -> bool {
     people.iter().enumerate().all(|(n, (x, y, h))| {
         let half = h * BODY_W / 2.0;
         n == own
             || left + w <= x - half
             || left >= x + half
-            || top + NAME_H <= y - h * 1.1
+            || top + h_name <= y - h * 1.1
             || top >= *y
     })
 }

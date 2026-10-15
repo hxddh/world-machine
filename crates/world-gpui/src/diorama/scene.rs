@@ -187,6 +187,11 @@ pub struct Stage {
     /// date), and the World's day: an errand is a function of these.
     pub clock: Clock,
     pub day: u64,
+    /// Everyone out of doors where the hour has them once nobody is on
+    /// their way any more (as at [`Clock::at`]), across the whole place:
+    /// item index, feet and scale. What the camera at rest frames round
+    /// ([`Camera::rest_y`]), the same all through the hour.
+    pub settled: std::sync::Arc<Vec<(usize, f32, f32)>>,
 }
 
 /// What someone out of doors is doing at the stop their day has them at
@@ -1237,6 +1242,7 @@ pub(super) fn lay_out(
         doing,
         clock,
         day: snapshot.world_time,
+        settled: Default::default(),
     };
     let mut stage = stage;
     // Those who use something where they are stand to it: on a bench, round
@@ -1263,6 +1269,20 @@ pub(super) fn lay_out(
     super::people::in_a_ring(&mut stage, snapshot, &hub_of, speaker, &fronted);
     // And nobody on or in a thing.
     super::people::off_props(&mut stage, snapshot, &blocked, &fronted);
+    // Where everyone stands once all have arrived: this layout's own, or,
+    // while some are still on their way, the hour's settled one's.
+    let settled = Clock::at(clock.hour);
+    stage.settled = if stage.routes.is_empty() || clock.into_hour == settled.into_hour {
+        std::sync::Arc::new(
+            stage
+                .people
+                .iter()
+                .map(|spot| (spot.index, spot.y, spot.scale))
+                .collect(),
+        )
+    } else {
+        stage_at(snapshot, width, height, settled).settled
+    };
     (stage, walks)
 }
 
@@ -1810,25 +1830,32 @@ impl Camera {
         if top > roofs - seen * REST_OVER_ROOFS {
             top = (roofs - seen * REST_OVER_ROOFS).max(stage.feet - seen * REST_LINE_LOWEST);
         }
-        Self::rest_top(stage, zoom, top, roofs - seen * REST_OVER_ROOFS) + seen / 2.0
+        Self::rest_top(stage, zoom, top, roofs) + seen / 2.0
     }
 
     /// Where the window's top stands at rest, near `top`, so that nobody
     /// shown is cut by it (v0.30 S1d round 2, the art director: in the
     /// town three years on, the raised camera sliced the people round the
     /// pond across their heads): each wholly in the frame or wholly out of
-    /// it, out for choice. Lower, to leave them out, while the front roofs
-    /// stay whole (`roofs`, the highest the top may stand for that); else
-    /// higher, to take them in, while the people's line stays no lower than
-    /// [`REST_LINE_LOWEST`]; else lower all the same.
+    /// it, out for choice. Lower, to leave them out, no lower than keeps
+    /// the street's front roofs whole (`roofs`, their top: the room over
+    /// them, [`REST_OVER_ROOFS`], may go, the roofs never); else higher, to take them in, while the people's
+    /// line stays no lower than [`REST_LINE_LOWEST`]; else where it was
+    /// (round 3: the roofs are never given up for anyone).
+    ///
+    /// Whom it keeps whole: everyone the place shows at rest, the whole
+    /// place along, where the hour has them once all have arrived
+    /// ([`Stage::settled`]). So the camera at rest stands at one height
+    /// wherever it pans, and keeps it all through the hour, whoever walks
+    /// where; it moves, if at all, as the hour turns.
     fn rest_top(stage: &Stage, zoom: f32, top: f32, roofs: f32) -> f32 {
         let seen = stage.height / zoom.max(1.0);
         // From the feet to over the head, a hat and a hand up.
         let people = stage
-            .people
+            .settled
             .iter()
-            .filter(|spot| stage.shows(spot.index, zoom))
-            .map(|spot| (spot.y - stage.figure_h * spot.scale * 1.2, spot.y))
+            .filter(|(index, ..)| stage.shows(*index, zoom))
+            .map(|(_, feet, scale)| (feet - stage.figure_h * scale * 1.2, *feet))
             .collect::<Vec<_>>();
         let room = 2.0 / zoom.max(1.0);
         let cut = |top: f32| people.iter().any(|(head, feet)| *head < top && *feet > top);
@@ -1855,7 +1882,6 @@ impl Camera {
                     .iter()
                     .find(|at| stage.feet - **at <= seen * REST_LINE_LOWEST)
             })
-            .or(lower.first())
             .copied()
             .unwrap_or(top)
     }
