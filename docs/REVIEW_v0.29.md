@@ -271,6 +271,31 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
   - The zoom control's test keeps its checks of the zoom itself.
 - *Left for S1c.* The closer stage camera. The bar judged on CI's macOS run and a real Retina Mac. The live drawing that remains each frame (clouds, the ridge, ground light) as baked layers if the Mac's numbers still need it.
 
+**S1c (2026-10-15): the closer stage camera, people gathered in depth, and the bake fitted to it.** Parts 1 to 3 landed; the optional Part 4 (ground, chrome fading at rest, the hero palette, dusk lit) is left for S1d.
+- *The camera at rest* (`Camera::rest`, `rest_zoom`). The window opens, and settles back, with the camera at rest: close enough that a grown-up on the people's line stands 140 px tall (about 2.4 times closer in a window 848 high), framed from the street's front roofs down to the water's edge. `ZOOM_MOST` rises to 3.4. Yesterday's 1x is the overview, one scroll out, framed as the opening used to be (`overview_view`). Scene cameras run from rest to `ZOOM_MOST`; a Place cue that cannot fit its cast pulls back, as far as the overview. The opening view is `busiest_view`: whoever speaks first today in view, then the most residents, then a whole building, then the fewest cut. ART_DIRECTION §6 says so.
+- *Who the first screen shows* (the Packs' `days::town::gather_round_the_day`, unrecorded presentation, as every day is). From nine to four, the town gathers at one or two hubs near the hour's busiest spot, round whoever speaks first today. People come two by two, talking, or sit together at a bench. Keepers and sitters stay; one carrying a load sets it down to come; a baby comes with nobody. No stretch holds more than 60% of the town, so the noon bar still holds. Gathering prefers hubs that keep whoever speaks in the window, and never a place standing on the front row itself (a bridge's foot), whose crowd would stand off past its ends. In the scene, people talking take their room first, near where they would stand, a step in front of what stands there if need be, rather than strung off along the line.
+- *Composition.* Groups stand at three or four depths (`DEPTHS`). Nobody hides anybody (`unstack`). People turn every way (`Turn`: front, three-quarter, profile, back, made from each drawing's own parts) once they are drawn 90 px or taller. They get a detail pass at that size (coat shade, opening, collar, hair light, nose).
+- *The bake.* Levels are 0.5 (a whole-place stand-in only), 1 (the overview), 2.45 (at rest) and 3.4 (close), up from S1b's [1, 2]. A close level is baked over what the camera sees and 0.3 of it either side, moved 0.35 toward a pan, and baked ahead along it. Frames count when a look is stood in (`FrameTags::stood_in`). The light a fade is heading for is not baked at a close level while a fade runs. Only the camera's own look keeps a close stand-in. The benchmark prints `memory_bar` and `stand_in_line`.
+- *Numbers.* All measured on this 4-core VM at 1100x848, display scale 2, 40 s, release build.
+  - **People:** 140 px on the line at 848 high. `people_at_rest_120_to_160_px` holds windows from 700 to 1,600 high, every fixture, noon and dusk, to 120–160 px.
+  - **Residents busy on the first screen, 9 to 4:**
+
+    | | Before (zoom 1) | After (at rest) |
+    |---|---|---|
+    | Tiny Society | 2–8 | 8–10 |
+    | Pocket Universe | 2–10 | 6–9 |
+
+    `six_residents_busy_on_first_screen_by_day` is now two-sided at rest in both Packs.
+  - **Day 1,082 through a day:** at rest 241–249 MB over three runs (bar 250), at most 320–330 MB (bar 350). Plan p99 1.3–1.5 ms.
+  - **Day 1,082 at noon:** 114 MB at rest, 207 MB at most. Plan p99 1.0 ms.
+  - **Day 1:** at rest 141–193 MB, at most 226–301 MB, plan p99 0.5 ms.
+  - **Before S1c:** S1b was 59 MB at rest at zoom 1. The first cut of this camera, before the bake was fitted, held 326 MB at rest and 426 MB at most.
+- *Not met here.* Stand-in frames are 10–30% of frames, with runs up to 2–3 s while a close look re-bakes after a long pan (NEXT_PLAN's ≤150 ms is not met). Intervals over 33 ms: 0–8 a run, nearly all while handing an 8 MB picture to the display, a VM with no GPU. CI's macOS run is the judge.
+- *Re-blessed.*
+  - The Packs' `replay` and `snapshot_json` digests for `v020`/`v027` harbour, ice and mars. The day's gathering changes the projected routines (who stands where 9–16); the recorded state does not change, and `replayed-state.digest` was not touched.
+  - Ten golden pictures (ages, design-flag, diorama day/dusk/night, place-ares, pointers, postcard, season-spring, strip): people stand in groups at depths and no longer stack. People drawn under 90 px do not turn, so the figures themselves are unchanged.
+- *Left for S1d (Part 4).* The ground (yards, a back lane, worn paths), the chrome fading after 3 s idle with the numbers on a Book ledger page (`RESTING_WORD_LIMIT` 12), a hero palette per place, and dusk lit rather than tinted. Also a vertical crop of the close levels (the sky and back rows above the window at rest), which the budget did not yet need.
+
 ### S2. Residents who move
 
 - Six to eight animated verbs: walk, carry, sit, work, wave, gather or dance.

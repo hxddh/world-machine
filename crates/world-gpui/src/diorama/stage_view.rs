@@ -42,15 +42,24 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The zoom levels baked, in device pixels a stage pixel for each of the
-/// display's own: the place as it stands at rest, and close up.
-pub const LEVELS: [f32; 2] = [1.0, 2.0];
+/// display's own (v0.30 S1c): all of the place soft, at half (only ever a
+/// stand-in, while a closer look bakes: no camera is that far out), the
+/// overview (one window of the place), the camera at rest (people 140 px:
+/// 2.2 to 2.4 times closer in a window 848 or more high, drawn from 2.45),
+/// and close up (to [`ZOOM_MOST`], 3.4).
+pub const LEVELS: [f32; 4] = [0.5, 1.0, 2.45, 3.4];
 
 /// Levels from this one up are baked around the camera only.
-pub const SPANNED_FROM: usize = 1;
+pub const SPANNED_FROM: usize = 2;
 
-/// How far either side of the camera a level baked around it reaches, in
-/// widths of the window.
-pub const SPAN_REACH: f32 = 0.8;
+/// How far either side of what the camera sees a level baked around it
+/// reaches, in widths of what it sees: three tenths as much again either side
+/// (with [`SPAN_LEAD`], two thirds ahead of a pan).
+pub const SPAN_REACH: f32 = 0.3;
+
+/// How far a span is moved toward where the camera is panning, in widths
+/// of what it sees: a pan runs on into what is baked already.
+pub const SPAN_LEAD: f32 = 0.35;
 
 /// The level to draw at for a camera `zoom` times closer: the least as
 /// sharp, or the sharpest there is.
@@ -143,16 +152,24 @@ pub fn choose(held: &[Held], want: &Want) -> Option<usize> {
 }
 
 /// Which of `held` a window keeps: each look a want asks for (ready or on
-/// its way to the display), and while one is not ready, the look standing
-/// in for it. Everything else is let go.
+/// its way to the display), and while one the frame shows is not ready,
+/// the look standing in for it: for the camera's own (the first), and for
+/// any other of a level baked whole. (v0.30 S1c: a close level's light
+/// fading in stands in with whatever stands in for the first, rather than
+/// keeping a close look of its own; a look baked ahead stands in for
+/// nothing. Four close looks at once were more pixels than the budget.)
+/// Everything else is let go.
 pub fn keep(held: &[Held], wants: &[Want]) -> Vec<bool> {
     let mut keep = vec![false; held.len()];
-    for want in wants {
+    for (nth, want) in wants.iter().enumerate() {
         if let Some(at) = held.iter().position(|held| held.answers(want)) {
             keep[at] = true;
             if held[at].ready {
                 continue;
             }
+        }
+        if !want.shown || (nth > 0 && want.level >= SPANNED_FROM) {
+            continue;
         }
         if let Some(at) = choose(held, want) {
             keep[at] = true;
@@ -253,10 +270,13 @@ pub fn wants(
     // The lights of a while ahead, the one the hour fades into first: baked
     // before the fade begins, so it is ready on its first frame rather
     // than baked and handed over while the fade runs.
+    // (Not while a fade runs at a level baked around the camera: three
+    // lights of it at once are more pixels than the budget, v0.30 S1c.)
     let (soon_a, soon_b, soon_t) = Light::blend(hour + LIGHT_AHEAD);
     for soon in [soon_a, soon_b] {
         let fades = soon == soon_a || soon_t > 0.002;
         if fades
+            && !(fading && level >= SPANNED_FROM)
             && soon != a
             && !(fading && soon == b)
             && !out
@@ -273,14 +293,18 @@ pub fn wants(
 /// enough for a look to bake and reach the display before its fade.
 pub const LIGHT_AHEAD: f32 = 0.75;
 
-/// Where a level is baked: around the middle of what the camera sees, for
-/// a level baked around the camera, or all of the stage.
-pub fn span_for(want: &Want, width: f32, view_w: f32) -> Option<(f32, f32)> {
+/// Where a level is baked: for a level baked around the camera, what the
+/// camera sees and [`SPAN_REACH`] of it more either side, moved
+/// [`SPAN_LEAD`] of it toward `lead` (the way the camera pans: -1, 0 or
+/// 1); else all of the stage. (v0.30 S1c: at most three of what it sees,
+/// where it was 1.6 windows whatever the zoom.)
+pub fn span_for(want: &Want, width: f32, view_w: f32, lead: f32) -> Option<(f32, f32)> {
     if want.level < SPANNED_FROM {
         return None;
     }
-    let middle = (want.view.0 + want.view.1) / 2.0;
-    let reach = (view_w * SPAN_REACH).max((want.view.1 - want.view.0) / 2.0 + view_w * 0.1);
+    let seen = (want.view.1 - want.view.0).max(view_w * 0.2);
+    let middle = (want.view.0 + want.view.1) / 2.0 + lead.clamp(-1.0, 1.0) * seen * SPAN_LEAD;
+    let reach = seen * (0.5 + SPAN_REACH);
     let span = ((middle - reach).max(0.0), (middle + reach).min(width));
     (span.0 > 0.0 || span.1 < width).then_some(span)
 }
@@ -303,6 +327,9 @@ pub struct PoseKey {
     pub light: Light,
     /// How a scene has them hold themselves (a hammer's swing is `step`).
     pub posture: Option<super::staging::Posture>,
+    /// How far round they are turned, and whether drawn with detail.
+    pub turn: Turn,
+    pub detail: bool,
 }
 
 impl PoseKey {
@@ -337,6 +364,8 @@ impl PoseKey {
             level,
             light,
             posture: person.posture,
+            turn: person.turn,
+            detail: person.detail,
         }
     }
 }
@@ -711,6 +740,9 @@ pub struct FrameTags {
     /// people drawn in another of their poses meanwhile.
     pub live: usize,
     pub stand_ins: usize,
+    /// The look drawn stood in for the one wanted (another level, light or
+    /// stretch, scaled): the place not yet sharp where the camera is.
+    pub stood_in: bool,
     /// The World was laid out again.
     pub laid_out: bool,
     /// Images the frame drew.
@@ -759,6 +791,12 @@ pub struct Stagehand {
     items_hint: usize,
     /// Whether the stage has settled once since the window opened.
     opened: bool,
+    /// The way the camera has lately panned (-1, 0 or 1), where it was
+    /// last frame and when it last moved: a close level is baked ahead of
+    /// a pan ([`span_for`]).
+    lead: f32,
+    last_x: Option<f32>,
+    moved_at: Option<Instant>,
 }
 
 impl Default for Stagehand {
@@ -800,6 +838,9 @@ impl Stagehand {
             tags: FrameTags::default(),
             items_hint: 0,
             opened: false,
+            lead: 0.0,
+            last_x: None,
+            moved_at: None,
         }
     }
 
@@ -977,7 +1018,7 @@ impl Stagehand {
             let Some(snapshot) = self.snapshot.clone() else {
                 return;
             };
-            let span = span_for(&want, self.width, self.view.0);
+            let span = span_for(&want, self.width, self.view.0, self.lead);
             let held = Held {
                 key: want.key,
                 level: want.level,
@@ -993,7 +1034,12 @@ impl Stagehand {
             };
             // Painting in place holds the window's thread (a test, a
             // cover): a device pixel a stage pixel is enough there.
-            let scale = LEVELS[want.level] * if now { 1.0 } else { self.dpr };
+            let scale = LEVELS[want.level]
+                * if now && !sharp_in_place() {
+                    1.0
+                } else {
+                    self.dpr
+                };
             let view = self.view;
             let started = Instant::now();
             let before = self
@@ -1086,7 +1132,7 @@ impl Stagehand {
             if held.iter().any(|held| held.answers(want)) {
                 continue;
             }
-            let span = span_for(want, self.width, self.view.0);
+            let span = span_for(want, self.width, self.view.0, self.lead);
             if let Some(at) = self.donor(want, span) {
                 keep[at] = true;
             }
@@ -1249,6 +1295,27 @@ impl Stagehand {
         self.budget.adapt(handed, took_ms, interval);
     }
 
+    /// Notes which way the camera pans: toward where it is heading, or the
+    /// way it moved since the last frame, for a second and a half after.
+    fn follow(&mut self, camera: Camera, heading: Option<Camera>) {
+        let now = Instant::now();
+        let moved = heading
+            .map(|to| to.x - camera.x)
+            .filter(|dx| dx.abs() > 1.0)
+            .or_else(|| self.last_x.map(|x| camera.x - x))
+            .filter(|dx| dx.abs() > 0.5);
+        if let Some(dx) = moved {
+            self.lead = dx.signum();
+            self.moved_at = Some(now);
+        } else if self
+            .moved_at
+            .is_none_or(|at| now.duration_since(at) > Duration::from_millis(1500))
+        {
+            self.lead = 0.0;
+        }
+        self.last_x = Some(camera.x);
+    }
+
     /// The look to draw for `want`, if any is ready.
     pub fn pick(&self, want: &Want) -> Option<&Slot> {
         choose(&self.held(), want).map(|at| &self.slots[at])
@@ -1335,7 +1402,8 @@ impl Stagehand {
         let bake = move |jobs: Vec<(PoseKey, PersonPaint, Arc<Frame>)>| {
             jobs.into_iter()
                 .map(|(key, person, frame)| {
-                    let scale = LEVELS[key.level] * if now { 1.0 } else { dpr };
+                    let scale =
+                        LEVELS[key.level] * if now && !sharp_in_place() { 1.0 } else { dpr };
                     (key, bake_pose(&frame, &person, &key, scale))
                 })
                 .collect::<Vec<_>>()
@@ -1384,21 +1452,41 @@ impl Stagehand {
         self.tags = FrameTags::default();
         self.sit(frame, snapshot);
         self.collect();
-        let wants = wants(
+        self.follow(frame.camera, frame.heading());
+        let mut wants = wants(
             self.key,
             (frame.width, frame.view_w),
             frame.camera,
             frame.heading(),
             frame.hour,
         );
-        // Painting in place (a test, a cover), the whole level only: a
+        // Panning a close level: the stretch ahead, baked once the rest is.
+        if let Some(main) = wants.first().copied() {
+            if self.lead != 0.0 && main.level >= SPANNED_FROM {
+                let seen = main.view.1 - main.view.0;
+                let shift = self.lead * seen;
+                let view = (
+                    (main.view.0 + shift).clamp(0.0, frame.width - seen),
+                    (main.view.1 + shift).clamp(seen, frame.width),
+                );
+                if view != main.view {
+                    wants.push(Want {
+                        view,
+                        shown: false,
+                        ..main
+                    });
+                }
+            }
+        }
+        // Painting in place (a test, a cover), the overview's whole level
+        // only (a device pixel a stage pixel): a
         // close one is a refinement baked off the thread, and baking it
         // here would hold the window's thread at every zoom and pan.
-        let wants = if now {
+        let wants = if now && !sharp_in_place() {
             let mut whole = Vec::new();
             for want in wants {
                 let want = Want {
-                    level: 0,
+                    level: 1,
                     view: (0.0, frame.width),
                     ..want
                 };
@@ -1678,10 +1766,13 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
         return (Plan::default(), (false, true));
     };
     let fading = t > 0.002 && b != a;
-    let first = hand.pick(&main).map(slot_view);
-    let Some(first) = first else {
+    let first = hand
+        .pick(&main)
+        .map(|slot| (slot.held.answers(&main), slot_view(slot)));
+    let Some((sharp, first)) = first else {
         return (Plan::default(), (false, true));
     };
+    hand.tags.stood_in = !sharp;
     let second = fading
         .then(|| hand.pick(&Want { light: b, ..main }))
         .flatten()
@@ -2505,6 +2596,24 @@ pub fn set_display_scale(scale: Option<f32>) {
     DISPLAY_SCALE.with(|cell| cell.set(scale));
 }
 
+thread_local! {
+    /// Painting in place (a test) bakes the levels the camera wants at the
+    /// display's scale, as a window does off its thread, instead of the
+    /// whole place at one device pixel a stage pixel: for pictures to look
+    /// at.
+    static SHARP_IN_PLACE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether painting in place on this thread bakes as a window does
+/// ([`SHARP_IN_PLACE`]).
+pub fn set_sharp_in_place(sharp: bool) {
+    SHARP_IN_PLACE.with(|cell| cell.set(sharp));
+}
+
+fn sharp_in_place() -> bool {
+    SHARP_IN_PLACE.with(std::cell::Cell::get)
+}
+
 fn display_scale(window: &Window) -> f32 {
     DISPLAY_SCALE
         .with(|cell| cell.get())
@@ -2567,9 +2676,10 @@ impl StageBench {
     /// place zoomed in, then out to rest again, every twenty seconds.
     pub fn camera(stage: &Stage, seconds: f32) -> Camera {
         let phase = (seconds / 20.0).fract();
-        let zoom = 1.0 + 1.2 * (phase * std::f32::consts::TAU).sin().max(0.0);
+        let rest = Camera::rest_zoom(stage);
+        let zoom = rest + (ZOOM_MOST - rest) * (phase * std::f32::consts::TAU).sin().max(0.0);
         let x = stage.width / 2.0 + (stage.width / 2.0) * 0.8 * (seconds * 0.05).sin();
-        Camera::around(stage, zoom, x, stage.height * 0.6)
+        Camera::around(stage, zoom, x, Camera::rest_y(stage, zoom))
     }
 }
 
@@ -2614,6 +2724,9 @@ pub fn tags_line(tags: &FrameTags) -> String {
     }
     if tags.stand_ins > 0 {
         out.push(format!("stand-ins {}", tags.stand_ins));
+    }
+    if tags.stood_in {
+        out.push("look stood in".to_string());
     }
     if tags.laid_out {
         out.push("layout".to_string());
@@ -2847,4 +2960,43 @@ impl gpui::Render for StageBench {
             .size_0(),
         )
     }
+}
+
+/// A line for a log of how often the place was drawn from a stand-in look
+/// (another level, light or stretch, scaled) for want of the one the
+/// camera wanted: frames in all, and the longest run of them, in
+/// milliseconds of frames (`stats.between`, in step with `tags`).
+pub fn stand_in_line(stats: &ls::Stats, tags: &[FrameTags]) -> String {
+    let stood = tags.iter().filter(|tags| tags.stood_in).count();
+    let (mut longest, mut run) = (0.0_f64, 0.0_f64);
+    for (at, tags) in tags.iter().enumerate() {
+        if tags.stood_in {
+            run += at
+                .checked_sub(1)
+                .and_then(|before| stats.between.get(before))
+                .copied()
+                .unwrap_or(0.0);
+            longest = longest.max(run);
+        } else {
+            run = 0.0;
+        }
+    }
+    format!(
+        "stand-in frames {stood} of {} ({:.1}%), longest run {longest:.0} ms",
+        tags.len(),
+        stood as f64 * 100.0 / tags.len().max(1) as f64
+    )
+}
+
+/// A line for a log of the pixel-memory budget (v0.30 S1c): at most 250 MB
+/// held at rest and 350 MB at the most (a light fading in over another).
+pub fn memory_bar(at_rest: usize, most: usize) -> String {
+    let met = |ok: bool| if ok { "met" } else { "NOT met" };
+    format!(
+        "memory bar: at rest {:.0} MB (at most 250: {}) | most held {:.0} MB (at most 350: {})",
+        at_rest as f64 / 1e6,
+        met(at_rest as f64 <= 250e6),
+        most as f64 / 1e6,
+        met(most as f64 <= 350e6),
+    )
 }

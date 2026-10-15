@@ -378,12 +378,20 @@ fn window(options: &Options) -> Result<(), Box<dyn std::error::Error>> {
             stats.summary()
         );
         println!(
-            "  pixel memory MB: at rest (zoom 1) {:.1} | zoomed in (2.2) {:.1} | most held {:.1}",
+            "  pixel memory MB: at rest (people 140 px) {:.1} | zoomed in (3.4) {:.1} | most held {:.1}",
             at_rest as f64 / 1e6,
             zoomed as f64 / 1e6,
             most as f64 / 1e6,
         );
         println!("  {}", stats.bar());
+        println!(
+            "  {}",
+            world_gpui::diorama::stage_view::memory_bar(at_rest, most)
+        );
+        println!(
+            "  {}",
+            world_gpui::diorama::stage_view::stand_in_line(&stats, &tags.borrow())
+        );
         println!(
             "  {}",
             world_gpui::diorama::stage_view::bake_summary(&bakes.borrow())

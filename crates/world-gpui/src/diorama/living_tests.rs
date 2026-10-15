@@ -479,12 +479,15 @@ fn the_living_stage_is_never_blank_and_lets_go_of_what_it_no_longer_needs() {
     assert!(hand
         .slots
         .iter()
-        .any(|slot| slot.held.level == 1 && slot.held.span.is_some()));
+        .any(|slot| slot.held.level == sv::level_for(2.0) && slot.held.span.is_some()));
     // Panning along at that zoom, past what was baked.
     run(&mut hand, &snapshot, Some((2.0, 1400.0)), 12.0, true);
     // Back out: the close level is let go.
     run(&mut hand, &snapshot, None, 12.0, true);
-    assert!(hand.slots.iter().all(|slot| slot.held.level == 0));
+    assert!(hand
+        .slots
+        .iter()
+        .all(|slot| slot.held.level == sv::level_for(1.0)));
     let back = hand.bytes() - hand.pose_bytes();
     assert!(
         back.abs_diff(at_rest) * 20 < at_rest,
