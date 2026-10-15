@@ -1484,4 +1484,37 @@ fn a_day_carries_which_time_this_year_it_was_told() {
     let event = |id: u64| resumed.event(EventId::new(id)).unwrap();
     assert!(told_enough(&resumed, event(1), year));
     assert!(!told_enough(&resumed, event(2), year));
+    // A World from before, upgraded mid-year: the days it lived before
+    // they were counted add to the count of those after.
+    let before = |id: u64| {
+        with(
+            recorded(id, "lived", id * 10, Some(ann)),
+            "activity",
+            "odd_job",
+        )
+    };
+    let after = |id: u64, nth: i64| {
+        with(
+            with(
+                recorded(id, "lived", id * 10, Some(ann)),
+                "activity",
+                "odd_job",
+            ),
+            "told_nth",
+            nth,
+        )
+    };
+    let history = [
+        before(1),
+        before(2),
+        before(3),
+        after(4, 1),
+        after(5, 2),
+        after(6, 3),
+    ];
+    let upgraded = World::from_history(start.state().clone(), &history).unwrap();
+    let capped = (1..=6)
+        .filter(|id| told_enough(&upgraded, upgraded.event(EventId::new(*id)).unwrap(), year))
+        .collect::<Vec<_>>();
+    assert_eq!(capped, vec![6]);
 }

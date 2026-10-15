@@ -54,10 +54,17 @@ fn story_of(event: &Event) -> Option<(EntityId, &str, &str)> {
 pub fn told_enough(world: &World, event: &Event, year: u64) -> bool {
     // Counted when it was lived, from what the person keeps: the same
     // whether the World kept every Event or resumed from a checkpoint.
-    if let Some(Value::Integer(nth)) = event.payload.get(TOLD_NTH) {
-        return *nth > MOST_TOLD_A_YEAR as i64;
+    let counted = |event: &Event| match event.payload.get(TOLD_NTH) {
+        Some(Value::Integer(nth)) => Some(*nth),
+        _ => None,
+    };
+    let mut told = counted(event).map_or(0, |nth| nth - 1);
+    let most = MOST_TOLD_A_YEAR as i64;
+    if told >= most {
+        return true;
     }
-    // A day from before it was counted: read back along the record.
+    // Days lived before they were counted (a World from before, mid-year)
+    // are read back along the record, and add to the count.
     let Some(story) = story_of(event) else {
         return false;
     };
@@ -65,7 +72,6 @@ pub fn told_enough(world: &World, event: &Event, year: u64) -> bool {
     let index = world.history_index();
     let ids = index.of_kind(&event.kind);
     let before = &ids[..ids.partition_point(|id| *id < event.id)];
-    let mut told = 0;
     for id in before.iter().rev() {
         let Some(earlier) = world.event(*id) else {
             continue;
@@ -73,9 +79,9 @@ pub fn told_enough(world: &World, event: &Event, year: u64) -> bool {
         if earlier.world_time < from {
             break;
         }
-        if story_of(earlier) == Some(story) {
+        if counted(earlier).is_none() && story_of(earlier) == Some(story) {
             told += 1;
-            if told >= MOST_TOLD_A_YEAR {
+            if told >= most {
                 return true;
             }
         }
