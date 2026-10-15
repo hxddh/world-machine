@@ -96,7 +96,8 @@ struct Zoomed {
 
 /// `factor` times closer than `before` from `camera`, around the screen
 /// point `at` (the point under it stays under it): none if the zoom is at
-/// the end of its travel that way.
+/// the end of its travel that way. Coming within a hair of rest or of the
+/// overview (one window), it stops there.
 fn zoomed(
     stage: &Stage,
     camera: Camera,
@@ -106,8 +107,11 @@ fn zoomed(
 ) -> Option<Zoomed> {
     let (x, y) = camera.stage_point(stage, at.0, at.1);
     let mut zoom = (before * factor).clamp(Camera::least(stage), diorama::ZOOM_MOST);
+    let rest = Camera::rest_zoom(stage);
     if (zoom - 1.0).abs() < 0.02 {
         zoom = 1.0;
+    } else if (zoom / rest - 1.0).abs() < 0.02 {
+        zoom = rest;
     }
     if (zoom - before).abs() <= f32::EPSILON {
         return None;
@@ -120,15 +124,20 @@ fn zoomed(
     })
 }
 
-/// The view wherever the player has zoomed (`zoom`) and panned to
-/// (`pan`, the whole place's middle if never), around the point zoomed on.
-fn free_view(stage: &Stage, zoom: f32, pan: Option<f32>, on: (f32, f32)) -> Camera {
-    Camera::around(
-        stage,
-        zoom,
-        pan.unwrap_or(Camera::whole(stage).x),
-        if zoom > 1.0 { on.1 } else { stage.height / 2.0 },
-    )
+/// The view wherever the player has zoomed (`zoom`; none at rest, never
+/// zoomed) and panned to (`pan`, the whole place's middle if never),
+/// around the point zoomed on.
+fn free_view(stage: &Stage, zoom: Option<f32>, pan: Option<f32>, on: (f32, f32)) -> Camera {
+    let x = pan.unwrap_or(Camera::whole(stage).x);
+    match zoom {
+        None => Camera::rest(stage, x),
+        Some(zoom) => Camera::around(
+            stage,
+            zoom,
+            x,
+            if zoom > 1.0 { on.1 } else { stage.height / 2.0 },
+        ),
+    }
 }
 
 /// Where the zoom control sits, down the left of a stage `height` tall:
@@ -456,9 +465,13 @@ pub(crate) struct Looking {
     /// whom, and what. The window keeps drawing; the person is thinking.
     pub(crate) listening: Option<(SelectionId, String)>,
     /// How close the player has zoomed in with the wheel, and on which
-    /// stage point; 1 is the whole place.
+    /// stage point; 1 is one window of the place (the overview), and 0 the
+    /// camera at rest (never zoomed: v0.30 S1c).
     pub(crate) zoom: f32,
     pub(crate) zoom_on: (f32, f32),
+    /// How tall the stage was when last laid out: the camera at rest is a
+    /// function of it (0 before the first frame).
+    pub(crate) stage_h: f32,
     /// Where along a panorama the player has panned to: the stage point
     /// the view is centred on at rest. `None` is the middle of the place.
     pub(crate) pan: Option<f32>,
@@ -513,8 +526,10 @@ pub(crate) struct Looking {
     pub(crate) welcome_pan: Option<(SelectionId, f32)>,
     /// Where the opening view is centred at noon, for a stage of this
     /// width and height: the framing every hour opens on where its own
-    /// would leave a building against the window's edge.
-    pub(crate) noon_view: Option<((f32, f32), f32)>,
+    /// would leave a building against the window's edge. Kept for the
+    /// World's revision it was framed on: a turn that builds or moves
+    /// something frames the noon stage again.
+    pub(crate) noon_view: Option<(u64, (f32, f32), f32)>,
     /// A farewell showing over the World, and whether the camera has gone
     /// to whoever says goodbye.
     pub(crate) farewell: Option<super::farewell::Farewell>,
@@ -1758,17 +1773,17 @@ impl ProjectionView {
     /// first frame, the camera stands where whoever welcomes the player
     /// stands.
     fn notice_paint(&mut self, stage: &Stage, painted: bool) {
+        self.looking.stage_h = stage.height;
         let was = std::mem::replace(&mut self.looking.painted, painted);
         if !painted && self.looking.opening.is_some() {
             self.looking.opening = Some(Instant::now());
         }
-        // Kept on the welcomer while the window settles its size, until the
+        // Kept on the welcome while the window settles its size, until the
         // player pans away.
-        if let Some((who, at)) = self.looking.welcome_pan {
+        if let Some((_, at)) = self.looking.welcome_pan {
             if self.looking.pan != Some(at) {
                 self.looking.welcome_pan = None;
-            } else if let Some(x) = self.stage_x(stage, who) {
-                let x = self.opening_view(stage, who, x);
+            } else if let Some((who, x)) = self.rest_opening(stage) {
                 self.looking.pan = Some(x);
                 self.looking.welcome_pan = Some((who, x));
             }
@@ -1778,60 +1793,52 @@ impl ProjectionView {
             return;
         }
         // The camera is where the welcome will be said before anything is
-        // painted, framed on the place around whoever says it: the first
-        // painted frame is the focal cluster, never a pan away from
-        // somewhere else.
-        // With nobody speaking (a place with one keeper, or the night),
-        // the camera opens on whichever resident stands with the most of
-        // the place around them: never on an empty road.
-        let speaker = voices_now(&self.snapshot)
-            .first()
-            .map(|voice| voice.speaker)
-            .filter(|who| self.stage_x(stage, *who).is_some());
-        let who = speaker.or_else(|| {
-            stage
-                .people
-                .iter()
-                .filter_map(|spot| {
-                    let who = self.snapshot.canvas.items.get(spot.index)?.id;
-                    let x = self.stage_x(stage, who)?;
-                    let view = super::arrival::best_view(stage, x);
-                    Some((super::arrival::view_score(stage, view), who))
-                })
-                .max_by(|a, b| a.0.cmp(&b.0))
-                .map(|(_, who)| who)
-        });
-        if let Some((who, x)) = who
-            .and_then(|who| self.stage_x(stage, who).map(|x| (who, x)))
-            .map(|(who, x)| (who, self.opening_view(stage, who, x)))
-        {
+        // painted, at rest, on the most of the place's people round whoever
+        // says it: the first painted frame is the busiest view, never a pan
+        // away from somewhere else. With nobody speaking (the night), on
+        // the most people anywhere: never on an empty road.
+        if let Some((who, x)) = self.rest_opening(stage) {
             self.looking.pan = Some(x);
             self.looking.welcome_pan = Some((who, x));
         }
     }
 
-    /// Where to centre the opening view on `who`, standing at `x`: the
-    /// best view around them, or, where that leaves a building against
-    /// the window's edge, the nearest to how the place opens at noon (see
-    /// [`super::arrival::framed_as_at_noon`]).
-    fn opening_view(&mut self, stage: &Stage, who: SelectionId, x: f32) -> f32 {
+    /// Where the window opens at rest ([`super::arrival::busiest_view`]),
+    /// and who it opens on: whoever speaks, or the resident nearest the
+    /// middle of it. None with nobody out.
+    fn rest_opening(&self, stage: &Stage) -> Option<(SelectionId, f32)> {
+        let speaker = voices_now(&self.snapshot)
+            .first()
+            .and_then(|voice| Some((voice.speaker, self.stage_x(stage, voice.speaker)?)));
+        let centre = super::arrival::busiest_view(stage, speaker.map(|(_, x)| x));
+        let who = speaker.map(|(who, _)| who).or_else(|| {
+            stage
+                .people
+                .iter()
+                .min_by(|a, b| (a.x - centre).abs().total_cmp(&(b.x - centre).abs()))
+                .and_then(|spot| Some(self.snapshot.canvas.items.get(spot.index)?.id))
+        })?;
+        Some((who, centre))
+    }
+
+    /// Where the overview (zoomed out to one window of the place) is
+    /// centred, coming out from stage `x`: the best view around it, or,
+    /// where that leaves a building against the window's edge, the nearest
+    /// to how the place opens at noon around the same point (see
+    /// [`super::arrival::framed_as_at_noon`]). v0.29's opening framing.
+    fn overview_view(&mut self, stage: &Stage, x: f32) -> f32 {
         let size = (stage.view_w, stage.height);
-        super::arrival::opening_view(stage, x, || match self.looking.noon_view {
-            Some((kept, centre)) if kept == size => centre,
-            _ => {
-                let noon_stage =
-                    diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
-                let at_noon = self.stage_x(&noon_stage, who).or_else(|| {
-                    let spot = noon_stage.people.first()?;
-                    let (x, _, w, _) = noon_stage.frame_of(spot.index)?;
-                    Some(x + w / 2.0)
-                });
-                let centre = at_noon.map_or_else(
-                    || super::arrival::best_view(stage, x),
-                    |x| super::arrival::best_view(&noon_stage, x),
-                );
-                self.looking.noon_view = Some((size, centre));
-                centre
+        let revision = self.revision;
+        super::arrival::opening_view(stage, x, || {
+            match kept_noon_view(self.looking.noon_view, revision, size, x) {
+                Some(centre) => centre,
+                None => {
+                    let noon_stage =
+                        diorama::stage_at(&self.snapshot, size.0, size.1, diorama::Clock::at(12));
+                    let centre = super::arrival::best_view(&noon_stage, x);
+                    self.looking.noon_view = Some((revision, size, centre));
+                    centre
+                }
             }
         })
     }
@@ -2148,7 +2155,7 @@ impl ProjectionView {
                 let framed = Camera::on(stage, (x - w, y, w * 3.0, h));
                 Some(Camera::around(
                     stage,
-                    framed.zoom.min(1.35),
+                    framed.zoom.min(Camera::rest_zoom(stage) * 1.15),
                     framed.x,
                     framed.y,
                 ))
@@ -2203,10 +2210,15 @@ impl ProjectionView {
         self.zoom_by(1.0 + dy * 0.004, Some(event.position), window, cx);
     }
 
-    /// How close the player has zoomed: 1 is one window of the place.
+    /// How close the player has zoomed: 1 is one window of the place (the
+    /// overview), and never zoomed, the camera at rest.
     fn view_zoom(&self) -> f32 {
         if self.looking.zoom <= 0.0 {
-            1.0
+            if self.looking.stage_h > 0.0 {
+                diorama::rest_zoom(diorama::figure_height(self.looking.stage_h))
+            } else {
+                1.0
+            }
         } else {
             self.looking.zoom
         }
@@ -2325,11 +2337,24 @@ impl ProjectionView {
     /// Zooms `factor` times closer from `camera` around the screen point
     /// `at`; whether it moved (not at the end of the zoom's travel).
     fn zoom_at(&mut self, stage: &Stage, camera: Camera, factor: f32, at: (f32, f32)) -> bool {
-        let Some(zoomed) = zoomed(stage, camera, self.view_zoom(), factor, at) else {
+        let before = self.view_zoom();
+        let Some(zoomed) = zoomed(stage, camera, before, factor, at) else {
             return false;
         };
-        self.looking.zoom = zoomed.zoom;
-        self.looking.pan = Some(zoomed.pan);
+        // Back at rest it is as never zoomed (framed roofs to water); out
+        // to the overview, it frames the place around where it was, as
+        // v0.29 opened on it.
+        let rest = Camera::rest_zoom(stage);
+        self.looking.zoom = if zoomed.zoom == rest {
+            0.0
+        } else {
+            zoomed.zoom
+        };
+        self.looking.pan = Some(if zoomed.zoom <= 1.0 && before > 1.0 {
+            self.overview_view(stage, zoomed.pan)
+        } else {
+            zoomed.pan
+        });
         self.looking.zoom_on = zoomed.on;
         true
     }
@@ -2338,7 +2363,7 @@ impl ProjectionView {
     fn free_target(&self, stage: &Stage) -> Camera {
         free_view(
             stage,
-            self.view_zoom(),
+            (self.looking.zoom > 0.0).then_some(self.looking.zoom),
             self.looking.pan,
             self.looking.zoom_on,
         )
@@ -6097,11 +6122,37 @@ pub(crate) fn postcard_paper(card: &crate::postcard::Postcard, width: f32, heigh
         )
 }
 
+/// The noon framing kept in `cached`, if it still answers for a window of
+/// `size` coming out from stage `x` on the World's `revision`: none once a
+/// turn has changed the place (what was built or moved is framed again),
+/// the window has another size, or `x` has gone half a window from it.
+fn kept_noon_view(
+    cached: Option<(u64, (f32, f32), f32)>,
+    revision: u64,
+    size: (f32, f32),
+    x: f32,
+) -> Option<f32> {
+    let (framed, kept, centre) = cached?;
+    (framed == revision && kept == size && (centre - x).abs() < size.0 * 0.5).then_some(centre)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::drawer::tests::a_full_drawer;
     use super::*;
     use crate::ui::accessible;
+
+    #[test]
+    fn the_noon_framing_is_framed_again_after_a_turn() {
+        let size = (1280.0, 800.0);
+        let kept = Some((3, size, 400.0));
+        assert_eq!(kept_noon_view(kept, 3, size, 300.0), Some(400.0));
+        // A turn built or moved something: the noon stage is framed again.
+        assert_eq!(kept_noon_view(kept, 4, size, 300.0), None);
+        assert_eq!(kept_noon_view(kept, 3, (1000.0, 800.0), 300.0), None);
+        assert_eq!(kept_noon_view(kept, 3, size, 1100.0), None);
+        assert_eq!(kept_noon_view(None, 3, size, 300.0), None);
+    }
 
     #[test]
     fn a_world_nobody_can_see_asks_for_no_frames_and_keeps_no_clock() {

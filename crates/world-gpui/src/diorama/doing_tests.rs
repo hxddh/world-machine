@@ -403,8 +403,19 @@ fn gatherers_outside_the_lamp_post_footprint() {
                 (toward - life.x).signum(),
                 "facing in"
             );
-            assert_eq!(drawn(&frame, *gatherer).stance, Stance::Talking);
+            // Talking, one at a time, the rest listening (v0.30 S1c
+            // round 2).
+            assert!(matches!(
+                drawn(&frame, *gatherer).stance,
+                Stance::Talking | Stance::Standing
+            ));
         }
+        let talking = staged
+            .ring
+            .iter()
+            .filter(|gatherer| drawn(&frame, **gatherer).stance == Stance::Talking)
+            .count();
+        assert!(talking <= 1, "{talking} talking at once round the lamp");
     }
 }
 

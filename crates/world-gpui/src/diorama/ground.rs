@@ -658,6 +658,22 @@ fn paint_path(
     canvas.stroke(&worn, w_top * 0.4, art::shade(ink, 0.08).opacity(0.5));
 }
 
+/// How thickly a patch lays its ground: its soft rim, and its body. Ground,
+/// not a veil: laid over the far field's beds and rows, a patch half seen
+/// through read at rest as a pale ghost over them (v0.30 S1c round 2, the
+/// art director's "blurry stand-in" by the clock post). A patch at the
+/// water lays none.
+pub(super) fn cover(patch: Patch, water: bool) -> (f32, f32) {
+    if water {
+        return (0.0, 0.0);
+    }
+    let body = match patch {
+        Patch::Cobbles | Patch::Plaza | Patch::Yard | Patch::Paving => 0.9,
+        _ => 0.94,
+    };
+    (0.35, body)
+}
+
 /// One cluster's patch of ground, and what marks it as that ground.
 fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hsla, k: f32) {
     let (ground, mark) = inks(patch.patch, field, frame);
@@ -666,15 +682,7 @@ fn paint_patch(canvas: &mut Canvas, frame: &Frame, patch: &PatchPaint, field: Hs
     // the water (the Point) lays no ground over the sea, only its rocks:
     // a flat grey apron out into the water read as a slab.
     let bleed = frame.figure_h * 0.12;
-    let body = match patch.patch {
-        Patch::Cobbles | Patch::Plaza | Patch::Yard | Patch::Paving => 0.5,
-        _ => 0.65,
-    };
-    let (under, body) = if patch.water {
-        (0.0, 0.0)
-    } else {
-        (0.35, body)
-    };
+    let (under, body) = cover(patch.patch, patch.water);
     // Nor does any patch run on past the water's edge.
     let bottom = if frame.water {
         bottom.min(frame.front - 4.0 * k)

@@ -340,13 +340,25 @@ fn a_birth_a_farewell_and_a_storm_play_their_parts() {
     let farewell = scene(&snapshot, &stage, MomentKind::Farewell);
     let a = who(&snapshot, farewell.cast[0].0);
     let start = stage_scene(&farewell, &stage, &snapshot, 0.0);
-    let going = stage_scene(&farewell, &stage, &snapshot, 5.0);
+    // Walking off to the right at some moment of the first five seconds
+    // (with the closer camera of v0.30 S1c the edge is nearer).
+    let going = (2..=20)
+        .map(|n| stage_scene(&farewell, &stage, &snapshot, n as f32 * 0.25))
+        .find(|staged| person(staged, a).walk.is_some())
+        .expect("walking off");
     let end = stage_scene(&farewell, &stage, &snapshot, farewell.seconds);
-    assert!(person(&going, a).walk.is_some() && person(&going, a).facing > 0.0);
-    // Gone off the edge, or well on the way.
+    assert!(person(&going, a).facing > 0.0);
+    // Gone off the edge, or well on the way: past where they started by
+    // three strides, or to the right edge of the first view (with the
+    // camera at rest, v0.30 S1c, that can be nearer).
+    let (_, edge) = seen(&stage, start.camera.expect("a camera"));
     match end.person(a) {
         None => assert!(end.indoors.contains(&a), "{end:?}"),
-        Some(going) => assert!(going.x > person(&start, a).x + fig * 3.0),
+        Some(going) => assert!(
+            going.aboard || going.x > (person(&start, a).x + fig * 3.0).min(edge - fig * 0.5),
+            "{going:?} from {:?}, the edge at {edge}",
+            person(&start, a)
+        ),
     }
     let ferry = going.props.iter().find(|prop| prop.prop == Prop::Ferry);
     assert!(ferry.is_some_and(|ferry| ferry.x > person(&start, a).x));
@@ -519,7 +531,10 @@ fn the_cast_is_in_view_at_each_camera_cue() {
                         .iter()
                         .filter(|p| p.walk.is_none() && !sent_off(p.index))
                     {
-                        assert!(shown(person.x), "{kind:?} at {t}: {person:?}");
+                        assert!(
+                            shown(person.x),
+                            "{kind:?} at {t}: {person:?} in {left}..{right}"
+                        );
                     }
                 }
                 Mark::Place(id) => {
@@ -1009,8 +1024,11 @@ fn a_farewell_whose_leaver_has_gone_still_stages_and_draws_them() {
         .props
         .iter()
         .any(|prop| prop.prop == Prop::Suitcase && prop.held_by == Some(index)));
-    let going = stage_scene(&script, &stage, &gone, 5.0);
-    assert!(person(&going, index).walk.is_some());
+    // Walking off at some moment of the first five seconds.
+    assert!((2..=20).any(|n| {
+        let going = stage_scene(&script, &stage, &gone, n as f32 * 0.25);
+        person(&going, index).walk.is_some()
+    }));
     let end = stage_scene(&script, &stage, &gone, script.seconds - 0.3);
     assert!(person(&end, index).aboard, "{end:?}");
     assert!(end.people.iter().all(|person| person.who != dead));

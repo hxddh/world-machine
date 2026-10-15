@@ -591,6 +591,10 @@ pub(super) fn paint_weather(
     k: f32,
 ) {
     let t = frame.seconds;
+    // The air between the eye and what it looks at: with the camera in
+    // close, there is less of it, and a veil over the whole window would
+    // wash out people drawn 140 px tall (v0.30 S1c round 2).
+    let thin = 1.0 / frame.camera.zoom.max(1.0).sqrt();
     // Each drop or flake has its own place in a repeating fall.
     let fall = |index: u32, speed: f32, drift: f32| {
         let mut seed = index.wrapping_mul(0x9e37_79b9) ^ 0x85eb_ca6b;
@@ -661,7 +665,7 @@ pub(super) fn paint_weather(
                 height - top,
                 180.0,
                 (art::hex(0xc07040).opacity(0.0), 0.0),
-                (art::hex(0xc07040).opacity(0.18), 0.2),
+                (art::hex(0xc07040).opacity(0.18 * thin), 0.2),
             );
         }
         Weather::Fog => {
@@ -672,8 +676,8 @@ pub(super) fn paint_weather(
                     layer.w,
                     layer.h,
                     180.0,
-                    (gpui::white().opacity(layer.top), 0.0),
-                    (gpui::white().opacity(layer.bottom), 1.0),
+                    (gpui::white().opacity(layer.top * thin), 0.0),
+                    (gpui::white().opacity(layer.bottom * thin), 1.0),
                 );
             }
         }

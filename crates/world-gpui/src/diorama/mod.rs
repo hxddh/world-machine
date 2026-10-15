@@ -32,12 +32,14 @@ mod people;
 mod scene;
 pub mod stage_view;
 pub mod staging;
+pub mod turn;
 mod works;
 
 pub use interface::*;
 pub use light::*;
 pub use people::*;
 pub use scene::*;
+pub use turn::Turn;
 #[cfg(test)]
 pub(crate) use works::leave_out_glow;
 #[cfg(test)]
@@ -601,12 +603,16 @@ pub fn frame(
         .collect::<Vec<_>>();
     budget_accents(&mut things, &designed, stage.view_w);
 
+    // Who stands with whom: how far round each is turned.
+    let centres = group_centres(&stage.people, stage.figure_h);
+    let big = stage.figure_h * z >= turn::READS_FROM;
     let mut people = stage
         .people
         .iter()
         .zip(living)
-        .filter(|(spot, _)| shows(spot))
-        .map(|(spot, life)| {
+        .zip(&centres)
+        .filter(|((spot, _), _)| shows(spot))
+        .map(|((spot, life), centre)| {
             let item = &items[spot.index];
             let (x, y) = at(life.x, spot.y);
             // Nearer is a little bigger.
@@ -649,7 +655,6 @@ pub fn frame(
                 x,
                 y,
                 height,
-                figure,
                 pose: Pose {
                     bob: life.pose.bob * z,
                     ..life.pose
@@ -667,9 +672,17 @@ pub fn frame(
                     .filter(|(_, how)| *how == Use::Keep)
                     .map(|(thing, _)| thing),
                 posture: None,
+                turn: if big && !figure.bird && figure.age != Age::Baby {
+                    turn_of(stage, spot, life, &what, *centre, stance, seed)
+                } else {
+                    Turn::Front
+                },
+                detail: big,
+                figure,
             }
         })
         .collect::<Vec<_>>();
+    one_talks_at_a_time(&mut people, stage, &centres, seconds);
     carry_babies(&mut people, items, stage.figure_h * z);
     people.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.index.cmp(&b.index)));
 
@@ -834,6 +847,34 @@ pub(crate) fn thing_width(
     .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3))
 }
 
+/// How wide and tall the thing on `spot` is drawn, in stage pixels (the
+/// width as [`thing_width`], the height to the same scale).
+pub(crate) fn thing_size(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> (f32, f32) {
+    let item = &snapshot.canvas.items[spot.index];
+    let shape = item.shape.unwrap_or(MarkShape::Parcel);
+    let p = stage.figure_h * spot.scale;
+    let sized = match snapshot.drawing_of(item) {
+        Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+        None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
+    };
+    match sized {
+        Some((w, h)) => {
+            let most = spot.w * ROOM * 1.3;
+            if w > most {
+                (most, h * most / w.max(1e-3))
+            } else {
+                (w, h)
+            }
+        }
+        None => (spot.w, p * 0.5),
+    }
+}
+
 /// How high above its foot the seat of the bench on `spot` is, in stage
 /// pixels, as it is drawn: the top of the plank someone sits on.
 pub(crate) fn seat_height(
@@ -879,6 +920,9 @@ mod outdoors;
 
 #[cfg(test)]
 mod living_tests;
+
+#[cfg(test)]
+pub(crate) mod rest_tests;
 
 #[cfg(test)]
 pub(crate) mod doing_tests;

@@ -271,6 +271,58 @@ Two costs carry into S1. First, memory: a full bake is 400–680 MB of pixels, s
   - The zoom control's test keeps its checks of the zoom itself.
 - *Left for S1c.* The closer stage camera. The bar judged on CI's macOS run and a real Retina Mac. The live drawing that remains each frame (clouds, the ridge, ground light) as baked layers if the Mac's numbers still need it.
 
+**S1c (2026-10-15): the closer stage camera, people gathered in depth, and the bake fitted to it.** Parts 1 to 3 landed; the optional Part 4 (ground, chrome fading at rest, the hero palette, dusk lit) is left for S1d.
+- *The camera at rest* (`Camera::rest`, `rest_zoom`). The window opens, and settles back, with the camera at rest: close enough that a grown-up on the people's line stands 140 px tall (about 2.4 times closer in a window 848 high), framed from the street's front roofs down to the water's edge. `ZOOM_MOST` rises to 3.4. Yesterday's 1x is the overview, one scroll out, framed as the opening used to be (`overview_view`). Scene cameras run from rest to `ZOOM_MOST`; a Place cue that cannot fit its cast pulls back, as far as the overview. The opening view is `busiest_view`: whoever speaks first today in view, then the most residents, then a whole building, then the fewest cut. ART_DIRECTION §6 says so.
+- *Who the first screen shows* (the Packs' `days::town::gather_round_the_day`, unrecorded presentation, as every day is). From nine to four, the town gathers at one or two hubs near the hour's busiest spot, round whoever speaks first today. People come two by two, talking, or sit together at a bench. Keepers and sitters stay; one carrying a load sets it down to come; a baby comes with nobody. No stretch holds more than 60% of the town, so the noon bar still holds. Gathering prefers hubs that keep whoever speaks in the window, and never a place standing on the front row itself (a bridge's foot), whose crowd would stand off past its ends. In the scene, people talking take their room first, near where they would stand, a step in front of what stands there if need be, rather than strung off along the line.
+- *Composition.* Groups stand at three or four depths (`DEPTHS`). Nobody hides anybody (`unstack`). People turn every way (`Turn`: front, three-quarter, profile, back, made from each drawing's own parts) once they are drawn 90 px or taller. They get a detail pass at that size (coat shade, opening, collar, hair light, nose).
+- *The bake.* Levels are 0.5 (a whole-place stand-in only), 1 (the overview), 2.45 (at rest) and 3.4 (close), up from S1b's [1, 2]. A close level is baked over what the camera sees and 0.3 of it either side, moved 0.25 toward a pan (always still covering the view: `a_span_baked_ahead_of_a_pan_covers_the_view`), and baked ahead along it. Frames count when a look is stood in (`FrameTags::stood_in`). The light a fade is heading for is not baked at a close level while a fade runs. Only the camera's own look keeps a close stand-in. The benchmark prints `memory_bar` and `stand_in_line`.
+- *Numbers.* All measured on this 4-core VM at 1100x848, display scale 2, 40 s, release build.
+  - **People:** 140 px on the line at 848 high. `people_at_rest_120_to_160_px` holds windows from 700 to 1,600 high, every fixture, noon and dusk, to 120–160 px.
+  - **Residents busy on the first screen, 9 to 4:**
+
+    | | Before (zoom 1) | After (at rest) |
+    |---|---|---|
+    | Tiny Society | 2–8 | 8–10 |
+    | Pocket Universe | 2–10 | 6–9 |
+
+    `six_residents_busy_on_first_screen_by_day` is now two-sided at rest in both Packs.
+  - **Day 1,082 through a day:** at rest 200–205 MB over three runs (bar 250), at most 317–340 MB (bar 350). Plan p99 1.2–1.5 ms. No interval over 33 ms.
+  - **Day 1,082 at noon:** 116 MB at rest, 238 MB at most. Plan p99 1.2 ms.
+  - **Day 1 at noon:** 66 MB at rest, 151 MB at most. Plan p99 0.3 ms.
+  - **Before S1c:** S1b was 59 MB at rest at zoom 1. The first cut of this camera, before the bake was fitted, held 326 MB at rest and 426 MB at most.
+- *Not met here.* Stand-in frames are 8–26% of frames, with runs up to 1.5–2.5 s while a close look re-bakes after a long pan or zoom (NEXT_PLAN's ≤150 ms is not met). The bench's camera pans and zooms continuously, so this is a worst case. CI's macOS run is the judge.
+- *Re-blessed.*
+  - The Packs' `replay` and `snapshot_json` digests for `v020`/`v027` harbour, ice and mars. The day's gathering changes the projected routines (who stands where 9–16); the recorded state does not change, and `replayed-state.digest` was not touched.
+  - Nineteen golden pictures (ages, the four designs and the night quilt, diorama day/dusk/night, the three places, pointers, postcard, the four seasons, strip; not panorama-east): people stand in groups at depths and no longer stack. People drawn under 90 px do not turn, so the figures themselves are unchanged.
+- *Left for S1d (Part 4).* The ground (yards, a back lane, worn paths), the chrome fading after 3 s idle with the numbers on a Book ledger page (`RESTING_WORD_LIMIT` 12), a hero palette per place, and dusk lit rather than tinted. Also a vertical crop of the close levels (the sky and back rows above the window at rest), which the budget did not yet need.
+
+**S1c round 2 (2026-10-15): the art director's NO, answered.** The verdict: only harbour day 1,082 at 15:00 read as lived in. Five blockers, four later items.
+- *1. The first screen was empty.* Root causes, by fixture:
+  - Harbour day 1 has eight people. By day the hub's cap of 60% of the town per stretch (the noon bar's share, applied at every hour) let four of them come. Of an evening the day had everyone indoors: none out at 21:00.
+  - Ares day 14 has six. The same cap let three come, and two of those were the solar array's crew, standing at its sides.
+  - Day 1,082 by day was fine (9–10 out). In the evening the town went home or into the pub: 4 out at 19:00 and 3 at 21:00, and the 3 were at the hill beacon and the sea pool.
+  - The fix (`days::town`). The 60% share is held at noon only, the hour the Packs' bar measures; at noon a town of eight still shows four. Each hub takes six at most (`HUB_EACH`). New: `gather_of_an_evening` (19–21) gathers everyone in the evening's place (the pub, the hall), anyone out elsewhere, and up to eight in all who are at home but not abed (children until 20:00, elders until 21:00, babies never). They gather in front of that place, at a lamp on the street's front if one stands near, else at what stands near that people stand about in front of. A lone dancer (a wedding's first dance) is where the evening is. A festival is left alone, and 22:00 is unchanged (the bar of three out holds).
+  - In the scene: whoever speaks first stands in the middle of their gathering, with the talkers placed nearest the hub first. The lane in front comes before far along the line. Dancers stay near their gathering. A gathering's groups at different depths stand 1.1 P apart rather than 1.6 P. The opening view keeps the speaker a tenth of the way in rather than a fifth.
+  - Measured on the art director's snapshots at rest (1100 by 848). Before → after:
+    - Harbour day 1: 10:00 4 → 8, 15:00 4 → 7, 19:00 5 → 8, 21:00 0 → 7.
+    - Day 1,082: 10:00 10 → 10, 15:00 9 → 10, 19:00 4 → 7, 21:00 3 → 8.
+    - Ares day 14: 10:00 3 → 6, 15:00 1 → 6, 19:00 5 → 6, 21:00 1 → 6.
+  - Noon stays at the cap: day 1 shows 4, Ares 3.
+- *2. Rows.* Every gathered stop said Talking, so everyone drew the talking pose: a hand up, which reads as a wave. Now one person per conversation talks at a time (`one_talks_at_a_time`, round every 4 s; a ring round a lamp counts as one conversation) and the rest listen with their hands down. Every second pair of four or more at a hub sits down to talk on a seat of their own. One of a group glancing away stays turned three-quarter instead of to the camera.
+- *3. People inside props.* The Ares speaker was keeping the solar array, a Stall shape: a keeper stands behind the counter, here under the panel and the pole. Only a stall drawn with a counter (`has_a_counter`: a stall, market, cart, kiosk, booth or trading post) is kept from behind; anything else is kept from its side. The two on the pool's railing at 1,082 21:00 stood on the people's line in front of a water-line basin, whose picture reaches up onto the quay. A new last pass of the layout (`off_props`) moves anyone not on clear ground (`Ground::stands_clear`) to the nearest clear spot within three strides, on their line, a step nearer, or a step back. Clear ground is in no footprint, on no thing's ground, and never on the picture of a basin or bed in front of the line. Anyone with no clear spot waits for the closest zoom. Someone left at a bench's end on the line shows from the rest zoom only.
+- *4. Night was missing.* The bake's lights had night only from 23:00: 21:00 was nine tenths dusk (`Light::blend`, a cross-fade from 20:30 to 23:00). Dusk is now full from 19:12 to 20:15, and night is reached by 21:00. At rest the hour's first want for 21:00 is the night look alone.
+- *5. The ghost by the clock post* was neither a stand-in nor smoke. It was the clock cluster's paved patch, laid at 50–65% over the far field's beds, which showed through it. A patch on land now lays its ground at 90–94% (`ground::cover`).
+- *Later.* 6, the framing: not done. At 140 px people with the water's edge above the card band, the back row cannot fit; it needs a smaller rest figure or a vertical crop (S1d). 7, the haze: fog and dust thin with the zoom (1/√zoom, about 0.62 at rest). 8, the detail: a light in each eye, a thumb on each hand, and glasses that turn with the face (in profile the lens stays in its rim, inside the head's edge). 9, pan frames 3–6: they cross 0.9–1.45 screens of quay, where nobody's day has them at 15:00 once the hub has gathered them. That is empty ground, as reported.
+- *Tests.*
+  - World: `the_look_at_rest_by_nine_is_the_night`, `nobody_stands_on_a_thing_at_rest` (every fixture, 9–22), `gatherings_at_rest_face_each_other` (no three turned to the camera in a row, one talking per conversation, at least half turned to whoever they are with), `a_patch_is_ground_not_a_veil`, `eyes_hands_and_glasses_read_at_rest`.
+  - Days: `the_town_gathers_of_an_evening`.
+  - Both Packs: `the_first_screen_at_rest_morning_to_night` runs `world_gpui::first_screen_bar` on every fixture plus harbour day 1 and Ares day 14, at every hour 9–22: six by day, six of an evening, the rows bar, nobody on a thing.
+  - Changed deliberately: the days hub test (the share at noon only, some sitting), the ring test (one talking at a time), and the light-ahead test (the new dusk).
+- *Re-blessed.*
+  - The 8 Pack digests (`replay` and `snapshot_json` for v020/v027 harbour, ice and mars): the evening gathering and the hub changes alter the projected routines. `replayed-state.digest` was not touched.
+  - 7 golden pictures (design-flag, design-quilt, design-quilt-night, panorama-east, place-ares, place-icebridge, place-maple): people moved off things, and the patches are opaque.
+- *Shots.* `scratchpad/v030/s1c/r2/` (rest at 10, 15, 19 and 21, the overview at 15, and the pan strip, for harbour day 1, day 1,082 and Ares day 14).
+
 ### S2. Residents who move
 
 - Six to eight animated verbs: walk, carry, sit, work, wave, gather or dance.

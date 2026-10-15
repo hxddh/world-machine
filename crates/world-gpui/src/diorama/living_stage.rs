@@ -96,8 +96,12 @@ impl Light {
         match hour {
             h if (8.0..16.5).contains(&h) => (Light::Noon, Light::Noon, 0.0),
             h if (16.5..19.2).contains(&h) => (Light::Noon, Light::Dusk, smooth((h - 16.5) / 2.7)),
-            h if (19.2..20.5).contains(&h) => (Light::Dusk, Light::Dusk, 0.0),
-            h if (20.5..23.0).contains(&h) => (Light::Dusk, Light::Night, smooth((h - 20.5) / 2.5)),
+            h if (19.2..20.25).contains(&h) => (Light::Dusk, Light::Dusk, 0.0),
+            // Night by nine (v0.30 S1c round 2: at 21:00 the window was
+            // still nine tenths dusk, a sepia day).
+            h if (20.25..21.0).contains(&h) => {
+                (Light::Dusk, Light::Night, smooth((h - 20.25) / 0.75))
+            }
             h if (5.0..8.0).contains(&h) => (Light::Night, Light::Noon, smooth((h - 5.0) / 3.0)),
             _ => (Light::Night, Light::Night, 0.0),
         }

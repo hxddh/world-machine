@@ -366,7 +366,7 @@ fn a_bake_takes_one_thread_on_a_small_machine() {
 }
 
 /// The light an hour fades into is baked ahead, before its fade begins,
-/// and only then: never at noon or late at dusk.
+/// and only then: never at noon or early at dusk.
 #[test]
 fn the_next_light_is_baked_before_its_fade_begins() {
     use ls::Light::{Dusk, Night, Noon};
@@ -388,6 +388,8 @@ fn the_next_light_is_baked_before_its_fade_begins() {
     assert_eq!(lights(17.0), vec![(Noon, true), (Dusk, true)]);
     assert_eq!(lights(19.5), vec![(Dusk, true)]);
     assert_eq!(lights(20.0), vec![(Dusk, true), (Night, false)]);
+    assert_eq!(lights(20.5), vec![(Dusk, true), (Night, true)]);
+    assert_eq!(lights(21.0), vec![(Night, true)]);
     assert_eq!(lights(4.6), vec![(Night, true), (Noon, false)]);
 }
 
@@ -479,12 +481,15 @@ fn the_living_stage_is_never_blank_and_lets_go_of_what_it_no_longer_needs() {
     assert!(hand
         .slots
         .iter()
-        .any(|slot| slot.held.level == 1 && slot.held.span.is_some()));
+        .any(|slot| slot.held.level == sv::level_for(2.0) && slot.held.span.is_some()));
     // Panning along at that zoom, past what was baked.
     run(&mut hand, &snapshot, Some((2.0, 1400.0)), 12.0, true);
     // Back out: the close level is let go.
     run(&mut hand, &snapshot, None, 12.0, true);
-    assert!(hand.slots.iter().all(|slot| slot.held.level == 0));
+    assert!(hand
+        .slots
+        .iter()
+        .all(|slot| slot.held.level == sv::level_for(1.0)));
     let back = hand.bytes() - hand.pose_bytes();
     assert!(
         back.abs_diff(at_rest) * 20 < at_rest,
@@ -801,5 +806,46 @@ fn a_look_baked_again_is_the_same_as_one_baked_from_nothing() {
             "{light:?}: a World changed baked again is not the look baked from nothing"
         );
         assert_eq!(again.anchors, fresh.anchors);
+    }
+}
+
+/// A close level baked ahead of a pan still covers all the camera sees,
+/// whichever way it pans (v0.30 S1c: else it is baked again every frame).
+#[test]
+fn a_span_baked_ahead_of_a_pan_covers_the_view() {
+    let (width, view_w) = (6000.0, 1100.0);
+    for zoom in [2.2, 2.43, 3.0, 3.4] {
+        for x in [300.0, 1800.0, 3000.0, 5800.0] {
+            let camera = Camera {
+                zoom,
+                x,
+                y: 0.0,
+                fold: 0.0,
+            };
+            let view = sv::seen_by(camera, width, view_w);
+            for lead in [-1.0, 0.0, 1.0] {
+                let want = Want {
+                    key: 1,
+                    level: sv::level_for(zoom),
+                    light: ls::Light::Noon,
+                    variant: Variant::Main,
+                    view,
+                    shown: true,
+                };
+                let span = sv::span_for(&want, width, view_w, lead);
+                let held = Held {
+                    key: 1,
+                    level: want.level,
+                    light: want.light,
+                    variant: want.variant,
+                    span,
+                    ready: true,
+                };
+                assert!(
+                    held.answers(&want),
+                    "zoom {zoom} at {x}, lead {lead}: {span:?} for {view:?}"
+                );
+            }
+        }
     }
 }

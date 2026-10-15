@@ -119,6 +119,198 @@ pub fn wave(
     }
 }
 
+/// How long each in a conversation talks before the next takes their
+/// turn, in seconds.
+pub(super) const TALK_TURN: f32 = 4.0;
+
+/// In each conversation (a group standing together, or two with each
+/// other), one talks at a time, a hand up as they talk, and the rest listen
+/// with their hands down (v0.30 S1c round 2: a gathering talking all at once
+/// read as a row of people waving at the camera). Whose turn it is goes
+/// round every [`TALK_TURN`] seconds. `centres` is
+/// [`group_centres`] of the stage's people.
+pub(super) fn one_talks_at_a_time(
+    people: &mut [PersonPaint],
+    stage: &Stage,
+    centres: &[Option<f32>],
+    seconds: f32,
+) {
+    let key_of = |index: usize| -> Option<i64> {
+        let at = stage.people.iter().position(|spot| spot.index == index)?;
+        // (A ring round a lamp is one conversation, however it stands.)
+        if let Some((lamp, Use::Ring)) = stage.doing.get(&index).and_then(|what| what.fixture) {
+            return Some(i64::MIN / 2 + lamp as i64);
+        }
+        if let Some(centre) = centres.get(at).copied().flatten() {
+            return Some((centre * 4.0).round() as i64);
+        }
+        let partner = stage.doing.get(&index)?.with?;
+        Some(-1 - index.min(partner) as i64)
+    };
+    let mut talks = BTreeMap::<i64, Vec<usize>>::new();
+    for (n, person) in people.iter().enumerate() {
+        if person.stance == Stance::Talking && person.pose.stride.is_none() {
+            if let Some(key) = key_of(person.index) {
+                talks.entry(key).or_default().push(n);
+            }
+        }
+    }
+    for (key, mut members) in talks {
+        if members.len() < 2 {
+            continue;
+        }
+        members.sort_by_key(|n| people[*n].index);
+        let turn =
+            ((seconds / TALK_TURN).max(0.0) as usize + key.unsigned_abs() as usize) % members.len();
+        for (nth, n) in members.into_iter().enumerate() {
+            if nth != turn {
+                people[n].stance = Stance::Standing;
+            }
+        }
+    }
+}
+
+/// Who stands on or in a thing, or in a building's footprint, on a stage
+/// (v0.30 S1c round 2): the item indices of everyone shown at `zoom` whose
+/// feet are not on open ground ([`Ground::open`]), the thing they use
+/// aside. Empty is right.
+pub fn on_a_thing(stage: &Stage, snapshot: &ProjectionSnapshot, zoom: f32) -> Vec<usize> {
+    let ground = Ground::of(stage, snapshot);
+    stage
+        .people
+        .iter()
+        .filter(|spot| stage.shows(spot.index, zoom))
+        .filter(|spot| {
+            let own = stage
+                .doing
+                .get(&spot.index)
+                .and_then(|what| what.fixture)
+                .map_or(usize::MAX, |(thing, _)| thing);
+            !ground.open(spot.x, spot.y, stage.figure_h * spot.scale, own)
+        })
+        .map(|spot| spot.index)
+        .collect()
+}
+
+/// How people stand together on a screen at rest (v0.30 S1c round 2), for
+/// the art director's bar on rows: see [`gathering_at_rest`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Gathering {
+    /// The most people turned to the camera standing in one row (feet on
+    /// one depth line, each within a couple of strides of the next).
+    pub front_in_a_row: usize,
+    /// How many on the screen stand with someone (in a group, or with a
+    /// companion also on it).
+    pub together: usize,
+    /// How many of those are turned to someone: three-quarter or in
+    /// profile toward them, or from behind into the group.
+    pub facing: usize,
+    /// The most in one conversation talking (a hand up) at once.
+    pub most_talking: usize,
+}
+
+/// How the people of `snapshot` stand on the screen at rest centred on
+/// stage `centre` at `hour`, `seconds` in ([`Gathering`]).
+pub fn gathering_at_rest(
+    snapshot: &ProjectionSnapshot,
+    stage: &Stage,
+    hour: u8,
+    centre: f32,
+    seconds: f32,
+) -> Gathering {
+    let daylight = crate::scene::daylight_at(u32::from(hour));
+    let living = living(
+        stage,
+        snapshot,
+        seconds,
+        daylight,
+        &Default::default(),
+        None,
+    );
+    let camera = Camera::rest(stage, centre);
+    let frame = frame(
+        snapshot,
+        stage,
+        &living,
+        camera,
+        seconds,
+        daylight,
+        &Glows::new(),
+        1.0,
+    );
+    let on_screen = frame
+        .people
+        .iter()
+        .filter(|person| person.x > 0.0 && person.x < stage.view_w && !person.figure.bird)
+        .filter(|person| person.figure.age != crate::age::Age::Baby)
+        .collect::<Vec<_>>();
+    let front = on_screen
+        .iter()
+        .filter(|person| person.turn == Turn::Front && person.pose.stride.is_none())
+        .map(|person| (person.x, person.y, person.height))
+        .collect::<Vec<_>>();
+    let (front_in_a_row, _) = rows_and_overlap(&front);
+    let centres = group_centres(&stage.people, stage.figure_h);
+    let mut out = Gathering {
+        front_in_a_row: if front.is_empty() { 0 } else { front_in_a_row },
+        ..Gathering::default()
+    };
+    let mut talks = BTreeMap::<i64, usize>::new();
+    for person in &on_screen {
+        let Some(at) = stage
+            .people
+            .iter()
+            .position(|spot| spot.index == person.index)
+        else {
+            continue;
+        };
+        let spot = stage.people[at];
+        let partner = stage
+            .doing
+            .get(&person.index)
+            .and_then(|what| what.with)
+            .and_then(|with| on_screen.iter().find(|other| other.index == with));
+        let toward = match (centres[at], partner) {
+            (Some(centre), _) if (centre - spot.x).abs() > 1.0 => Some(centre - spot.x),
+            (_, Some(other)) => Some(other.x - person.x),
+            (Some(_), None) => Some(0.0),
+            (None, None) => None,
+        };
+        let Some(toward) = toward else {
+            continue;
+        };
+        out.together += 1;
+        let turned = match person.turn {
+            Turn::Front => false,
+            Turn::Back => true,
+            // (Toward them, or glancing away a moment.)
+            _ => {
+                toward.abs() <= 1.0
+                    || person.pose.facing * toward > 0.0
+                    || person.pose.facing.abs() < 0.5
+            }
+        };
+        out.facing += usize::from(turned);
+        if person.stance == Stance::Talking {
+            let ring = stage
+                .doing
+                .get(&person.index)
+                .and_then(|what| what.fixture)
+                .filter(|(_, how)| *how == Use::Ring);
+            let key = match centres[at] {
+                _ if ring.is_some() => i64::MIN / 2 + ring.map_or(0, |(lamp, _)| lamp as i64),
+                Some(centre) => (centre * 4.0).round() as i64,
+                None => {
+                    -1 - partner.map_or(person.index, |other| other.index.min(person.index)) as i64
+                }
+            };
+            *talks.entry(key).or_default() += 1;
+        }
+    }
+    out.most_talking = talks.values().copied().max().unwrap_or(0);
+    out
+}
+
 /// How close two people stand, in figure heights, to be together: a
 /// pair or a group talking.
 pub(super) const TOGETHER: f32 = 0.9;
@@ -126,6 +318,11 @@ pub(super) const TOGETHER: f32 = 0.9;
 /// How far apart, in figure heights, the nearest members of two groups
 /// stand, centre to centre: a body's width and 0.8 P of open quay more.
 pub(super) const GROUP_GAP: f32 = 1.6;
+
+/// How far apart, in figure heights, the nearest members of two groups of
+/// a gathering standing at depths a fifth of a body apart or more stand,
+/// centre to centre: a body's width and 0.7 P of open ground.
+pub(super) const GROUP_GAP_IN_DEPTH: f32 = 1.1;
 
 /// The most people a group has: more and they are a queue.
 #[cfg(test)]
@@ -142,10 +339,10 @@ pub(super) const GROUP_MOST: usize = 3;
 /// moved who stands alone.
 pub(super) fn gather(
     people: &mut [Spot],
-    figure_h: f32,
-    quay: f32,
+    (figure_h, quay): (f32, f32),
     blocked: &[(f32, f32)],
     fronted: &[(f32, f32)],
+    gathered: &dyn Fn(usize) -> bool,
 ) {
     let lane_of = |spot: &Spot| (spot.y - quay > figure_h * 0.3) as u8;
     let mut order = (0..people.len()).collect::<Vec<_>>();
@@ -178,11 +375,30 @@ pub(super) fn gather(
     let (near, between) = (figure_h * 0.64, figure_h * GROUP_GAP);
     let room = figure_h * 0.5;
     let width_of = |size: usize| near * (size - 1) as f32;
+    // Each group a step nearer or further than the last. In a gathering
+    // (a run of people most of them gathered at their hub, `gathered`), two groups
+    // whose depths differ by a fifth of a body or more stand closer, their
+    // open ground between them in depth (v0.30 S1c round 2: a gathering of
+    // eight strung along a whole window, its ends off the first screen).
+    let depth_of = |group: usize| [0.0_f32, -0.24, 0.12][group % 3];
+    let gap_after = |group: usize, compact: bool| {
+        if compact && (depth_of(group) - depth_of(group + 1)).abs() >= 0.2 {
+            figure_h * GROUP_GAP_IN_DEPTH
+        } else {
+            between
+        }
+    };
+    let compact = |run: &[usize]| {
+        run.iter().filter(|at| gathered(people[**at].index)).count() * 3 >= run.len() * 2
+    };
     // How wide a run stands once it is spread into its groups.
-    let spread = |count: usize| {
-        let sizes = group_sizes(count);
+    let spread = |run: &[usize]| {
+        let sizes = group_sizes(run.len());
+        let compact = compact(run);
         sizes.iter().map(|size| width_of(*size)).sum::<f32>()
-            + between * sizes.len().saturating_sub(1) as f32
+            + (0..sizes.len().saturating_sub(1))
+                .map(|group| gap_after(group, compact))
+                .sum::<f32>()
     };
     // Two runs that would stand closer than a stride once each is spread
     // out (a crowd along the front, a year on) are one run: otherwise each
@@ -190,7 +406,7 @@ pub(super) fn gather(
     loop {
         let extent = |run: &Vec<usize>| {
             let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
-            let half = spread(run.len()) / 2.0;
+            let half = spread(run) / 2.0;
             (centre - half, centre + half)
         };
         let merge = runs.windows(2).position(|pair| {
@@ -203,9 +419,17 @@ pub(super) fn gather(
         let next = runs.remove(at + 1);
         runs[at].extend(next);
     }
-    for run in runs.into_iter().filter(|run| run.len() > 1) {
+    let runs = runs
+        .into_iter()
+        .filter(|run| run.len() > 1)
+        .map(|run| {
+            let total = spread(&run);
+            let compact = compact(&run);
+            (run, total, compact)
+        })
+        .collect::<Vec<_>>();
+    for (run, total, compact) in runs {
         let sizes = group_sizes(run.len());
-        let total = spread(run.len());
         let centre = run.iter().map(|at| people[*at].x).sum::<f32>() / run.len() as f32;
         let line = run.iter().map(|at| people[*at].y).sum::<f32>() / run.len() as f32;
         // Where each member would stand, from the run's left edge.
@@ -217,7 +441,7 @@ pub(super) fn gather(
         let mut left = 0.0;
         let mut member = 0;
         for (group, size) in sizes.iter().enumerate() {
-            let step = [0.0, -0.24, 0.12][group % 3] * figure_h;
+            let step = depth_of(group) * figure_h;
             let mut x = 0.0;
             for nth in 0..*size {
                 let seed = people[run[member]].index as u32;
@@ -234,16 +458,18 @@ pub(super) fn gather(
                     };
                 places.push((left + x, back));
             }
-            left += x.max(width_of(*size)) + between;
+            left += x.max(width_of(*size)) + gap_after(group, compact);
         }
         // Centred where the run stood, or nudged a little either way to
         // stand clear of what stands there; with no room, group by group.
-        let front_lane = line - quay > figure_h * 0.3;
-        let open_at = |x: f32| {
+        // (In the front lane, whoever steps back into the lane among what
+        // stands on the people's line stands clear of it too.)
+        let open_at = |x: f32, back: f32| {
             let off = |(l, r): &(f32, f32)| x + room / 2.0 <= *l || x - room / 2.0 >= *r;
+            let front_lane = line - back > quay + figure_h * 0.3;
             (front_lane || blocked.iter().all(off)) && fronted.iter().all(off)
         };
-        let clear = |shift: f32| places.iter().all(|(x, _)| open_at(shift + x));
+        let clear = |shift: f32| places.iter().all(|(x, back)| open_at(shift + x, *back));
         let home = centre - total / 2.0;
         let nudge = figure_h * 0.2;
         let Some(start) = (0..=40)
@@ -267,7 +493,8 @@ pub(super) fn gather(
                 let width = width_of(*size);
                 let centre = members.iter().map(|m| people[*m].x).sum::<f32>() / *size as f32;
                 let fits = |start: f32| {
-                    own.iter().all(|(x, _)| open_at(start + x - first))
+                    own.iter()
+                        .all(|(x, back)| open_at(start + x - first, *back))
                         && stood
                             .iter()
                             .all(|(l, r)| start + width + between <= *l || start >= *r + between)
@@ -313,22 +540,17 @@ pub(super) fn gather(
             spot.scale = 1.0 + (spot.y - quay) / figure_h * 0.35;
         }
     }
-    // Someone a step nearer, in the front lane, never stands in front of
-    // a group behind them, closing it up into one line of four: they step
-    // clear of it, a full gap either side, if there is room near.
-    let mut behind: Vec<(f32, f32)> = Vec::new();
-    let mut xs = people
+    // Someone a step nearer, in the front lane, never stands right in front
+    // of anyone behind them, hiding them: they stand a shoulder's room
+    // aside from each, if there is room near. (Until v0.30 S1c they stepped clear of
+    // the whole group, a full gap either side; with the camera at rest the
+    // step nearer reads as depth, not a line, and a crowd stands in depth
+    // rather than strung along the line.)
+    let xs = people
         .iter()
         .filter(|spot| lane_of(spot) == 0)
         .map(|spot| spot.x)
         .collect::<Vec<_>>();
-    xs.sort_by(f32::total_cmp);
-    for x in xs {
-        match behind.last_mut() {
-            Some((_, right)) if x - *right < between * 0.9 => *right = x,
-            _ => behind.push((x, x)),
-        }
-    }
     let mut front = (0..people.len())
         .filter(|at| lane_of(&people[*at]) == 1)
         .collect::<Vec<_>>();
@@ -336,11 +558,7 @@ pub(super) fn gather(
     let nudge = figure_h * 0.2;
     for at in front {
         let x = people[at].x;
-        let apart = |x: f32| {
-            behind
-                .iter()
-                .all(|(l, r)| x <= l - between || x >= r + between)
-        };
+        let apart = |x: f32| xs.iter().all(|behind| (behind - x).abs() >= figure_h * 0.5);
         if apart(x) {
             continue;
         }
@@ -524,6 +742,46 @@ pub fn living(
     living_staged(stage, snapshot, seconds, daylight, pinned, before, None)
 }
 
+/// Tall, thin things standing in the water in front of the shore (a tide
+/// board, a lamp on the point), and how far either side of each nobody
+/// stands: right behind one, they would be sliced by it.
+pub(super) fn posts(stage: &Stage, items: &[CanvasItem]) -> Vec<(f32, f32)> {
+    posts_at(&stage.things, items, stage.front, stage.figure_h)
+}
+
+/// [`posts`] among `things`, the water's edge at `front`.
+pub(super) fn posts_at(
+    things: &[Spot],
+    items: &[CanvasItem],
+    front: f32,
+    figure_h: f32,
+) -> Vec<(f32, f32)> {
+    things
+        .iter()
+        .filter(|spot| spot.y >= front - 1.0)
+        .filter_map(|spot| {
+            let shape = items[spot.index].shape.unwrap_or(MarkShape::Parcel);
+            let tall = matches!(
+                shape,
+                MarkShape::Signpost | MarkShape::Lamp | MarkShape::Lantern | MarkShape::Flag
+            );
+            tall.then_some((spot.x, spot.w * 0.3 + figure_h * 0.25))
+        })
+        .collect()
+}
+
+/// Where someone who would stand at `x` stands: a step to the side of any
+/// post ([`posts`]) they would stand right behind.
+pub(super) fn beside_posts(posts: &[(f32, f32)], x: f32) -> f32 {
+    posts.iter().fold(x, |x, (post, reach)| {
+        if (x - post).abs() < *reach {
+            post + reach * if x < *post { -1.0 } else { 1.0 }
+        } else {
+            x
+        }
+    })
+}
+
 /// [`living`], with a scene playing: whoever the scene stages
 /// (`staged`, see [`super::staging`]) stands, walks and faces as it
 /// has them, and everyone else keeps their day. The stage is the one the
@@ -545,31 +803,8 @@ pub fn living_staged(
     // door), so a walk toward or past one stops beside it.
     let footprints = footprints(stage, snapshot);
     let clear = |from: f32, to: f32, y: f32| kept_out(&footprints, from, to, y, figure_h * 0.2);
-    // Tall, thin things standing in the water in front of the shore (a tide
-    // board, a lamp on the point): nobody stands right behind one, sliced
-    // by it, but a step to its side.
-    let posts = stage
-        .things
-        .iter()
-        .filter(|spot| spot.y >= stage.front - 1.0)
-        .filter_map(|spot| {
-            let shape = items[spot.index].shape.unwrap_or(MarkShape::Parcel);
-            let tall = matches!(
-                shape,
-                MarkShape::Signpost | MarkShape::Lamp | MarkShape::Lantern | MarkShape::Flag
-            );
-            tall.then_some((spot.x, spot.w * 0.3 + figure_h * 0.25))
-        })
-        .collect::<Vec<_>>();
-    let beside_posts = |x: f32| {
-        posts.iter().fold(x, |x, (post, reach)| {
-            if (x - post).abs() < *reach {
-                post + reach * if x < *post { -1.0 } else { 1.0 }
-            } else {
-                x
-            }
-        })
-    };
+    let posts = posts(stage, items);
+    let beside_posts = |x: f32| beside_posts(&posts, x);
     // Walking from `from` to `to`, `since` seconds of `length` in: planted
     // steps, a lean into the walk, a coat that swings as they start and
     // stop.
@@ -779,8 +1014,9 @@ pub(super) struct Ground {
     footprints: Vec<(f32, f32, f32, f32)>,
     /// Each building's foot and size: (x, base, width, height).
     boxes: Vec<(f32, f32, f32, f32)>,
-    /// Each thing, props too: (item, x, base, width).
-    things: Vec<(usize, f32, f32, f32)>,
+    /// Each thing, props too: (item, x, base, width, and how far back
+    /// from its base its picture is ground nobody stands on).
+    things: Vec<(usize, f32, f32, f32, f32)>,
 }
 
 impl Ground {
@@ -803,8 +1039,30 @@ impl Ground {
                 .things
                 .iter()
                 .map(|spot| {
-                    let w = super::thing_width(stage, snapshot, spot, setting).max(spot.w);
-                    (spot.index, spot.x, spot.y, w)
+                    let (w, h) = super::thing_size(stage, snapshot, spot, setting);
+                    let w = w.max(spot.w);
+                    // In front of the people's line (on the water line, in
+                    // the lane in front), a basin's or a bed's picture is
+                    // ground with a rail or a rim round it: nobody stands
+                    // anywhere on it (v0.30 S1c round 2: two at a pool in
+                    // the rocks stood on its railing). A pier's or a wall's
+                    // is the edge of the ground people stand on behind it.
+                    let rimmed = matches!(
+                        snapshot.canvas.items[spot.index].shape,
+                        Some(
+                            MarkShape::Fountain
+                                | MarkShape::Well
+                                | MarkShape::Garden
+                                | MarkShape::Planter
+                                | MarkShape::Sprouts
+                        )
+                    );
+                    let deep = if rimmed && spot.y > stage.feet + stage.figure_h * 0.3 {
+                        h.min(stage.figure_h * 1.2)
+                    } else {
+                        0.0
+                    };
+                    (spot.index, spot.x, spot.y, w, deep)
                 })
                 .collect(),
         }
@@ -830,11 +1088,138 @@ impl Ground {
             && self.boxes.iter().all(|(bx, by, w, h)| {
                 (x - bx).abs() >= w / 2.0 + body || y >= by + p * 0.3 || y <= by - h - p * 0.2
             })
-            && self.things.iter().all(|(index, tx, ty, tw)| {
+            && self.things.iter().all(|(index, tx, ty, tw, deep)| {
                 *index == own
                     || (x - tx).abs() >= tw / 2.0 + body * 0.6
-                    || (y - ty).abs() >= p * 0.45
+                    || (y - ty >= p * 0.3 || ty - y >= (p * 0.45).max(*deep))
             })
+    }
+
+    /// The nearest open ground ([`Ground::open`]) to (`x`, `y`) along its
+    /// line, a tenth of `p` at a time up to `reach` steps either way, clear
+    /// of `others` (feet, depth) by a shoulder's room: `x` itself if it is
+    /// open.
+    pub(super) fn nearest_open(
+        &self,
+        (x, y, p): (f32, f32, f32),
+        own: usize,
+        (others, deep): (&[(f32, f32)], f32),
+        reach: i32,
+    ) -> Option<f32> {
+        // (Elbow room across at their own depth, a shoulder's a step
+        // nearer or further, or `deep` apart in depth.)
+        let clear = |at: f32| {
+            others.iter().all(|(ox, oy)| {
+                let across = if (oy - y).abs() < deep * 0.3 {
+                    deep * 0.6
+                } else {
+                    p * 0.45
+                };
+                (ox - at).abs() >= across || (oy - y).abs() >= deep
+            })
+        };
+        (0..=reach)
+            .flat_map(|step| [step, -step])
+            .map(|step| x + step as f32 * p * 0.1)
+            .find(|at| self.open(*at, y, p, own) && clear(*at))
+    }
+}
+
+/// Nobody stands on or in a thing (v0.30 S1c round 2, the art director's
+/// S1c blocker 3: a speaker under a solar panel with its pole through her,
+/// two on a sea pool's railing): once everyone is where their day and the
+/// gatherings have them, whoever stands where the ground is not open
+/// ([`Ground::open`]: in a building's footprint, on a thing's picture or
+/// at its depth across it, but the thing they use) steps along their line to
+/// the nearest open ground clear of everyone else, if any is within a few
+/// strides.
+pub(super) fn off_props(
+    stage: &mut Stage,
+    snapshot: &ProjectionSnapshot,
+    blocked: &[(f32, f32)],
+    fronted: &[(f32, f32)],
+) {
+    let ground = Ground::of(stage, snapshot);
+    let fig = stage.figure_h;
+    let mut order = (0..stage.people.len()).collect::<Vec<_>>();
+    // Those at what they use first: they keep their spots.
+    let fixed = |index: usize| {
+        stage
+            .doing
+            .get(&index)
+            .and_then(|what| what.fixture)
+            .map(|(thing, _)| thing)
+    };
+    order.sort_by_key(|at| (fixed(stage.people[*at].index).is_none(), *at));
+    for at in order {
+        let spot = stage.people[at];
+        let own = fixed(spot.index).unwrap_or(usize::MAX);
+        let p = fig * spot.scale;
+        if !ground.open(spot.x, spot.y, p, own) {
+            let others = stage
+                .people
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != at)
+                .map(|(_, other)| (other.x, other.y))
+                .collect::<Vec<_>>();
+            // Along their own line, or a step nearer, or half a step back
+            // (smaller, so only where nothing nearer is), whichever is
+            // nearest.
+            let lane = fig * 0.45;
+            let lanes = if spot.y > stage.feet + fig * 0.2 {
+                vec![spot.y, spot.y - lane, spot.y - lane * 2.0]
+            } else {
+                vec![spot.y, spot.y + lane, spot.y - lane]
+            };
+            // Within a few strides, clear of everyone: apart in depth by
+            // most of the nearer one's height (the nearer is drawn bigger).
+            let deep = fig * 1.05;
+            let found = lanes
+                .iter()
+                .filter_map(|&y| {
+                    // (Drawn at the scale of where they would stand, and
+                    // never before the doors in front.)
+                    let p = fig * (1.0 + (y - stage.feet) / fig * 0.35);
+                    let room = fig * 0.25;
+                    let off = |x: f32, (l, r): &(f32, f32)| x + room <= *l || x - room >= *r;
+                    let x = (0..=30)
+                        .flat_map(|step| [step, -step])
+                        .map(|step| spot.x + step as f32 * p * 0.1)
+                        .filter(|x| fronted.iter().all(|range| off(*x, range)))
+                        .find_map(|x| ground.nearest_open((x, y, p), own, (&others, deep), 0))?;
+                    Some((x, y))
+                })
+                .min_by(|a, b| {
+                    let cost = |(x, y): &(f32, f32)| {
+                        (x - spot.x).abs()
+                            + (y - spot.y).abs() * if *y < spot.y { 6.0 } else { 2.0 }
+                    };
+                    cost(a).total_cmp(&cost(b))
+                });
+            match found {
+                Some((x, y)) => {
+                    let moved = &mut stage.people[at];
+                    moved.x = x;
+                    moved.y = y;
+                    moved.scale = 1.0 + (y - stage.feet) / fig * 0.35;
+                    // On the line before the end of what stands on it (a
+                    // bench, a stall), as a crowd stands: from further out
+                    // they read as on it, and wait for the camera at rest.
+                    let room = fig * 0.25;
+                    let line = y <= stage.feet + fig * 0.25;
+                    if line && blocked.iter().any(|(l, r)| x + room > *l && x - room < *r) {
+                        let rest = Camera::rest_zoom(stage);
+                        stage.shown_from.insert(spot.index, rest);
+                    }
+                }
+                // Nowhere clear near (a crowd hemmed in by benches): they
+                // wait for the closest look, as what has no room does.
+                None => {
+                    stage.shown_from.insert(spot.index, ZOOM_MOST);
+                }
+            }
+        }
     }
 }
 
@@ -881,6 +1266,21 @@ fn use_of(shape: MarkShape, stance: Option<Stance>) -> Option<Use> {
         ) => Some(Use::Beside),
         _ => None,
     }
+}
+
+/// Whether a stall drawn as `art` has a counter someone keeping it stands
+/// behind: a market's, a cart's, a stall's. Anything else kept as a stall
+/// (a solar array on its pole, a boat rack, a scaffold) is kept from its
+/// side (v0.30 S1c round 2: a keeper stood under a solar panel, its pole
+/// through her).
+pub(super) fn has_a_counter(art: Option<&str>) -> bool {
+    art.is_none_or(|art| {
+        [
+            "stall", "market", "cart", "counter", "kiosk", "booth", "trading",
+        ]
+        .iter()
+        .any(|word| art.contains(word))
+    })
 }
 
 /// What someone on an errand does where it takes them, at a thing of
@@ -983,6 +1383,9 @@ pub(super) fn at_their_stops(
     };
     let ground = Ground::of(stage, snapshot);
     let open = |x: f32, y: f32, p: f32, own: usize| ground.open(x, y, p, own);
+    // Everyone stood beside a thing so far, whatever thing: two using things
+    // one behind the other are never one behind the other themselves.
+    let mut stood_beside = Vec::<(f32, f32)>::new();
     for (thing, mut members) in by_thing {
         let spot = *stage
             .things
@@ -1028,7 +1431,7 @@ pub(super) fn at_their_stops(
             let wants = use_of(shape, stage.doing[&person].stance).unwrap_or(Use::Beside);
             let how = match wants {
                 Use::Seat if sat < sitting => Use::Seat,
-                Use::Keep if !kept => Use::Keep,
+                Use::Keep if !kept && has_a_counter(items[thing].art.as_deref()) => Use::Keep,
                 Use::Ring => Use::Ring,
                 _ => Use::Beside,
             };
@@ -1132,9 +1535,27 @@ pub(super) fn at_their_stops(
                                 && besides
                                     .iter()
                                     .all(|(ox, _): &(f32, f32)| (ox - x).abs() >= p * 0.45)
+                                && stood_beside.iter().all(|(ox, oy): &(f32, f32)| {
+                                    (ox - x).abs() >= p * 0.45 || (oy - y).abs() >= p * 0.6
+                                })
                         })
-                        .unwrap_or_else(|| at(first, 0));
+                        // With no open ground near, a step further out than
+                        // anyone beside it already, never on the same spot
+                        // as another (v0.30 S1c: two sitters by a well were
+                        // drawn one on the other).
+                        .or_else(|| {
+                            (0..8)
+                                .flat_map(|out| [(first, out), (-first, out)])
+                                .map(|(side, out)| at(side, out))
+                                .find(|(x, _)| {
+                                    besides
+                                        .iter()
+                                        .all(|(ox, _): &(f32, f32)| (ox - x).abs() >= p * 0.45)
+                                })
+                        })
+                        .unwrap_or_else(|| at(first, besides.len()));
                     besides.push(found);
+                    stood_beside.push(found);
                     found
                 }
             };
@@ -1259,19 +1680,38 @@ pub(super) fn at_their_stops(
             .iter()
             .filter_map(|index| stage.people.iter().position(|spot| spot.index == *index))
             .collect::<Vec<_>>();
+        // A pair dances level, side by side (v0.30 S1c round 2: two placed
+        // a step apart in depth, one right behind the other, danced as one).
+        if let [first, second] = spots[..] {
+            let (a, b) = (stage.people[first], stage.people[second]);
+            if (a.y - b.y).abs() >= figure_h * 0.3 || (a.x - b.x).abs() < figure_h * 0.3 {
+                let side = if b.x >= a.x { 1.0 } else { -1.0 };
+                stage.people[second] = Spot {
+                    x: a.x + side * figure_h * 0.62,
+                    y: a.y,
+                    scale: a.scale,
+                    ..b
+                };
+            }
+        }
         let clear_at = |shift: f32| {
             spots.iter().all(|at| {
                 let spot = stage.people[*at];
                 let (x, y) = (spot.x + shift, spot.y);
                 open(x, y, figure_h * spot.scale, usize::MAX)
                     && stage.people.iter().all(|other| {
+                        // (Room to swing an arm; among their own gathering,
+                        // not a stride off from it, v0.30 S1c round 2.)
                         group.contains(&other.index)
-                            || (other.x - x).abs() >= figure_h * 1.1
+                            || (other.x - x).abs() >= figure_h * 0.8
                             || (other.y - y).abs() >= figure_h * 0.5
                     })
             })
         };
-        let shift = (0..=60)
+        // (Within a few strides of where they stand: a dancer at an
+        // evening's gathering dances among it, v0.30 S1c round 2.)
+        let reach = if dancing.len() <= 2 { 12 } else { 60 };
+        let shift = (0..=reach)
             .flat_map(|step| [step, -step])
             .map(|step| step as f32 * figure_h * 0.25)
             .find(|shift| clear_at(*shift));
@@ -1304,6 +1744,7 @@ pub(super) fn at_their_stops(
         .map(|spot| (spot.x, spot.w))
         .collect::<Vec<_>>();
     let reach = stage.view_w * 0.4;
+    let mut errands_end = Vec::<(f32, f32)>::new();
     for spot in stage.people.clone() {
         if stage.routes.contains_key(&spot.index) {
             continue;
@@ -1379,6 +1820,21 @@ pub(super) fn at_their_stops(
         } else {
             None
         };
+        // Two errands to the same thing never stand one behind the other
+        // there: the later steps back toward home, a stride at a time.
+        if let Some(errand) = what.errand.as_mut() {
+            let back = (home - errand.to).signum();
+            for _ in 0..4 {
+                let crowded = errands_end.iter().any(|(x, y): &(f32, f32)| {
+                    (x - errand.to).abs() < figure_h * 0.45 && (y - spot.y).abs() < figure_h * 0.6
+                });
+                if !crowded {
+                    break;
+                }
+                errand.to += back * figure_h * 0.5;
+            }
+            errands_end.push((errand.to, spot.y));
+        }
     }
 }
 
@@ -1487,6 +1943,11 @@ pub struct PersonPaint {
     pub behind: Option<usize>,
     /// How a scene has them hold themselves over their stance.
     pub posture: Option<super::staging::Posture>,
+    /// How far round from the camera they are turned (v0.30 S1c).
+    pub turn: Turn,
+    /// Drawn big enough for a figure's detail to read
+    /// ([`super::turn::READS_FROM`]): a shaded side, a nose.
+    pub detail: bool,
 }
 
 /// A baby out and about is carried: in the arms of a grown-up from their
@@ -2203,16 +2664,28 @@ pub(super) fn paint_person_body(
     } else {
         stance
     };
+    let chosen = postured
+        .as_ref()
+        .or(on_bench.as_ref())
+        .or(person.drawing.as_ref());
+    // Big enough to read: the detail, and turned as they stand (v0.30 S1c).
+    let shaped = chosen
+        .filter(|_| person.detail || person.turn != Turn::Front)
+        .map(|drawing| {
+            let drawing = if person.detail {
+                super::turn::detailed(drawing)
+            } else {
+                drawing.clone()
+            };
+            super::turn::turned(&drawing, person.turn)
+        });
     age::paint_person(
         &mut tinted,
         x,
         y,
         person.height,
         &person.figure,
-        postured
-            .as_ref()
-            .or(on_bench.as_ref())
-            .or(person.drawing.as_ref()),
+        shaped.as_ref().or(chosen),
         stance,
         person.mood,
         pose,
@@ -2697,5 +3170,231 @@ pub(super) fn street_glow(frame: &Frame) -> Hsla {
     match frame.look.as_ref().and_then(|look| look.glow) {
         Some(glow) => art::hex(glow),
         None => art::hex(0xffc96b),
+    }
+}
+
+/// How far round from the camera someone standing on `spot` is turned
+/// (v0.30 S1c), from how they stand this frame: walking, in profile; at a
+/// stall they keep, to the camera over it; on a bench, three-quarter; one
+/// of a ring nearer the viewer than the lamp, from behind; in a group or
+/// with someone, from behind if they stand nearer the viewer than its
+/// middle, else three-quarter or in profile to whoever they talk to; alone,
+/// to the camera or three-quarter, by who they are. Waving at a click, or
+/// looking out of a ring, to the camera.
+pub(super) fn turn_of(
+    stage: &Stage,
+    spot: &Spot,
+    life: &Living,
+    what: &Doing,
+    centre: Option<f32>,
+    stance: Stance,
+    seed: u32,
+) -> Turn {
+    let fig = stage.figure_h;
+    if life.pose.stride.is_some() {
+        return Turn::Profile;
+    }
+    if stance == Stance::Waving {
+        return Turn::Front;
+    }
+    // (One of a group glancing away a moment, or turned half out, still
+    // stands turned to it, v0.30 S1c round 2; the middle of a ring, and
+    // anyone alone looking about, faces out.)
+    let in_a_group = centre.is_some_and(|centre| (centre - spot.x).abs() > fig * 0.1);
+    if life.pose.facing.abs() < 0.5 && !in_a_group {
+        return Turn::Front;
+    }
+    if life.using.is_some() {
+        return Turn::Profile;
+    }
+    let pick = (seed / 7) % 5;
+    match what.fixture.map(|(_, how)| how) {
+        Some(Use::Keep) => return Turn::Front,
+        Some(Use::Seat) => return Turn::ThreeQuarter,
+        Some(Use::Ring) => {
+            let lamp = what
+                .fixture
+                .and_then(|(thing, _)| stage.things.iter().find(|t| t.index == thing));
+            return match lamp {
+                Some(lamp) if spot.y > lamp.y + fig * 0.05 => Turn::Back,
+                _ => Turn::ThreeQuarter,
+            };
+        }
+        Some(Use::Beside) => return Turn::Profile,
+        None => {}
+    }
+    let with = centre.or_else(|| {
+        let partner = what.with?;
+        stage
+            .people
+            .iter()
+            .find(|other| other.index == partner)
+            .map(|other| other.x)
+    });
+    match with {
+        Some(centre) => {
+            let members = stage
+                .people
+                .iter()
+                .filter(|other| (other.x - centre).abs() < fig * 1.3)
+                .filter(|other| (other.y - spot.y).abs() < fig * 0.35)
+                .map(|other| other.y)
+                .collect::<Vec<_>>();
+            let middle = members.iter().sum::<f32>() / members.len().max(1) as f32;
+            if members.len() >= 3 && spot.y > middle + fig * 0.08 {
+                Turn::Back
+            } else if pick < 2 {
+                Turn::Profile
+            } else {
+                Turn::ThreeQuarter
+            }
+        }
+        None if pick < 2 => Turn::ThreeQuarter,
+        None => Turn::Front,
+    }
+}
+
+/// The depths groups on the people's line (`feet`) stand at, one after another along
+/// it, in figure heights from the line: on it, a step back toward the
+/// street, a step nearer, half a step back. With the lane in front for a
+/// crowd (and the step a three's middle stands back), the ground has four
+/// or five depths people stand at (v0.30 S1c).
+pub(super) const DEPTHS: [f32; 4] = [0.0, -0.22, 0.1, -0.12];
+
+/// Stands each group (and each one standing alone) on the people's line at
+/// a depth of its own, in turn along it ([`DEPTHS`]), so that two
+/// groups side by side are never one line. A step back is taken only where
+/// nothing standing on the line (`blocked`) is in the way; else they stay
+/// on the line. Who stands in the lane in front stays there.
+pub(super) fn in_depth(people: &mut [Spot], figure_h: f32, feet: f32, blocked: &[(f32, f32)]) {
+    let on_line = |spot: &Spot| spot.y - feet <= figure_h * 0.3;
+    let mut order = (0..people.len())
+        .filter(|at| on_line(&people[*at]))
+        .collect::<Vec<_>>();
+    order.sort_by(|a, b| {
+        people[*a]
+            .x
+            .total_cmp(&people[*b].x)
+            .then(people[*a].index.cmp(&people[*b].index))
+    });
+    let room = figure_h * 0.25;
+    let mut group = 0;
+    let mut start = 0;
+    while start < order.len() {
+        let mut end = start + 1;
+        while end < order.len()
+            && people[order[end]].x - people[order[end - 1]].x < figure_h * TOGETHER
+            && (people[order[end]].y - people[order[end - 1]].y).abs() < figure_h * 0.3
+        {
+            end += 1;
+        }
+        let members = order[start..end].to_vec();
+        let step = DEPTHS[group % DEPTHS.len()] * figure_h;
+        let clear = step >= 0.0
+            || members.iter().all(|at| {
+                let x = people[*at].x;
+                blocked
+                    .iter()
+                    .all(|(left, right)| x + room <= *left || x - room >= *right)
+            });
+        if clear {
+            for at in members {
+                let spot = &mut people[at];
+                spot.y += step;
+                spot.scale = 1.0 + (spot.y - feet) / figure_h * 0.35;
+            }
+        }
+        group += 1;
+        start = end;
+    }
+}
+
+/// Nobody stands right behind someone else, hidden by them (v0.30 S1c: at
+/// rest two at one spot, a step apart in depth, read as one body): whoever
+/// stands further back of two closer than half a body across and a little
+/// over half a person in depth steps aside to the nearest spot clear of
+/// everyone at their depth, of what stands on the line (`blocked`, behind
+/// its line) and of the doors of what stands in front (`fronted`). Those
+/// `fixed` (at what they use: a bench, a ring, a stall) stay, and count
+/// first.
+pub(super) fn unstack(
+    people: &mut [Spot],
+    (figure_h, feet, width, reach): (f32, f32, f32, i32),
+    blocked: &[(f32, f32)],
+    fronted: &[(f32, f32)],
+    fixed: &dyn Fn(usize) -> bool,
+) {
+    // Hidden: closer across than half a body. Where they step to: a
+    // shoulder's room from everyone if there is any, else half a body.
+    let (across, roomy, deep) = (figure_h * 0.45, figure_h * 0.6, figure_h * 0.6);
+    let room = figure_h * 0.25;
+    let mut order = (0..people.len()).collect::<Vec<_>>();
+    // The fixed first, then the nearest: they keep their spots.
+    order.sort_by(|a, b| {
+        fixed(people[*b].index)
+            .cmp(&fixed(people[*a].index))
+            .then(people[*b].y.total_cmp(&people[*a].y))
+            .then(people[*a].index.cmp(&people[*b].index))
+    });
+    let mut placed: Vec<usize> = Vec::new();
+    for at in order {
+        let spot = people[at];
+        let hidden = |x: f32| {
+            placed.iter().any(|other| {
+                let other = &people[*other];
+                (other.x - x).abs() < across && (other.y - spot.y).abs() < deep
+            })
+        };
+        if !fixed(spot.index) && hidden(spot.x) {
+            // Where they step to, they hide nobody either.
+            let clear = |x: f32, apart: f32| {
+                people.iter().enumerate().all(|(other, them)| {
+                    other == at || (them.x - x).abs() >= apart || (them.y - spot.y).abs() >= deep
+                })
+            };
+            let open = |x: f32, apart: f32| {
+                let off = |(l, r): &(f32, f32)| x + room <= *l || x - room >= *r;
+                x > room
+                    && x < width - room
+                    && clear(x, apart)
+                    && (spot.y > feet + figure_h * 0.3 || blocked.iter().all(off))
+                    && fronted.iter().all(off)
+            };
+            let step_to = |apart: f32| {
+                (1..=reach)
+                    .flat_map(|step| [step, -step])
+                    .map(|step| spot.x + step as f32 * figure_h * 0.1)
+                    .find(|x| open(*x, apart))
+            };
+            if let Some(x) = step_to(roomy).or_else(|| step_to(across)) {
+                people[at].x = x;
+            } else {
+                // No room along: a step nearer, in front of what stands on
+                // the feet, where nobody is hidden either.
+                let y = feet + figure_h * 0.45;
+                let free = |x: f32| {
+                    let off = |(l, r): &(f32, f32)| x + room <= *l || x - room >= *r;
+                    x > room
+                        && x < width - room
+                        && fronted.iter().all(off)
+                        && people.iter().enumerate().all(|(other, them)| {
+                            other == at
+                                || (them.x - x).abs() >= across
+                                || (them.y - y).abs() >= deep
+                        })
+                };
+                if let Some(x) = (0..=reach)
+                    .flat_map(|step| [step, -step])
+                    .map(|step| spot.x + step as f32 * figure_h * 0.1)
+                    .find(|x| free(*x))
+                {
+                    let moved = &mut people[at];
+                    moved.x = x;
+                    moved.y = y;
+                    moved.scale = 1.0 + (y - feet) / figure_h * 0.35;
+                }
+            }
+        }
+        placed.push(at);
     }
 }
