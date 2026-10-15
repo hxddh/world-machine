@@ -385,6 +385,53 @@ The return film becomes a cut of these scenes, replayed from the recorded events
   - A "Play this" control on a moment's page is not added.
   - Art review of the props on a real device.
 
+**S3c/S3d round 2 (2026-10-14): the art director's NO, answered.** Arrival and Farewell passed the stranger test. Festival and Birth half read. Quarrel, Build and Storm failed.
+- *Storm.*
+  - It now reads as a storm. The sun and blue sky go behind a cloud deck (`staging::paint_overcast`, drawn live over the sky's pictures and under the hills), and the gulls go.
+  - The light is cooled and dimmed (a cool wash, never grey: the art bible's §4). The rain is heavy streaks that read at the window's zoom, and the ground by the water is wet. The scene's lamp glows through all of it.
+  - All of this comes from the scene's weather (`Frame::shown_weather`, `scene_storm`) on the live layers. No look is baked again.
+  - It sets in over 1.5 s. There is no lightning flash over a scene's storm.
+  - Everyone hurries home (1.6x a walk) and goes in at their door. Someone gone in is drawn by nobody (`Staged::indoors`).
+- *Quarrel.*
+  - The two stand a clear gap apart, facing each other, cross (`Mood::Cross`, where the face shows mood).
+  - One walks home and goes in. If home is too far to reach, they walk well away.
+  - Nobody stands on the planter.
+- *Build.*
+  - The scaffolding stands round what is going up, at its own foot: a thing's or a building's.
+  - The tools lean against the scaffolding at its foot.
+  - The workers stand on that same ground.
+  - The sample (the bench's and the pictures') builds the thing on the people's ground with the most room about it.
+- *Overlaps.*
+  - Everyone the scene stages, and every prop, is put on the nearest open ground. That is ground clear of buildings' feet and faces, of every thing on the people's ground (taken at its depth: someone may stand a step in front of a planter, never on it), of the posts in the water, and of each other. It is tried on the people's line and a step or two in front of it.
+  - Two of the cast stand at least a body's width apart unless a cue puts one right up against the other (`APART`).
+  - Nobody of the town is stood on.
+  - Everyone else is held where their day has them while the scene plays (no errands, no strolls), so the scene's blocking stays clear of them.
+  - Bunting's poles stand on open ground, never on a boathouse door or a tide gauge, and whoever is nearer stands in front of them.
+  - Someone walking a distance goes along a near lane in front of whoever stands about, unless a building stands out into it. Then they keep to whichever line is clear, so no walk ever crosses a building's ground. A building that blocks the way stops them at the nearest open ground this side of it.
+  - Someone who could not be there in time, or could not get there at all, sets off from nearer.
+  - Someone who walks off the edge of the view is gone, not left standing there.
+- *Camera.*
+  - A festival's camera comes in at 1.5 s, not 5 s, in the template (`chronicle::scene`) and the sample.
+  - The ferry rides lower in the water, its cabin below the quay's edge.
+  - The return film's card docks once a beat and stays put (`Looking::film_dock`).
+- *Birth.* The neighbours cheer at 5.5 s, so the middle and the end differ. This is in the template too.
+- *The parcel on the quay steps* is no leftover of staging. It is the World's own "Bread crates for the hotel" (an order, `MarkShape::Parcel`) in the day-1,082 fixture. It is left as it is.
+- *Tests.*
+  - `nobody_staged_is_in_a_building_or_on_a_prop` now runs every fixture at 11 and at 14 o'clock, every quarter second. It checks:
+    - nobody's feet in a building, at any moment of a walk;
+    - nobody standing on a prop, on a thing, or on anyone of the town;
+    - the cast a body's width apart unless paired by a cue;
+    - every prop that stands on the ground, and bunting's poles, on open ground and not on a thing.
+  - The quarrel test checks the gap, the facing, the moods, and the one who goes home going in.
+  - The build test checks one work site: the tools against the scaffolding, at its foot, on the people's ground, and the workers by it.
+  - The storm test checks that it sets in and that people go in.
+- *Pictures.* `scratchpad/v030/s3c/r2/` has the seven kinds at start, middle and end, plus a festival strip and a storm strip.
+- *Numbers.* The blocking is worked out every frame. With a festival, a storm or a quarrel playing, the headless `living_stage_bench -- window --dpr 2 --hour 12 --scene <kind>` (20 s, day 1,082, three cores) has plan p99 0.62–0.63 ms and mean 0.31 ms (round 1: 0.51–0.55 ms). No interval was over 33 ms. The 4 ms bar is still met.
+- *Left.*
+  - The arrival's ferry, at the left edge, can still sit under the card when the card docks left.
+  - The camera follows a leaver to where they leave, so the waiting ferry can end up under the card.
+  - A real-device look at the cross faces, which are small at this zoom.
+
 ### S4. One day a day
 
 - The town's day follows the real day, or follows each sitting, by the owner's choice (decision 2).
