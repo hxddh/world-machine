@@ -625,6 +625,45 @@ The return film becomes a cut of these scenes, replayed from the recorded events
   - Pocket Universe's finds are one list for all its places.
   - A sitting that runs past midnight stays that day's sitting.
 
+**S4 round 2 (2026-10-15): the art director's NO and the code review, answered.**
+- *Copy.*
+  - **Title bar:** "Waits for you · a new day in 3 h". Asleep or spent, it reads "Asleep · a new day in 3 h". With no countdown, it reads "Waits for you · a new day comes with tomorrow's visit". The unit is kept (sol, night), and the zh and ja lines are rewritten.
+  - **Home badge:** "A new day is waiting" ("A new sol is waiting"), with no count.
+  - **Labels:** "Today's choice" (it was "Today's question") on the morning and on the weighted card. "Looked after" (it was "Tended overnight"); the ritual's lines are unchanged.
+  - **Goodnight:** "Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book." The small line is "No hurry. The town will wait for you."
+  - **Asleep note:** "Everyone's home. Come back tomorrow for the morning." It now sits on an opaque paper in the text's own ink, at least 4.5:1 on the night paper (tested). The veil is eased from 0.38 to 0.33.
+  - **Letters:** on a morning, "Hello from me." becomes "Morning! A bit of news." and "Come by soon." becomes "Come and find me today". This is in the morning path only (`lives::morning_letter`). Letters written while away keep their lines, so no digest changed.
+- *Code review.*
+  - **A clock that was once ahead:** a day before the ledger's begins a new sitting of one day, re-dated to today. It never locks the World asleep, and never gives the first sitting's three.
+  - **A window left open overnight:** the World window wakes when it is next activated (from Home, its strip, or a click) if a new sitting has begun (`WorldDocumentView::wake_if_new_day`). The new sitting is written down, the World is told, and the page is asked anew, with the new allowance and the morning.
+  - **Enter:** it chooses nothing under the morning, the Goodnight card or the sleep (`sitting_covers`, tested).
+  - **The morning is told while the sitting has passed no day**, on every opening. A morning lost between the ledger and the World therefore still comes, and a reopened spent sitting never takes the next World day's morning.
+  - **Tiny Society refuses** a second morning, as Pocket Universe does, so `Sat.morning` is true only when a morning came.
+  - **The night hold is reference-counted**, so a view rebuilt while asleep keeps the night.
+  - **"Morning read" is kept in the sitting ledger** (UI-side), so the morning shows once however often the World is opened that day.
+  - **A World with a v0.29 stamp and no ledger, or with an unreadable ledger,** has a later sitting of one day, not three. An I/O error on opening gives one day, not days without end.
+  - **Saturating counts.**
+  - **The countdown** is to the next local midnight as that night's clock has it, so a change of clocks is included.
+- *Pictures:* `scratchpad/v030/s4/r2/`:
+  - Home (the badge);
+  - the morning, with the title bar awake;
+  - a reopen after the morning was read (no second morning);
+  - today's choice;
+  - the day card;
+  - Goodnight, with the title bar asleep;
+  - asleep;
+  - a same-day reopen, asleep.
+- *Left (the art director's leftovers):*
+  - "Overnight, " should be folded into the label.
+  - The flag's "pegs".
+  - The find's "by {place}".
+  - "Morning! A bit of news. The news here is…" says news twice.
+  - A camera glide to what was looked after.
+  - A dusk fade behind Goodnight.
+  - A day number on the cards.
+  - The same-day reopen framed where it was put to bed.
+  - Home's subtitle, "Small worlds that keep living while you are away", now contradicts S4. It was not in the brief.
+
 ### S5. Residents become people (small, focused)
 
 - **Letters:** about you and what you did together, replacing the one template.
