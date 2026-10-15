@@ -37,6 +37,10 @@ pub use drawn::{
     DRAWN_BY, DRAWN_ROOM, NAMING_DAYS,
 };
 mod host;
+mod pronouns;
+mod retold;
+pub use pronouns::{pronouns, they_all, Pronouns, A_SLOTS, B_SLOTS, PRONOUNS};
+pub use retold::{cited, player_act, told_enough, year_length, Act, MOST_TOLD_A_YEAR};
 mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
 #[doc(hidden)]
@@ -205,6 +209,10 @@ pub struct Cast {
     /// arrives: nobody has words, falls out or drifts apart. [`never`]
     /// for a Pack that keeps none.
     pub kind: fn(&WorldState) -> bool,
+    /// Whether a line speaks of someone as he, she or they, from what the
+    /// Pack already knows of them; [`they_all`] for a Pack that says no
+    /// more. Someone's own [`PRONOUNS`] come first.
+    pub pronouns: fn(&WorldState, EntityId) -> Pronouns,
 }
 
 /// No kind days: for [`Cast::kind`].
@@ -2223,11 +2231,13 @@ fn words_for(
             }
         } else {
             words.push(("b", name(state, b)));
+            words.extend(pronouns(state, cast, b).slots(&B_SLOTS));
             if let Some(work) = (cast.work)(state, b) {
                 words.push(("work", name(state, work)));
             }
         }
     }
+    words.extend(pronouns(state, cast, candidate.a).slots(&A_SLOTS));
     // How people leave, for anyone thinking of it, not only a stranger.
     if let Some(visitors) = &cast.visitors {
         if !words.iter().any(|(slot, _)| *slot == "way_out") {
@@ -2418,13 +2428,13 @@ fn script(kind: Kind) -> Script {
                 "Would it be mad to ask {b} to {outing}?",
                 "I keep finding reasons to be wherever {b} is.",
             ],
-            told: "{a} confided they were sweet on {b}",
+            told: "{a} confided {a_they} {a_were} sweet on {b}",
             answers: &[("ask", "Go for it"), ("wait", "Wait a bit")],
         },
         Kind::Learn => Script {
             prompts: &[
-                "I'd love to learn what {b} does. Would you ask them?",
-                "{b} makes it look easy. Could I learn from them?",
+                "I'd love to learn what {b} does. Would you ask {b_them}?",
+                "{b} makes it look easy. Could I learn from {b_them}?",
                 "I feel stuck. {b} could teach me a thing or two.",
             ],
             told: "{a} wanted to learn from {b}",
@@ -2516,7 +2526,7 @@ fn script(kind: Kind) -> Script {
                 "Promise you won't laugh. I'm scared I'm no good at what I do.",
                 "I still keep a letter from someone I left behind. I read it most {unit}s.",
             ],
-            told: "{a} told you something they'd never told anyone",
+            told: "{a} told you something {a_they}'d never told anyone",
             answers: &[
                 ("keep", "Keep it between you"),
                 ("share", "Tell them to share it"),
@@ -2892,7 +2902,7 @@ fn outcome(
                 go(&mut moves, a, quiet);
                 go(&mut moves, b, quiet);
                 (
-                    w("{a} took their time, and {a} and {b} started walking out together"),
+                    w("{a} took {a_their} time, and {a} and {b} started walking out together"),
                     w("We took it slowly, {b} and me. Worth the wait."),
                 )
             } else {
@@ -2903,7 +2913,7 @@ fn outcome(
                 go(&mut moves, a, gathering);
                 go(&mut moves, b, gathering);
                 (
-                    w("{a} kept it to themselves, and spent more time with {b}"),
+                    w("{a} kept it to {a_themselves}, and spent more time with {b}"),
                     say(&[
                         "Maybe you're right. Maybe.",
                         "I'll wait. For now.",
@@ -2937,7 +2947,7 @@ fn outcome(
                 go(&mut moves, a, quiet);
                 go(&mut moves, b, quiet);
                 (
-                    w("{a} asked {b} out on their own, and {b} said yes"),
+                    w("{a} asked {b} out on {a_their} own, and {b} said yes"),
                     w("I asked {b} myself in the end. Yes, {b} said!"),
                 )
             } else {
@@ -3092,7 +3102,7 @@ fn outcome(
             moves.unhelped(state, a, 1);
             go(&mut moves, a, quiet);
             (
-                w("{a} kept to themselves"),
+                w("{a} kept to {a_themselves}"),
                 say(&[
                     "Maybe tomorrow.",
                     "I'm fine on my own. Mostly.",
@@ -3324,14 +3334,14 @@ fn outcome(
             let said = pick(&MISSED, mix(&[a.0, 9]))
                 .copied()
                 .unwrap_or("Never mind.");
-            (w("{a} went on their own"), w(said))
+            (w("{a} went on {a_their} own"), w(said))
         }
         (Kind::Confide, "keep") => {
             moves.set(a, &door_key(Kind::Confide), now_period);
             moves.regard(state, a, 10);
             moves.lack(state, a, Need::Company, -20);
             (
-                w("{a} told you something they'd never told anyone"),
+                w("{a} told you something {a_they}'d never told anyone"),
                 w("Thank you. That's a weight off."),
             )
         }
@@ -3340,7 +3350,7 @@ fn outcome(
             moves.regard(state, a, 5);
             moves.lack(state, a, Need::Purpose, -15);
             (
-                w("{a} told you a secret, and you told them to share it"),
+                w("{a} told you a secret, and you told {a_them} to share it"),
                 w("Maybe you're right. Maybe I will."),
             )
         }
@@ -3437,7 +3447,7 @@ fn outcome(
         }
         (Kind::Cold, "lapse") => {
             go(&mut moves, a, quiet);
-            (w("{a} kept their distance from you"), w("Suits me."))
+            (w("{a} kept {a_their} distance from you"), w("Suits me."))
         }
         _ => return Err(ActionError::Invalid(format!("no answer {answer}"))),
     };
@@ -5200,6 +5210,14 @@ pub const NEWS_KINDS: [&str; 17] = [
 /// fell out, who got together or parted, who came and who left. Newest
 /// last, one line each.
 pub fn news_since(world: &World, since: u64) -> Vec<String> {
+    news_events_since(world, since)
+        .into_iter()
+        .map(|(told, _)| told)
+        .collect()
+}
+
+/// [`news_since`], each line with the Event it tells.
+pub(crate) fn news_events_since(world: &World, since: u64) -> Vec<(String, &Event)> {
     let mut seen = BTreeSet::new();
     world
         .events()
@@ -5222,7 +5240,7 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         })
         .filter_map(|event| {
             let told = told(event)?;
-            seen.insert(told.clone()).then_some(told)
+            seen.insert(told.clone()).then_some((told, event))
         })
         .collect::<Vec<_>>()
         .into_iter()

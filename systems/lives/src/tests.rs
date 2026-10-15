@@ -148,6 +148,7 @@ fn cast() -> Cast {
         voice: |_| None,
         kin: None,
         kind: crate::never,
+        pronouns: crate::they_all,
     }
 }
 
@@ -1143,4 +1144,233 @@ fn friendships_and_feuds_hold_and_change_one_at_a_time() {
     for event in &changes {
         assert!(matches!(event.payload.get("because"), Some(Value::Text(why)) if !why.is_empty()));
     }
+}
+
+/// An Event as a test's history records it.
+fn recorded(id: u64, kind: &str, world_time: u64, actor: Option<EntityId>) -> Event {
+    Event {
+        id: EventId::new(id),
+        kind: kind.into(),
+        world_time,
+        actor,
+        targets: actor.into_iter().collect(),
+        caused_by: Vec::new(),
+        payload: Default::default(),
+        changes: Vec::new(),
+    }
+}
+
+fn with(mut event: Event, key: &str, value: impl Into<Value>) -> Event {
+    event.payload.insert(key.into(), value.into());
+    event
+}
+
+/// What the player did is found by walking back along what caused
+/// something, a few steps, and only ever from what the record names.
+#[test]
+fn a_players_deed_is_found_back_along_what_it_caused() {
+    let (world, _) = world();
+    let ann = EntityId::new(1);
+    let deed = with(
+        recorded(1, "built_by_hand", 10, None),
+        "told",
+        "You built a bench by the mill",
+    );
+    let mut reacted = with(recorded(2, "reacted", 10, Some(ann)), "told", "Ann saw it");
+    reacted.caused_by = vec![deed.id];
+    let mut kept = with(
+        recorded(3, "keepsake_left", 20, Some(ann)),
+        "told",
+        "Ann left you a shell",
+    );
+    kept.caused_by = vec![reacted.id];
+    let alone = with(recorded(4, "lived", 30, Some(ann)), "told", "Ann dozed");
+    let answered = with(
+        with(
+            recorded(5, "situation_answered", 40, Some(ann)),
+            "kind",
+            "feud",
+        ),
+        "answer",
+        "mend",
+    );
+    let history = [deed, reacted, kept, alone, answered];
+    let world = World::from_history(world.state().clone(), &history).unwrap();
+    let event = |id: u64| world.event(EventId::new(id)).unwrap();
+    let built = Act::Deed("you built a bench by the mill".into());
+    assert_eq!(
+        player_act(&world, event(3)),
+        Some((EventId::new(1), built.clone()))
+    );
+    assert_eq!(player_act(&world, event(4)), None);
+    // An answer is the player's own act.
+    assert_eq!(
+        player_act(&world, event(5)),
+        Some((EventId::new(5), Act::Said("Make peace".into())))
+    );
+    // Cited the same for the same seed, in one of two ways.
+    assert_eq!(
+        cited(&built, 0),
+        "All because you built a bench by the mill."
+    );
+    assert_eq!(
+        cited(&built, 1),
+        "And to think it started when you built a bench by the mill."
+    );
+    assert_eq!(
+        cited(&Act::Said("Make peace".into()), 0),
+        "All because you said “Make peace”."
+    );
+}
+
+/// A letter whose news the player brought about says what they did, and
+/// names it as the letter's cause; news nobody brought about cites
+/// nothing.
+#[test]
+fn a_letter_cites_what_the_player_did() {
+    let (start, _) = world();
+    let (ann, ben) = (EntityId::new(1), EntityId::new(2));
+    let mut answered = with(
+        with(
+            with(
+                recorded(1, "situation_answered", 30, Some(ann)),
+                "kind",
+                "sweet",
+            ),
+            "answer",
+            "ask",
+        ),
+        "told",
+        "Ann and Ben started walking out together",
+    );
+    answered.targets = vec![ann, ben];
+    let world = World::from_history(start.state().clone(), &[answered]).unwrap();
+    let (body, request) = quiet::letter_body(&world, &cast(), ben).unwrap();
+    assert!(body.contains("you said “Go for it”."), "{body}");
+    assert!(
+        body.contains("Ann and I started walking out together"),
+        "{body}"
+    );
+    assert_eq!(request.caused_by, vec![EventId::new(1)]);
+    // The same history, the same letter.
+    assert_eq!(quiet::letter_body(&world, &cast(), ben).unwrap().0, body);
+
+    let mut bond = with(
+        recorded(1, "bond_changed", 30, Some(ann)),
+        "told",
+        "Ann and Ben became firm friends",
+    );
+    bond.targets = vec![ben];
+    let world = World::from_history(start.state().clone(), &[bond]).unwrap();
+    let (body, request) = quiet::letter_body(&world, &cast(), ben).unwrap();
+    assert!(
+        !body.contains("All because") && !body.contains("started when"),
+        "{body}"
+    );
+    assert!(request.caused_by.is_empty());
+
+    // News that already says what the player did is not told it twice.
+    let deed = with(
+        recorded(1, "built_by_hand", 20, None),
+        "told",
+        "You built a bench by the mill",
+    );
+    let mut drawn = with(
+        recorded(2, "drawn_here", 30, Some(ann)),
+        "told",
+        "Ann came because of the bench you built",
+    );
+    drawn.caused_by = vec![deed.id];
+    let world = World::from_history(start.state().clone(), &[deed, drawn]).unwrap();
+    let (body, request) = quiet::letter_body(&world, &cast(), ben).unwrap();
+    assert!(body.contains("the bench you built"), "{body}");
+    assert!(!body.contains("All because") && !body.contains("started when"));
+    assert!(request.caused_by.is_empty());
+}
+
+/// He, she or they: as the Pack says, unless someone carries their own;
+/// and a line about someone says it in their words.
+#[test]
+fn a_situation_speaks_of_someone_in_their_pronouns() {
+    let (world, _) = world();
+    let (ann, ben) = (EntityId::new(1), EntityId::new(2));
+    let cast = Cast {
+        pronouns: |_, id| {
+            if id.0 == 2 {
+                Pronouns::He
+            } else {
+                Pronouns::She
+            }
+        },
+        ..cast()
+    };
+    let learn = Candidate {
+        kind: Kind::Learn,
+        a: ann,
+        b: Some(ben),
+        topic: 0,
+    };
+    let words = words_for(world.state(), &cast, &learn);
+    let filled = |template: &str| fill_owned(template, &words);
+    assert_eq!(
+        filled("{b} makes it look easy. Could I learn from {b_them}?"),
+        "Ben makes it look easy. Could I learn from him?"
+    );
+    assert_eq!(
+        filled("{a} confided {a_they} {a_were} sweet on {b}"),
+        "Ann confided she was sweet on Ben"
+    );
+    assert_eq!(filled("{a} kept to {a_themselves}"), "Ann kept to herself");
+    // Every way of asking it fills each slot it has.
+    for prompt in script(Kind::Learn).prompts {
+        assert!(!filled(prompt).contains(['{', '}']), "{prompt}");
+    }
+    assert!(!compose(world.state(), &cast, &learn).prompt.contains('{'));
+    // A Pack that says no more speaks of everyone as "they", as before.
+    let words = words_for(world.state(), &crate::tests::cast(), &learn);
+    assert_eq!(
+        fill_owned("Could I learn from {b_them}?", &words),
+        "Could I learn from them?"
+    );
+    // Someone's own pronouns come before the Pack's.
+    let state = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: ben,
+            key: PRONOUNS.into(),
+            value: "they".into(),
+        }],
+    );
+    assert_eq!(pronouns(&state, &cast, ben), Pronouns::They);
+    assert_eq!(pronouns(&state, &cast, ann), Pronouns::She);
+}
+
+/// The same kind of day is told of the same person at most five times a
+/// year; the record keeps every one, and a new year tells it again.
+#[test]
+fn the_same_story_is_told_of_someone_at_most_five_times_a_year() {
+    let (world, _) = world();
+    let (ann, ben) = (EntityId::new(1), EntityId::new(2));
+    let year = year_length(&cast());
+    assert_eq!(year, 365 * 10);
+    let day = |id: u64, at: u64, who: EntityId, activity: &str| {
+        with(
+            with(recorded(id, "lived", at, Some(who)), "activity", activity),
+            "told",
+            format!("{} did {activity}", who.0),
+        )
+    };
+    let mut history = (1..=7)
+        .map(|n| day(n, n * 10, ann, "odd_job"))
+        .collect::<Vec<_>>();
+    history.push(day(8, 80, ann, "nap"));
+    history.push(day(9, 90, ben, "odd_job"));
+    history.push(day(10, year + 10, ann, "odd_job"));
+    let world = World::from_history(world.state().clone(), &history).unwrap();
+    let capped = (1..=10)
+        .filter(|id| told_enough(&world, world.event(EventId::new(*id)).unwrap(), year))
+        .collect::<Vec<_>>();
+    assert_eq!(capped, vec![6, 7]);
+    assert_eq!(world.events().len(), 10);
+    assert_eq!(MOST_TOLD_A_YEAR, 5);
 }

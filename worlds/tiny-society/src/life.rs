@@ -5,7 +5,7 @@
 use crate::model::MISSED_SHIFTS;
 use crate::story::{ADA, IVO};
 use crate::{EMMA, EVAN, HARBOR, JONAS, LEO, MARA, MIA, NOAH, PUB, SOFIA};
-use lives::{Activity, At, Cast, Fund, Need, Visitors, With};
+use lives::{Activity, At, Cast, Fund, Need, Pronouns, Visitors, With};
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Value, World, WorldState};
 
@@ -507,6 +507,37 @@ pub(crate) fn cast() -> Cast {
         voice: crate::voices::voice,
         kin: Some(&crate::kin::KIN),
         kind: crate::arrival::first_days,
+        pronouns,
+    }
+}
+
+/// The harbour's people the Pack speaks of as "he", by first name: its
+/// residents, the strangers who may come and the children who may be
+/// born.
+const HE: &[&str] = &[
+    "Jonas", "Leo", "Noah", "Evan", "Ivo", "Clark", "Pike", "Tobias", "Olek", "Arun", "Pim",
+    "Kofi", "Bram", "Soren", "Dario", "Mateo", "Casimir", "Ravi", "Ruben", "Tomas", "Leif", "Rafe",
+    "Emil", "Hugo", "Finn", "Alfie", "Otto", "Jem", "Ned", "Arlo", "Rory", "Cal", "Gus", "Sid",
+];
+
+/// Those spoken of as "she". Anyone in neither list is "they".
+const SHE: &[&str] = &[
+    "Mara", "Emma", "Mia", "Sofia", "Ada", "Bess", "Rosa", "Hana", "Maeve", "Lise", "Greta",
+    "Ines", "Nell", "Yara", "Ffion", "Anouk", "Lotte", "Esme", "Isla", "Freya", "Marta", "Signe",
+    "Aoife", "Bea", "Nadia", "Sunniva", "Petra", "Poppy", "Elsie", "Nora", "Mabel", "Iris",
+    "Tilly", "Hazel", "Maisie", "Willa", "Daisy", "Lottie",
+];
+
+/// How the harbour speaks of someone: from their first name, which every
+/// World of it has always kept, so a World from before is told the same.
+fn pronouns(state: &WorldState, person: EntityId) -> Pronouns {
+    let first = lives::first_name(state, person);
+    if HE.contains(&first.as_str()) {
+        Pronouns::He
+    } else if SHE.contains(&first.as_str()) {
+        Pronouns::She
+    } else {
+        Pronouns::They
     }
 }
 

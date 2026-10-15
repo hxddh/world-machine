@@ -805,7 +805,9 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
     // keeps to what changed, and to today's, which today's words point at.
     let now = world.world_time();
     // A day beginning tells nothing: it is there to be the cause of what
-    // the day brings.
+    // the day brings. Nor is the same kind of day told of the same person
+    // more than five times a year.
+    let year = lives::year_length(&crate::life::cast());
     let mut timeline = world_projection::timeline_of(world, |event| {
         !calendar::is_day_begun(event)
             && (event.world_time == now
@@ -813,6 +815,7 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
                     event.kind.as_str(),
                     "lived" | "life_began" | "lines_forgotten"
                 ))
+            && !(event.kind == "lived" && lives::told_enough(world, event, year))
     });
     world_projection::retell_timeline(&mut timeline, world, |event| telling(world, event));
     timeline
