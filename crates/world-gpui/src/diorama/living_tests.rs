@@ -806,3 +806,44 @@ fn a_look_baked_again_is_the_same_as_one_baked_from_nothing() {
         assert_eq!(again.anchors, fresh.anchors);
     }
 }
+
+/// A close level baked ahead of a pan still covers all the camera sees,
+/// whichever way it pans (v0.30 S1c: else it is baked again every frame).
+#[test]
+fn a_span_baked_ahead_of_a_pan_covers_the_view() {
+    let (width, view_w) = (6000.0, 1100.0);
+    for zoom in [2.2, 2.43, 3.0, 3.4] {
+        for x in [300.0, 1800.0, 3000.0, 5800.0] {
+            let camera = Camera {
+                zoom,
+                x,
+                y: 0.0,
+                fold: 0.0,
+            };
+            let view = sv::seen_by(camera, width, view_w);
+            for lead in [-1.0, 0.0, 1.0] {
+                let want = Want {
+                    key: 1,
+                    level: sv::level_for(zoom),
+                    light: ls::Light::Noon,
+                    variant: Variant::Main,
+                    view,
+                    shown: true,
+                };
+                let span = sv::span_for(&want, width, view_w, lead);
+                let held = Held {
+                    key: 1,
+                    level: want.level,
+                    light: want.light,
+                    variant: want.variant,
+                    span,
+                    ready: true,
+                };
+                assert!(
+                    held.answers(&want),
+                    "zoom {zoom} at {x}, lead {lead}: {span:?} for {view:?}"
+                );
+            }
+        }
+    }
+}

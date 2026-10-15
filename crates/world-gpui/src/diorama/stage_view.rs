@@ -54,12 +54,13 @@ pub const SPANNED_FROM: usize = 2;
 
 /// How far either side of what the camera sees a level baked around it
 /// reaches, in widths of what it sees: three tenths as much again either side
-/// (with [`SPAN_LEAD`], two thirds ahead of a pan).
+/// (with [`SPAN_LEAD`], over half ahead of a pan).
 pub const SPAN_REACH: f32 = 0.3;
 
 /// How far a span is moved toward where the camera is panning, in widths
-/// of what it sees: a pan runs on into what is baked already.
-pub const SPAN_LEAD: f32 = 0.35;
+/// of what it sees: a pan runs on into what is baked already. Less than
+/// [`SPAN_REACH`], so a span always covers what the camera sees.
+pub const SPAN_LEAD: f32 = 0.25;
 
 /// The level to draw at for a camera `zoom` times closer: the least as
 /// sharp, or the sharpest there is.
