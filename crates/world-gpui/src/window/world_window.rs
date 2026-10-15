@@ -543,6 +543,9 @@ pub(crate) struct Looking {
     /// While someone is being talked to (and the camera has moved in on
     /// them), where it was: so putting them away leaves the camera there.
     pub(crate) held: Option<Camera>,
+    /// The hour this view last drew its scene at: its own held hour, or
+    /// the clock's (v0.30 S4: one window asleep, another awake).
+    pub(crate) drawn_at_hour: Option<u32>,
     /// This sitting: how many days it may still pass, its morning read, its
     /// goodnight, and whether the World sleeps (v0.30 S4). UI state only.
     pub(crate) sitting: super::sitting::Sitting,

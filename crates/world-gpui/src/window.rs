@@ -1370,6 +1370,31 @@ impl ProjectionView {
 
 impl Render for ProjectionView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // This view's own held hour (asleep, a farewell) holds its scene
+        // alone, while it draws: any other World window keeps the clock.
+        let hour = self.held_hour();
+        scene::with_view_hour(hour, || {
+            self.looking.drawn_at_hour = Some(scene::hour_now());
+            self.draw(window, cx)
+        })
+    }
+}
+
+impl ProjectionView {
+    /// The hour this view holds its scene at, over the clock, if any: the
+    /// farewell's, or the night while the World sleeps.
+    pub fn held_hour(&self) -> Option<u32> {
+        if let Some(farewell) = &self.looking.farewell {
+            return Some(farewell.hour);
+        }
+        self.looking
+            .sitting
+            .asleep
+            .is_some()
+            .then_some(sitting::ASLEEP_HOUR)
+    }
+
+    fn draw(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // After dark the World's cards and buttons are the night's own,
         // dark as the dark appearance, so nothing over the scene is
         // brighter than its sky.

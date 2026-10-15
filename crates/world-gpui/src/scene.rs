@@ -286,43 +286,38 @@ pub(crate) fn clock() -> (u32, f32) {
     )
 }
 
-/// An hour the app holds every scene at for a while, over the clock: the
-/// demo's farewell, at dusk. `u32::MAX` holds none.
-#[cfg(not(test))]
-static HELD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
-
-#[cfg(test)]
 thread_local! {
-    /// In tests, held on the holding test's thread alone.
-    static HELD: std::sync::atomic::AtomicU32 = const { std::sync::atomic::AtomicU32::new(u32::MAX) };
+    /// The hour the view being drawn holds its own scene at (a farewell at
+    /// dusk, a World asleep at night), while it draws: one window's held
+    /// hour is never another's.
+    static VIEW_HOUR: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
 }
 
-fn held(update: impl FnOnce(&std::sync::atomic::AtomicU32) -> u32) -> u32 {
-    #[cfg(test)]
-    return HELD.with(update);
-    #[cfg(not(test))]
-    update(&HELD)
+/// Lets the view hour go again however `run` ends.
+struct ViewHour(Option<u32>);
+
+impl Drop for ViewHour {
+    fn drop(&mut self) {
+        VIEW_HOUR.with(|view| view.set(self.0));
+    }
 }
 
-/// Holds every scene at `hour` until it is let go with `None`.
-pub fn hold_hour(hour: Option<u32>) {
-    let hour = hour.map_or(u32::MAX, |hour| hour % 24);
-    held(|held| {
-        held.store(hour, std::sync::atomic::Ordering::Relaxed);
-        hour
-    });
+/// Runs `run` (a view drawing itself) with its scene held at `hour`, if
+/// it holds one, over the clock; every other view keeps the clock's.
+pub(crate) fn with_view_hour<T>(hour: Option<u32>, run: impl FnOnce() -> T) -> T {
+    let _before = ViewHour(VIEW_HOUR.with(|view| view.replace(hour.map(|hour| hour % 24))));
+    run()
 }
 
-/// The pinned hour, if one is: `WORLD_MACHINE_HOUR`, or a test's, or one
-/// the app holds.
+/// The pinned hour, if one is: `WORLD_MACHINE_HOUR`, or a test's, or the
+/// one the view being drawn holds.
 pub fn pinned_hour() -> Option<u32> {
     #[cfg(test)]
     if let Some(hour) = PINNED.with(|pinned| pinned.get()) {
         return Some(hour);
     }
-    let held = held(|held| held.load(std::sync::atomic::Ordering::Relaxed));
-    if held < 24 {
-        return Some(held);
+    if let Some(hour) = VIEW_HOUR.with(|view| view.get()) {
+        return Some(hour);
     }
     std::env::var("WORLD_MACHINE_HOUR")
         .ok()

@@ -76,55 +76,13 @@ impl Sitting {
     }
 }
 
-/// The sky held at night while the World sleeps, let go with it (its
-/// window closed, or the sleep ended).
+/// The World asleep: its view draws its own scene at night
+/// ([`ProjectionView::held_hour`]), every other window keeping the clock.
 pub(crate) struct Asleep;
 
-#[cfg(not(test))]
-static SLEEPERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-#[cfg(test)]
-thread_local! {
-    /// In tests, counted on the sleeping test's thread alone, as the held
-    /// hour is.
-    static SLEEPERS: std::sync::atomic::AtomicUsize = const { std::sync::atomic::AtomicUsize::new(0) };
-}
-
-/// Changes how many views sleep, returning how many did before.
-fn sleepers(by: isize) -> usize {
-    use std::sync::atomic::Ordering::Relaxed;
-    let change = |count: &std::sync::atomic::AtomicUsize| {
-        if by >= 0 {
-            count.fetch_add(by as usize, Relaxed)
-        } else {
-            count
-                .fetch_update(Relaxed, Relaxed, |now| Some(now.saturating_sub(1)))
-                .unwrap_or(0)
-        }
-    };
-    #[cfg(test)]
-    return SLEEPERS.with(change);
-    #[cfg(not(test))]
-    change(&SLEEPERS)
-}
-
 impl Asleep {
-    /// The sky held at night for as long as any view sleeps: a view
-    /// rebuilt while asleep (its page asked again) holds it before the
-    /// one it replaces lets go, so the night never flickers to the clock.
     fn hold() -> Self {
-        if sleepers(1) == 0 {
-            crate::scene::hold_hour(Some(ASLEEP_HOUR));
-        }
         Asleep
-    }
-}
-
-impl Drop for Asleep {
-    fn drop(&mut self) {
-        if sleepers(-1) == 1 {
-            crate::scene::hold_hour(None);
-        }
     }
 }
 
@@ -747,7 +705,18 @@ mod tests {
         assert!(cx.debug_bounds("asleep").is_some(), "asleep");
         assert!(cx.debug_bounds("goodnight").is_none());
         assert!(cx.debug_bounds("bottom-card").is_none(), "no card asleep");
-        assert_eq!(crate::scene::pinned_hour(), Some(ASLEEP_HOUR));
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.held_hour(), Some(ASLEEP_HOUR));
+            assert_eq!(
+                view.looking.drawn_at_hour,
+                Some(ASLEEP_HOUR),
+                "drawn at night"
+            );
+        });
+        assert!(
+            crate::scene::pinned_hour().is_none(),
+            "no other window's sky"
+        );
         // Nothing lets another day pass.
         pass_day(&view, cx);
         assert_eq!(
@@ -755,9 +724,9 @@ mod tests {
             (1, 1),
             "no day past the allowance"
         );
-        // Let go (as when the window closes), the clock has the sky again.
+        // Woken (a new sitting), the view has the clock's sky again.
         view.update(cx, |view, _| view.looking.sitting.asleep = None);
-        assert!(crate::scene::pinned_hour().is_none());
+        view.read_with(cx, |view, _| assert_eq!(view.held_hour(), None));
         crate::scene::set_clock(None);
     }
 
@@ -942,20 +911,39 @@ mod tests {
         crate::scene::set_clock(None);
     }
 
-    #[test]
-    fn a_view_rebuilt_asleep_keeps_the_night_until_the_last_lets_go() {
-        let old = Asleep::hold();
-        assert_eq!(crate::scene::pinned_hour(), Some(ASLEEP_HOUR));
-        // The page asked again: the new view sleeps before the old goes.
-        let new = Asleep::hold();
-        drop(old);
-        assert_eq!(
-            crate::scene::pinned_hour(),
-            Some(ASLEEP_HOUR),
-            "still night"
+    #[gpui::test]
+    fn one_window_asleep_leaves_another_at_its_own_hour(cx: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let Opened {
+            view: asleep,
+            cx: mut asleep_cx,
+            ..
+        } = open(cx, town(), Some(Allowance { left: 0, of: 1 }));
+        let Opened {
+            view: awake,
+            cx: mut awake_cx,
+            ..
+        } = open(cx, town(), None);
+        // Both drawn again, in either order: each at its own hour.
+        for _ in 0..2 {
+            asleep.update(&mut asleep_cx, |_, cx| cx.notify());
+            asleep_cx.run_until_parked();
+            awake.update(&mut awake_cx, |_, cx| cx.notify());
+            awake_cx.run_until_parked();
+        }
+        asleep.read_with(&asleep_cx, |view, _| {
+            assert_eq!(view.looking.drawn_at_hour, Some(ASLEEP_HOUR))
+        });
+        awake.read_with(&awake_cx, |view, _| {
+            assert_eq!(view.held_hour(), None);
+            assert_eq!(view.looking.drawn_at_hour, Some(12), "the clock's own noon");
+        });
+        assert!(
+            awake_cx.debug_bounds("bottom-card").is_some(),
+            "awake, with its card"
         );
-        drop(new);
-        assert_eq!(crate::scene::pinned_hour(), None);
+        assert!(crate::scene::pinned_hour().is_none());
+        crate::scene::set_clock(None);
     }
 
     #[test]
