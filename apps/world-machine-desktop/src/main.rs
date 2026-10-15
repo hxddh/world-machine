@@ -367,6 +367,9 @@ struct WorldDocumentView {
     /// Set when the player chose to close this window although its World's
     /// latest turns could not be written (see [`Self::ready_to_close`]).
     closing_anyway: bool,
+    /// Wakes the window at the next local midnight, if it is left open and
+    /// active across it (v0.30 S4): dropped with the window.
+    midnight: Option<gpui::Task<()>>,
 }
 
 /// A World's own view in its window: the scene with no title bar of its
@@ -415,8 +418,10 @@ pub(crate) fn ask_before_closing(
             .unwrap_or(true)
     });
     // A window left open overnight wakes when it is next brought forward
-    // (by Home, its strip, or a click), on a new sitting (v0.30 S4).
-    view.update(cx, |_, cx| {
+    // (by Home, its strip, or a click), on a new sitting (v0.30 S4); and
+    // one left active across midnight, at midnight.
+    view.update(cx, |view, cx| {
+        view.arm_midnight(cx);
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.wake_if_new_day(cx);
@@ -630,6 +635,7 @@ impl WorldDocumentView {
             share_open: false,
             demo_cue,
             closing_anyway: false,
+            midnight: None,
         }
     }
 
@@ -787,6 +793,28 @@ impl WorldDocumentView {
     /// open overnight, or a clock put right): it is written down, the World
     /// told, and the page asked anew, so the window wakes with the new
     /// day's allowance and its morning.
+    /// Wakes the window at the next local midnight, and again at every one
+    /// after it, for as long as the window stays open: a window active
+    /// across midnight has no activation to wake it. The task goes with the
+    /// window.
+    fn arm_midnight(&mut self, cx: &mut Context<Self>) {
+        let has_sitting = matches!(
+            &self.document.borrow().sitting,
+            Some(SittingKept::Ledger(_))
+        );
+        let Some(wait) = observer::wake_wait().filter(|_| has_sitting) else {
+            self.midnight = None;
+            return;
+        };
+        self.midnight = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            let _ = this.update(cx, |this, cx| {
+                this.wake_if_new_day(cx);
+                this.arm_midnight(cx);
+            });
+        }));
+    }
+
     fn wake_if_new_day(&mut self, cx: &mut Context<Self>) {
         let due = matches!(
             &self.document.borrow().sitting,

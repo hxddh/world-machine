@@ -159,6 +159,12 @@ pub fn next_sitting_in() -> Option<u64> {
     u64::try_from(next.timestamp() - now.timestamp()).ok()
 }
 
+/// How long a window waits to look for a new sitting: until a moment past
+/// the next local midnight, so the day has turned when it looks.
+pub fn wake_wait() -> Option<std::time::Duration> {
+    next_sitting_in().map(|seconds| std::time::Duration::from_secs(seconds.saturating_add(2)))
+}
+
 /// Whether opening a library World now begins a new sitting: a new day of
 /// its own waits for the player. `None` if it was never opened here.
 pub fn new_day_waiting(document: &WorldDocumentId, library: &WorldLibrary) -> Option<bool> {
@@ -446,5 +452,28 @@ mod tests {
     fn the_next_sitting_is_within_a_day() {
         let seconds = next_sitting_in().unwrap();
         assert!(seconds <= 24 * 60 * 60 + 3600, "{seconds}");
+    }
+
+    /// A window active across midnight looks again just after it, when
+    /// the day the ledger began on is no longer today.
+    #[test]
+    fn a_window_wakes_just_past_midnight_on_a_new_day() {
+        let wait = wake_wait().unwrap().as_secs();
+        let midnight = next_sitting_in().unwrap();
+        assert!(wait > midnight && wait <= midnight + 2, "{wait} {midnight}");
+        let root = temp_root("midnight-wake");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        let document_id = WorldDocumentId::new("awake").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id, PACK, &registry, &library).unwrap();
+        let sat = sit_on(&mut session, &registry, &library, 300).unwrap();
+        // Still the 300th: nothing to wake to. The 301st: a new sitting.
+        assert!(!sat.ledger().new_day_due_on(300));
+        assert!(sat.ledger().new_day_due_on(301));
+        let woken = sit_on(&mut session, &registry, &library, 301).unwrap();
+        assert!(woken.sitting.new);
+        assert!(!woken.ledger().new_day_due_on(301));
+        let _ = fs::remove_dir_all(root);
     }
 }

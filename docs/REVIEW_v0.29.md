@@ -677,7 +677,10 @@ The return film becomes a cut of these scenes, replayed from the recorded events
 - *Pictures:* `scratchpad/v030/s4/r3/` (Home, morning, Goodnight).
 - *Left:* `docs/press/store/description.md` and `capture-plan.md` still describe the old clock. They are not part of the brief.
 
-### S5. Residents become people (small, focused)
+**S4 round 4 (2026-10-15): two P2s from Codex.**
+- *A held hour is each window's own.* The World asleep (and the demo's farewell) held every window's sky through a process-wide hour (`scene::hold_hour`), so one sleeping World put every open World to bed. Now a view draws its own scene at its own held hour, `ProjectionView::held_hour`, and only while it draws (`scene::with_view_hour`). The global hold is gone. Tested: one window asleep at 23:00 and another awake at the clock's noon, drawn in turn, each at its own hour; the farewell test now checks the window's own hour.
+- *A window active across midnight wakes.* Each World window arms a timer for a moment past the next local midnight (`observer::wake_wait`). It then takes the same wake path as activation (`wake_if_new_day`) and arms again. The task is kept on the window and dropped with it. Tested: the wait falls just after midnight, and the next day's wake begins a new sitting. The timer itself is not driven in a test.
+ Residents become people (small, focused)
 
 - **Letters:** about you and what you did together, replacing the one template.
 - **Pronouns** fixed.
