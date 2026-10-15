@@ -1,10 +1,14 @@
 //! Replay-identical fixtures.
 //!
-//! Every saved World in a Pack's `tests/fixtures` is opened, replayed and
-//! played on by a fixed, deterministic builder. The `Debug` text of every
-//! snapshot along the way, and of the event log at the end, is digested and
-//! compared with a golden file written by the code before a refactor. A
-//! refactor that is meant to change nothing must leave every digest alone.
+//! A Pack's oldest and newest saved Worlds in `tests/fixtures` are opened,
+//! replayed and played on by a fixed, deterministic builder. The `Debug`
+//! text of every snapshot along the way, and of the event log at the end,
+//! is digested and compared with a golden file written by the code before a
+//! refactor. A refactor that is meant to change nothing must leave every
+//! digest alone. Every other fixture is replayed and played on without a
+//! golden file ([`assert_every_fixture_replays_and_continues`]): until
+//! REVIEW_v0.29 S8 each had digests of its own, re-blessed on every
+//! intended change.
 //!
 //! The text is digested as it is formatted ([`Digest`]), never kept: about
 //! 3 MB a snapshot, 2 GB a run, that v0.26 built as strings only to hash
@@ -23,7 +27,9 @@ use std::path::{Path, PathBuf};
 
 use world_document::WorldDocument;
 use world_host::{WorldRegistry, WorldSession};
+use world_pack_protocol::ProjectionSnapshotWire;
 use world_projection::ProjectionIntent::InvokeCommand;
+use world_projection::ProjectionSnapshot;
 
 /// One step of a replay trace: a label, the digest of its text, and the
 /// text itself only when it is to be written out (`WORLD_PACK_DUMP`).
@@ -180,18 +186,29 @@ fn step(label: String, value: &impl Debug, keep: bool) -> Step {
 /// by hand; then the day let pass with `pass`.
 pub fn builder(session: &mut Box<dyn WorldSession>, pass: &str, days: usize) {
     for day in 1..=days {
-        builder_day(session, pass, day);
+        builder_day(session, pass, day, false);
     }
 }
 
-fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize) {
+/// One builder day. With `strict`, a command the snapshot offered as
+/// available must be accepted: the fixtures without a golden digest rely on
+/// it to notice an answer or deed that has stopped working.
+fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize, strict: bool) {
     let snapshot = session.snapshot();
     if let Some(answer) = snapshot
         .commands
         .iter()
         .find(|c| c.question.is_some() && c.unavailable.is_none() && c.id != pass)
     {
-        let _ = session.handle(InvokeCommand(answer.id.clone()));
+        let taken = session.handle(InvokeCommand(answer.id.clone()));
+        if strict {
+            if let Err(error) = taken {
+                panic!(
+                    "day {day}: the available answer {} was refused: {error:?}",
+                    answer.id
+                );
+            }
+        }
     }
     if day.is_multiple_of(3) {
         let snapshot = session.snapshot();
@@ -211,7 +228,12 @@ fn builder_day(session: &mut Box<dyn WorldSession>, pass: &str, day: usize) {
                 .map(|c| c.id.clone())
         });
         if let Some(deed) = deed {
-            let _ = session.handle(InvokeCommand(deed));
+            let done = session.handle(InvokeCommand(deed.clone()));
+            if strict {
+                if let Err(error) = done {
+                    panic!("day {day}: the available deed {deed} was refused: {error:?}");
+                }
+            }
         }
     }
     session
@@ -242,7 +264,7 @@ pub fn trace(
     let every = digest_every();
     let mut steps = vec![step("open".into(), &session.snapshot(), keep)];
     for day in 1..=days {
-        builder_day(&mut session, pass, day);
+        builder_day(&mut session, pass, day, false);
         if digested(day, days, every) {
             steps.push(step(format!("day-{day:03}"), &session.snapshot(), keep));
         }
@@ -284,27 +306,47 @@ pub fn assert_fixtures_differ(dir: &Path) {
     assert!(same.is_empty(), "the same file twice:\n{}", same.join("\n"));
 }
 
-/// Traces every fixture in `fixtures_dir` and compares the digests with
-/// `golden_dir/<fixture>.digest`. A fixture without a golden file is
-/// reported and skipped unless blessing.
+/// The fixtures in `fixtures_dir` named by `goldens` (file stems, such as
+/// `v020-<place>`): the ones whose play-on is pinned to golden digests.
+/// Each must exist; none is skipped.
+pub fn golden_fixtures(fixtures_dir: &Path, goldens: &[&str]) -> Vec<PathBuf> {
+    assert!(!goldens.is_empty(), "no golden fixture named");
+    goldens
+        .iter()
+        .map(|stem| {
+            let fixture = fixtures_dir.join(format!("{stem}.world"));
+            assert!(fixture.exists(), "no fixture {}", fixture.display());
+            fixture
+        })
+        .collect()
+}
+
+/// Traces the fixtures named by `goldens` ([`golden_fixtures`]) and compares
+/// the digests with `golden_dir/<fixture>.digest`, which must be there
+/// unless blessing. Only a representative few are pinned, the oldest and
+/// the newest of a Pack's fixtures (REVIEW_v0.29 S8): every fixture's replay
+/// and play-on is checked without a golden file by
+/// [`assert_every_fixture_replays_and_continues`], and the state its events
+/// rebuild by [`crate::invariants::assert_replayed_state_never_changes`].
 pub fn assert_replay_identical(
     registry: &WorldRegistry,
     fixtures_dir: &Path,
     golden_dir: &Path,
+    goldens: &[&str],
     pass: &str,
     days: usize,
 ) {
     let bless = std::env::var_os("WORLD_PACK_BLESS").is_some();
     let dump = std::env::var_os("WORLD_PACK_DUMP").map(PathBuf::from);
     let mut failures = Vec::new();
-    let mut checked = 0;
-    for fixture in fixtures(fixtures_dir) {
+    for fixture in golden_fixtures(fixtures_dir, goldens) {
         let stem = fixture.file_stem().unwrap().to_string_lossy().to_string();
         let golden = golden_dir.join(format!("{stem}.digest"));
-        if !bless && !golden.exists() {
-            eprintln!("no golden digest for {stem}: run with WORLD_PACK_BLESS=1");
-            continue;
-        }
+        assert!(
+            bless || golden.exists(),
+            "no golden digest {}: run with WORLD_PACK_BLESS=1",
+            golden.display()
+        );
         let steps = trace(registry, &fixture, pass, days, dump.is_some());
         let mut digest = String::new();
         for step in &steps {
@@ -329,7 +371,6 @@ pub fn assert_replay_identical(
             std::fs::write(&golden, &digest).unwrap();
             continue;
         }
-        checked += 1;
         let expected = std::fs::read_to_string(&golden).unwrap();
         if let Some(first) = compare(&expected, &digest, digest_every() == 1) {
             failures.push(format!("{stem}: {first}"));
@@ -340,7 +381,94 @@ pub fn assert_replay_identical(
         "not replay-identical:\n{}",
         failures.join("\n")
     );
-    assert!(bless || checked > 0, "no fixture was checked");
+}
+
+/// A snapshot's process wire form (`ProjectionSnapshotWire`, what a Pack
+/// process sends), written as JSON and read back: the JSON decodes to the
+/// same wire value, and that to the same snapshot.
+pub fn assert_wire_decodes(snapshot: &ProjectionSnapshot, at: &str) {
+    let wire = ProjectionSnapshotWire::from(snapshot);
+    let json = serde_json::to_string(&wire).expect("snapshot JSON");
+    let decoded: ProjectionSnapshotWire =
+        serde_json::from_str(&json).unwrap_or_else(|error| panic!("{at}: {error}"));
+    assert!(
+        decoded == wire,
+        "{at}: the wire JSON reads back differently"
+    );
+    let back =
+        ProjectionSnapshot::try_from(decoded).unwrap_or_else(|error| panic!("{at}: {error:?}"));
+    assert!(
+        back == *snapshot,
+        "{at}: the wire form decodes to another snapshot"
+    );
+}
+
+/// Every fixture in `fixtures_dir`, with no golden file: it replays event
+/// for event, opens to the same snapshot each time, and plays on `days`
+/// days by the [`builder`] without a panic. What is played on only appends
+/// to the stored events; each day's snapshot is the same looked at again,
+/// and its wire JSON decodes back to it; and the World played on reopens
+/// from its own events to the very snapshot it showed. The cheap guard of
+/// what the golden play-on digests once pinned for every fixture
+/// (REVIEW_v0.29 S8); the oldest and the newest keep theirs
+/// ([`assert_replay_identical`]).
+pub fn assert_every_fixture_replays_and_continues(
+    registry: &WorldRegistry,
+    fixtures_dir: &Path,
+    pass: &str,
+    days: usize,
+) {
+    let all = fixtures(fixtures_dir);
+    assert!(!all.is_empty(), "no fixture in {}", fixtures_dir.display());
+    for fixture in all {
+        let at = fixture.file_stem().unwrap().to_string_lossy().to_string();
+        let bytes = std::fs::read(&fixture).expect("the fixture");
+        let archive = WorldDocument::from_bytes(&bytes).unwrap().archive;
+        let mut session = registry
+            .open_archive(&archive)
+            .unwrap_or_else(|error| panic!("{at} opens: {error:?}"));
+        let replayed = session.archive().unwrap().unwrap();
+        assert!(
+            replayed.events == archive.events,
+            "{at}: replays event for event"
+        );
+        let opened = session.snapshot();
+        assert!(
+            registry.open_archive(&archive).unwrap().snapshot() == opened,
+            "{at}: opens to the same snapshot each time"
+        );
+        assert_wire_decodes(&opened, &format!("{at} opened"));
+        for day in 1..=days {
+            builder_day(&mut session, pass, day, true);
+            let snapshot = session.snapshot();
+            assert!(
+                session.snapshot() == snapshot,
+                "{at} day {day}: the same looked at again"
+            );
+            assert_wire_decodes(&snapshot, &format!("{at} day {day}"));
+        }
+        let after = session.archive().unwrap().unwrap();
+        let before = archive.events.len();
+        assert!(
+            after.events.len() > before,
+            "{at}: playing on records events"
+        );
+        assert!(
+            after.events[..before] == archive.events[..],
+            "{at}: playing on only appends"
+        );
+        let reopened = registry
+            .open_archive(&after)
+            .unwrap_or_else(|error| panic!("{at} played on reopens: {error:?}"));
+        assert!(
+            reopened.archive().unwrap().unwrap().events == after.events,
+            "{at}: played on, it replays event for event"
+        );
+        assert!(
+            reopened.snapshot() == session.snapshot(),
+            "{at}: played on, it reopens to the snapshot it showed"
+        );
+    }
 }
 
 #[cfg(test)]

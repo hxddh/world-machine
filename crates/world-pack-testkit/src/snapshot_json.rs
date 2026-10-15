@@ -1,12 +1,17 @@
 //! Snapshot JSON identical to a golden trace, byte for byte.
 //!
-//! Every saved World in a Pack's `tests/fixtures` is opened and played on by
-//! a builder for a few days; the wire JSON (`ProjectionSnapshotWire`, what a
-//! Pack process sends) of every snapshot along the way is digested and
-//! compared with `tests/golden/snapshot_json/<fixture>.digest`, written by
-//! the code before the v0.25 speed work. Faster paths and caches must never
-//! change what a player is shown; so each day's snapshot is also taken again
-//! from the unchanged World, which must give the same JSON.
+//! A Pack's oldest and newest saved Worlds in `tests/fixtures` are opened
+//! and played on by a builder for a few days; the wire JSON
+//! (`ProjectionSnapshotWire`, what a Pack process sends) of every snapshot
+//! along the way is digested and compared with
+//! `tests/golden/snapshot_json/<fixture>.digest`, written by the code before
+//! the v0.25 speed work. Faster paths and caches must never change what a
+//! player is shown; so each day's snapshot is also taken again from the
+//! unchanged World, which must give the same JSON. Every other fixture's
+//! wire JSON is checked to decode back to its snapshot, and to be the same
+//! looked at again, without a golden file
+//! ([`crate::replay::assert_every_fixture_replays_and_continues`]; until
+//! REVIEW_v0.29 S8 each had a digest of its own).
 //!
 //! - `WORLD_MACHINE_BLESS=1` rewrites the golden files (only on a tree
 //!   whose snapshots you trust).
@@ -25,7 +30,7 @@ use world_pack_protocol::ProjectionSnapshotWire;
 use world_projection::ProjectionIntent::InvokeCommand;
 use world_projection::ProjectionSnapshot;
 
-use crate::replay::{compare, digest_every, digested, fixtures, Digest};
+use crate::replay::{compare, digest_every, digested, golden_fixtures, Digest};
 
 /// A snapshot's wire JSON, digested as it is written ([`Digest`]), and kept
 /// only when it is to be written out (`WORLD_MACHINE_DUMP`).
@@ -119,27 +124,28 @@ pub fn trace(
     steps
 }
 
-/// Traces every fixture in `fixtures_dir` for `days` days and compares the
-/// digests with `golden_dir/<fixture>.digest`. A fixture without a golden
-/// file is reported and skipped unless blessing.
+/// Traces the fixtures named by `goldens` (file stems; see
+/// [`golden_fixtures`]) for `days` days and compares the digests with
+/// `golden_dir/<fixture>.digest`, which must be there unless blessing.
 pub fn assert_snapshot_json_identical(
     registry: &WorldRegistry,
     fixtures_dir: &Path,
     golden_dir: &Path,
+    goldens: &[&str],
     pass: &str,
     days: usize,
 ) {
     let bless = std::env::var_os("WORLD_MACHINE_BLESS").is_some();
     let dump = std::env::var_os("WORLD_MACHINE_DUMP").map(PathBuf::from);
     let mut failures = Vec::new();
-    let mut checked = 0;
-    for fixture in fixtures(fixtures_dir) {
+    for fixture in golden_fixtures(fixtures_dir, goldens) {
         let stem = fixture.file_stem().unwrap().to_string_lossy().to_string();
         let golden = golden_dir.join(format!("{stem}.digest"));
-        if !bless && !golden.exists() {
-            eprintln!("no golden snapshot JSON for {stem}: run with WORLD_MACHINE_BLESS=1");
-            continue;
-        }
+        assert!(
+            bless || golden.exists(),
+            "no golden snapshot JSON {}: run with WORLD_MACHINE_BLESS=1",
+            golden.display()
+        );
         let steps = trace(registry, &fixture, pass, days, dump.is_some());
         let mut digest = String::new();
         for (label, json) in &steps {
@@ -162,7 +168,6 @@ pub fn assert_snapshot_json_identical(
             std::fs::write(&golden, &digest).unwrap();
             continue;
         }
-        checked += 1;
         let expected = std::fs::read_to_string(&golden).unwrap();
         if let Some(first) = compare(&expected, &digest, digest_every() == 1) {
             failures.push(format!("{stem}: {first}"));
@@ -173,5 +178,4 @@ pub fn assert_snapshot_json_identical(
         "snapshot JSON differs:\n{}",
         failures.join("\n")
     );
-    assert!(bless || checked > 0, "no fixture was checked");
 }
