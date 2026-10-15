@@ -943,6 +943,20 @@ pub(crate) fn quiet_day(
     Ok(None)
 }
 
+/// The letter a sitting's morning brings (the ritual System's, v0.30 S4):
+/// from whoever has written least, the fondest first, about what the
+/// player and the place lived through, citing what they did when they
+/// brought it about; whatever the week's rhythm, since a morning comes at
+/// most once a day. `None` when nobody has anything to tell.
+pub fn morning_letter(world: &World, cast: &Cast) -> Option<ActionRequest> {
+    let state = world.state();
+    let people = (cast.people)(world)
+        .into_iter()
+        .filter(|person| enrolled(state, *person) && !gone(state, *person))
+        .collect::<Vec<_>>();
+    letter(world, cast, &people)
+}
+
 /// On the player's return: something to keep from whoever thinks best of
 /// them, or, when the week has no room for one, a letter, if the week has
 /// room for that.

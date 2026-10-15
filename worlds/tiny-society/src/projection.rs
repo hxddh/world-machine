@@ -110,7 +110,12 @@ pub(crate) fn snapshot_since(
         almanac: None,
         almanac_years: crate::almanac_page::years(world),
         favour: conversation::favour::shown(world, &crate::speech::kit(world.state())),
+        morning: None,
     };
+    // The morning this day opened on, if a sitting began on it (v0.30 S4),
+    // and what the mornings turned up, in the book.
+    snapshot.morning = ritual::shown(world, &crate::life::cast(), &snapshot.commands);
+    snapshot.book.extend(ritual::book(world));
     // Whoever asked what was just answered goes over to what it made.
     world_projection::go_to_what_was_answered(world, &mut snapshot.canvas.items, |event| {
         matches!(crate::story::answer_words(event), Some(Some(_)))

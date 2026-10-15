@@ -147,7 +147,15 @@ fn snapshot_on<'scope>(
         almanac: None,
         almanac_years: crate::almanac_page::years(world),
         favour: conversation::favour::shown(world, &crate::speech::kit_of(world)),
+        morning: None,
     };
+    // The morning this period opened on, if a sitting began on it (v0.30
+    // S4), and what the mornings turned up, in the book.
+    if seeded {
+        let cast = crate::life::cast(world.state());
+        snapshot.morning = ritual::shown(world, &cast, &snapshot.commands);
+        snapshot.book.extend(ritual::book(world));
+    }
     // The place's moments: the latest few, and every one in the book.
     snapshot.almanac = crate::almanac_page::new_year(world, &moments);
     snapshot.book.extend(crate::moments::book_entries(&moments));

@@ -626,6 +626,43 @@ pub struct ProjectionSnapshot {
     /// A favour someone asked of the player that talk can do: the open
     /// one, or one done this period. Presentation only: the drawer's note.
     pub favour: Option<Favour>,
+    /// The morning this day of the World opened on, when a sitting began
+    /// on it: its letter, its main question, what was tended overnight and
+    /// what turned up for the book. `None` on any other day, or from a Pack
+    /// that keeps no morning.
+    pub morning: Option<Morning>,
+}
+
+/// What a host invokes, as a command, when the player sits down with a
+/// World for a new sitting (v0.30 S4, "one day a day"): the World answers
+/// with its morning, as its own rules have it. It says nothing of any
+/// clock: when a sitting begins is the host's to know, never the World's.
+/// A World that keeps no morning refuses it, and the host goes on.
+pub const SITTING_BEGINS_COMMAND: &str = "world-machine.sitting-begins";
+
+/// The morning a sitting opens on, in the World's words. Presentation
+/// only: each part is an Event in the World's record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Morning {
+    /// The moment the morning came, by its Event.
+    pub moment: SelectionId,
+    /// A letter written to the player overnight.
+    pub letter: Option<Letter>,
+    /// The day's main question: one the commands put (by its id), which a
+    /// screen shows first and weighted.
+    pub question: Option<Question>,
+    /// Something tended overnight.
+    pub tended: Option<MorningLine>,
+    /// Something that turned up for the book.
+    pub find: Option<MorningLine>,
+}
+
+/// A line of the morning, and who or what it is about, if anyone on the
+/// scene.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MorningLine {
+    pub line: String,
+    pub about: Option<SelectionId>,
 }
 
 /// A favour someone asked of the player, in the World's words: who asked,
