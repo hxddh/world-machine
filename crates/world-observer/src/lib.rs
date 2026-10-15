@@ -9,6 +9,13 @@ use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const STAMP_FORMAT: &str = "world-observer-v1";
+const LEDGER_FORMAT: &str = "world-observer-sitting-v2";
+
+mod sitting;
+pub use sitting::{
+    local_day, sitting_at, Sitting, SittingLedger, FIRST_SITTING_DAYS, SECONDS_PER_DAY,
+    SITTING_DAYS,
+};
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
@@ -126,6 +133,67 @@ impl ObserverStore {
         Ok(())
     }
 
+    /// This World's sittings on this device, as its ledger has them: the
+    /// empty ledger if it was never sat with here (or the ledger cannot be
+    /// read, which counts as never).
+    pub fn ledger(&self, key: &ObserverKey) -> Result<SittingLedger, ObserverError> {
+        match fs::read(self.ledger_path(key)) {
+            Ok(bytes) => Ok(parse_ledger(&bytes).unwrap_or_default()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SittingLedger::default()),
+            Err(error) => Err(ObserverError::Io(error)),
+        }
+    }
+
+    /// The sitting that opening the World on local day `today` is: a new
+    /// one, written down as begun, or the one already begun that day.
+    pub fn sit(&self, key: &ObserverKey, today: i64) -> Result<Sitting, ObserverError> {
+        let ledger = self.ledger(key)?;
+        let sitting = sitting_at(&ledger, today);
+        if sitting.new {
+            self.write_ledger(key, &sitting.begun(&ledger, today))?;
+        }
+        Ok(sitting)
+    }
+
+    /// Writes down that the sitting begun on `today` passed one of its
+    /// World days: nothing past its allowance, and nothing for a sitting
+    /// that is not today's. Returns the sitting as it now stands.
+    pub fn spend_day(&self, key: &ObserverKey, today: i64) -> Result<Sitting, ObserverError> {
+        let ledger = self.ledger(key)?;
+        let spent = ledger.spent(today);
+        if spent != ledger {
+            self.write_ledger(key, &spent)?;
+        }
+        Ok(sitting_at(&spent, today))
+    }
+
+    /// Writes `ledger` as this World's, whatever it held: for previews and
+    /// demos that pretend time away (`examples/pretend_away.rs`).
+    pub fn set_ledger(
+        &self,
+        key: &ObserverKey,
+        ledger: &SittingLedger,
+    ) -> Result<(), ObserverError> {
+        self.write_ledger(key, ledger)
+    }
+
+    fn ledger_path(&self, key: &ObserverKey) -> PathBuf {
+        self.root
+            .join(format!("{}.sitting", stable_digest(key.as_str())))
+    }
+
+    fn write_ledger(&self, key: &ObserverKey, ledger: &SittingLedger) -> Result<(), ObserverError> {
+        let began = ledger
+            .began_on
+            .map_or_else(|| "-".to_string(), |day| day.to_string());
+        let bytes = format!(
+            "{LEDGER_FORMAT}\n{}\n{began}\n{}\n",
+            ledger.sittings, ledger.days_passed
+        );
+        atomic_write(&self.ledger_path(key), bytes.as_bytes())?;
+        Ok(())
+    }
+
     fn stamp_path(&self, key: &ObserverKey) -> PathBuf {
         self.root
             .join(format!("{}.stamp", stable_digest(key.as_str())))
@@ -209,6 +277,28 @@ fn parse_stamp(bytes: &[u8]) -> Option<u64> {
         return None;
     }
     Some(unix_seconds)
+}
+
+fn parse_ledger(bytes: &[u8]) -> Option<SittingLedger> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != LEDGER_FORMAT {
+        return None;
+    }
+    let sittings = lines.next()?.parse().ok()?;
+    let began_on = match lines.next()? {
+        "-" => None,
+        day => Some(day.parse().ok()?),
+    };
+    let days_passed = lines.next()?.parse().ok()?;
+    if lines.next().is_some() {
+        return None;
+    }
+    Some(SittingLedger {
+        sittings,
+        began_on,
+        days_passed,
+    })
 }
 
 fn stable_digest(value: &str) -> String {
@@ -391,6 +481,58 @@ mod tests {
 
         assert_eq!(store.stamp_path(&first), store.stamp_path(&first));
         assert_ne!(store.stamp_path(&first), store.stamp_path(&second));
+    }
+
+    #[test]
+    fn a_ledger_is_written_on_a_new_sitting_and_read_back() {
+        let root = temp_root("ledger");
+        let store = ObserverStore::new(root.clone());
+        let key = key();
+        assert_eq!(store.ledger(&key).unwrap(), SittingLedger::default());
+
+        let first = store.sit(&key, 20_000).unwrap();
+        assert!(first.new);
+        assert_eq!((first.number, first.left), (1, FIRST_SITTING_DAYS));
+        // Opened again the same day: the same sitting, not a new allowance.
+        let again = store.sit(&key, 20_000).unwrap();
+        assert!(!again.new);
+        assert_eq!(again.left, FIRST_SITTING_DAYS);
+        assert_eq!(store.spend_day(&key, 20_000).unwrap().left, 2);
+        assert_eq!(store.sit(&key, 20_000).unwrap().left, 2);
+        for _ in 0..5 {
+            store.spend_day(&key, 20_000).unwrap();
+        }
+        assert_eq!(store.sit(&key, 20_000).unwrap().left, 0);
+        // A month on: one day, never the month.
+        let back = store.sit(&key, 20_030).unwrap();
+        assert!(back.new);
+        assert_eq!(
+            (back.number, back.allowance, back.left),
+            (2, SITTING_DAYS, 1)
+        );
+        assert_eq!(back.days_away, 30);
+        // Spending on a day that is not the sitting's changes nothing.
+        assert_eq!(store.spend_day(&key, 20_031).unwrap().left, 1);
+        assert_eq!(store.ledger(&key).unwrap().days_passed, 0);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_unreadable_ledger_is_a_first_sitting() {
+        let root = temp_root("bad-ledger");
+        let store = ObserverStore::new(root.clone());
+        let key = key();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            store.ledger_path(&key),
+            "world-observer-sitting-v2\nnot a number\n",
+        )
+        .unwrap();
+        assert_eq!(store.ledger(&key).unwrap(), SittingLedger::default());
+        assert_eq!(store.sit(&key, 9).unwrap().number, 1);
+        // The stamp and the ledger are files of their own.
+        assert_ne!(store.ledger_path(&key), store.stamp_path(&key));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
