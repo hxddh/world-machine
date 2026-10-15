@@ -137,12 +137,14 @@ fn a_lived_harbour_has_people_doing_things_at_ten() {
     }
 }
 
-/// The S2 bar, on screen (v0.30 S2d): every saved harbour, opened and seen
-/// in the World window at each hour from nine to four, has at least six
-/// residents on its first screen seen doing something (working, keeping a
-/// stall, carrying, sitting where their day has them) or with someone, or
-/// where fewer than six stand on it, every one of them. Measured on the
-/// window's own layout and opening view, the hour pinned.
+/// The S2 bar, on screen (v0.30 S2d, S1c): every saved harbour, opened and
+/// seen in the World window with the camera at rest at each hour from nine
+/// to four, has at least six residents on its first screen seen doing
+/// something (working, keeping a stall, carrying, sitting where their day
+/// has them) or with someone, or where fewer than six are out of doors in
+/// the whole place, every one of them. Measured on the window's own layout
+/// and opening view, the hour pinned. (Until S1c it was six or everyone on
+/// the screen, however few that was.)
 #[test]
 fn six_residents_busy_on_first_screen_by_day() {
     let registry = registry();
@@ -162,15 +164,27 @@ fn six_residents_busy_on_first_screen_by_day() {
         let snapshot = session.snapshot();
         for hour in 9..=16 {
             let screen = world_gpui::first_screen_busy(&snapshot, (1100.0, 848.0), hour);
-            // Everyone on it is doing something; short of six only where
-            // fewer than six stand on it at all (the oldest saves open on a
-            // welcomer with two to five residents round them).
-            let on_screen = screen.residents.len();
+            // Out of doors in the whole place at that hour, as the window
+            // lays it out.
+            let stage = world_gpui::diorama::stage_at(
+                &snapshot,
+                1100.0,
+                848.0,
+                world_gpui::diorama::Clock::at(hour),
+            );
+            let rest = world_gpui::diorama::Camera::rest_zoom(&stage);
+            let outdoors = stage
+                .people
+                .iter()
+                .filter(|spot| stage.shows(spot.index, rest))
+                .count();
             seen += 1;
             full += usize::from(screen.busy() >= 6);
-            if on_screen == 0 || screen.busy() < 6.min(on_screen) {
+            // Two-sided: at least six busy, or all that are out where
+            // fewer are; and nobody counted who is not out.
+            if screen.busy() < 6.min(outdoors) || screen.residents.len() > outdoors {
                 short.push(format!(
-                    "{} at {hour}: {} busy of {:?}",
+                    "{} at {hour}: {} busy of {:?}, {outdoors} out",
                     fixture.display(),
                     screen.busy(),
                     screen.residents

@@ -32,12 +32,14 @@ mod people;
 mod scene;
 pub mod stage_view;
 pub mod staging;
+pub mod turn;
 mod works;
 
 pub use interface::*;
 pub use light::*;
 pub use people::*;
 pub use scene::*;
+pub use turn::Turn;
 #[cfg(test)]
 pub(crate) use works::leave_out_glow;
 #[cfg(test)]
@@ -601,12 +603,16 @@ pub fn frame(
         .collect::<Vec<_>>();
     budget_accents(&mut things, &designed, stage.view_w);
 
+    // Who stands with whom: how far round each is turned.
+    let centres = group_centres(&stage.people, stage.figure_h);
+    let big = stage.figure_h * z >= turn::READS_FROM;
     let mut people = stage
         .people
         .iter()
         .zip(living)
-        .filter(|(spot, _)| shows(spot))
-        .map(|(spot, life)| {
+        .zip(&centres)
+        .filter(|((spot, _), _)| shows(spot))
+        .map(|((spot, life), centre)| {
             let item = &items[spot.index];
             let (x, y) = at(life.x, spot.y);
             // Nearer is a little bigger.
@@ -649,7 +655,6 @@ pub fn frame(
                 x,
                 y,
                 height,
-                figure,
                 pose: Pose {
                     bob: life.pose.bob * z,
                     ..life.pose
@@ -667,6 +672,13 @@ pub fn frame(
                     .filter(|(_, how)| *how == Use::Keep)
                     .map(|(thing, _)| thing),
                 posture: None,
+                turn: if big && !figure.bird && figure.age != Age::Baby {
+                    turn_of(stage, spot, life, &what, *centre, stance, seed)
+                } else {
+                    Turn::Front
+                },
+                detail: big,
+                figure,
             }
         })
         .collect::<Vec<_>>();
@@ -879,6 +891,9 @@ mod outdoors;
 
 #[cfg(test)]
 mod living_tests;
+
+#[cfg(test)]
+pub(crate) mod rest_tests;
 
 #[cfg(test)]
 pub(crate) mod doing_tests;

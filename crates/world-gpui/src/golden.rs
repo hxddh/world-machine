@@ -2331,3 +2331,101 @@ fn world_window_shots() {
     }
     crate::scene::pin_hour(None);
 }
+
+/// Pictures for the art director of the World window at rest, zoomed
+/// right out and panned along (v0.30 S1c): each snapshot named in
+/// `WORLD_GPUI_S1C_SNAPSHOTS` (`name=path.json,…`) at 10, 15, 19 and 21
+/// o'clock, the overview (zoom 1) at 15, and six frames of a pan from the
+/// opening view at 15 as a strip, saved under `WORLD_GPUI_S1C_SHOTS`.
+#[test]
+#[ignore = "pictures: WORLD_GPUI_S1C_SHOTS=dir WORLD_GPUI_S1C_SNAPSHOTS=name=path,... cargo test -p world-gpui -- --ignored s1c_shots"]
+fn s1c_shots() {
+    let (Some(dir), Ok(list)) = (
+        std::env::var_os("WORLD_GPUI_S1C_SHOTS"),
+        std::env::var("WORLD_GPUI_S1C_SNAPSHOTS"),
+    ) else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let _ = std::fs::create_dir_all(&dir);
+    let size_of = (1100.0_f32, 848.0_f32);
+    // Baked as a window bakes, at its display's scale, not as a test
+    // paints in place.
+    diorama::stage_view::set_sharp_in_place(true);
+    for entry in list.split(',').filter(|entry| !entry.is_empty()) {
+        let (name, path) = entry.split_once('=').expect("name=path");
+        let json = std::fs::read_to_string(path).expect("a snapshot");
+        let wire: world_pack_protocol::ProjectionSnapshotWire =
+            serde_json::from_str(&json).expect("a snapshot");
+        let snapshot = ProjectionSnapshot::try_from(wire).expect("a snapshot");
+        let shoot = |hour: u32, zoom: Option<f32>, pans: usize| -> Vec<RgbaImage> {
+            crate::scene::pin_hour(Some(hour));
+            let mut cx = HeadlessAppContext::with_platform(
+                Arc::new(NoopTextSystem::new()),
+                Arc::new(()),
+                || Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>),
+            );
+            let snapshot = snapshot.clone();
+            let window = cx
+                .open_window(
+                    size(px(size_of.0), px(size_of.1)),
+                    move |_, cx: &mut App| {
+                        cx.new(|_| {
+                            let mut view =
+                                crate::window::ProjectionView::controlled(Fixed(snapshot.clone()))
+                                    .with_strip(|_, _| {});
+                            view.looking.opening = None;
+                            view.looking.photographing = true;
+                            if let Some(zoom) = zoom {
+                                view.looking.zoom = zoom;
+                            }
+                            view
+                        })
+                    },
+                )
+                .expect("a window");
+            let settle = |cx: &mut HeadlessAppContext| {
+                cx.run_until_parked();
+                for _ in 0..4 {
+                    std::thread::sleep(std::time::Duration::from_millis(700));
+                    cx.update(|app| {
+                        let _ = window.update(app, |_, _, cx| cx.notify());
+                    });
+                    cx.run_until_parked();
+                }
+            };
+            settle(&mut cx);
+            let mut shots = vec![cx.capture_screenshot(window.into()).expect("a picture")];
+            for _ in 1..pans {
+                cx.update(|app| {
+                    let _ = window.update(app, |view, _, cx| {
+                        let camera = view.looking.camera_now.expect("a camera");
+                        let step = size_of.0 / camera.zoom * 0.3;
+                        view.looking.pan = Some(view.looking.pan.unwrap_or(camera.x) + step);
+                        cx.notify();
+                    });
+                });
+                settle(&mut cx);
+                shots.push(cx.capture_screenshot(window.into()).expect("a picture"));
+            }
+            shots
+        };
+        for hour in [10, 15, 19, 21] {
+            let image = shoot(hour, None, 1).remove(0);
+            let _ = image.save(dir.join(format!("{name}-rest-h{hour}.png")));
+        }
+        let overview = shoot(15, Some(1.0), 1).remove(0);
+        let _ = overview.save(dir.join(format!("{name}-overview-h15.png")));
+        let frames = shoot(15, None, 6);
+        let (w, h) = (frames[0].width() / 2, frames[0].height() / 2);
+        let mut strip = RgbaImage::from_pixel(w * 3 + 12, h * 2 + 6, image::Rgba([255; 4]));
+        for (n, frame) in frames.iter().enumerate() {
+            let small = image::imageops::resize(frame, w, h, image::imageops::FilterType::Triangle);
+            let (x, y) = ((n as u32 % 3) * (w + 6), (n as u32 / 3) * (h + 6));
+            image::imageops::overlay(&mut strip, &small, i64::from(x), i64::from(y));
+        }
+        let _ = strip.save(dir.join(format!("{name}-pan-strip-h15.png")));
+        eprintln!("{name}: shot");
+    }
+    crate::scene::pin_hour(None);
+}

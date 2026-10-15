@@ -176,15 +176,14 @@ impl FirstScreen {
 }
 
 /// The first screen of `snapshot` in a window `view` large at `hour` (well
-/// into it): where the window opens (on whoever speaks, else on the
-/// resident with the most of the place around them, as the window does)
-/// and who stands on it doing what. A function of the snapshot and the
-/// hour alone: nothing is drawn.
+/// into it): where the window opens with the camera at rest (on whoever
+/// speaks, and the most residents round them: [`busiest_view`], as the
+/// window does) and who stands on it doing what. A function of the
+/// snapshot and the hour alone: nothing is drawn.
 pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: u8) -> FirstScreen {
     use crate::diorama::{self, Camera, Clock, Glows};
     use world_projection::Stance;
     let stage = diorama::stage_at(snapshot, view.0, view.1, Clock::at(hour));
-    let noon = diorama::stage_at(snapshot, view.0, view.1, Clock::at(12));
     let x_of = |stage: &diorama::Stage, who: SelectionId| {
         let index = snapshot
             .canvas
@@ -196,29 +195,14 @@ pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: 
     };
     let speaker = super::world_window::voices_now(snapshot)
         .first()
-        .map(|voice| voice.speaker)
-        .filter(|who| x_of(&stage, *who).is_some());
-    let who = speaker.or_else(|| {
-        stage
-            .people
-            .iter()
-            .filter_map(|spot| {
-                let who = snapshot.canvas.items.get(spot.index)?.id;
-                let x = x_of(&stage, who)?;
-                Some((view_score(&stage, best_view(&stage, x)), who))
-            })
-            .max_by(|a, b| a.0.cmp(&b.0))
-            .map(|(_, who)| who)
-    });
-    let Some((who, x)) = who.and_then(|who| Some((who, x_of(&stage, who)?))) else {
+        .and_then(|voice| x_of(&stage, voice.speaker));
+    if stage.people.is_empty() {
         return FirstScreen::default();
-    };
-    let centre = opening_view(&stage, x, || {
-        x_of(&noon, who).map_or_else(|| best_view(&stage, x), |x| best_view(&noon, x))
-    });
+    }
+    let centre = busiest_view(&stage, speaker);
     let daylight = crate::scene::daylight_at(u32::from(hour));
     let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
-    let camera = Camera::around(&stage, 1.0, centre, view.1 / 2.0);
+    let camera = Camera::rest(&stage, centre);
     let frame = diorama::frame(
         snapshot,
         &stage,
@@ -229,12 +213,12 @@ pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: 
         &Glows::new(),
         1.0,
     );
-    let half = stage.view_w / 2.0;
-    let centre = centre.clamp(half, (stage.width - half).max(half));
+    let half = stage.view_w / (2.0 * camera.zoom);
+    let centre = camera.x;
     let groups = diorama::group_centres(&stage.people, stage.figure_h);
     let mut residents = Vec::new();
     for ((spot, life), group) in stage.people.iter().zip(&living).zip(groups) {
-        if (life.x - centre).abs() > half - 8.0 || !stage.shows(spot.index, 1.0) {
+        if (life.x - centre).abs() > half - 8.0 || !stage.shows(spot.index, camera.zoom) {
             continue;
         }
         let item = &snapshot.canvas.items[spot.index];
@@ -343,6 +327,69 @@ pub(crate) fn best_view(stage: &crate::diorama::Stage, x: f32) -> f32 {
                 .then((b - x).abs().total_cmp(&(a - x).abs()))
         })
         .unwrap_or(x)
+}
+
+/// What the window shows with the camera at rest centred on stage
+/// `centre` (v0.30 S1c): how many residents stand well inside it, how many
+/// buildings stand whole in it, and how many it cuts at its edges. The
+/// camera stops at the ends of the place, so the centre is held to them.
+pub(crate) fn rest_screen(stage: &crate::diorama::Stage, centre: f32) -> (usize, usize, usize) {
+    let zoom = crate::diorama::Camera::rest_zoom(stage);
+    let half = stage.view_w / (2.0 * zoom);
+    let centre = crate::diorama::keep_on(centre, half, stage.width);
+    let (left, right) = (centre - half, centre + half);
+    let residents = stage
+        .people
+        .iter()
+        .filter(|spot| stage.shows(spot.index, zoom))
+        .filter(|spot| (spot.x - centre).abs() <= half - 8.0)
+        .count();
+    let whole = stage
+        .buildings
+        .iter()
+        .filter(|spot| spot.x - spot.w / 2.0 >= left && spot.x + spot.w / 2.0 <= right)
+        .count();
+    let cut = stage
+        .buildings
+        .iter()
+        .filter(|spot| {
+            let (from, to) = (spot.x - spot.w / 2.0, spot.x + spot.w / 2.0);
+            (from < left && to > left) || (from < right && to > right)
+        })
+        .count();
+    (residents, whole, cut)
+}
+
+/// Where the window opens, with the camera at rest (v0.30 S1c): of every
+/// centre along the place, one that keeps whoever speaks (standing at
+/// `speaker`) well inside the window, then the one with the most residents
+/// on it, then one with a building whole in it (the focal cluster's), then
+/// the fewest buildings cut at its edges, then the nearest the speaker (or
+/// the middle of the place).
+pub(crate) fn busiest_view(stage: &crate::diorama::Stage, speaker: Option<f32>) -> f32 {
+    let zoom = crate::diorama::Camera::rest_zoom(stage);
+    let half = stage.view_w / (2.0 * zoom);
+    let (low, high) = if half * 2.0 >= stage.width {
+        (stage.width / 2.0, stage.width / 2.0)
+    } else {
+        (half, stage.width - half)
+    };
+    let near = speaker.unwrap_or(stage.width / 2.0);
+    let margin = half * 0.2;
+    let score = |centre: f32| {
+        let heard = speaker.is_none_or(|x| (x - centre).abs() <= half - margin);
+        let (residents, whole, cut) = rest_screen(stage, centre);
+        (heard, residents, whole >= 1, std::cmp::Reverse(cut))
+    };
+    let steps = ((high - low) / (half / 12.0).max(1.0)).ceil().max(1.0) as usize;
+    (0..=steps)
+        .map(|step| low + (high - low) * step as f32 / steps as f32)
+        .max_by(|a, b| {
+            score(*a)
+                .cmp(&score(*b))
+                .then((b - near).abs().total_cmp(&(a - near).abs()))
+        })
+        .unwrap_or(near)
 }
 
 /// Where the window opens centred on someone standing at stage `x` (who
@@ -889,7 +936,7 @@ mod tests {
         let pan = view
             .read_with(cx, |view, _| view.looking.pan)
             .expect("the camera goes to the welcome");
-        let camera = crate::diorama::Camera::around(&stage, 1.0, pan, height / 2.0);
+        let camera = crate::diorama::Camera::rest(&stage, pan);
         let in_view = stage
             .people
             .iter()
@@ -940,16 +987,14 @@ mod tests {
         crate::scene::pin_hour(None);
     }
 
-    /// The v0.28 bar, in the real window (1100 by 900, a stage 848 high
-    /// under the bar): day 1 opens on the focal cluster, at least four
-    /// residents and three whole buildings, with whoever welcomes the
-    /// player. The camera does its part (`opening_view`); the rest is the
-    /// day-1 composition (A1): where the fishers work stands on the water
-    /// beside the pub, so the people at work and the pub's share a window.
-    /// Measured where the window itself puts the camera, not where
-    /// `best_view` alone would: v0.29 round 2 moved the opening off a view
-    /// with a home near the edge, and day 1 opened on two buildings while
-    /// this test, asking `best_view`, still saw three.
+    /// The opening bar, in the real window (1100 by 900, a stage 848 high
+    /// under the bar), with the camera at rest (v0.30 S1c): day 1 opens on
+    /// whoever welcomes the player, with as many residents round them as
+    /// any view of them at rest has (at least three) and the focal building
+    /// whole; and zoomed out from there to the overview, v0.28's bar of
+    /// four residents and three whole buildings, nothing cut. The camera
+    /// does its part (`busiest_view`, `opening_view`); the rest is the
+    /// day-1 composition (A1). Measured where the window puts the camera.
     #[gpui::test]
     fn the_first_screen_opens_on_the_focal_cluster(cx: &mut gpui::TestAppContext) {
         use gpui::VisualTestContext;
@@ -979,42 +1024,52 @@ mod tests {
             .read_with(cx, |view, _| view.looking.pan)
             .expect("the camera opens on the welcome");
         crate::scene::pin_hour(None);
+        let speaker = x + w / 2.0;
         assert_eq!(
             centre,
-            // At noon, the noon framing is this stage's own best view.
-            opening_view(&stage, x + w / 2.0, || best_view(&stage, x + w / 2.0)),
-            "the window opens where `opening_view` says"
+            busiest_view(&stage, Some(speaker)),
+            "the window opens where `busiest_view` says"
         );
-        // Counted as the release harness counts them from the frame log:
-        // each building wholly inside the window.
-        let (residents, buildings) = first_screen(&stage, centre);
-        let half = stage.view_w / 2.0;
-        let shown = centre.clamp(half, stage.width - half);
-        let whole = |left: f32, right: f32| {
-            stage
-                .buildings
-                .iter()
-                .filter(|spot| spot.x - spot.w / 2.0 >= left && spot.x + spot.w / 2.0 <= right)
-                .count()
-        };
-        assert_eq!(buildings, whole(shown - half, shown + half));
+        // Counted as the release harness counts them: everyone well inside
+        // the window at rest, and each building wholly inside it.
+        let (residents, whole, _) = rest_screen(&stage, centre);
+        let rest = crate::diorama::Camera::rest_zoom(&stage);
+        let half = stage.view_w / (2.0 * rest);
+        let shown = crate::diorama::keep_on(centre, half, stage.width);
+        // The most any view at rest with the welcomer in it shows.
+        let most = (0..=400)
+            .map(|step| stage.width * step as f32 / 400.0)
+            .filter(|c| {
+                (speaker - crate::diorama::keep_on(*c, half, stage.width)).abs() <= half * 0.8
+            })
+            .map(|c| rest_screen(&stage, c).0)
+            .max()
+            .unwrap_or(0);
+        let out = stage.people.len();
         eprintln!(
-            "first screen: {residents} residents, {buildings} buildings, centre {centre:.0}, \
-             best view {:.0}, {} against the edges",
-            best_view(&stage, x + w / 2.0),
-            crowded_at_the_edges(&stage, centre)
-        );
-        assert!(
-            residents >= 4 && buildings >= 3,
-            "{residents} residents and {buildings} buildings on the first screen"
+            "first screen at rest: {residents} of {out} residents out ({most} at most), \
+             {whole} whole buildings, centre {centre:.0}"
         );
         assert_eq!(
-            cut_at_the_edges(&stage, centre),
-            0,
-            "no building is cut by the window's edge"
+            residents, most,
+            "as many residents as any view of the welcome"
         );
         assert!(
-            (x + w / 2.0 - shown).abs() <= half * 0.9,
+            residents >= 3.min(out),
+            "{residents} residents on the first screen of {out} out"
+        );
+        // Out to the overview from there, v0.28's bar: the focal cluster,
+        // four residents and three whole buildings, nothing cut.
+        let overview = opening_view(&stage, centre, || best_view(&stage, centre));
+        let (residents, buildings) = first_screen(&stage, overview);
+        assert!(
+            residents >= 4 && buildings >= 3,
+            "the overview: {residents} residents and {buildings} buildings"
+        );
+        assert_eq!(cut_at_the_edges(&stage, overview), 0, "nothing cut");
+        assert!(whole >= 1, "the focal building whole on the first screen");
+        assert!(
+            (speaker - shown).abs() <= half * 0.8,
             "the welcomer is on the first screen"
         );
     }

@@ -125,17 +125,24 @@ Heights are given in **P**, the height of a standing adult resident.
 
 ## 6. Composing each screen
 
-Each screen is composed from front to back:
+The camera has two framings (v0.30 S1c):
+- **At rest**, the World window's own view and its first screen: close enough that a grown-up on the quay stands 120–160 px tall (about 140 px; the zoom is 140 px over a resident's height at one window). It frames the street's front roofs down to the water's edge. The sky and the back row may be out of frame here; the town's people, doors and the ground between them are the picture.
+- **The overview**, one scroll out: the whole window's width of the place, as every screen was before v0.30. The sky rule below applies to it, and to the postcard, the strip and the key art.
+
+Each overview screen is composed from front to back:
 1. **A foreground framing strip** at the bottom of the land band: grass tufts, a fence, flowers, the quay edge.
 2. **One focal cluster** near a third line.
 3. **Mid-ground clusters**, smaller.
 4. **The back row.**
 5. **Sky,** at least 25% of the frame.
 
+A screen at rest keeps 1–3 of these: the framing strip, the focal cluster whole (its building whole in the frame), and a mid-ground cluster where there is room.
+
 **People:**
 - People gather in twos and threes, facing each other, on the spine, porches and benches.
-- Never more than four people stand in a row.
-- Someone is always in view on the first screen.
+- Never more than three people stand in a row at rest (four on the overview).
+- At rest, people stand at three or four depths, and are turned every way a body turns: to the camera, three-quarter, in profile and from behind. Most pairs are not both facing the camera.
+- Someone is always in view on the first screen; by day, at least six where six are out of doors.
 
 **Overlays:**
 - A card never covers the person it speaks for.
