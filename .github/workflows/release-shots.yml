@@ -2,12 +2,14 @@ name: Release shots
 
 # The first ten minutes and the key moments of the release app, in its real
 # window: `scripts/release-shots.sh` builds the desktop app in release, runs
-# it under Xvfb at the World window's default size, plays a new World, a
-# Find, a return film, every zoom level, a second year and each place at
-# noon, dusk and night, and saves what the window showed. It fails if a key
-# moment shows an unpainted frame, or if a new World's town is not painted
-# within 3 seconds. The pictures are kept as an artifact of the run, for the
-# art director's sign-off and the store page.
+# it under Xvfb at the World window's default size, plays a new World's
+# first sitting to its Goodnight, a Find, a new sitting's morning after
+# time away, every zoom level, a second year and each place at noon, dusk
+# and night, and saves what the window showed. It fails if a key moment
+# shows an unpainted frame, if the loading wash a window opens under lasts
+# more than 2 seconds (3 for a new World), or if a sitting's morning or
+# Goodnight is not what the game does. The pictures are kept as an
+# artifact of the run, for the art director's sign-off and the store page.
 #
 # It runs for every release as a job of the release package workflow
 # (release-package.yml calls it, and publishes nothing unless it passes),
