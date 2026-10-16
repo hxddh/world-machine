@@ -218,3 +218,24 @@ Signed off by the art director on 2026-10-09 after four rounds of scripted free 
   - **Siting and framing:** scaffolds on clear sites, on the quay edge and never in the water; no unpainted joining slabs; Ares and Icebridge on a single framing at every hour, held by `the_ice_place_opens_on_its_nests_and_its_bridge_at_every_hour`, which must stay.
   - **Releases:** every sign-off capture from binaries built from the signed commit.
 - Not signed: the demo build on its own (its ending was judged only in round 1), and the store shots, which are still v0.28's and do not yet match frames players see.
+
+## v0.30 sign-offs
+
+v0.30 was judged slice by slice, each slice merged on the art director's YES, rather than in one free-play round at the end. Every verdict was given on frames from a release build under Xvfb, not on the real Mac or PC the owner's answer 3 asked for. The verdicts do not record whether each frame came from a binary built from the commit judged, as the v0.29 rule asks.
+- **S0, the spike:** yes at noon and dusk and no at night in round 1. Yes at noon, dusk and night in round 2.
+- **S1a:** NO in round 1, because the stone landing swallowed people. YES in round 2.
+- **S2d:** NO in rounds 1 and 2: the keeper stood in front of the counter, and people stood on a building and on the pool's rail. YES in round 3.
+- **S3c and S3d, the scenes:** NO in rounds 1 and 2. YES in round 3 (`72d11d2`), when all seven kinds passed the director's stranger test (arrival, quarrel, festival, build, birth, farewell and storm).
+- **S1c, the camera at rest:** NO in round 1. The first screen was empty, people stood in rows and inside props, there was no night at 21:00, and a pale ghost sat by the clock post. YES in round 2 (`050560c`): 6–10 people in every rest frame, night at 21:00, and harbour day 1,082 at 19:00 and 21:00 the first frames that feel lived in.
+- **S1d, the ring, the roofline, kerbs and the pier:** NO in round 1. The speaker's name landed on listeners, and the raised camera cut back-row people at the top edge. YES in round 2, with no regressions. Round 3's changes, from the code review, came after the YES. Its frames were captured, but no verdict on them is recorded.
+- **S4, one day a day:** NO in rounds 1 and 2, on copy only. In round 1 the title bar said "Keeps going without you", the Home badge said "1 day has passed", the labels said "Today's question" and "Tended overnight", and the asleep note was low contrast. In round 2 Home still promised a World that lives while you are away, the letter said "news" twice, and the title bar said "Asleep" before Goodnight. YES in round 3, on frames and on the docs at `ef22713`. Rounds 4 to 6 came after the YES: a held hour per window, the wake at midnight, Save As and import, and the morning in the reader's language. Their pictures (`r6`, the morning in Chinese and Japanese) have no recorded verdict.
+- **The leftovers** are in [KNOWN_ISSUES](KNOWN_ISSUES.md#the-look-v030-leftovers).
+- **Protect (added):**
+  - the asleep World at 23:00, lit windows with figures in them on dark water, which the director called the best new frame;
+  - the morning card, four labelled parts and one button;
+  - rings at rest, open to the viewer, with the in-front figure seen from behind;
+  - harbour day 1,082 at 19:00 and 21:00 at rest;
+  - the seven scenes as round 3 of S3 has them;
+  - the roofline over the quay at rest, with nobody cut by the top edge.
+- **Retired by the owner's answer 2:** the return film after time away, which was on v0.29's Protect list, gives way to the morning in the full app. It still plays in the demo, now as scenes.
+- **Not signed:** any frame on a real device, the demo on its own, and the store shots, which are still v0.28's.

@@ -2,6 +2,74 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.30.0 (2026-10-16)
+
+**Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; neither Pack's version changed, though both now register the new `ritual` System. Every fixture from v0.20 to v0.27 still replays event for event in both Packs, and `replayed-state.digest`, the golden of the state each one rebuilds to from its recorded events alone, is unchanged in both. What was re-blessed is presentation only:
+- **The continuation digests** were cut from 64 to 8: per Pack, the replay and snapshot-wire digests of the oldest and newest fixture (Tiny Society's `v020-harbour` and `v027-harbour`, Pocket Universe's `v020-ice` and `v027-mars`). A new test opens every other fixture, replays it event for event and plays three days on it. The 8 kept were re-blessed for what a World shows and writes after a load:
+  - residents' stances and companions;
+  - the town gathering at rest;
+  - letters that cite the player, and the cap of five tellings a year;
+  - the morning's new snapshot field, which adds one empty line to each replay digest's snapshots. Its events steps and the wire digests are unchanged.
+
+  Pocket Universe's were also re-blessed once by the nightly fix that followed v0.29.0.
+- **22 golden pictures:** people stand in groups at depths, off things, on opaque patches, and Maple Street's paving has a kerb.
+
+No v0.28 or v0.29 fixture was added: both saved with the same Pack versions, so their Worlds open, but no test holds one of their files. No test opens a World saved by v0.30 in v0.29.
+
+**A World no longer moves while you are away.** This is a behaviour change for everyone who already plays. Until v0.29 a closed World lived a day for every six hours, up to 28 days, and told you on return. Now each sitting (a new day on your own calendar) passes one World day, or three on a World's very first. A week or a month away is still one day. An existing World's next sitting is one day, not three, and what it would have caught up is not caught up later.
+
+This release is the plan from the [v0.29 review](docs/REVIEW_v0.29.md), "The town you watch live". What it met and missed, with numbers, is in that review's last section. In short:
+- **Shipped:** the town is drawn as baked sprites on the GPU, closer, with residents doing what the record says. Every recorded story can play as a scene, and the return film is a cut of them. Letters cite what you did. A World grows one day a sitting, with a morning and a goodnight.
+- **Not shipped:** the S1 ground, the quiet interface and the hero palettes; Share (S6); the friction list (S7); and S5b's hearing and heart arcs.
+- **Not seen on real devices:** every art verdict was given on Xvfb frames, not on the real Mac or PC the owner asked for. 120 Hz on a real Mac is unmeasured.
+
+- **The living stage.**
+  - The World window draws the town as sprites baked from the game's own brushes and composited by GPUI: buildings, things, people and props, back to front by where each stands. Looks are baked lazily, per zoom level and light, off the window's thread, and again only for what changed.
+  - The tile painter's World-window path is gone (about 3,200 lines): no rough painting, no paint-ahead, no painted-per-region accounting. While a close look bakes, the nearest baked look stands in, scaled. The strip, covers, postcards and goldens still paint with the tile painter.
+  - The camera at rest is about 2.4 times closer: a grown-up stands 140 px tall (120–160 px in windows 700 to 1,600 high). It frames the roofline over the quay down to the people's line, clear of the card, and nobody is cut by the window's top. One scroll out is the old view, the overview.
+  - People stand at three or four depths, turned every way a body turns, with a detail pass at that size. Four or more gathered stand in a ring open to the viewer round whoever speaks first, one talking at a time. Of an evening the town gathers by lamplight at the pub or the hall. The speaker's name never covers anyone.
+  - Laid ground has a kerb, and the point lamp stands on a stone pier.
+- **Residents who move.** Each outdoor stop of a resident's day says what they do there and with whom, read from the record. The window draws it:
+  - sitters on the bench's own seat, a keeper behind the counter, rings at lamps on open ground;
+  - companions facing each other, loads carried, dances in beats;
+  - errands that walk to a thing, use it and come back.
+- **Every story is a scene.** Every recorded Event has a scene worked out from the record with no model, in both Packs: an arrival, farewell, festival, build, birth, quarrel or storm. The stage plays it with walks, postures, props, rain and a camera. A return-film beat with a recorded Event plays its scene for the scene's length, and its card docks once for the whole scene.
+- **Letters about you.**
+  - A letter whose news the player brought about says what they did ("All because you built a bench by the mill."), found by following `caused_by` back to the deed or answer, and names that act as its cause.
+  - People have pronouns: he, she or they. Tiny Society picks them by first name. Pocket Universe keeps "they" for everyone.
+  - The same kind of story about the same person is told at most five times a year. No Event is removed.
+- **One day a day.**
+  - A device-local sitting ledger, outside the World, decides each sitting. The World is told only that a sitting began, a command with no clock in it, so no event or state carries the wall clock (tested on two far-apart calendars).
+  - Once a sitting's days are spent, a Goodnight card, then the World asleep: night held, windows lit, no cards. A same-day reopen opens asleep, and a window open across midnight wakes to the new day.
+  - A new day's morning comes once, as recorded Events from the new `ritual` System: a letter, today's choice, something looked after overnight, and a find for a new Finds shelf (28 in Tiny Society, 25 in Pocket Universe). It is in the reader's language.
+  - Home, the About window, the blurbs, README, roadmap, store page and trailer say a World "grows a day at a time".
+  - Save As and import keep a World's sitting.
+- **Cheaper to change.** The continuation digests were cut from 64 to 8, as above. The Packs' suites run about 70 s faster together in a debug build.
+
+**Measured** (on a shared 4-core Linux VM, headless and under Xvfb, release builds, unless said):
+- **S0 frame plan, on CI's macOS runner** (real Metal, a 60 Hz virtual display): 300 walkers at 0.37 ms mean, 0.50 ms p95 and 0.92 ms max. 120 Hz on a real ProMotion Mac: not measured.
+- **The window on day 1,082, through a day at scale 2:**
+  - plan p99 1.2–1.5 ms, and no interval over 33 ms;
+  - 200–205 MB at rest (bar 250) and at most 317–340 MB (bar 350);
+  - with a scene playing, plan p99 0.65–0.67 ms (bar 4 ms).
+- **Stand-in frames:** 8–26% of frames in a bench that pans and zooms without stopping, with runs of 1.5–2.5 s while a close look bakes again. The 150 ms aim is not met.
+- **Residents busy on the first screen from 9 to 4:** 8–10 in Tiny Society and 6–9 in Pocket Universe (were 2–8 and 2–10). At noon a small town's share caps it: day 1 shows 4, Ares day 14 shows 3.
+- **Pack suites in a debug build:** Tiny Society 129 → 105 s, Pocket Universe 175 → 130 s.
+- **Not measured:** the letters, pronouns and repeat cap (S5a recorded no numbers), and a turn's speed and memory, last measured at v0.29.
+- **Not done:**
+  - the S3 stranger test with five people;
+  - the five-day think-aloud test;
+  - 30 minutes on a real Windows PC;
+  - any look at a real Mac or PC.
+- **Nightly:** green on `main` on 14 and 15 October, on v0.30 code.
+
+**Moved to v0.31:**
+- **S5b:** hearing grounded in place and occupation, and the residents' heart arcs.
+- **S6:** Share: clips and a short World link.
+- **S7:** the friction list: the free-offer soft lock, placement that ignores the click, the unclickable parcel, the hidden postcard toast, Report on canned lines, and the black first frame.
+- **From S1:** the ground (yards, a back lane, worn paths), the interface fading at rest, a hero palette per place, dusk lit rather than tinted, and passers-by.
+- **From S8:** goldens out of PR CI, and splitting the giant files.
+
 ## v0.29.0 (2026-10-10)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Every fixture from v0.20 to v0.27 replays event for event in both Packs, and the golden of the state each one rebuilds to from its recorded events is unchanged; only the pictures and presentation goldens drawn from them were re-blessed for the new looks. No v0.28 fixture was added: v0.28 saved with the same Pack versions, so its Worlds open, but no test holds one of its files.
