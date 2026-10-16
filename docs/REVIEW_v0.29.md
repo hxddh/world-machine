@@ -798,3 +798,73 @@ The owner accepted every recommendation:
 4. **AI disclosure:** keep the label for v0.30, and decide on a human rewrite before the Steam page goes up.
 5. **The voice:** frozen: no new red-team sets, judge work or lexicon growth until there is a key and a ship-or-cut decision.
 6. **Cadence:** a release per playable slice, with pre-releases for testers.
+
+## What v0.30 did
+
+v0.30.0 shipped on 2026-10-16. It shipped S0, S1 (a to d), S2, S3, S4, S5a and S8.1. S5b, S6 and S7 did not ship, nor S1's ground, quiet interface and hero palettes, nor the rest of S8. There was no single measurement at the end, as v0.29 had. The numbers below are the ones each slice's entry above recorded, at its own commit:
+- on this shared 4-core Linux VM, headless or in the real window under Xvfb, in release unless said;
+- and once on CI's macOS runner.
+
+Nothing was seen or measured on a real Mac or a real Windows PC. Every art verdict was given on Xvfb frames, though the owner's answer 3 asked for real devices. Where no number was measured, the table says so. What it met and missed:
+
+| Bar | Result | |
+|---|---|---|
+| **S0. The spike** | | |
+| About 300 sprites at 120 Hz, each frame planned in under 8 ms, on a real Mac | on CI's macOS runner (Apple silicon, real Metal, a 60 Hz virtual display): 0.37 ms mean, 0.50 ms p95, 0.92 ms max over 1,197 frames, none over 8 ms. On a real 120 Hz Mac: not measured | met at 60 Hz on CI; missed as written |
+| One baked harbour frame earns the art director's yes | yes at noon, dusk and night in round 2 | **met** |
+| Glow and light read as layered images | lit windows and lamp pools read well | **met** |
+| **S1. The living stage** | | |
+| No rough painting ever | the tile painter's World-window path is deleted (about 3,200 lines), so the window has no rough painting. While a close look bakes, the nearest baked look stands in, scaled: 8–26% of frames in a bench that pans and zooms without stopping, with runs of 1.5–2.5 s (aim 150 ms). The strip, covers, postcards and goldens still use the tile painter | met for the rough; stand-ins remain |
+| 120 Hz on a real Mac | S1b's bar is plan p99 at most 4 ms at scale 2 and no interval over 33 ms. Headless here, day 1,082 through a day at scale 2: p99 1.4–1.6 ms after S1b and 1.2–1.5 ms after S1c, with no interval over 33 ms. CI's macOS run of S1a at scale 2 was p99 10.0 ms with 16 intervals over 33 ms; no later macOS reading is recorded here. Real Mac: not measured | not measured |
+| People 120–160 px at rest | 140 px at 848 high; `people_at_rest_120_to_160_px` holds windows 700 to 1,600 high, every fixture, noon and dusk | **met** |
+| One continuous ground joining buildings | laid ground has a kerb (S1d). Yards, a back lane and worn paths were not built | missed |
+| The interface hidden at rest, numbers in the book | not built | missed |
+| One hero palette per place; dusk lit, not tinted | not built. Dusk now lasts 19:12 to 20:15 and night is reached by 21:00 (S1c round 2) | missed |
+| Memory at rest under 250 MB, at most 350 MB | day 1,082 through a day at scale 2: 200–205 MB at rest, 317–340 MB at most | **met** |
+| The art director's free-play sign-off, on a real device | S1c YES in round 2 (`050560c`), S1d YES in round 2, both on Xvfb frames ([ART_DIRECTION](ART_DIRECTION.md#v030-sign-offs)) | met on Xvfb; missed as written |
+| **S2. Residents who move** | | |
+| At least 6 residents visibly doing something on any first screen of a lived town, by day | at rest from 9 to 4: 8–10 in Tiny Society, 6–9 in Pocket Universe (were 2–8 and 2–10). `six_residents_busy_on_first_screen_by_day` is two-sided in both Packs. At noon a small town's share caps it: day 1 shows 4, Ares day 14 shows 3 | **met** for lived towns |
+| Things you place are used visibly | sitters on benches, rings at lamps on open ground, keepers behind counters, errands to things; the S2d art verdict was YES in round 3 | **met** |
+| **S3. Every story is a scene** | | |
+| Every return-film beat shows its event happening | a beat with a recorded Event plays its scene; a beat with none plays as before | met for beats with an Event |
+| A stranger watching a 20-second clip can say what happened (4 of 5 testers) | no testers. The art director's own stranger test passed all seven kinds in round 3 (`72d11d2`) | not measured |
+| Arranged outings always play | tested: a beat with a scene plays it, an arranged outing included | met by test |
+| A scene's frame plan under 4 ms | plan p99 0.65–0.67 ms with a festival, storm or quarrel playing | **met** |
+| **S4. One day a day** | | |
+| Every day has something new that is yours | each new day's morning brings a letter, today's choice, something looked after and a find. Tested over five mornings in Tiny Society and once a period in every Pocket Universe place. The finds are 28 and 25, each found once, so after that a morning has none | met by test, for the first 25–28 mornings |
+| No day's ritual repeats a line | `ritual`: no line twice in 30 mornings; the Packs' tests: none in five mornings | met by test, over 30 mornings |
+| A five-day think-aloud test | not run | missed |
+| Never punitive | a day missed costs nothing, and a month away is one day | **met** by design |
+| No wall clock in the record | the same sittings on two calendars far apart record identical events and state | **met** |
+| **S5. Residents become people** | | |
+| Letters about you | S5a: a letter whose news the player brought about cites the act and names it as its cause. Not measured: how many letters cite an act | built; not measured |
+| Pronouns | he, she or they in Tiny Society, "they" for everyone in Pocket Universe, in three languages | built; not measured |
+| No "lived" line told more than 5 times a year per resident | `lives::told_enough` caps a kind of story per person at five a year, counted on the person so a checkpoint keeps it. No year was counted again to measure it | built; not measured |
+| Hearing grounded in place and occupation; heart arcs | S5b, not done | missed, moved to v0.31 |
+| **S6, S7** | | |
+| A clip plays and reads with no app; the friction list | not done | missed, moved to v0.31 |
+| **S8. Pay for it** | | |
+| About 8 continuation digests instead of 64 | 8, with every fixture still replayed and played on; the Tiny Society suite 129 → 105 s and Pocket Universe 175 → 130 s in a debug build | **met** |
+| Goldens out of PR CI; the PR run under 15 minutes; the giant files split | not done. `world_window.rs` is 7,410 lines (7,122 at v0.29) | missed |
+| Run the nightly on the release branch too | not done. On `main` it was green on 14 and 15 October, on v0.30 code | missed |
+
+**What the misses say.**
+- **The real devices.** The owner's answer 3 put a real Mac and PC in the loop. None was to hand, so every verdict was given on Xvfb frames, and the 120 Hz bar is unmeasured. This is the gap the review called most important, and it is still open.
+- **S1 was cut in half.** The camera, the depths and the rings took S1c and S1d. The ground, the quiet interface and the hero palettes, the parts that would make a frame read as illustrated rather than competent, did not ship.
+- **Nothing in S5a was measured.** It added letters that cite the player, pronouns and the repeat cap, but its commits recorded no count of letters that cite an act, and no year was counted to check the cap. It has no entry above.
+- **S4 retired the promise of a World that lives while you are away.** The owner chose this in answer 2. Everything the player reads now says a World grows a day at a time, except the store description's Chinese and Japanese clock lines, which still describe v0.29's clock.
+
+**Found on the way.**
+- The return film's test failed on `main` as well as its branch: the first two frames bake the place for longer than a beat. The test now waits for a drawn frame (S2d round 2).
+- An errand walked to its stop again at the start of every hour (an old fault). Fixed in S2d round 3.
+- A held hour was process-wide, so one sleeping World put every open World to bed. It is now each window's own (S4 round 4).
+- A clock turned back: S4's first cut counted it as the same day. The code review in S4 round 2 found that a clock which was once ahead, and is then put right, would lock a World asleep until the calendar caught up. Now a day before the ledger's begins a new sitting of one day. The price is that turning the clock back and forward again wins a day each time. The owner accepted it.
+
+**For v0.31.**
+- **Real devices:** a real Mac and a real Windows PC. Sign-offs and the 120 Hz bar are judged there.
+- **S5b:** hearing grounded in place and occupation, and heart arcs. Measure S5a's letters and cap.
+- **S1's other half:** the ground, the interface at rest, the hero palettes and dusk lit. Add passers-by, and the sky at rest.
+- **S6 and S7.**
+- **Store copy:** a native rewrite of the store description's Chinese and Japanese clock lines.
+- **Pocket Universe:** a finds list per place, and more finds than mornings.
+- **People:** the stranger test with five people and the five-day think-aloud test.
