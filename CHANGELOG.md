@@ -62,6 +62,7 @@ This release is the plan from the [v0.29 review](docs/REVIEW_v0.29.md), "The tow
   - 30 minutes on a real Windows PC;
   - any look at a real Mac or PC.
 - **Nightly:** green on `main` on 14 and 15 October, on v0.30 code.
+- **A World window opens under a short loading wash** while its first look bakes, gone in 0.55–1.11 s in the release-shots runs (bar: 2 s, 3 s for a new World). v0.28's promise of a whole first frame no longer holds; the release-shots gate now checks the wash clears in time and that nothing is unpainted after it.
 
 **Moved to v0.31:**
 - **S5b:** hearing grounded in place and occupation, and the residents' heart arcs.
