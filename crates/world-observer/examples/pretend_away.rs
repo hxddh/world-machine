@@ -29,6 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let days = (hours / 24) as i64 + 1;
     for entry in std::fs::read_dir(&library)? {
         let path = entry?.path();
+        // Only the Worlds: a `.world.bak` beside one is not a World of its
+        // own, and must not be given a ledger.
+        if path.extension().and_then(|extension| extension.to_str()) != Some("world") {
+            continue;
+        }
         let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };

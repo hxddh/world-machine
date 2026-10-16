@@ -8,9 +8,9 @@ Every beat is a moment that `scripts/release-shots.sh` already plays and checks 
 
 | Time | Beat | Harness scenario | What must be in frame |
 |---|---|---|---|
-| 0:00–0:04 | A new harbour opens on the Harbour Front in the morning. | `first` (the first ten seconds) | The quay and its cluster, at least 4 people and 3 buildings, painted from the first frame shown. |
+| 0:00–0:04 | A new harbour opens on the Harbour Front in the morning. | `first` (the first ten seconds) | The quay and the welcome, at least 4 people and the focal building whole, painted once the opening wash is gone (within 3 s). |
 | 0:04–0:09 | Your hands: the free wildflowers placed, then the first card answered. | `first` (day 1) | The flowers going down where you put them; the card's choice; scaffolding rising on its own site. |
-| 0:09–0:15 | Back after three days away: the return film glides from moment to moment. | `return` | Two or three beats of the film, each on a painted scene, with the line that tells it. |
+| 0:09–0:15 | Back after three days away: the new day opens on its morning card, then the day. | `return` | The morning (a letter, today's choice, something looked after, a find) over the painted town, then "Begin the day" and the day's choice. Time away no longer moves a World, and there is no return film. |
 | 0:15–0:20 | Someone asks a favour; **Find** takes the camera to the person it is about. | `find` | The asker saying it aloud, the camera's landing on painted ground, the glow on the person. |
 | 0:20–0:25 | Dusk on the quay, then night: the lamps along the water, and windows that say who is home. | `places` (Tiny Society at dusk and night) | Lamps lit with their pools and broken reflections; lit windows. |
 | 0:25–0:30 | Pull back over a year-three harbour, every zoom level painted, to the whole town. | `zoom` | A continuous pull from street level to the whole town; then the title card. |
