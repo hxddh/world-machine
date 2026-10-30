@@ -870,3 +870,16 @@ No account, no telemetry. Your Worlds are files on this computer; only the optio
 Each day you come back, your World lives one more day. It is saved as you play.	戻ってくるたびに、ワールドは一日ずつ進みます。遊びながら自動で保存されます。
 Up and down choose a card; Enter takes it.	上下キーでカードを選び、リターンキーで決定します。
 Esc puts away what is open.	Escで開いているものをしまいます。
+Click where you would like it in the scene. Or press Enter to do it later.	場面の置きたい場所をクリックしてください。Enter を押せば、あとで置くこともできます。
+The Save window didn't open, so it was saved in Documents › World Machine as {file}.	保存ウインドウが開かなかったので、「ドキュメント › World Machine」に {file} として保存しました。
+The Save window didn't open, and it couldn't be saved in Documents either. Nothing was saved.	保存ウインドウが開かず、「ドキュメント」にも保存できませんでした。何も保存されていません。
+Your computer's window for choosing a file didn't open. Nothing was opened.	ファイルを選ぶウインドウが開きませんでした。何も開いていません。
+The window closed before anything was chosen.	何も選ばないうちにウインドウが閉じました。
+The disk is full.	ディスクがいっぱいです。
+World Machine isn't allowed to write there.	World Machine にはそこへ書き込む許可がありません。
+The file isn't there any more.	そのファイルはもうありません。
+Something on this computer got in the way.	このコンピュータで何かが邪魔をしました。
+Couldn't save the World code.	ワールドコードを保存できませんでした。
+Couldn't save this World.	このワールドを保存できませんでした。
+Couldn't export this World.	このワールドを書き出せませんでした。
+Couldn't open that World file.	そのワールドファイルを開けませんでした。

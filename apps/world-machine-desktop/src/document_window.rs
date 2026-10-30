@@ -450,23 +450,41 @@ impl WorldDocumentView {
         let suggested_name = suggested_world_file_name(&semantic_title, &self.document_name);
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
+            let mut without_dialog = false;
             let destination = match save_dialog.await {
                 Ok(Ok(Some(path))) => canonical_world_path(path),
                 Ok(Ok(None)) => return,
+                // No Save window on this computer: the World is saved in
+                // Documents anyway, and the title bar says where.
                 Ok(Err(error)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.status = Some(DocumentStatus::error(format!(
-                            "Could not open Save As dialog: {error}"
-                        )));
-                        cx.notify();
-                    });
-                    return;
+                    diagnostics::error(format!("save as dialog: {error}"));
+                    without_dialog = true;
+                    let folder = world_machine_desktop::plain_errors::fallback_folder();
+                    match folder {
+                        Ok(folder) => {
+                            canonical_world_path(world_machine_desktop::plain_errors::free_path(
+                                &folder,
+                                &suggested_name,
+                            ))
+                        }
+                        Err(error) => {
+                            diagnostics::error(format!("save as: {error}"));
+                            let _ = this.update(cx, |this, cx| {
+                                this.status = Some(DocumentStatus::error(
+                                    world_machine_desktop::plain_errors::not_saved_without_dialog(),
+                                ));
+                                cx.notify();
+                            });
+                            return;
+                        }
+                    }
                 }
                 Err(error) => {
+                    diagnostics::error(format!("save as dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(DocumentStatus::error(format!(
-                            "Save As dialog was interrupted: {error}"
-                        )));
+                        this.status = Some(DocumentStatus::error(
+                            world_machine_desktop::plain_errors::file_window_closed(),
+                        ));
                         cx.notify();
                     });
                     return;
@@ -483,15 +501,26 @@ impl WorldDocumentView {
                         this.refresh_document_identity();
                         // The sitting went with the World to its new file.
                         this.rebuild_projection(cx);
-                        this.status = Some(DocumentStatus::success(format!(
-                            "Saved As {} · {}",
-                            this.document_name,
-                            world_gpui::i18n::moment_label(&snapshot, snapshot.world_time)
-                        )));
+                        this.status = Some(DocumentStatus::success(if without_dialog {
+                            world_machine_desktop::plain_errors::saved_without_dialog(&destination)
+                        } else {
+                            format!(
+                                "Saved As {} · {}",
+                                this.document_name,
+                                world_gpui::i18n::moment_label(&snapshot, snapshot.world_time)
+                            )
+                        }));
                     }
                     Err(error) => {
-                        this.status =
-                            Some(DocumentStatus::error(format!("Save As failed: {error}")));
+                        diagnostics::error(format!("save as: {error}"));
+                        this.status = Some(DocumentStatus::error(if without_dialog {
+                            world_machine_desktop::plain_errors::not_saved_without_dialog()
+                        } else {
+                            world_machine_desktop::plain_errors::could_not(
+                                "Couldn't save this World.",
+                                &error.to_string(),
+                            )
+                        }));
                     }
                 }
                 cx.notify();

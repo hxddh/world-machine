@@ -209,6 +209,23 @@ fn new_day_waiting_on(document: &WorldDocumentSummary, today: i64) -> Option<boo
     Some(world_observer::sitting_at(&ledger, today).new)
 }
 
+/// Whether a library World sleeps until its next sitting (its file's
+/// ledger says today's sitting has passed every day it may): Home then
+/// tells it by the day the player said goodnight to, not the one the
+/// next sitting opens on.
+pub fn asleep(document: &WorldDocumentSummary) -> bool {
+    asleep_on(document, today())
+}
+
+fn asleep_on(document: &WorldDocumentSummary, today: i64) -> bool {
+    let Some(sittings) = document.host_sittings.as_ref() else {
+        return false;
+    };
+    let ledger = from_document(sittings);
+    let sitting = world_observer::sitting_at(&ledger, today);
+    ledger.began_on.is_some() && !sitting.new && sitting.left == 0
+}
+
 /// Today, on this device's calendar.
 fn today() -> i64 {
     let now = chrono::Local::now();
@@ -439,6 +456,10 @@ mod tests {
         let listed = summary(&library, &document_id);
         assert_eq!(new_day_waiting_on(&listed, 100), Some(false));
         assert_eq!(new_day_waiting_on(&listed, 101), Some(true));
+        // Asleep tonight, awake tomorrow (Home tells a sleeping World by
+        // the day said goodnight to).
+        assert!(asleep_on(&listed, 100));
+        assert!(!asleep_on(&listed, 101));
         // A month away: a new sitting of one day, and one morning.
         let back = sit_on(&mut session, &registry, &library, 130).unwrap();
         assert!(back.sitting.new && back.morning);

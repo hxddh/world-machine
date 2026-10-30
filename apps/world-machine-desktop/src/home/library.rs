@@ -397,19 +397,21 @@ impl WorldMachineHome {
                 Ok(Ok(Some(mut paths))) => paths.pop(),
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
+                    diagnostics::error(format!("import dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Could not open Import dialog: {error}"
-                        )));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::no_file_window(),
+                        ));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
+                    diagnostics::error(format!("import dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Import dialog was interrupted: {error}"
-                        )));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::file_window_closed(),
+                        ));
                         cx.notify();
                     });
                     return;
@@ -433,23 +435,40 @@ impl WorldMachineHome {
         let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
+            let mut without_dialog = false;
             let destination = match save_dialog.await {
                 Ok(Ok(Some(path))) => canonical_world_path(path),
                 Ok(Ok(None)) => return,
+                // No Save window on this computer: exported to Documents
+                // anyway, and Home says where.
                 Ok(Err(error)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Could not open Export dialog: {error}"
-                        )));
-                        cx.notify();
-                    });
-                    return;
+                    diagnostics::error(format!("export dialog: {error}"));
+                    without_dialog = true;
+                    match world_machine_desktop::plain_errors::fallback_folder() {
+                        Ok(folder) => {
+                            canonical_world_path(world_machine_desktop::plain_errors::free_path(
+                                &folder,
+                                &suggested_name,
+                            ))
+                        }
+                        Err(error) => {
+                            diagnostics::error(format!("export: {error}"));
+                            let _ = this.update(cx, |this, cx| {
+                                this.status = Some(HomeStatus::error(
+                                    world_machine_desktop::plain_errors::not_saved_without_dialog(),
+                                ));
+                                cx.notify();
+                            });
+                            return;
+                        }
+                    }
                 }
                 Err(error) => {
+                    diagnostics::error(format!("export dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Export dialog was interrupted: {error}"
-                        )));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::file_window_closed(),
+                        ));
                         cx.notify();
                     });
                     return;
@@ -469,6 +488,11 @@ impl WorldMachineHome {
                     None => this.library.export_file(&document_id, &destination),
                 };
                 match exported {
+                    Ok(()) if without_dialog => {
+                        this.status = Some(HomeStatus::success(
+                            world_machine_desktop::plain_errors::saved_without_dialog(&destination),
+                        ));
+                    }
                     Ok(()) => {
                         this.status = Some(HomeStatus::success(format!(
                             "Exported {} to {}",
@@ -477,9 +501,13 @@ impl WorldMachineHome {
                         )));
                     }
                     Err(error) => {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Could not export {document_id}: {error}"
-                        )));
+                        diagnostics::error(format!("export {document_id}: {error}"));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::could_not(
+                                "Couldn't export this World.",
+                                &error.to_string(),
+                            ),
+                        ));
                     }
                 }
                 cx.notify();

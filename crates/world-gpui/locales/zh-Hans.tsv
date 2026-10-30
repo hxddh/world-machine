@@ -870,3 +870,16 @@ No account, no telemetry. Your Worlds are files on this computer; only the optio
 Each day you come back, your World lives one more day. It is saved as you play.	你每回来一天，你的世界就多过一天。边玩边自动保存。
 Up and down choose a card; Enter takes it.	用上下键选卡片，按回车选定。
 Esc puts away what is open.	按 Esc 收起打开的东西。
+Click where you would like it in the scene. Or press Enter to do it later.	在场景里点一下你想放的地方。也可以按 Enter，稍后再放。
+The Save window didn't open, so it was saved in Documents › World Machine as {file}.	“存储”窗口没有打开，所以已存到“文档 › World Machine”，名为 {file}。
+The Save window didn't open, and it couldn't be saved in Documents either. Nothing was saved.	“存储”窗口没有打开，也没能存到“文档”里。什么都没有存。
+Your computer's window for choosing a file didn't open. Nothing was opened.	电脑上用来选择文件的窗口没有打开。什么都没有打开。
+The window closed before anything was chosen.	还没选好，窗口就关上了。
+The disk is full.	磁盘已满。
+World Machine isn't allowed to write there.	World Machine 没有权限写到那里。
+The file isn't there any more.	那个文件已经不在了。
+Something on this computer got in the way.	这台电脑上有东西挡住了。
+Couldn't save the World code.	没能存下世界码。
+Couldn't save this World.	没能存下这个世界。
+Couldn't export this World.	没能导出这个世界。
+Couldn't open that World file.	没能打开那个世界文件。
