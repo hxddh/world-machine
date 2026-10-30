@@ -80,6 +80,9 @@ const ANSWER_SECONDS: f32 = 9.0;
 pub(crate) const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
+/// Where a word that something was saved hangs: under the row of handles,
+/// clear of the cards at the bottom.
+const TOAST_TOP: f32 = 64.0;
 #[cfg(test)]
 pub(crate) use super::glide::CAMERA_SECONDS;
 use super::glide::{Bound, Glide};
@@ -304,6 +307,10 @@ pub(crate) struct Looking {
     /// Whoever the window opened on to welcome the player, and where it
     /// put the camera for them.
     pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// Whose line the window opened on, which is said first: the window
+    /// opens where the most people are round whoever speaks
+    /// ([`super::arrival::opening_voice`]).
+    pub(crate) opener: Option<SelectionId>,
     /// Where the opening view is centred at noon, for a stage of this
     /// width and height: the framing every hour opens on where its own
     /// would leave a building against the window's edge. Kept for the

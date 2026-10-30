@@ -67,7 +67,9 @@ pub fn of_plain(shape: MarkShape, building: bool) -> Rung {
         M::Rover => T(1.0),
         // A working boat, its mast and all: its hull is about 0.5 P.
         M::Boat => T(1.2),
-        M::Parcel => T(0.35),
+        // A parcel or an order waiting at a door: carried in two arms,
+        // about a quarter of a person tall (v0.31: one stood like a cart).
+        M::Parcel => T(0.25),
         M::Stall => T(1.3),
         M::Bunting => T(2.2),
         M::Pier | M::Bridge => W(5.0),

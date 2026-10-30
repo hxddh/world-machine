@@ -10,7 +10,9 @@
 //! periods: the first answer each period, something built on a plot (or
 //! made by hand) every third, and the period let pass. Each place is also
 //! written as it starts (`start-<ground>.json`: `dust`, `street` or `ice`),
-//! as a player first sees it. Only what the scene draws is kept. The same build always
+//! as a player first sees it. Only what the scene draws is kept, but for
+//! `first-<ground>.json`, the whole first day as the window opens on it
+//! (for the window's first-day tests). The same build always
 //! writes the same files.
 
 use pocket_universe::{
@@ -35,6 +37,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut universe = PocketUniverse::new()?;
         universe.invoke_projection_command(seed)?;
         write(&out, &format!("start-{ground}.json"), &universe)?;
+        // The whole of it, as the window opens on its first day: what is
+        // said, what can be done (the free thing to place), the cards.
+        let first = ProjectionSnapshotWire::from(&universe.projection_snapshot());
+        let path = out.join(format!("first-{ground}.json"));
+        std::fs::write(&path, serde_json::to_string(&first)?)?;
+        println!("{}", path.display());
         for period in 1..=PERIODS {
             let snapshot = universe.projection_snapshot();
             if let Some(answer) = snapshot.commands.iter().find(|command| {

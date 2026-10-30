@@ -95,8 +95,16 @@ impl ProjectionView {
         }
         let camera = self.camera(&stage, window, staged.as_ref().and_then(|s| s.camera));
 
-        // Who is needed where they are, and who is talking.
-        let speaking = voices_now(&self.snapshot);
+        // Who is needed where they are, and who is talking: whoever the
+        // window opened on first.
+        let mut speaking = voices_now(&self.snapshot);
+        if let Some(at) = self
+            .looking
+            .opener
+            .and_then(|who| speaking.iter().position(|voice| voice.speaker == who))
+        {
+            speaking.rotate_left(at);
+        }
         let answered = self.looking.answered.and_then(|(index, at)| {
             let talk = self.snapshot.talks.get(index)?;
             (at.elapsed().as_secs_f32() < answer_seconds(&talk.answer)).then_some((talk, at))
@@ -737,28 +745,41 @@ impl ProjectionView {
         .into_iter()
         .filter_map(|(at, words)| Some((at?, words)))
         .max_by_key(|(at, _)| *at);
-        if let Some((at, words)) = saved.filter(|(at, _)| at.elapsed().as_secs_f32() < 2.5) {
-            let age = at.elapsed().as_secs_f32();
-            root = root.child(
+        // What was just saved says so over everything else, cards and
+        // papers included, so it is always read (v0.31: the postcard's
+        // word was hidden behind the card at the bottom): it hangs under
+        // the handles, clear of the cards (or, under the sitting's paper
+        // hanging from the top, at the bottom), and added last it is drawn
+        // last.
+        let low = self.sitting_covers();
+        let toast = saved
+            .filter(|(at, _)| at.elapsed().as_secs_f32() < 2.5)
+            .map(|(at, words)| {
+                let age = at.elapsed().as_secs_f32();
                 div()
                     .absolute()
-                    .bottom(px(24.0))
+                    .when(low, |toast| toast.bottom(px(24.0)))
+                    .when(!low, |toast| toast.top(px(TOAST_TOP)))
                     .left_0()
                     .right_0()
                     .flex()
                     .justify_center()
                     .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
-                    .child(pill().child(ui::t(words))),
-            );
-        }
+                    .child(
+                        pill()
+                            .debug_selector(|| "saved-toast".into())
+                            .occlude()
+                            .child(ui::t(words)),
+                    )
+            });
         if let Some(farewell) = lit(|| self.render_farewell(cx)) {
             // A farewell has the place to itself: no card, no handles.
-            return root.child(farewell).into_any_element();
+            return root.child(farewell).children(toast).into_any_element();
         }
         if let Some(sitting) = lit(|| self.render_sitting(cx)) {
             // The morning, the Goodnight card and the World asleep each
             // have the place to themselves: no card, no handles.
-            return root.child(sitting).into_any_element();
+            return root.child(sitting).children(toast).into_any_element();
         }
         root = root.child(self.render_hud(pointing, cx));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
@@ -921,6 +942,6 @@ impl ProjectionView {
                     .child(status.max_w(px(520.0)).shadow_md()),
             );
         }
-        root.into_any_element()
+        root.children(toast).into_any_element()
     }
 }

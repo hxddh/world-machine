@@ -1978,9 +1978,8 @@ pub(super) fn at_their_stops(
             }
         }
     }
-    // Those dancing have a patch of ground of their own: a pair (or one)
-    // with anyone else close by moves along their lane, together, to the
-    // nearest open ground with nobody else within a stride.
+    // Those dancing have ground of their own: a pair (or one) with anyone
+    // close by moves along their lane, together, to the nearest open ground.
     let dancing = stage
         .doing
         .iter()
@@ -2025,10 +2024,11 @@ pub(super) fn at_their_stops(
                 let (x, y) = (spot.x + shift, spot.y);
                 open(x, y, figure_h * spot.scale, usize::MAX)
                     && stage.people.iter().all(|other| {
-                        // (Room to swing an arm; among their own gathering,
-                        // not a stride off from it, v0.30 S1c round 2.)
+                        // (Room to swing an arm, in their gathering, v0.30 S1c
+                        // round 2; by dancers half that: one festival, v0.31.)
+                        let room = [0.8, 0.5][usize::from(dancing.contains(&other.index))];
                         group.contains(&other.index)
-                            || (other.x - x).abs() >= figure_h * 0.8
+                            || (other.x - x).abs() >= figure_h * room
                             || (other.y - y).abs() >= figure_h * 0.5
                     })
             })

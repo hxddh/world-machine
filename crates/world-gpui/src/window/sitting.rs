@@ -416,6 +416,11 @@ impl ProjectionView {
             .occlude()
             .w(px(520.0))
             .max_w_full()
+            // One height every morning, however much it brings, so "Begin
+            // the day" is always in the same place (v0.31: it moved with
+            // the card). In rems, so larger text gets a taller paper; what
+            // does not fit scrolls.
+            .h(gpui::rems(MORNING_REMS))
             .p_6()
             .rounded_2xl()
             .bg(scene_paper())
@@ -426,7 +431,14 @@ impl ProjectionView {
             .flex_col()
             .gap_3()
             .child(ui::heading("Good morning"))
-            .child(parts)
+            .child(
+                div()
+                    .id("morning-parts")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
+                    .child(parts),
+            )
             .child(
                 div().pt_2().flex().justify_end().child(
                     ui::button("morning-begin", "Begin the day", ButtonKind::Primary)
@@ -440,6 +452,10 @@ impl ProjectionView {
         Some(hanging(paper))
     }
 }
+
+/// How tall the morning's paper stands, in rems: room for a letter of
+/// three lines and the other three parts, with "Begin the day" under them.
+const MORNING_REMS: f32 = 27.0;
 
 /// One part of the morning, named for its tests.
 fn part(name: &'static str) -> Div {
@@ -875,6 +891,81 @@ mod tests {
         assert_eq!(chosen.get(), 1, "nothing chosen asleep");
         assert_eq!(passed.get(), 1);
         view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        crate::scene::set_clock(None);
+    }
+
+    /// Enter presses the sitting's one button (v0.31 play: a keyboard
+    /// player was stuck under "Begin the day" and under Goodnight): on the
+    /// morning it begins the day, choosing nothing under it; on the
+    /// Goodnight card the World sleeps. And "Begin the day" stands in the
+    /// same place on a morning of four parts and on one of a single line.
+    #[gpui::test]
+    fn enter_begins_the_day_and_says_goodnight_from_a_button_that_stays_put(
+        app: &mut TestAppContext,
+    ) {
+        crate::scene::set_clock(Some(12));
+        let Opened {
+            view,
+            mut cx,
+            passed,
+            chosen,
+            ..
+        } = open(app, morning_town(), Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        let full = cx.debug_bounds("morning-begin").expect("Begin the day");
+        press_enter(&view, cx);
+        assert_eq!(chosen.get(), 0, "nothing chosen under the morning");
+        view.read_with(cx, |view, _| assert!(view.morning_shown().is_none()));
+        assert!(cx.debug_bounds("morning").is_none(), "the morning put away");
+        assert!(cx.debug_bounds("bottom-card").is_some(), "the day's card");
+        pass_day(&view, cx);
+        assert_eq!(passed.get(), 1);
+        assert!(cx.debug_bounds("goodnight").is_some());
+        press_enter(&view, cx);
+        view.read_with(cx, |view, _| {
+            assert!(view.asleep(), "Enter says Goodnight");
+            assert!(!view.goodnight_shown());
+        });
+        press_enter(&view, cx);
+        assert_eq!((passed.get(), chosen.get()), (1, 0), "nothing asleep");
+        view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        // A morning of one short letter: the button where it was.
+        let mut short = morning_town();
+        if let Some(morning) = short.morning.as_mut() {
+            morning.question = None;
+            morning.tended = None;
+            morning.find = None;
+            if let Some(letter) = morning.letter.as_mut() {
+                letter.note = "Hello.".into();
+            }
+        }
+        let Opened { mut cx, .. } = open(app, short, Some(Allowance { left: 1, of: 1 }));
+        let one = cx.debug_bounds("morning-begin").expect("Begin the day");
+        assert_eq!(one, full, "Begin the day stays put");
+        crate::scene::set_clock(None);
+    }
+
+    /// The word that a postcard was saved is never under a card (v0.31
+    /// play: it showed behind the day's card): with the day's card up, and
+    /// under the morning's paper, it is shown clear of the card.
+    #[gpui::test]
+    fn the_saved_word_is_never_hidden_by_a_card(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        for snapshot in [town(), morning_town()] {
+            let Opened { view, mut cx, .. } = open(app, snapshot, None);
+            let cx = &mut cx;
+            view.update(cx, |view, cx| {
+                view.looking.postcard_saved = Some(std::time::Instant::now());
+                cx.notify();
+            });
+            cx.run_until_parked();
+            let toast = cx.debug_bounds("saved-toast").expect("the saved word");
+            for name in ["bottom-card", "morning"] {
+                if let Some(card) = cx.debug_bounds(name) {
+                    assert!(!toast.intersects(&card), "{name}: {toast:?} and {card:?}");
+                }
+            }
+        }
         crate::scene::set_clock(None);
     }
 
