@@ -83,6 +83,9 @@ env:
     --skip a_three_year_turn_with_its_save_takes_under_thirty_five_milliseconds
     --skip a_three_year_first_look_after_a_day_takes_under_twenty_milliseconds
     --skip a_three_year_world_holds_at_most_a_hundred_megabytes_after_twenty_days
+    --skip at_three_years_turns_under_thirty_milliseconds_with_its_save
+    --skip at_three_years_looks_again_under_fifteen_milliseconds
+    --skip rendering_the_full_mix_costs_little
 
 jobs:
   long-bars:
@@ -140,6 +143,14 @@ jobs:
           cargo test --release --locked -p world-gpui --lib -- --ignored
           a_three_year_world_never_waits_for_painting
           a_three_year_world_paints_within_its_frame_budget
+      - name: Each Pocket Universe place turns in under 30 ms and looks again in under 15 ms at three years
+        run: >-
+          cargo test --release --locked -p world-library --test pocket_three_years --
+          --ignored --test-threads=1
+      - name: Rendering the full sound mix costs little
+        run: >-
+          cargo test --release --locked -p world-sound --test bars --
+          --test-threads=1 rendering_the_full_mix_costs_little
       - name: A three-year snapshot takes under 15 ms
         run: >-
           cargo test --release --locked -p world-library --test three_years --
