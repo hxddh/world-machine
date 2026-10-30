@@ -154,16 +154,48 @@ key() { # key <chord> [seconds after]
     sleep "${2:-1}"
 }
 
-# Opens the first World on Home (Home is 760 by 760; its first card's
-# Open button sits at 327, 325).
-open_first() {
-    # Home may still be loading on a busy machine: click again until the
-    # World window is there.
+# Home: the newest window of Home's default size (760 by 760). It opens
+# on the title screen, the town at dusk with Continue, New and Settings,
+# walked with the arrows and chosen with Enter.
+home_window() {
+    local id
+    for id in $(wins_all); do
+        [ "$(size_of "$id")" = "760x760" ] && echo "$id"
+    done | tail -1
+}
+
+wait_home() { # wait_home <seconds>
+    local until=$((SECONDS + ${1:-30}))
+    while [ $SECONDS -lt $until ]; do
+        need_display
+        [ -n "$(home_window)" ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# Chooses the title screen's first choice with Enter until a World window
+# is there: Continue (the most recent World) when there is one, New on a
+# first launch. Home may still be loading on a busy machine, so Enter is
+# pressed again until the World window opens; Enter on Home is the same
+# choice each time, and an open World only comes forward.
+enter_from_title() { # enter_from_title [seconds per try]
+    local w
+    wait_home 30 || { echo "  no Home window"; return 1; }
     sleep 3
     for _ in 1 2 3 4; do
-        click 327 325 0.2
-        wait_world 15 && break
+        w=$(home_window)
+        [ -n "$w" ] || break
+        xdotool windowfocus --sync "$w" 2>/dev/null || true
+        xdotool key --window "$w" Return 2>/dev/null
+        wait_world "${1:-15}" && break
     done
+    wait_world 1
+}
+
+# Opens the most recent World from the title screen (Continue).
+open_first() {
+    enter_from_title 15
     focus
 }
 
@@ -386,15 +418,19 @@ report() {
 
 # ---- Scenarios -----------------------------------------------------------
 
-# A new World from an empty library: the first seconds, the welcome, the
-# free wildflowers, then the first sitting's three World days played card
-# by card to its Goodnight, and the World asleep. The harbour's first day
-# opens on no morning.
+# A new World from an empty library: the title screen it opens on (New
+# first, with no World to continue), New chosen with Enter, then the first
+# seconds, the welcome, the free wildflowers, then the first sitting's
+# three World days played card by card to its Goodnight, and the World
+# asleep. The harbour's first day opens on no morning.
 scenario_first() {
     SCENARIO=first
     fresh_state
     start_app 12
-    wait_world 60 || { echo "  no World window"; FAILED=1; SUMMARY+=("first: FAILED (no World window)"); return; }
+    wait_home 60 || { echo "  no Home window"; FAILED=1; SUMMARY+=("first: FAILED (no Home window)"); return; }
+    sleep 4
+    shot title "$(home_window)"
+    enter_from_title 60 || { echo "  no World window"; FAILED=1; SUMMARY+=("first: FAILED (no World window)"); return; }
     focus
     local started=$SECONDS
     for t in 0 1 2 3 4 5 6; do
@@ -536,10 +572,9 @@ scenario_places() {
         if [ "$hour" = 12 ]; then measure 2 1 1; else measure 2 0 1; fi
         for place in ares maple icebridge; do
             SCENARIO="places-$place-$hour"
-            # Only Pocket Universe included: with Tiny Society there too and
-            # no World of it, Home offers to create one in a banner that
-            # arrives late and moves the first World's Open button, so the
-            # click could create a harbour instead of opening the place.
+            # Only Pocket Universe included: the place is the one World
+            # there is, and nothing gets a harbour's Pack ready beside it
+            # while the title screen's Continue opens it.
             fresh_state pocket-universe
             "$BIN/examples/harness_place" "$STATE/Worlds" "$place" >/dev/null
             start_app "$hour"

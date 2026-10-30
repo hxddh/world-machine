@@ -989,6 +989,18 @@ pub fn cover(
     cast: Vec<CanvasItem>,
     drawings: Vec<world_projection::Drawing>,
 ) -> gpui::Canvas<()> {
+    cover_in(scenery, marks, cast, drawings, crate::scene::daylight_now())
+}
+
+/// [`cover`] in the light of one part of the day, whatever the clock says:
+/// the title screen shows the town at dusk.
+pub fn cover_in(
+    scenery: Option<Scenery>,
+    marks: &[MarkShape],
+    cast: Vec<CanvasItem>,
+    drawings: Vec<world_projection::Drawing>,
+    daylight: crate::scene::Daylight,
+) -> gpui::Canvas<()> {
     // A cast placed along a panorama is shown on one as wide, looking at
     // its middle.
     let width = cast
@@ -1021,7 +1033,6 @@ pub fn cover(
         },
         ..ProjectionSnapshot::default()
     };
-    let daylight = crate::scene::daylight_now();
     gpui::canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {

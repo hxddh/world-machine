@@ -15,6 +15,7 @@ use world_gpui::ui;
 use world_theme::tokens;
 
 use crate::{build_info, diagnostics, WorldMachineHome};
+use world_machine_desktop::shell;
 
 actions!(
     world_machine,
@@ -22,6 +23,7 @@ actions!(
         About,
         Settings,
         Quit,
+        ShowHelp,
         CopyDiagnostics,
         OpenLogFolder,
         ReportProblem,
@@ -65,6 +67,7 @@ actions!(
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &About, cx| open_about_window(cx));
     cx.on_action(|_: &Settings, cx| crate::settings::open(cx));
+    cx.on_action(|_: &ShowHelp, cx| open_help_window(cx));
     cx.on_action(|_: &Quit, cx| {
         diagnostics::info("quit requested from the menu");
         // Every open World's latest turns written first, or asked about.
@@ -107,7 +110,8 @@ pub fn install(cx: &mut App) {
     });
 
     cx.bind_keys([
-        KeyBinding::new("cmd-q", Quit, None),
+        // Cmd-Q on a Mac, Ctrl-Q on Linux and Windows.
+        KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("cmd-h", HideApp, None),
         KeyBinding::new("alt-cmd-h", HideOthers, None),
         // Cmd-W on a Mac, Ctrl-W on Linux and Windows.
@@ -118,8 +122,9 @@ pub fn install(cx: &mut App) {
         // nib, and this app builds its menus in code, so without these two
         // lines the shortcut does nothing at all.
         KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, None),
-        // Cmd-, is Settings everywhere else on this platform.
-        KeyBinding::new("cmd-,", Settings, None),
+        // Cmd-, is Settings everywhere else on a Mac; Ctrl-, on Linux and
+        // Windows, as the in-window menu says.
+        KeyBinding::new("secondary-,", Settings, None),
         KeyBinding::new("alt-cmd-s", ShowAsStrip, None),
     ]);
 
@@ -189,12 +194,14 @@ pub fn set_menus(cx: &mut App) {
             MenuItem::action("Close Window", CloseWindow),
         ]),
         Menu::new("Help").items([
+            MenuItem::action("Help", ShowHelp),
+            MenuItem::separator(),
             MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Install Guide", InstallGuide),
             MenuItem::action("Report a Problem…", ReportProblem),
             MenuItem::separator(),
             MenuItem::action("Copy Diagnostics", CopyDiagnostics),
-            MenuItem::action("Show Log in Finder", OpenLogFolder),
+            MenuItem::action(show_log_label(), OpenLogFolder),
         ]),
     ]);
 }
@@ -224,6 +231,11 @@ pub fn install_home_actions(home: &Entity<WorldMachineHome>, cx: &mut App) {
     });
 }
 
+/// The show-the-log button's name on this computer (no Finder off a Mac).
+fn show_log_label() -> &'static str {
+    shell::show_log_label(shell::Os::current())
+}
+
 fn copy_diagnostics(cx: &mut App) {
     let report = diagnostics::report();
     cx.write_to_clipboard(ClipboardItem::new_string(report));
@@ -248,7 +260,12 @@ fn open_about_window(cx: &mut App) {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         },
-        |_, cx| cx.new(|_| AboutView { copied: false }),
+        |_, cx| {
+            cx.new(|cx| AboutView {
+                copied: false,
+                focus: cx.focus_handle(),
+            })
+        },
     );
     if let Err(error) = opened {
         diagnostics::error(format!("could not open the About window: {error}"));
@@ -257,6 +274,8 @@ fn open_about_window(cx: &mut App) {
 
 struct AboutView {
     copied: bool,
+    /// Holds the keyboard, so Esc closes the window.
+    focus: gpui::FocusHandle,
 }
 
 impl Render for AboutView {
@@ -267,6 +286,9 @@ impl Render for AboutView {
         ));
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
         window.set_window_title("About World Machine");
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
         let environment = diagnostics::environment();
         let library = environment
             .library_dir
@@ -283,6 +305,12 @@ impl Render for AboutView {
         };
 
         div()
+            .track_focus(&self.focus)
+            .on_key_down(|event: &gpui::KeyDownEvent, window, _| {
+                if event.keystroke.key == "escape" {
+                    window.remove_window();
+                }
+            })
             .size_full()
             .bg(ui::color(tokens::WARNING_SOFT))
             .text_color(ui::color(tokens::TEXT))
@@ -298,12 +326,17 @@ impl Render for AboutView {
                     .child("Small worlds that grow a day at a time."),
             )
             .child(div().text_sm().child(build_info::display_label()))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(ui::color(tokens::DANGER))
-                    .child("Not yet notarized by Apple: the first launch asks once."),
-            )
+            // Only a Mac asks Apple about the app.
+            .when(cfg!(target_os = "macos"), |about| {
+                about.child(
+                    div()
+                        .text_sm()
+                        .text_color(ui::color(tokens::DANGER))
+                        .child(ui::t(
+                            "Not yet notarized by Apple: the first launch asks once.",
+                        )),
+                )
+            })
             .child(
                 div()
                     .text_xs()
@@ -324,11 +357,7 @@ impl Render for AboutView {
                 div()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child(
-                        "No account, no telemetry. Your Worlds are files on this Mac; \
-                         only the optional World voice sends anything out, \
-                         and only once you turn it on.",
-                    ),
+                    .child(ui::t(shell::privacy_line(shell::Os::current()))),
             )
             .child(
                 div()
@@ -344,7 +373,7 @@ impl Render for AboutView {
                         }),
                     ))
                     .child(
-                        about_button("about-show-log", "Show Log in Finder")
+                        about_button("about-show-log", show_log_label())
                             .on_click(cx.listener(|_, _, _, cx| open_log_folder(cx))),
                     )
                     .child(
@@ -374,5 +403,114 @@ fn about_button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::D
         .border_color(ui::color(tokens::BORDER_STRONG))
         .bg(ui::color(tokens::SURFACE))
         .text_sm()
-        .child(label)
+        .child(ui::t(label))
+}
+
+/// The short in-app Help page: how a World is played, and where more help
+/// is, on every platform (Help in the in-window menu and the menu bar).
+fn open_help_window(cx: &mut App) {
+    let bounds = Bounds::centered(None, size(px(520.0), px(460.0)), cx);
+    let opened = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        |window, cx| {
+            crate::watch_appearance(window);
+            cx.new(|cx| HelpView {
+                copied: false,
+                focus: cx.focus_handle(),
+            })
+        },
+    );
+    if let Err(error) = opened {
+        diagnostics::error(format!("could not open the Help window: {error}"));
+    }
+}
+
+struct HelpView {
+    copied: bool,
+    /// Holds the keyboard, so Esc closes the window.
+    focus: gpui::FocusHandle,
+}
+
+impl Render for HelpView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
+        window.set_window_title(&ui::t("Help"));
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
+        let mut lines = div().flex().flex_col().gap_2();
+        for line in shell::HELP_LINES {
+            lines = lines.child(ui::body(ui::t(*line)));
+        }
+        let copy_label = if self.copied {
+            "Copied"
+        } else {
+            "Copy Diagnostics"
+        };
+        div()
+            .id("help")
+            .track_focus(&self.focus)
+            .on_key_down(|event: &gpui::KeyDownEvent, window, _| {
+                if event.keystroke.key == "escape" {
+                    window.remove_window();
+                }
+            })
+            .size_full()
+            .overflow_y_scroll()
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_5()
+            .child(ui::page_title("Help"))
+            .child(ui::heading("How to play"))
+            .child(lines)
+            .child(ui::heading("More help"))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        about_button("help-install-guide", "Install Guide").on_click(
+                            cx.listener(|_, _, _, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL)),
+                        ),
+                    )
+                    .child(
+                        about_button("help-report-problem", "Report a Problem…").on_click(
+                            cx.listener(|_, _, _, cx| {
+                                diagnostics::info("opening the issue template");
+                                cx.open_url(&diagnostics::issue_url());
+                            }),
+                        ),
+                    )
+                    .child(
+                        about_button("help-copy-diagnostics", copy_label).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                copy_diagnostics(cx);
+                                this.copied = true;
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(
+                        about_button("help-show-log", show_log_label())
+                            .on_click(cx.listener(|_, _, _, cx| open_log_folder(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child(build_info::display_label()),
+            )
+    }
 }

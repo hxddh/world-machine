@@ -52,6 +52,11 @@ pub(crate) struct WorldDocumentView {
     pub(crate) next_move_at: Option<u64>,
     /// Whether the Share list under the title bar is open.
     pub(crate) share_open: bool,
+    /// Whether the app menu under the title bar is open, the item the
+    /// keyboard is on, and what holds the keyboard while it is open.
+    pub(crate) menu_open: bool,
+    pub(crate) menu_focus: usize,
+    pub(crate) menu_keys: gpui::FocusHandle,
     /// What the demo asks this window to show next (set by the controller
     /// when it turned a day's passing; always empty in the full app).
     pub(crate) demo_cue: DemoCue,
@@ -335,6 +340,9 @@ impl WorldDocumentView {
             status: None,
             next_move_at,
             share_open: false,
+            menu_open: false,
+            menu_focus: 0,
+            menu_keys: cx.focus_handle(),
             demo_cue,
             closing_anyway: false,
             midnight: None,
@@ -636,6 +644,87 @@ impl WorldDocumentView {
             )))
     }
 
+    /// Opens or closes the app menu. Open, it holds the keyboard (the
+    /// arrows, Enter and Esc); closed, the scene takes the keyboard back.
+    pub(crate) fn toggle_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu_open = !self.menu_open;
+        self.menu_focus = 0;
+        self.share_open = false;
+        if self.menu_open {
+            window.focus(&self.menu_keys, cx);
+        } else {
+            window.blur(cx);
+        }
+        cx.notify();
+    }
+
+    /// An item of the app menu: the World's own (Save As, its code) here,
+    /// the app's through the menu bar's action.
+    pub(crate) fn pick(
+        &mut self,
+        item: shell::MenuItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu_open = false;
+        window.blur(cx);
+        if !app_menu::run_app_item(item, window, cx) {
+            match item {
+                shell::MenuItem::SaveAs => self.save_as(cx),
+                shell::MenuItem::CopyWorldCode => self.copy_world_code(cx),
+                shell::MenuItem::SaveWorldCode => self.save_world_code(cx),
+                _ => {}
+            }
+        }
+        cx.notify();
+    }
+
+    fn menu_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.menu_open {
+            return;
+        }
+        let keystroke = &event.keystroke;
+        let key = keystroke.key.as_str();
+        let items = shell::app_menu(shell::MenuPlace::World);
+        if key == "escape" {
+            self.toggle_menu(window, cx);
+        } else if let Some(step) = shell::step_for_key(key, keystroke.modifiers.shift) {
+            self.menu_focus = shell::step(items.len(), self.menu_focus, step);
+            cx.notify();
+        } else if shell::chooses(key) {
+            if let Some(item) = items.get(self.menu_focus).copied() {
+                self.pick(item, window, cx);
+            }
+        } else {
+            return;
+        }
+        cx.stop_propagation();
+    }
+
+    /// The app menu, under its button at the title bar's right.
+    fn app_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let pick: app_menu::Pick<Self> =
+            Rc::new(|this: &mut Self, item, window, cx| this.pick(item, window, cx));
+        div()
+            .id("world-app-menu")
+            .track_focus(&self.menu_keys)
+            .on_key_down(cx.listener(Self::menu_key))
+            .absolute()
+            .top(px(48.0))
+            .right(px(16.0))
+            .child(app_menu::menu_list(
+                &shell::app_menu(shell::MenuPlace::World),
+                Some(self.menu_focus),
+                pick,
+                cx,
+            ))
+    }
+
     /// The demo's ending: the farewell over the World, at dusk, recapping
     /// the player's own moments from what the World recorded, with a
     /// resident's goodbye and a postcard to keep. It asks for nothing;
@@ -680,7 +769,7 @@ impl Render for WorldDocumentView {
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::World);
         // A World's name follows it as it changes ("A new World" becomes
-        // "Ares Pocket Colony" when it is seeded), so read it every time.
+        // the name its Pack gives it when it is seeded), so read it every time.
         self.document_name = session_display_name(&self.document.borrow().session);
         window.set_window_title(&document_window_title(&self.document_name));
         // The World in front plays its landscape and its music, if the
@@ -827,10 +916,19 @@ impl Render for WorldDocumentView {
                 .child(ui::t("Share"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.share_open = !this.share_open;
+                    this.menu_open = false;
                     cx.notify();
                 })),
         );
+        // The app menu: Settings, About, Save As, the World codes, Help and
+        // Quit, on every platform.
+        let menu_open = self.menu_open;
+        chrome = chrome.child(
+            app_menu::menu_button("world-menu", menu_open)
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_menu(window, cx))),
+        );
         let share = share_open.then(|| self.share_list(cx));
+        let menu = menu_open.then(|| self.app_menu(cx));
         match self.demo_cue.take() {
             Some(DemoTurn::Ending) => {
                 self.status = None;
@@ -880,5 +978,6 @@ impl Render for WorldDocumentView {
                     .child(self.projection.clone()),
             )
             .children(share)
+            .children(menu)
     }
 }
