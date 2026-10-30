@@ -1057,11 +1057,8 @@ impl Action for Lives {
         // from a checkpoint, its earlier Events not kept, counts the year
         // all the same.
         let year = state.world_time() / year_length(&cast).max(1);
-        let lived = retold::Days::of(state, &cast, person, year).lived(&cast, activity.id);
+        let lived = retold::Days::of(state, person, year).lived(&cast, activity.id);
         moves.set(person, retold::DID, lived.note);
-        for old in lived.let_go {
-            moves.unset(state, person, &old);
-        }
         let nth = lived.nth;
         moves.set(person, AT, Value::Entity(place));
 

@@ -1374,40 +1374,28 @@ fn the_same_story_is_told_of_someone_at_most_five_times_a_year() {
 }
 
 /// The year's counts are kept in one short note with what someone last
-/// did ("odd_job|0|01"), a character a kind of day in the Pack's order;
-/// v0.30.0's notes, one a kind, are read for their year and let go of.
+/// did ("odd_job|0|01"), a character a kind of day in the Pack's order.
 #[test]
 fn a_years_days_are_kept_in_one_note_with_what_was_last_done() {
     let cast = cast();
     let mut state = WorldState::default();
     state
-        .seed_entity(
-            Entity::new(EntityId::new(7), "person")
-                .with_component("lives.did", "shift")
-                .with_component("lives.told_year.odd_job", "2:3")
-                .with_component("lives.told_year.nap", "1:9"),
-        )
+        .seed_entity(Entity::new(EntityId::new(7), "person").with_component("lives.did", "shift"))
         .unwrap();
     let person = EntityId::new(7);
-    // From before: this year's count goes on, a past year's is not counted,
-    // and every note a kind is let go of.
-    let lived = crate::retold::Days::of(&state, &cast, person, 2).lived(&cast, "odd_job");
-    assert_eq!(lived.nth, 4);
-    assert_eq!(lived.note, "odd_job|2|04");
-    assert_eq!(lived.let_go.len(), cast.activities.len());
-    assert!(lived
-        .let_go
-        .contains(&"lives.told_year.odd_job".to_string()));
+    // Nothing counted yet this year: the first.
+    let lived = crate::retold::Days::of(&state, person, 2).lived(&cast, "odd_job");
+    assert_eq!(lived.nth, 1);
+    assert_eq!(lived.note, "odd_job|2|01");
     // Kept as the note: read back, and counted on.
     let kept = Entity::new(EntityId::new(8), "person").with_component("lives.did", lived.note);
     state.seed_entity(kept).unwrap();
     let person = EntityId::new(8);
     assert_eq!(crate::retold::last_did(&state, person), "odd_job");
-    let nap = crate::retold::Days::of(&state, &cast, person, 2).lived(&cast, "nap");
-    assert_eq!((nap.nth, nap.note.as_str()), (1, "nap|2|041"));
-    assert!(nap.let_go.is_empty());
+    let nap = crate::retold::Days::of(&state, person, 2).lived(&cast, "nap");
+    assert_eq!((nap.nth, nap.note.as_str()), (1, "nap|2|011"));
     // A new year starts the count again.
-    let next = crate::retold::Days::of(&state, &cast, person, 3).lived(&cast, "shift");
+    let next = crate::retold::Days::of(&state, person, 3).lived(&cast, "shift");
     assert_eq!((next.nth, next.note.as_str()), (1, "shift|3|1"));
 }
 
