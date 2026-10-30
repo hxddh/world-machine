@@ -105,9 +105,6 @@ impl Composer {
 pub(crate) struct Head {
     /// Where the file is written.
     pub path: PathBuf,
-    /// An older name of the same file, read if `path` is not there and
-    /// removed once `path` is written.
-    pub legacy: Option<PathBuf>,
     /// The file's description, all but its drawings, which are the bulk of
     /// it and change only when the cast is drawn with others.
     pub metadata: WorldDocumentMetadata,
@@ -489,13 +486,10 @@ fn write_file(
     }
     #[cfg(not(test))]
     let _ = shared;
-    let current = crate::revision_at(&head.path, head.legacy.as_deref()).map_err(Failure::of)?;
+    let current = crate::revision_if_exists(&head.path).map_err(Failure::of)?;
     if current != expected {
         return Err(Failure::Changed(head.path.clone()));
     }
     crate::atomic_write(&head.path, bytes).map_err(io)?;
-    if let Some(legacy) = &head.legacy {
-        let _ = std::fs::remove_file(legacy);
-    }
     Ok(())
 }

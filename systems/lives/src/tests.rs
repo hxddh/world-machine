@@ -524,8 +524,7 @@ fn the_index_finds_what_reading_every_event_finds() {
 }
 
 /// What was said is noted one entry a period, not one a line, and only
-/// for as long as it is remembered; a World from before, with a note a
-/// line, is still heard.
+/// for as long as it is remembered.
 #[test]
 fn what_was_said_is_noted_a_period_at_a_time() {
     let (mut world, _) = play(200, true);
@@ -537,7 +536,6 @@ fn what_was_said_is_noted_a_period_at_a_time() {
             .filter(|key| key.starts_with(prefix))
             .count()
     };
-    assert_eq!(keys("lives.heard."), 0);
     let periods = keys(SAID);
     assert!(
         periods > 0 && periods as u64 <= HEARD_PERIODS + 30,
@@ -556,45 +554,16 @@ fn what_was_said_is_noted_a_period_at_a_time() {
     ] {
         assert_eq!(code_hash(&hash_code::<SAID_CODE>(hash)), hash);
     }
-    // A World from before noted a period's lines in longer hashes.
-    let line = "A line said in a World from before, in its longer hashes.";
-    let older = std::str::from_utf8(&hash_code::<SAID_BEFORE_CODE>(
-        short_hash::<SAID_BEFORE_CODE>(line_hash(line)),
-    ))
-    .unwrap()
-    .to_string();
-    let state = applied(
-        world.state(),
-        vec![StateChange::SetComponent {
-            entity: NOTES,
-            key: format!("{SAID_BEFORE}{}", heard.now - 5),
-            value: older.into(),
-        }],
-    );
-    assert!(!heard.lately(line));
-    assert_eq!(Heard::of(&state, &cast()).when(line), Some(heard.now - 5));
-    // A World from before notes each line by itself.
-    let line = "A line said in a World from before.";
-    assert!(!heard.lately(line));
+    // Said again now, the latest counts, and is noted once.
+    let line = "A line said lately.";
     let now = heard.now;
-    let state = applied(
-        world.state(),
-        vec![StateChange::SetComponent {
-            entity: NOTES,
-            key: heard_key(line),
-            value: (now as i64 - 3).into(),
-        }],
-    );
-    let before = Heard::of(&state, &cast());
-    assert!(before.lately(line));
-    assert_eq!(before.when(line), Some(now - 3));
-    // Said again now, the latest counts.
     let mut moves = Moves::default();
-    remember_saying(&mut moves, &before, line);
-    remember_saying(&mut moves, &before, line);
+    remember_saying(&mut moves, &heard, line);
+    remember_saying(&mut moves, &heard, line);
     assert_eq!(moves.changes.len(), 1);
-    let state = applied(&state, moves.changes);
+    let state = applied(world.state(), moves.changes);
     assert_eq!(Heard::of(&state, &cast()).when(line), Some(now));
+    assert!(Heard::of(&state, &cast()).lately(line));
     // Everything noted is forgotten in time.
     let registry = world_registry();
     for _ in 0..HEARD_PERIODS + 31 {
@@ -604,25 +573,6 @@ fn what_was_said_is_noted_a_period_at_a_time() {
     }
     let notes = world.state().entity(NOTES).unwrap();
     assert!(!notes.components.keys().any(|key| key.starts_with(SAID)));
-    // A World from before's notes of lines are forgotten in time too.
-    let stale = HEARD_PERIODS + 1;
-    let state = applied(
-        world.state(),
-        vec![StateChange::SetComponent {
-            entity: NOTES,
-            key: format!("{SAID_BEFORE}{}", period(world.state(), &cast()) - stale),
-            value: "AAAAAAA".into(),
-        }],
-    );
-    let mut world = World::from_history(state, &[]).unwrap();
-    world
-        .execute(&registry, &ActionRequest::new("lives_forget"))
-        .unwrap();
-    let notes = world.state().entity(NOTES).unwrap();
-    assert!(!notes
-        .components
-        .keys()
-        .any(|key| key.starts_with(SAID_BEFORE)));
 }
 
 /// A trouble's rest that has run out is let go of when lines are forgotten,
@@ -708,31 +658,9 @@ fn heard_is_what_reading_every_note_finds() {
             }
         }
     }
-    // A World from before's longer codes are read beside the new ones.
     let now = period(world.state(), &cast());
-    let older = lines
-        .iter()
-        .take(5)
-        .map(|line| {
-            std::str::from_utf8(&hash_code::<SAID_BEFORE_CODE>(
-                short_hash::<SAID_BEFORE_CODE>(line_hash(line)),
-            ))
-            .unwrap()
-            .to_string()
-        })
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<String>();
-    let with_older = applied(
-        world.state(),
-        vec![StateChange::SetComponent {
-            entity: NOTES,
-            key: format!("{SAID_BEFORE}{}", now - 100),
-            value: older.into(),
-        }],
-    );
-    for state in [world.state(), &with_older] {
-        let heard = Heard::of(state, &cast());
+    {
+        let heard = Heard::of(world.state(), &cast());
         assert!(heard.said.iter().any(|(at, _)| now - at >= HEARD_PERIODS));
         let (mut found, mut recent) = (0, 0);
         for line in &lines {
@@ -1446,40 +1374,28 @@ fn the_same_story_is_told_of_someone_at_most_five_times_a_year() {
 }
 
 /// The year's counts are kept in one short note with what someone last
-/// did ("odd_job|0|01"), a character a kind of day in the Pack's order;
-/// v0.30.0's notes, one a kind, are read for their year and let go of.
+/// did ("odd_job|0|01"), a character a kind of day in the Pack's order.
 #[test]
 fn a_years_days_are_kept_in_one_note_with_what_was_last_done() {
     let cast = cast();
     let mut state = WorldState::default();
     state
-        .seed_entity(
-            Entity::new(EntityId::new(7), "person")
-                .with_component("lives.did", "shift")
-                .with_component("lives.told_year.odd_job", "2:3")
-                .with_component("lives.told_year.nap", "1:9"),
-        )
+        .seed_entity(Entity::new(EntityId::new(7), "person").with_component("lives.did", "shift"))
         .unwrap();
     let person = EntityId::new(7);
-    // From before: this year's count goes on, a past year's is not counted,
-    // and every note a kind is let go of.
-    let lived = crate::retold::Days::of(&state, &cast, person, 2).lived(&cast, "odd_job");
-    assert_eq!(lived.nth, 4);
-    assert_eq!(lived.note, "odd_job|2|04");
-    assert_eq!(lived.let_go.len(), cast.activities.len());
-    assert!(lived
-        .let_go
-        .contains(&"lives.told_year.odd_job".to_string()));
+    // Nothing counted yet this year: the first.
+    let lived = crate::retold::Days::of(&state, person, 2).lived(&cast, "odd_job");
+    assert_eq!(lived.nth, 1);
+    assert_eq!(lived.note, "odd_job|2|01");
     // Kept as the note: read back, and counted on.
     let kept = Entity::new(EntityId::new(8), "person").with_component("lives.did", lived.note);
     state.seed_entity(kept).unwrap();
     let person = EntityId::new(8);
     assert_eq!(crate::retold::last_did(&state, person), "odd_job");
-    let nap = crate::retold::Days::of(&state, &cast, person, 2).lived(&cast, "nap");
-    assert_eq!((nap.nth, nap.note.as_str()), (1, "nap|2|041"));
-    assert!(nap.let_go.is_empty());
+    let nap = crate::retold::Days::of(&state, person, 2).lived(&cast, "nap");
+    assert_eq!((nap.nth, nap.note.as_str()), (1, "nap|2|011"));
     // A new year starts the count again.
-    let next = crate::retold::Days::of(&state, &cast, person, 3).lived(&cast, "shift");
+    let next = crate::retold::Days::of(&state, person, 3).lived(&cast, "shift");
     assert_eq!((next.nth, next.note.as_str()), (1, "shift|3|1"));
 }
 

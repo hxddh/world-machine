@@ -1,4 +1,4 @@
-//! A `wm2:` World code, which carries a checkpoint and only the season
+//! A `wm3:` World code, which carries a checkpoint and only the season
 //! since, opens through Tiny Society running as a process Pack, as the
 //! desktop app runs it. A Pack from before checkpoints is refused it with a
 //! plain reason, and still opens a whole history.
@@ -104,7 +104,7 @@ fn played() -> WorldDocument {
 fn a_code_with_a_checkpoint_opens_through_a_process_pack() {
     let document = played();
     let code = encode_world_code(&document).unwrap();
-    assert!(code.starts_with("wm2:"));
+    assert!(code.starts_with("wm3:"));
     let carried = decode_world_code(&code).unwrap().archive;
     let checkpoint = carried.checkpoint.clone().expect("a checkpoint");
     assert!(checkpoint.events > 0, "the code sums up the seasons before");

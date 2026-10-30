@@ -13,8 +13,8 @@ it or add to it. If a label looks wrong, note it separately and leave the file.
   available in that session, so the same agent later worked on the code; the
   set was hashed (below) before that work began and was never measured until
   the end.
-- Read beforehand, for the schema and cast only: `docs/REVIEW_v0.28.md`,
-  `docs/REVIEW_v0.27.md`, `docs/KNOWN_ISSUES.md`, the first line of
+- Read beforehand, for the schema and cast only: `docs/archive/REVIEW_v0.28.md`,
+  `docs/archive/REVIEW_v0.27.md`, `docs/KNOWN_ISSUES.md`, the first line of
   `devset6/*.jsonl` and `redteam5/*.jsonl` (field names), `redteam5/WRITER-en.md`
   (the cast and places), the residents' names in `worlds/*/locales/*.tsv`, and
   the top of `worlds/pocket-universe/src/{places,eras}.rs`.

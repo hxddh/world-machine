@@ -23,8 +23,8 @@
 #   scripts/release-shots.sh [out-dir] [scenario...]
 #
 # Scenarios (all of them when none is named). A World moves one of its
-# days a sitting (three on its first), on the observer's ledger beside the
-# library; each scenario starts on a library of its own, so a harbour the
+# days a sitting (three on its first), on the sitting ledger its file
+# carries; each scenario starts on a library of its own, so a harbour the
 # harness wrote opens on its first sitting, with its morning card:
 #   first     a new World from an empty library: the first ten seconds,
 #             second by second, the welcome (no morning on the harbour's
@@ -85,7 +85,7 @@ if [ -z "${SKIP_BUILD:-}" ]; then
             --features world-machine-desktop/linux-window \
             -p pocket-universe-pack -p tiny-society-pack
         cargo build --locked --release -j "${JOBS:-4}" -p tiny-society --example harness_world
-        cargo build --locked --release -j "${JOBS:-4}" -p world-observer --example pretend_away
+        cargo build --locked --release -j "${JOBS:-4}" -p world-library --example pretend_away
         cargo build --locked --release -j "${JOBS:-4}" -p pocket-universe --example harness_place
     ) || { echo "release-shots: the release build failed" >&2; exit 1; }
 fi

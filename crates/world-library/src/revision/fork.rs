@@ -18,8 +18,6 @@ impl DurableWorldSession {
         label: Option<String>,
         library: &WorldLibrary,
     ) -> Result<WorldDocumentSummary, LibraryError> {
-        // A copy written by this app would lose what a newer one wrote.
-        self.refuse_if_newer()?;
         // The parent as its file holds it: every change written first.
         self.flush()?;
         self.file.verify(library)?;

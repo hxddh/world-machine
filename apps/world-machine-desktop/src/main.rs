@@ -84,7 +84,7 @@ use world_gpui::ui;
 #[cfg(gui)]
 use world_library::{
     DurableWorldSession, LibraryError, UnreadableWorldFile, WorldDocumentId, WorldDocumentSummary,
-    WorldLibrary, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
+    WorldLibrary, WORLD_DOCUMENT_SUFFIX,
 };
 #[cfg(gui)]
 use world_machine_desktop::ambience;
@@ -131,7 +131,7 @@ struct SharedDocumentState {
 #[cfg(gui)]
 #[derive(Clone)]
 enum SittingKept {
-    /// In the observer's ledger, written down day by day.
+    /// In the ledger the World's file carries, written down day by day.
     Ledger(observer::Ledger),
     /// Nowhere: the ledger could not be read. One day, all the same, never
     /// days without end.
@@ -377,8 +377,10 @@ struct WorldDocumentView {
 #[cfg(gui)]
 fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionView {
     // The sitting's days, as its ledger has them now (v0.30 S4): every
-    // window onto the World, its strip's too, shares them.
-    let sitting = controller.document.borrow().sitting.clone();
+    // window onto the World, its strip's too, shares them. The ledger is
+    // the World file's, written through the World's own session.
+    let document = Rc::clone(&controller.document);
+    let sitting = document.borrow().sitting.clone();
     let view = world_gpui::ProjectionView::controlled(controller)
         .without_header()
         .with_strip(|window, cx| window.dispatch_action(Box::new(about::ShowAsStrip), cx));
@@ -388,17 +390,35 @@ fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionVie
         None => view,
         Some(SittingKept::Unreadable) => view.with_allowance(one_day, || {}),
         Some(SittingKept::Ledger(ledger)) => {
-            let allowance = ledger
-                .sitting()
-                .map(|now| world_gpui::Allowance {
-                    left: now.left,
-                    of: now.allowance,
-                })
-                .unwrap_or(one_day);
+            let (allowance, read) = {
+                let state = document.borrow();
+                let now = ledger.sitting(&state.session);
+                (
+                    world_gpui::Allowance {
+                        left: now.left,
+                        of: now.allowance,
+                    },
+                    ledger.morning_read(&state.session),
+                )
+            };
             let reads = ledger.clone();
-            let read = ledger.morning_read();
-            view.with_morning_read(read.as_deref(), move |moment| reads.read_morning(moment))
-                .with_allowance(allowance, move || ledger.spend_day())
+            let reading = Rc::clone(&document);
+            view.with_morning_read(read.as_deref(), move |moment| {
+                match reading.try_borrow_mut() {
+                    Ok(mut state) => {
+                        let state = &mut *state;
+                        reads.read_morning(&mut state.session, &state.library, moment);
+                    }
+                    Err(_) => diagnostics::error("could not write the morning down: busy"),
+                }
+            })
+            .with_allowance(allowance, move || match document.try_borrow_mut() {
+                Ok(mut state) => {
+                    let state = &mut *state;
+                    ledger.spend_day(&mut state.session, &state.library);
+                }
+                Err(_) => diagnostics::error("could not write the sitting down: busy"),
+            })
         }
     }
 }
@@ -595,7 +615,7 @@ impl WorldDocumentView {
     /// A window onto a World that is already open elsewhere, such as in a
     /// strip along the edge of the screen.
     fn with_document(document: SharedDocument, cx: &mut Context<Self>) -> Self {
-        let (document_label, document_name, next_move_at, read_only) = {
+        let (document_label, document_name, next_move_at) = {
             let state = document.borrow();
             (
                 state.session.display_name(),
@@ -607,8 +627,6 @@ impl WorldDocumentView {
                     .and_then(|_| observer::next_sitting_in())
                     .zip(unix_now())
                     .map(|(remaining, now)| now + remaining),
-                // A World a newer World Machine saved is only looked at.
-                state.session.read_only_reason(),
             )
         };
         let demo_cue: DemoCue = Rc::new(std::cell::Cell::new(None));
@@ -630,7 +648,7 @@ impl WorldDocumentView {
             document_name,
             document,
             projection,
-            status: read_only.map(DocumentStatus::error),
+            status: None,
             next_move_at,
             share_open: false,
             demo_cue,
@@ -695,29 +713,6 @@ impl WorldDocumentView {
 
     /// Re-read what this World is called from the session, after anything
     /// that can change its file or its target.
-    /// The sitting written down under the World's identity now (after Save
-    /// As), so its days are charged to the World it now is, and opening that
-    /// World again the same day goes on with this sitting. The World it was
-    /// saved from keeps its own ledger.
-    fn carry_sitting(&mut self) {
-        let carried = {
-            let document = self.document.borrow();
-            match &document.sitting {
-                Some(SittingKept::Ledger(ledger)) => Some(ledger.carried_to(&document.session)),
-                _ => None,
-            }
-        };
-        match carried {
-            Some(Ok(ledger)) => {
-                self.document.borrow_mut().sitting = Some(SittingKept::Ledger(ledger));
-            }
-            Some(Err(error)) => {
-                diagnostics::error(format!("could not carry the sitting over: {error}"));
-            }
-            None => {}
-        }
-    }
-
     fn refresh_document_identity(&mut self) {
         let (label, name) = {
             let document = self.document.borrow();
@@ -794,8 +789,7 @@ impl WorldDocumentView {
                 match result {
                     Ok(snapshot) => {
                         this.refresh_document_identity();
-                        // The sitting goes with the World to its new file.
-                        this.carry_sitting();
+                        // The sitting went with the World to its new file.
                         this.rebuild_projection(cx);
                         this.status = Some(DocumentStatus::success(format!(
                             "Saved As {} · {}",
@@ -1220,6 +1214,19 @@ enum HomeStatusTone {
 struct HomeStatus {
     message: String,
     tone: HomeStatusTone,
+    /// A World whose file failed to load, which can be put back to its last
+    /// good save: the status then offers it (see `restore`).
+    restore: Option<RestoreTarget>,
+}
+
+/// A World to put back to its last good save, and open again.
+#[cfg(gui)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RestoreTarget {
+    path: PathBuf,
+    title: String,
+    /// The Library World it is, if it is one; else a file opened by path.
+    document: Option<WorldDocumentId>,
 }
 
 #[cfg(gui)]
@@ -1228,6 +1235,7 @@ impl HomeStatus {
         Self {
             message: message.into(),
             tone: HomeStatusTone::Info,
+            restore: None,
         }
     }
 
@@ -1235,6 +1243,7 @@ impl HomeStatus {
         Self {
             message: message.into(),
             tone: HomeStatusTone::Success,
+            restore: None,
         }
     }
 
@@ -1244,6 +1253,26 @@ impl HomeStatus {
         Self {
             message,
             tone: HomeStatusTone::Error,
+            restore: None,
+        }
+    }
+
+    /// A World that failed to open with `error`: said so, with the offer to
+    /// put it back to its last good save when it has one. A World the 1.0
+    /// save contract refuses is told in the contract's own sentence, whole,
+    /// so it reads in the player's language.
+    fn open_failed(
+        message: impl Into<String>,
+        error: &LibraryError,
+        target: RestoreTarget,
+    ) -> Self {
+        if error.save_age() != world_library::FormatAge::Current {
+            return Self::error(error.to_string());
+        }
+        let offered = world_machine_desktop::restore::offers_restore(error, &target.path);
+        Self {
+            restore: offered.then_some(target),
+            ..Self::error(message)
         }
     }
 }
@@ -2125,7 +2154,25 @@ impl WorldMachineHome {
             .find(|document| document.id == document_id);
         if let Some(document) = summary {
             if self.registry.descriptor_for(&document.pack).is_none() {
-                self.status = Some(HomeStatus::error(self.missing_pack_message(&document.pack)));
+                // The 1.0 save contract: a World a newer Pack saved is
+                // refused as a newer World Machine's, not as a Pack to find.
+                let refused = self
+                    .registry
+                    .descriptor(&document.pack.id)
+                    .and_then(|active| {
+                        match world_library::pack_version_age(
+                            &active.pack.version,
+                            &document.pack.version,
+                        ) {
+                            world_library::FormatAge::Newer => Some(LibraryError::NewerSave),
+                            world_library::FormatAge::Preview => Some(LibraryError::PreviewSave),
+                            world_library::FormatAge::Current => None,
+                        }
+                    });
+                self.status = Some(HomeStatus::error(match refused {
+                    Some(refused) => refused.to_string(),
+                    None => self.missing_pack_message(&document.pack),
+                }));
                 cx.notify();
                 return;
             }
@@ -2134,16 +2181,24 @@ impl WorldMachineHome {
             .and_then(|document| self.registry.descriptor_for(&document.pack))
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document_id.to_string());
-        let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
-            Ok(session) => session,
-            Err(error) => {
-                self.status = Some(HomeStatus::error(format!(
-                    "Could not open {title}: {error}"
-                )));
-                cx.notify();
-                return;
-            }
-        };
+        let session =
+            match DurableWorldSession::open(document_id.clone(), &self.registry, &self.library) {
+                Ok(session) => session,
+                Err(error) => {
+                    let target = RestoreTarget {
+                        path: self.library.path(&document_id),
+                        title: title.clone(),
+                        document: Some(document_id),
+                    };
+                    self.status = Some(HomeStatus::open_failed(
+                        format!("Could not open {title}: {error}"),
+                        &error,
+                        target,
+                    ));
+                    cx.notify();
+                    return;
+                }
+            };
         self.open_session(session, title, cx);
     }
 
@@ -2179,10 +2234,16 @@ impl WorldMachineHome {
         let session = match DurableWorldSession::open_file(source.clone(), &self.registry) {
             Ok(session) => session,
             Err(error) => {
-                self.status = Some(HomeStatus::error(format!(
-                    "Could not open {}: {error}",
-                    source.display()
-                )));
+                let target = RestoreTarget {
+                    path: source.clone(),
+                    title: source.display().to_string(),
+                    document: None,
+                };
+                self.status = Some(HomeStatus::open_failed(
+                    format!("Could not open {}: {error}", source.display()),
+                    &error,
+                    target,
+                ));
                 cx.notify();
                 return;
             }
@@ -2194,6 +2255,37 @@ impl WorldMachineHome {
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
         self.open_session(session, title, cx);
+    }
+
+    /// Puts a World that failed to load back to its last good save, and
+    /// opens it.
+    fn restore_last_good(&mut self, target: RestoreTarget, cx: &mut Context<Self>) {
+        match world_machine_desktop::restore::restore_last_good(&target.path) {
+            Ok(_) => {
+                if let Some(status) = self.sync_documents_after_mutation() {
+                    self.status = Some(status);
+                    cx.notify();
+                    return;
+                }
+                match target.document {
+                    Some(id) => self.open_document(id, cx),
+                    None => self.open_external_path(target.path.clone(), cx),
+                }
+                // Opened, it says so; a World that still fails says why.
+                if self.status.is_none() {
+                    self.status = Some(HomeStatus::success(
+                        world_machine_desktop::restore::restored_message(&target.title),
+                    ));
+                }
+            }
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not restore {}: {error}",
+                    target.title
+                )));
+            }
+        }
+        cx.notify();
     }
 
     fn import_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
@@ -2233,10 +2325,7 @@ impl WorldMachineHome {
                 return;
             }
         };
-        // A file sat with before keeps its sittings in the Library.
-        if let Err(error) = observer::carry_from_file(&source, &session, &self.library) {
-            diagnostics::error(format!("could not carry the sittings over: {error}"));
-        }
+        // A file sat with before keeps its sittings: they are in the file.
         let pack = session.pack();
         let title = self
             .registry
@@ -2376,6 +2465,67 @@ impl WorldMachineHome {
     /// Find a World, and choose whether the list reads most-recent-first or
     /// A to Z. Shown only once there are enough Worlds for the list to be hard
     /// to scan.
+    /// What Home says about the files in the Worlds folder that cannot be
+    /// listed: the damaged ones by name, each that has a good backup with
+    /// the offer to restore it, and each the save contract refused with its
+    /// own reason. None when every file is listed.
+    fn unreadable_documents_notice(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let damaged = unreadable_documents_note(&self.unreadable_documents);
+        let (refused, more_refused) = refused_documents(&self.unreadable_documents);
+        if damaged.is_none() && refused.is_empty() {
+            return None;
+        }
+        let mut notice = div()
+            .w_full()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(ui::color(tokens::DANGER))
+            .bg(ui::color(tokens::DANGER_SOFT))
+            .text_xs()
+            .text_color(ui::color(tokens::DANGER))
+            .flex()
+            .flex_col()
+            .gap_2();
+        if let Some(note) = damaged {
+            notice = notice.child(note);
+            for target in restorable_documents(&self.library, &self.unreadable_documents) {
+                let id = SharedString::from(format!("restore-unreadable-{}", target.title));
+                notice = notice.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(target.title.clone())
+                        .child(
+                            ui::button(
+                                id,
+                                world_machine_desktop::restore::RESTORE_LABEL,
+                                ui::ButtonKind::Primary,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.restore_last_good(target.clone(), cx);
+                                },
+                            )),
+                        ),
+                );
+            }
+        }
+        for file in refused {
+            notice = notice.child(format!(
+                "{}: {}",
+                file.file_name,
+                ui::t(file.reason.clone())
+            ));
+        }
+        if more_refused > 0 {
+            notice = notice.child(format!("…and {more_refused} more that cannot be opened."));
+        }
+        Some(notice)
+    }
+
     fn world_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut order = div().flex_shrink_0().flex().items_center().gap_2().child(
             div()
@@ -2789,7 +2939,7 @@ impl WorldMachineHome {
         // they were away.
         let waiting = document
             .display_moves_alone
-            .then(|| observer::new_day_waiting(&document.id, &self.library))
+            .then(|| observer::new_day_waiting(&document))
             .flatten()
             .filter(|waiting| *waiting);
         let unit = document
@@ -3708,6 +3858,9 @@ impl Render for WorldMachineHome {
                 .child(self.featured_included_pack_card(featured, cx));
         }
 
+        // Shown whether or not any World can be listed: a folder of only
+        // refused or damaged files must still say what happened to them.
+        let mut unreadable_notice = self.unreadable_documents_notice(cx);
         if has_documents || self.included_packs.is_empty() {
             body = body.child(home_section_title(my_worlds_title(
                 visible_document_count,
@@ -3716,24 +3869,18 @@ impl Render for WorldMachineHome {
             if show_world_controls {
                 body = body.child(self.world_controls(cx));
             }
-            if let Some(note) = unreadable_documents_note(&self.unreadable_documents) {
-                body = body.child(
-                    div()
-                        .w_full()
-                        .p_3()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(ui::color(tokens::DANGER))
-                        .bg(ui::color(tokens::DANGER_SOFT))
-                        .text_xs()
-                        .text_color(ui::color(tokens::DANGER))
-                        .child(note),
-                );
+            if let Some(notice) = unreadable_notice.take() {
+                body = body.child(notice);
             }
             if show_world_controls && pack_filters.len() > 1 {
                 body = body.child(world_filters);
             }
             body = body.child(saved);
+        }
+        if let Some(notice) = unreadable_notice {
+            body = body
+                .child(home_section_title(my_worlds_title(0, 0)))
+                .child(notice);
         }
 
         if !visible_included_packs.is_empty() {
@@ -3830,8 +3977,23 @@ impl Render for WorldMachineHome {
                                     .min_w(px(0.0))
                                     .text_sm()
                                     .text_color(ui::color(tone))
-                                    .child(status.message.clone()),
+                                    .child(ui::t(status.message.clone())),
                             )
+                            .when_some(status.restore.clone(), |row, target| {
+                                row.child(
+                                    ui::button(
+                                        "restore-world-machine-home-status",
+                                        world_machine_desktop::restore::RESTORE_LABEL,
+                                        ui::ButtonKind::Primary,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.status = None;
+                                            this.restore_last_good(target.clone(), cx);
+                                        },
+                                    )),
+                                )
+                            })
                             .child(
                                 ui::button(
                                     "dismiss-world-machine-home-status",
@@ -3949,10 +4111,59 @@ fn removal_result_message(title: &str) -> String {
 #[cfg(gui)]
 const UNREADABLE_DOCUMENT_NAME_LIMIT: usize = 3;
 
+/// The files the 1.0 save contract refused (a preview's, or a newer World
+/// Machine's), each said with its own reason, up to the limit; and how many
+/// more there are.
+#[cfg(gui)]
+fn refused_documents(unreadable: &[UnreadableWorldFile]) -> (Vec<&UnreadableWorldFile>, usize) {
+    let refused = unreadable
+        .iter()
+        .filter(|file| file.age != world_library::FormatAge::Current)
+        .collect::<Vec<_>>();
+    let hidden = refused.len().saturating_sub(UNREADABLE_DOCUMENT_NAME_LIMIT);
+    (
+        refused
+            .into_iter()
+            .take(UNREADABLE_DOCUMENT_NAME_LIMIT)
+            .collect(),
+        hidden,
+    )
+}
+
+/// The damaged files that can be put back to their last good save, up to
+/// the limit, each as a World to restore.
+#[cfg(gui)]
+fn restorable_documents(
+    library: &WorldLibrary,
+    unreadable: &[UnreadableWorldFile],
+) -> Vec<RestoreTarget> {
+    unreadable
+        .iter()
+        .filter(|file| file.restorable)
+        .take(UNREADABLE_DOCUMENT_NAME_LIMIT)
+        .map(|file| {
+            let stem = file
+                .file_name
+                .strip_suffix(WORLD_DOCUMENT_SUFFIX)
+                .unwrap_or(&file.file_name);
+            RestoreTarget {
+                path: library.root().join(&file.file_name),
+                title: stem.to_owned(),
+                document: WorldDocumentId::new(stem).ok(),
+            }
+        })
+        .collect()
+}
+
 /// Name the files that could not be read, without letting a folder full of
-/// them push every World off the screen.
+/// them push every World off the screen. Files the save contract refused are
+/// not among them: they are said with their reasons (`refused_documents`).
 #[cfg(gui)]
 fn unreadable_documents_note(unreadable: &[UnreadableWorldFile]) -> Option<String> {
+    let unreadable = unreadable
+        .iter()
+        .filter(|file| file.age == world_library::FormatAge::Current)
+        .collect::<Vec<_>>();
     if unreadable.is_empty() {
         return None;
     }
@@ -4207,6 +4418,7 @@ mod file_type_tests {
             display_moves_alone: false,
             display_cast: Vec::new(),
             display_drawings: Vec::new(),
+            host_sittings: None,
             world_time: 0,
             event_count: 0,
         };
@@ -4279,6 +4491,7 @@ mod file_type_tests {
             display_moves_alone: false,
             display_cast: Vec::new(),
             display_drawings: Vec::new(),
+            host_sittings: None,
             world_time: 0,
             event_count: 0,
         };
@@ -4331,6 +4544,7 @@ mod file_type_tests {
             display_moves_alone: false,
             display_cast: Vec::new(),
             display_drawings: Vec::new(),
+            host_sittings: None,
             world_time: 3,
             event_count: 7,
         };
@@ -4402,6 +4616,7 @@ mod file_type_tests {
                     display_moves_alone: false,
                     display_cast: Vec::new(),
                     display_drawings: Vec::new(),
+                    host_sittings: None,
                     world_time: 0,
                     event_count: 0,
                 },
@@ -4475,6 +4690,8 @@ mod file_type_tests {
         let file = |name: &str| UnreadableWorldFile {
             file_name: name.into(),
             reason: "unexpected end of input".into(),
+            age: world_library::FormatAge::Current,
+            restorable: false,
         };
 
         assert_eq!(unreadable_documents_note(&[]), None);
@@ -4504,6 +4721,45 @@ mod file_type_tests {
     }
 
     #[test]
+    fn refused_files_are_said_with_their_reasons_not_as_damaged() {
+        let file = |name: &str, age| UnreadableWorldFile {
+            file_name: name.into(),
+            reason: "This World is from a preview version and can't be opened.".into(),
+            age,
+            restorable: false,
+        };
+        let preview = world_library::FormatAge::Preview;
+        let current = world_library::FormatAge::Current;
+
+        let only_refused = [file("old.world", preview)];
+        assert_eq!(unreadable_documents_note(&only_refused), None);
+        let (refused, hidden) = refused_documents(&only_refused);
+        assert_eq!(refused, vec![&only_refused[0]]);
+        assert_eq!(hidden, 0);
+
+        let mixed = [
+            file("a.world", preview),
+            file("b.world", current),
+            file("c.world", preview),
+            file("d.world", preview),
+            file("e.world", preview),
+        ];
+        assert_eq!(
+            unreadable_documents_note(&mixed).as_deref(),
+            Some("One file in your Worlds folder could not be read and is not listed: b.world.")
+        );
+        let (refused, hidden) = refused_documents(&mixed);
+        assert_eq!(
+            refused
+                .iter()
+                .map(|file| file.file_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a.world", "c.world", "d.world"]
+        );
+        assert_eq!(hidden, 1);
+    }
+
+    #[test]
     fn suggested_world_file_name_prefers_semantic_unicode_title() {
         assert_eq!(
             suggested_world_file_name("  Maple Street · 1987  ", "pocket-universe-42"),
@@ -4521,10 +4777,7 @@ mod file_type_tests {
             suggested_world_file_name("   ", "pocket-universe-42"),
             "pocket-universe-42.world"
         );
-        assert_eq!(
-            suggested_world_file_name("", "legacy.world.json"),
-            "legacy.world"
-        );
+        assert_eq!(suggested_world_file_name("", "kept.world"), "kept.world");
     }
 
     #[test]

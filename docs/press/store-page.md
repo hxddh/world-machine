@@ -1,6 +1,6 @@
 # Store page draft
 
-A draft for Steam, itch.io and a direct-download page. Every claim here is checked against the code or a test at `v0.26`; the facts sheet in [README.md](README.md) says where. Price, date and store are still the owner's decisions (docs/REVIEW_v0.23.md, "Decisions only you can make").
+A draft for Steam, itch.io and a direct-download page. Every claim here is checked against the code or a test at `v0.26`; the facts sheet in [README.md](README.md) says where. Price, date and store are still the owner's decisions (docs/archive/REVIEW_v0.23.md, "Decisions only you can make").
 
 - Steam's short description is limited to 300 characters; each short description below fits.
 - The Japanese text is a draft for **agent L** to review; see "Requests and notes" in the v0.26 contract.

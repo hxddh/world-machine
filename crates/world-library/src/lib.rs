@@ -20,11 +20,12 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_document::{
-    DocumentError, DocumentSummary, FileWriter, WorldDocument, WorldDocumentMetadata,
+    DocumentError, DocumentSittings, DocumentSummary, WorldDocument, WorldDocumentMetadata,
 };
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{
     ArchivedCheckpoint, CompactHistory, PersistenceError, WorldArchive, WorldPackRef,
+    NEWER_SAVE_MESSAGE, PREVIEW_SAVE_MESSAGE,
 };
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
@@ -36,10 +37,10 @@ pub use world_code::{
 };
 
 pub use lock::lock_path;
+pub use world_persistence::FormatAge;
 pub use writer::{files_written, flush_all as flush_all_writes};
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
-pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
 /// Removed Worlds are kept in this folder inside the Worlds folder rather
 /// than deleted, so a removal stays reversible in the Finder.
 pub const REMOVED_DIRECTORY: &str = "Removed";
@@ -74,10 +75,6 @@ impl WorldDocumentId {
     fn file_name(&self) -> String {
         format!("{}{WORLD_DOCUMENT_SUFFIX}", self.0)
     }
-
-    fn legacy_file_name(&self) -> String {
-        format!("{}{LEGACY_WORLD_DOCUMENT_SUFFIX}", self.0)
-    }
 }
 
 impl fmt::Display for WorldDocumentId {
@@ -104,6 +101,8 @@ pub struct WorldDocumentSummary {
     pub display_cast: Vec<world_projection::CanvasItem>,
     /// The Pack's own drawings its cast is drawn with.
     pub display_drawings: Vec<world_projection::Drawing>,
+    /// The World's sitting ledger, as its file carries it (host metadata).
+    pub host_sittings: Option<DocumentSittings>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -115,6 +114,13 @@ pub struct WorldDocumentSummary {
 pub struct UnreadableWorldFile {
     pub file_name: String,
     pub reason: String,
+    /// Whether the 1.0 save contract refused it (a preview's or a newer
+    /// World Machine's), rather than it being damaged: `reason` is then the
+    /// contract's sentence for the player.
+    pub age: FormatAge,
+    /// A damaged World with a backup that reads as a World file, which can
+    /// be put back to its last good save (`restore_backup`).
+    pub restorable: bool,
 }
 
 /// Everything the Worlds folder holds: the Worlds that can be opened, and the
@@ -143,12 +149,8 @@ impl WorldLibrary {
         self.root.join(id.file_name())
     }
 
-    fn legacy_path(&self, id: &WorldDocumentId) -> PathBuf {
-        self.root.join(id.legacy_file_name())
-    }
-
     pub fn contains(&self, id: &WorldDocumentId) -> Result<bool, LibraryError> {
-        Ok(self.path(id).try_exists()? || self.legacy_path(id).try_exists()?)
+        Ok(self.path(id).try_exists()?)
     }
 
     /// Save an archive while preserving document metadata that is already
@@ -182,10 +184,8 @@ impl WorldLibrary {
         id: &WorldDocumentId,
         document: &WorldDocument,
     ) -> Result<DocumentRevision, LibraryError> {
-        refuse_newer_file_at(&self.path(id))?;
-        let revision = write_document_file(&self.path(id), document)?;
-        let _ = fs::remove_file(self.legacy_path(id));
-        Ok(revision)
+        refuse_unopenable_file_at(&self.path(id))?;
+        write_document_file(&self.path(id), document)
     }
 
     pub fn load(&self, id: &WorldDocumentId) -> Result<Option<WorldArchive>, LibraryError> {
@@ -211,64 +211,45 @@ impl WorldLibrary {
     }
 
     /// What a list of Worlds shows of one, read from the summary its file
-    /// begins with, or from the whole file when it has none.
+    /// begins with. A file the 1.0 save contract refuses (a preview's, or
+    /// a newer World Machine's) is an error, which the list shows as the
+    /// reason it cannot be opened.
     fn load_summary(&self, id: &WorldDocumentId) -> Result<Option<DocumentSummary>, LibraryError> {
-        for path in [self.path(id), self.legacy_path(id)] {
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(LibraryError::Io(error)),
-            };
-            if let Some(summary) = WorldDocument::summary_from_bytes(&bytes)? {
-                return Ok(Some(summary));
-            }
-            let document = WorldDocument::from_bytes(&bytes)?;
-            return Ok(Some(DocumentSummary {
-                pack: document.archive.pack,
-                world_time: document.archive.world_time,
-                event_count: document.archive.events.len(),
-                metadata: document.metadata,
-                writer: FileWriter::default(),
-            }));
-        }
-        Ok(None)
+        let bytes = match fs::read(self.path(id)) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(LibraryError::Io(error)),
+        };
+        let summary = WorldDocument::summary_from_bytes(&bytes)?
+            .ok_or_else(|| LibraryError::from(DocumentError::PreviewFile))?;
+        summary.writer.check()?;
+        Ok(Some(summary))
     }
 
     fn load_file(&self, id: &WorldDocumentId) -> Result<Option<ReadFile>, LibraryError> {
-        for path in [self.path(id), self.legacy_path(id)] {
-            match read_file(&path) {
-                Ok(file) => return Ok(Some(file)),
-                Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
-            }
+        match read_file(&self.path(id)) {
+            Ok(file) => Ok(Some(file)),
+            Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
         }
-        Ok(None)
     }
 
     fn current_revision(
         &self,
         id: &WorldDocumentId,
     ) -> Result<Option<DocumentRevision>, LibraryError> {
-        for path in [self.path(id), self.legacy_path(id)] {
-            if let Some(revision) = revision_if_exists(&path)? {
-                return Ok(Some(revision));
-            }
-        }
-        Ok(None)
+        revision_if_exists(&self.path(id))
     }
 
     fn document_modified_time(
         &self,
         id: &WorldDocumentId,
     ) -> Result<Option<SystemTime>, LibraryError> {
-        for path in [self.path(id), self.legacy_path(id)] {
-            match fs::metadata(path) {
-                Ok(metadata) => return Ok(metadata.modified().ok()),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(LibraryError::Io(error)),
-            }
+        match fs::metadata(self.path(id)) {
+            Ok(metadata) => Ok(metadata.modified().ok()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(LibraryError::Io(error)),
         }
-        Ok(None)
     }
 
     /// List Library Worlds with the most recently persisted document first.
@@ -304,11 +285,7 @@ impl WorldLibrary {
             let Some(file_name) = file_name.to_str() else {
                 continue;
             };
-            let raw_id = if let Some(raw_id) = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) {
-                raw_id
-            } else if let Some(raw_id) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-                raw_id
-            } else {
+            let Some(raw_id) = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) else {
                 continue;
             };
             match WorldDocumentId::new(raw_id) {
@@ -316,11 +293,12 @@ impl WorldLibrary {
                 Err(error) => unreadable.push(UnreadableWorldFile {
                     file_name: file_name.to_owned(),
                     reason: error.to_string(),
+                    age: FormatAge::Current,
+                    restorable: false,
                 }),
             }
         }
         ids.sort();
-        ids.dedup();
 
         let mut documents = Vec::new();
         for id in ids {
@@ -328,9 +306,12 @@ impl WorldLibrary {
                 Ok(Some(document)) => document,
                 Ok(None) => continue,
                 Err(error) => {
+                    let age = error.save_age();
                     unreadable.push(UnreadableWorldFile {
                         file_name: id.file_name(),
                         reason: error.to_string(),
+                        age,
+                        restorable: age == FormatAge::Current && has_good_backup(&self.path(&id)),
                     });
                     continue;
                 }
@@ -341,6 +322,8 @@ impl WorldLibrary {
                     unreadable.push(UnreadableWorldFile {
                         file_name: id.file_name(),
                         reason: error.to_string(),
+                        age: FormatAge::Current,
+                        restorable: false,
                     });
                     continue;
                 }
@@ -411,17 +394,13 @@ impl WorldLibrary {
     /// A World open anywhere is not removed ([`LibraryError::InUse`]).
     pub fn remove(&self, id: &WorldDocumentId) -> Result<PathBuf, LibraryError> {
         let _lock = Lock::take(&self.path(id))?;
-        let sources = [self.path(id), self.legacy_path(id)]
-            .into_iter()
-            .filter(|path| path.is_file())
-            .collect::<Vec<_>>();
-        if sources.is_empty() {
+        let path = self.path(id);
+        if !path.is_file() {
             return Err(LibraryError::UnknownDocument(id.clone()));
         }
         // Its backup goes with it, so it is not left behind on its own.
-        let backup = backup_path(&self.path(id));
-        let sources = sources
-            .into_iter()
+        let backup = backup_path(&path);
+        let sources = std::iter::once(path)
             .chain(backup.is_file().then_some(backup))
             .collect::<Vec<_>>();
 
@@ -441,6 +420,12 @@ impl WorldLibrary {
         moved.ok_or_else(|| LibraryError::UnknownDocument(id.clone()))
     }
 
+    /// Puts a Library World back to its last good save: see
+    /// [`restore_backup`].
+    pub fn restore_backup(&self, id: &WorldDocumentId) -> Result<Option<PathBuf>, LibraryError> {
+        restore_backup(&self.path(id))
+    }
+
     /// Where [`WorldLibrary::remove`] puts a removed World.
     pub fn removed_root(&self) -> PathBuf {
         self.root.join(REMOVED_DIRECTORY)
@@ -454,7 +439,7 @@ impl WorldLibrary {
         if self.contains(&id)? {
             return Err(LibraryError::DocumentAlreadyExists(id));
         }
-        let document = read_older_document_file(source)?;
+        let document = read_file(source)?.document;
         self.save_document(&id, &document)?;
         Ok(summary(id, &document))
     }
@@ -515,14 +500,14 @@ impl WorldDocumentTarget {
     fn load_with_revision(
         &self,
         library: &WorldLibrary,
-    ) -> Result<(WorldDocument, DocumentRevision, FileWriter), LibraryError> {
+    ) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
         let file = match self {
             Self::Library(id) => library
                 .load_file(id)?
                 .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?,
             Self::File(path) => read_file(path)?,
         };
-        Ok((file.document, file.revision, file.writer))
+        Ok((file.document, file.revision))
     }
 
     fn current_revision(
@@ -563,29 +548,22 @@ impl WorldDocumentTarget {
         self.persist_bytes(&document.to_bytes()?, library)
     }
 
-    /// Writes a World file's bytes to where the document lives, atomically.
-    /// Where the document's file is written, and an older name of it that
-    /// is read if the file is not there and removed once it is written.
-    fn paths(&self, library: &WorldLibrary) -> (PathBuf, Option<PathBuf>) {
+    /// Where the document's file is written.
+    fn path(&self, library: &WorldLibrary) -> PathBuf {
         match self {
-            Self::Library(id) => (library.path(id), Some(library.legacy_path(id))),
-            Self::File(path) => (path.clone(), None),
+            Self::Library(id) => library.path(id),
+            Self::File(path) => path.clone(),
         }
     }
 
+    /// Writes a World file's bytes to where the document lives, atomically.
     fn persist_bytes(
         &self,
         bytes: &[u8],
         library: &WorldLibrary,
     ) -> Result<DocumentRevision, LibraryError> {
         let revision = DocumentRevision::from_bytes(bytes);
-        match self {
-            Self::Library(id) => {
-                atomic_write(&library.path(id), bytes)?;
-                let _ = fs::remove_file(library.legacy_path(id));
-            }
-            Self::File(path) => atomic_write(path, bytes)?,
-        }
+        atomic_write(&self.path(library), bytes)?;
         Ok(revision)
     }
 }
@@ -628,12 +606,7 @@ impl DurableWorldSession {
         document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
-            file: WorldFile::new(
-                WorldDocumentTarget::Library(document_id),
-                revision,
-                FileWriter::current(),
-                lock,
-            ),
+            file: WorldFile::new(WorldDocumentTarget::Library(document_id), revision, lock),
             metadata: document.metadata,
             checkpoint: document.archive.checkpoint,
             session,
@@ -677,14 +650,13 @@ impl DurableWorldSession {
             revision,
             document: WorldDocument { archive, metadata },
             history,
-            writer,
         } = file;
         let checkpoint = archive.checkpoint.clone();
         let kept = history.and_then(|history| Saved::kept(&archive, history));
         let (session, lent) =
             registry.open_owned_archive_deflated(archive, WorldDocument::deflated_json(&bytes))?;
         Ok(Self {
-            file: WorldFile::kept(target, revision, writer, lock, kept),
+            file: WorldFile::kept(target, revision, lock, kept),
             metadata,
             checkpoint,
             session,
@@ -733,16 +705,11 @@ impl DurableWorldSession {
         if library.contains(&document_id)? {
             return Err(LibraryError::DocumentAlreadyExists(document_id));
         }
-        let mut document = read_older_document_file(source)?;
+        let mut document = read_file(source)?.document;
         let session = open_document(registry, &document)?;
         document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
-        let file = WorldFile::new(
-            WorldDocumentTarget::Library(document_id),
-            revision,
-            FileWriter::current(),
-            lock,
-        );
+        let file = WorldFile::new(WorldDocumentTarget::Library(document_id), revision, lock);
         Ok(Self::opened(file, document, session))
     }
 
@@ -816,25 +783,35 @@ impl DurableWorldSession {
         &self.metadata
     }
 
-    /// Who wrote the file this World was opened from.
-    pub fn writer(&self) -> &FileWriter {
-        self.file.writer()
+    /// The World's sitting ledger, as its file carries it.
+    pub fn sittings(&self) -> Option<&DocumentSittings> {
+        self.metadata.host_sittings.as_ref()
     }
 
-    /// Why this World is only looked at, if it is: its file was saved by a
-    /// newer World Machine, so nothing is saved over it. `None` for a World
-    /// that plays on as usual.
-    pub fn read_only_reason(&self) -> Option<String> {
-        let writer = self.file.writer();
-        writer.is_newer().then(|| writer.newer_message())
-    }
-
-    /// Refuses to change a World whose file a newer World Machine wrote.
-    pub(crate) fn refuse_if_newer(&self) -> Result<(), LibraryError> {
-        if self.file.writer().is_newer() {
-            return Err(LibraryError::NewerFile(self.file.writer().clone()));
+    /// Writes the World's sitting ledger into its file, as host metadata
+    /// beside its history (never an Event or State): written by this
+    /// World's own writer, in turn with its changes, as a rename is. A
+    /// ledger the same as the file's writes nothing.
+    pub fn set_sittings(
+        &mut self,
+        sittings: DocumentSittings,
+        library: &WorldLibrary,
+    ) -> Result<(), LibraryError> {
+        if self.metadata.host_sittings.as_ref() == Some(&sittings) {
+            return Ok(());
         }
-        Ok(())
+        self.ready_to_change(library)?;
+        let before = self.metadata.host_sittings.replace(sittings);
+        let written = match self.change(|session| Ok(session.snapshot()), false, library) {
+            Ok(Changed::Kept(_)) => Ok(()),
+            Ok(Changed::Unchanged) => unreachable!("a change is saved even when nothing happened"),
+            Ok(Changed::CannotGoBack) => self.write_metadata_whole(library),
+            Err(error) => Err(error),
+        };
+        if written.is_err() {
+            self.metadata.host_sittings = before;
+        }
+        written
     }
 
     /// Waits until the World's file holds every change made to it, trying
@@ -857,7 +834,6 @@ impl DurableWorldSession {
         title: Option<&str>,
         library: &WorldLibrary,
     ) -> Result<WorldDocumentSummary, LibraryError> {
-        self.refuse_if_newer()?;
         self.ready_to_change(library)?;
         // A name typed by a player: cleaned of control and bidirectional
         // characters, which could make it read as something else.
@@ -944,9 +920,9 @@ impl DurableWorldSession {
         // What was handed over is written if it can be; a write refused
         // because the file changed is let go of, as the World is read anew.
         let _ = self.file.flush();
-        let (document, revision, writer) = self.target().load_with_revision(library)?;
+        let (document, revision) = self.target().load_with_revision(library)?;
         let replacement = open_document(registry, &document)?;
-        self.file.read_again(revision, writer);
+        self.file.read_again(revision);
         let snapshot = replacement.snapshot();
 
         // The file's own line is kept; everything else Home draws from is
@@ -976,7 +952,6 @@ impl DurableWorldSession {
         // Still held if the World was never looked at: let go of here, as
         // freeing it beside the work below would slow that more.
         drop(self.opened_from.take());
-        self.refuse_if_newer()?;
         self.ready_to_change(library)?;
 
         let changed = self.change(|session| session.handle(intent.clone()), false, library)?;
@@ -1371,7 +1346,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             world_time: document.archive.world_time,
             event_count: document.archive.events.len(),
             metadata: document.metadata.clone(),
-            writer: FileWriter::current(),
+            writer: world_document::FileWriter::current(),
         },
     )
 }
@@ -1410,6 +1385,7 @@ fn summary_of(id: WorldDocumentId, document: &DocumentSummary) -> WorldDocumentS
         display_moves_alone: document.metadata.display_moves_alone,
         display_cast: cast_from_document(&document.metadata.display_cast),
         display_drawings: drawings_from_document(&document.metadata.display_drawings),
+        host_sittings: document.metadata.host_sittings.clone(),
         world_time: document.world_time,
         event_count: document.event_count,
     }
@@ -1428,49 +1404,90 @@ struct ReadFile {
     document: WorldDocument,
     /// Its history as the file writes it, when World Machine wrote it.
     history: Option<CompactHistory>,
-    /// Who wrote it, and in which schema.
-    writer: FileWriter,
 }
 
+/// Reads a World file under the 1.0 save contract: one a v0.x preview or
+/// a newer World Machine wrote is refused whole
+/// ([`LibraryError::PreviewSave`], [`LibraryError::NewerSave`]), before
+/// any World is opened from it.
 fn read_file(path: &Path) -> Result<ReadFile, LibraryError> {
     let bytes = fs::read(path)?;
     let revision = DocumentRevision::from_bytes(&bytes);
     let (document, history) = WorldDocument::from_bytes_kept(&bytes)?;
-    let writer = WorldDocument::writer_from_bytes(&bytes)?;
     Ok(ReadFile {
         bytes,
         revision,
         document,
         history,
-        writer,
     })
 }
 
-/// A World file's document, refused if a newer World Machine wrote it:
-/// for bringing a file in, which writes it anew as this app's own.
-fn read_older_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
-    let file = read_file(path)?;
-    if file.writer.is_newer() {
-        return Err(LibraryError::NewerFile(file.writer));
-    }
-    Ok(file.document)
-}
-
 /// Refuses to write over the World file at `path` when a newer World
-/// Machine wrote it. Nothing there, or a file this app can read whole,
-/// may be written.
-fn refuse_newer_file_at(path: &Path) -> Result<(), LibraryError> {
+/// Machine wrote it: what it holds may be what this one cannot read. A
+/// preview's file, or one that cannot be read at all, may be written over.
+fn refuse_unopenable_file_at(path: &Path) -> Result<(), LibraryError> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(LibraryError::Io(error)),
     };
-    // A file whose summary cannot be read is not known to be newer; its
-    // save goes on as it always did.
     match WorldDocument::writer_from_bytes(&bytes) {
-        Ok(writer) if writer.is_newer() => Err(LibraryError::NewerFile(writer)),
+        Ok(writer) if writer.age() == FormatAge::Newer => Err(LibraryError::NewerSave),
         _ => Ok(()),
     }
+}
+
+/// What a damaged World file's name gains when its last good backup is
+/// put back in its place: it is kept beside it, never deleted.
+pub const DAMAGED_SUFFIX: &str = ".damaged";
+
+/// Whether the World file at `path` has a backup that opens as a World
+/// file of this World Machine's: the last good save, to put back when the
+/// file itself will not open ([`restore_backup`]).
+pub fn has_good_backup(path: &Path) -> bool {
+    read_file(&backup_path(path)).is_ok()
+}
+
+/// Puts the World file at `path` back to its last good save, its backup
+/// (see [`backup_path`]), for when the file itself fails to load: the
+/// backup is checked to read as a World file of this World Machine's
+/// first, and the file it replaces is kept beside it under
+/// [`DAMAGED_SUFFIX`], never deleted. The backup stays as it is. Refused
+/// while the World is open anywhere ([`LibraryError::InUse`]), and when
+/// there is no good backup. Returns where the damaged file was kept, if
+/// there was one.
+pub fn restore_backup(path: &Path) -> Result<Option<PathBuf>, LibraryError> {
+    let _lock = Lock::take(path)?;
+    let backup = backup_path(path);
+    let good = read_file(&backup)?;
+    let kept = if path.try_exists()? {
+        let mut name = path
+            .file_name()
+            .map(|name| name.to_os_string())
+            .unwrap_or_default();
+        name.push(DAMAGED_SUFFIX);
+        let mut damaged = path.with_file_name(&name);
+        let mut attempt = 2;
+        while damaged.try_exists()? {
+            let mut numbered = name.clone();
+            numbered.push(format!("-{attempt}"));
+            damaged = path.with_file_name(numbered);
+            attempt += 1;
+        }
+        fs::rename(path, &damaged)?;
+        Some(damaged)
+    } else {
+        None
+    };
+    // Written as any save is, atomically; the file it would keep as a
+    // backup was just moved aside, so the last good save stays the backup.
+    if let Err(error) = atomic_write(path, &good.bytes) {
+        if let Some(damaged) = &kept {
+            let _ = fs::rename(damaged, path);
+        }
+        return Err(error.into());
+    }
+    Ok(kept)
 }
 
 /// Where the backup of the World file at `path` is kept.
@@ -1544,19 +1561,8 @@ fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
     Ok(read_document_file(path)?.archive)
 }
 
-/// What the file at `path` holds, or if there is none, what the file at
-/// `legacy` does.
-pub(crate) fn revision_at(
-    path: &Path,
-    legacy: Option<&Path>,
-) -> Result<Option<DocumentRevision>, LibraryError> {
-    match revision_if_exists(path)? {
-        Some(revision) => Ok(Some(revision)),
-        None => legacy.map_or(Ok(None), revision_if_exists),
-    }
-}
-
-fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryError> {
+/// What the file at `path` holds, if there is one.
+pub(crate) fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryError> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(DocumentRevision::from_bytes(&bytes))),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -1567,9 +1573,6 @@ fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryEr
 /// Writes a World file just read to `destination` as a new file, never
 /// over one that is there (even one that appeared meanwhile).
 fn export_read_file(file: ReadFile, destination: &Path) -> Result<(), LibraryError> {
-    if file.writer.is_newer() {
-        return Err(LibraryError::NewerFile(file.writer));
-    }
     let bytes = file.document.to_bytes()?;
     match revision::create_new_file(destination, &bytes) {
         Ok(()) => Ok(()),
@@ -1611,12 +1614,9 @@ fn unique_removed_path(removed_root: &Path, file_name: &str) -> Result<PathBuf, 
     if !candidate.try_exists()? {
         return Ok(candidate);
     }
-    let (stem, suffix) = if let Some(stem) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-        (stem, LEGACY_WORLD_DOCUMENT_SUFFIX)
-    } else if let Some(stem) = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) {
-        (stem, WORLD_DOCUMENT_SUFFIX)
-    } else {
-        (file_name, "")
+    let (stem, suffix) = match file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) {
+        Some(stem) => (stem, WORLD_DOCUMENT_SUFFIX),
+        None => (file_name, ""),
     };
     for attempt in 2..=u32::MAX {
         let candidate = removed_root.join(format!("{stem}-{attempt}{suffix}"));
@@ -1679,9 +1679,12 @@ pub enum LibraryError {
     Document(DocumentError),
     Persistence(PersistenceError),
     Host(HostError),
-    /// The World's file was saved by a newer World Machine, so this one
-    /// only looks at it, and saves nothing over it.
-    NewerFile(FileWriter),
+    /// The 1.0 save contract: the World's file was saved by a v0.x
+    /// preview, so it is not opened.
+    PreviewSave,
+    /// The 1.0 save contract: the World's file, or its Pack version, is a
+    /// newer World Machine's, so it is not opened, nor written over.
+    NewerSave,
     /// Another session holds the World's file (see [`lock_path`]): in
     /// another window, or another World Machine such as the demo.
     InUse(PathBuf),
@@ -1708,7 +1711,8 @@ impl fmt::Display for LibraryError {
             Self::Document(error) => error.fmt(f),
             Self::Persistence(error) => error.fmt(f),
             Self::Host(error) => error.fmt(f),
-            Self::NewerFile(writer) => f.write_str(&writer.newer_message()),
+            Self::PreviewSave => f.write_str(PREVIEW_SAVE_MESSAGE),
+            Self::NewerSave => f.write_str(NEWER_SAVE_MESSAGE),
             Self::InUse(path) => write!(
                 f,
                 "this World is open in another window or another World Machine; close it there first ({})",
@@ -1731,7 +1735,8 @@ impl Error for LibraryError {
             | Self::ExportDestinationExists(_)
             | Self::DocumentChanged(_)
             | Self::ArchiveUnsupported(_)
-            | Self::NewerFile(_)
+            | Self::PreviewSave
+            | Self::NewerSave
             | Self::InUse(_) => None,
         }
     }
@@ -1743,21 +1748,79 @@ impl From<io::Error> for LibraryError {
     }
 }
 
+impl LibraryError {
+    /// Whether the 1.0 save contract refused the World, and why: a
+    /// preview's save or a newer World Machine's. `Current` for any other
+    /// error.
+    pub fn save_age(&self) -> FormatAge {
+        match self {
+            Self::PreviewSave => FormatAge::Preview,
+            Self::NewerSave => FormatAge::Newer,
+            _ => FormatAge::Current,
+        }
+    }
+}
+
 impl From<DocumentError> for LibraryError {
     fn from(error: DocumentError) -> Self {
-        Self::Document(error)
+        match error.age() {
+            FormatAge::Preview => Self::PreviewSave,
+            FormatAge::Newer => Self::NewerSave,
+            FormatAge::Current => Self::Document(error),
+        }
     }
 }
 
 impl From<PersistenceError> for LibraryError {
     fn from(error: PersistenceError) -> Self {
-        Self::Persistence(error)
+        DocumentError::Persistence(error).into()
     }
 }
 
 impl From<HostError> for LibraryError {
     fn from(error: HostError) -> Self {
+        // A save whose Pack version is no longer installed: a newer one's
+        // (refused until this app is updated), or a preview's (from before
+        // 1.0's Packs). Any other version mismatch is said as it is.
+        if let HostError::VersionMismatch { expected, found } = &error {
+            match pack_version_age(&expected.version, &found.version) {
+                FormatAge::Newer => return Self::NewerSave,
+                FormatAge::Preview => return Self::PreviewSave,
+                FormatAge::Current => {}
+            }
+        }
         Self::Host(error)
+    }
+}
+
+/// The first Pack version of World Machine 1.0's own save format: a save
+/// a Pack of an earlier version wrote is a v0.x preview's.
+pub const FIRST_PACK_VERSION: &str = "1.0.0";
+
+/// How a save's Pack version (`saved`) stands to the installed Pack's
+/// (`installed`): newer than the installed one, a preview's (before
+/// [`FIRST_PACK_VERSION`]), or neither. Versions are compared as dotted
+/// numbers (`1.10.0` after `1.9.2`); one that does not read as such is
+/// neither.
+pub fn pack_version_age(installed: &str, saved: &str) -> FormatAge {
+    fn parts(version: &str) -> Option<Vec<u64>> {
+        version
+            .trim()
+            .split('.')
+            .map(|part| part.parse().ok())
+            .collect()
+    }
+    let (Some(installed), Some(saved), Some(first)) =
+        (parts(installed), parts(saved), parts(FIRST_PACK_VERSION))
+    else {
+        return FormatAge::Current;
+    };
+    if saved > installed {
+        FormatAge::Newer
+    } else if saved < first {
+        FormatAge::Preview
+    } else {
+        FormatAge::Current
     }
 }
 
@@ -1948,26 +2011,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_world_json_is_read_and_migrated_on_next_save() {
-        let root = temp_root("legacy");
-        fs::create_dir_all(&root).unwrap();
-        let library = WorldLibrary::new(root.clone());
-        let id = WorldDocumentId::new("legacy").unwrap();
-        let legacy_path = root.join("legacy.world.json");
-        fs::write(&legacy_path, mock_archive(3).to_json_pretty().unwrap()).unwrap();
-
-        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 3);
-        assert_eq!(library.list().unwrap().len(), 1);
-
-        library.save(&id, &mock_archive(4)).unwrap();
-        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 4);
-        assert!(library.path(&id).is_file());
-        assert!(!legacy_path.exists());
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn library_saves_loads_and_lists_archives() {
         let root = temp_root("round-trip");
         let library = WorldLibrary::new(root.clone());
@@ -2126,7 +2169,8 @@ mod tests {
 
     /// A list of Worlds reads what it shows from the summary a file begins
     /// with, the same as from the whole file; a file written before there
-    /// was a summary is read whole.
+    /// was a summary (a v0.x preview's) is named as one that cannot be
+    /// opened.
     #[test]
     fn a_list_of_worlds_reads_summaries_as_it_would_whole_files() {
         let root = temp_root("summaries");
@@ -2146,11 +2190,20 @@ mod tests {
 
         let bytes = fs::read(library.path(&new)).unwrap();
         assert!(WorldDocument::summary_from_bytes(&bytes).unwrap().is_some());
-        let listed = library.list().unwrap();
-        assert_eq!(listed.len(), 2);
-        for listed in listed {
+        let listing = library.listing().unwrap();
+        assert_eq!(listing.documents.len(), 1);
+        for listed in listing.documents {
             assert_eq!(listed, summary(listed.id.clone(), &document));
         }
+        assert_eq!(
+            listing.unreadable,
+            vec![UnreadableWorldFile {
+                file_name: "old.world".into(),
+                reason: "This World is from a preview version and can't be opened.".into(),
+                age: FormatAge::Preview,
+                restorable: false,
+            }]
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2812,7 +2865,7 @@ mod tests {
         let external = root.join("incoming.world");
         let id = WorldDocumentId::new("incoming").unwrap();
         fs::create_dir_all(&root).unwrap();
-        fs::write(&external, mock_archive(7).to_json_pretty().unwrap()).unwrap();
+        write_archive_file(&external, &mock_archive(7)).unwrap();
 
         let imported =
             DurableWorldSession::import_file(id.clone(), &external, &registry, &library).unwrap();
@@ -2823,7 +2876,7 @@ mod tests {
         let bad_id = WorldDocumentId::new("unsupported").unwrap();
         let mut unsupported = mock_archive(1);
         unsupported.pack = WorldPackRef::new("world-machine.missing", "1");
-        fs::write(&bad_external, unsupported.to_json_pretty().unwrap()).unwrap();
+        write_archive_file(&bad_external, &unsupported).unwrap();
 
         assert!(matches!(
             DurableWorldSession::import_file(bad_id.clone(), &bad_external, &registry, &library),
@@ -2930,25 +2983,26 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    /// A World file's bytes as a newer World Machine would write them: the
-    /// same World, in the next schema.
-    fn from_a_newer_app(file: &[u8]) -> Vec<u8> {
+    /// A World file's bytes with `from` (everywhere in its JSON) put as `to`.
+    fn rewritten(file: &[u8], from: &str, to: &str) -> Vec<u8> {
         use std::io::Read;
         let mut json = String::new();
         flate2::read::GzDecoder::new(file)
             .read_to_string(&mut json)
             .unwrap();
-        let current = format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA);
-        assert!(json.contains(&current), "{}", &json[..200]);
-        let newer = json.replacen(
-            &current,
-            &format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA + 1),
-            1,
-        );
-        let newer = newer.replacen(world_document::writing_app(), "World Machine 9.0.0", 1);
+        assert!(json.contains(from), "{}", &json[..200]);
+        let changed = json.replace(from, to);
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-        encoder.write_all(newer.as_bytes()).unwrap();
+        encoder.write_all(changed.as_bytes()).unwrap();
         encoder.finish().unwrap()
+    }
+
+    /// A World file's bytes as a newer World Machine would write them: the
+    /// same World, in the next schema.
+    fn from_a_newer_app(file: &[u8]) -> Vec<u8> {
+        let current = format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA);
+        let newer = format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA + 1);
+        rewritten(file, &current, &newer)
     }
 
     #[test]
@@ -2966,76 +3020,237 @@ mod tests {
                 &library,
             )
             .unwrap();
+        session.flush().unwrap();
         let file = fs::read(library.path(&id)).unwrap();
         let writer = WorldDocument::writer_from_bytes(&file).unwrap();
-        assert_eq!(writer, FileWriter::current());
+        assert_eq!(writer, world_document::FileWriter::current());
         assert_eq!(writer.schema, world_document::WORLD_FILE_SCHEMA);
-        assert!(!writer.is_newer());
-        assert_eq!(session.read_only_reason(), None);
+        assert_eq!(writer.age(), FormatAge::Current);
         let _ = fs::remove_dir_all(root);
     }
 
+    /// The 1.0 save contract: a World a newer World Machine saved (a newer
+    /// file schema, archive version or Pack version) is refused whole, with
+    /// the player's sentence. A newer file is never written over: opened,
+    /// listed, renamed, saved, exported or imported. (One whose only newer
+    /// part is its Pack version is the installed Pack's to refuse, so it is
+    /// refused where a World is opened; Home may still rename or copy it,
+    /// keeping its history as it is.)
     #[test]
-    fn a_file_from_a_newer_app_opens_to_look_at_and_is_never_saved_over() {
+    fn a_file_from_a_newer_app_is_refused_whole_and_never_saved_over() {
         let root = temp_root("newer");
         let library = WorldLibrary::new(root.clone());
         let registry = registry();
         let id = WorldDocumentId::new("newer").unwrap();
         library.save(&id, &mock_archive(3)).unwrap();
-        let newer = from_a_newer_app(&fs::read(library.path(&id)).unwrap());
-        fs::write(library.path(&id), &newer).unwrap();
-
-        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
-        assert_eq!(session.snapshot().world_time, 3);
-        let reason = session.read_only_reason().expect("read only");
-        assert!(
-            reason.contains("newer World Machine (World Machine 9.0.0)"),
-            "{reason}"
+        let saved = fs::read(library.path(&id)).unwrap();
+        let archive_version = format!(
+            "\"format_version\":{}",
+            world_persistence::WORLD_ARCHIVE_COMPACT_VERSION
         );
-        let refused = session
-            .handle(
-                ProjectionIntent::InvokeCommand("mock.advance".into()),
-                &registry,
-                &library,
-            )
-            .unwrap_err();
-        assert!(matches!(refused, LibraryError::NewerFile(_)), "{refused:?}");
-        assert_eq!(refused.to_string(), reason);
+        for (newer, file) in [
+            (from_a_newer_app(&saved), true),
+            (
+                rewritten(&saved, &archive_version, "\"format_version\":9"),
+                true,
+            ),
+            (
+                rewritten(&saved, "\"version\":\"1\"", "\"version\":\"2\""),
+                false,
+            ),
+        ] {
+            fs::write(library.path(&id), &newer).unwrap();
+            let refused = DurableWorldSession::open(id.clone(), &registry, &library)
+                .err()
+                .expect("refused");
+            assert!(matches!(refused, LibraryError::NewerSave), "{refused:?}");
+            assert_eq!(
+                refused.to_string(),
+                "This World was saved by a newer World Machine. Update to open it."
+            );
+            assert_eq!(refused.save_age(), FormatAge::Newer);
+            let elsewhere = root.join("elsewhere.world");
+            fs::write(&elsewhere, &newer).unwrap();
+            assert!(matches!(
+                DurableWorldSession::open_file(elsewhere.clone(), &registry),
+                Err(LibraryError::NewerSave)
+            ));
+            assert!(matches!(
+                DurableWorldSession::import_file(
+                    WorldDocumentId::new("imported").unwrap(),
+                    &elsewhere,
+                    &registry,
+                    &library
+                ),
+                Err(LibraryError::NewerSave)
+            ));
+            if !file {
+                let _ = fs::remove_file(&elsewhere);
+                continue;
+            }
+            assert!(matches!(
+                library.import_file(WorldDocumentId::new("imported").unwrap(), &elsewhere),
+                Err(LibraryError::NewerSave)
+            ));
+            assert!(matches!(
+                library.export_file(&id, &root.join("out.world")),
+                Err(LibraryError::NewerSave)
+            ));
+            assert!(matches!(
+                library.set_display_title(&id, Some("Mine now")),
+                Err(LibraryError::NewerSave)
+            ));
+            // The file is exactly as the newer app left it.
+            assert_eq!(fs::read(library.path(&id)).unwrap(), newer);
+            let _ = fs::remove_file(&elsewhere);
+        }
+        // Not written over even by a save that does not read it first.
+        let newer = from_a_newer_app(&saved);
+        fs::write(library.path(&id), &newer).unwrap();
         assert!(matches!(
-            session.save_as_file(root.join("copy.world")),
-            Err(LibraryError::NewerFile(_))
+            library.save_document(&id, &WorldDocument::new(mock_archive(4))),
+            Err(LibraryError::NewerSave)
         ));
-        // Nor through the library: renamed, described, imported or exported
-        // (once the World is closed: while it is open, the library leaves
-        // its file to it).
+        assert_eq!(fs::read(library.path(&id)).unwrap(), newer);
+        // Listed, it is named with why it cannot be opened.
+        let listing = library.listing().unwrap();
+        assert!(listing.documents.is_empty());
+        assert_eq!(listing.unreadable.len(), 1);
+        assert_eq!(
+            listing.unreadable[0].reason,
+            "This World was saved by a newer World Machine. Update to open it."
+        );
+        assert_eq!(listing.unreadable[0].age, FormatAge::Newer);
+        assert!(!listing.unreadable[0].restorable);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// The 1.0 save contract: a World a v0.x preview saved (with no file
+    /// summary, as before v0.25; a preview's schema, as v0.25 to v0.30; a
+    /// preview's archive version; or a Pack version from before 1.0) is
+    /// refused cleanly, with the player's sentence, and never crashes.
+    #[test]
+    fn a_file_from_a_preview_is_refused_cleanly() {
+        let root = temp_root("preview");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("old").unwrap();
+        library.save(&id, &mock_archive(3)).unwrap();
+        let saved = fs::read(library.path(&id)).unwrap();
+        let schema = format!("\"schema\":{}", world_document::WORLD_FILE_SCHEMA);
+        let archive_version = format!(
+            "\"format_version\":{}",
+            world_persistence::WORLD_ARCHIVE_COMPACT_VERSION
+        );
+        let bare = WorldDocument::new(mock_archive(3))
+            .to_compact_json()
+            .unwrap();
+        let mut gzipped_bare =
+            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzipped_bare.write_all(&bare).unwrap();
+        for (preview, listed) in [
+            (rewritten(&saved, &schema, "\"schema\":1"), true),
+            // Its summary is a 1.0 file's (as no preview's was): only
+            // opening it finds it out.
+            (
+                rewritten(&saved, &archive_version, "\"format_version\":2"),
+                false,
+            ),
+            (gzipped_bare.finish().unwrap(), true),
+            (bare, true),
+            (
+                b"{\"format\":\"world-machine\",\"format_version\":1}".to_vec(),
+                true,
+            ),
+        ] {
+            fs::write(library.path(&id), &preview).unwrap();
+            let refused = DurableWorldSession::open(id.clone(), &registry, &library)
+                .err()
+                .expect("refused");
+            assert!(matches!(refused, LibraryError::PreviewSave), "{refused:?}");
+            assert_eq!(
+                refused.to_string(),
+                "This World is from a preview version and can't be opened."
+            );
+            if listed {
+                let listing = library.listing().unwrap();
+                assert!(listing.documents.is_empty());
+                assert_eq!(
+                    listing.unreadable[0].reason,
+                    "This World is from a preview version and can't be opened."
+                );
+            }
+        }
+        // A Pack version from before 1.0, which the installed Pack is not.
+        assert_eq!(pack_version_age("1.0.0", "0.13.0"), FormatAge::Preview);
+        assert_eq!(pack_version_age("1.0.0", "1.0.1"), FormatAge::Newer);
+        assert_eq!(pack_version_age("1.2.0", "1.10.0"), FormatAge::Newer);
+        assert_eq!(pack_version_age("1.10.0", "1.2.0"), FormatAge::Current);
+        assert_eq!(pack_version_age("one", "two"), FormatAge::Current);
+        let refused: LibraryError = HostError::VersionMismatch {
+            expected: WorldPackRef::new(MOCK_PACK, "1.0.0"),
+            found: WorldPackRef::new(MOCK_PACK, "0.13.0"),
+        }
+        .into();
+        assert!(matches!(refused, LibraryError::PreviewSave));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A World whose file fails to load is put back to its last good save,
+    /// its backup, which opens to the World it was then; the damaged file
+    /// is kept beside it. Without a good backup, nothing is touched.
+    #[test]
+    fn a_world_that_fails_to_load_is_restored_from_its_last_good_backup() {
+        let root = temp_root("restore");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("restored").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
+        let advance = || ProjectionIntent::InvokeCommand("mock.advance".into());
+        session.handle(advance(), &registry, &library).unwrap();
+        session.flush().unwrap();
+        let good = session.snapshot();
+        session.handle(advance(), &registry, &library).unwrap();
+        drop(session);
+        let path = library.path(&id);
+        // Refused while there is nothing wrong but the World is open.
+        let open = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
         assert!(matches!(
-            library.set_display_title(&id, Some("Mine now")),
+            library.restore_backup(&id),
             Err(LibraryError::InUse(_))
         ));
-        drop(session);
-        assert!(matches!(
-            library.set_display_title(&id, Some("Mine now")),
-            Err(LibraryError::NewerFile(_))
-        ));
-        assert!(matches!(
-            library.save(&id, &mock_archive(4)),
-            Err(LibraryError::NewerFile(_))
-        ));
-        assert!(matches!(
-            library.export_file(&id, &root.join("out.world")),
-            Err(LibraryError::NewerFile(_))
-        ));
-        let elsewhere = root.join("elsewhere.world");
-        fs::write(&elsewhere, &newer).unwrap();
-        assert!(matches!(
-            library.import_file(WorldDocumentId::new("imported").unwrap(), &elsewhere),
-            Err(LibraryError::NewerFile(_))
-        ));
-        // The file is exactly as the newer app left it, with no backup.
-        assert_eq!(fs::read(library.path(&id)).unwrap(), newer);
-        assert!(!backup_path(&library.path(&id)).exists());
-        // A file with no writer, as every file before v0.25, is not newer.
-        assert!(!WorldDocument::writer_from_bytes(b"{}").unwrap().is_newer());
+        drop(open);
+        // The file is cut short, as by a crash mid-copy.
+        let whole = fs::read(&path).unwrap();
+        fs::write(&path, &whole[..whole.len() / 2]).unwrap();
+        assert!(DurableWorldSession::open(id.clone(), &registry, &library).is_err());
+        assert!(has_good_backup(&path));
+        // Too damaged to list, Home still offers it back from the listing.
+        let listing = library.listing().unwrap();
+        assert!(listing.documents.is_empty());
+        assert_eq!(listing.unreadable.len(), 1);
+        assert_eq!(listing.unreadable[0].age, FormatAge::Current);
+        assert!(listing.unreadable[0].restorable);
+        let kept = library.restore_backup(&id).unwrap().expect("kept");
+        assert_eq!(kept, root.join("restored.world.damaged"));
+        assert_eq!(fs::read(&kept).unwrap(), whole[..whole.len() / 2]);
+        let reopened = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        assert_eq!(reopened.snapshot(), good);
+        drop(reopened);
+        // A second restore keeps the first damaged file too.
+        fs::write(&path, b"broken").unwrap();
+        assert_eq!(
+            library.restore_backup(&id).unwrap(),
+            Some(root.join("restored.world.damaged-2"))
+        );
+        // No good backup: refused, and the file left as it is.
+        fs::write(backup_path(&path), b"also broken").unwrap();
+        fs::write(&path, b"broken").unwrap();
+        assert!(!has_good_backup(&path));
+        assert!(!library.listing().unwrap().unreadable[0].restorable);
+        assert!(library.restore_backup(&id).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"broken");
         let _ = fs::remove_dir_all(root);
     }
 

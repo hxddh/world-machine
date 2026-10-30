@@ -1816,8 +1816,8 @@ pub(crate) fn register_actions(
 
 /// The most trust a new player can have earned by now: 7 of 10 in their
 /// first week, a step more each week after, all of it from the fourth.
-/// Trust is earned over weeks, not in four answers. A place seeded before
-/// v0.24 (with no day of arrival) has no such ceiling.
+/// Trust is earned over weeks, not in four answers. A universe not yet
+/// seeded (with no day of arrival) has no such ceiling.
 fn trust_earned_by(state: &world_core::WorldState) -> i64 {
     match crate::arrival::arrived(state) {
         Some(day) => {

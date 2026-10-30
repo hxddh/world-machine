@@ -229,7 +229,7 @@ impl DurableWorldSession {
         // document settles its own (see `WorldDocument::settle_checkpoint`).
         let span = world_document::season_span(&self.metadata);
         let season_start = tail.world_time / span * span;
-        let (path, legacy) = self.file.paths(library);
+        let path = self.file.path(library);
         let saved = self.file.saved_mut().expect("saved before any change");
         let mut season = std::mem::take(&mut saved.season);
         season.extend(tail.events.iter().cloned());
@@ -265,7 +265,6 @@ impl DurableWorldSession {
         self.metadata.display_drawings = drawings;
         let head = crate::writer::Head {
             path,
-            legacy,
             metadata: head_metadata,
             drawings: give_drawings.then(|| self.metadata.display_drawings.clone()),
             pack: tail.pack,

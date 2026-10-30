@@ -70,7 +70,6 @@ mod tests {
             file: crate::world_file::WorldFile::new(
                 WorldDocumentTarget::File(PathBuf::from("unused.world")),
                 DocumentRevision::from_bytes(b"archive-source-test"),
-                Default::default(),
                 crate::lock::Lock::none(),
             ),
             metadata: WorldDocumentMetadata::default(),

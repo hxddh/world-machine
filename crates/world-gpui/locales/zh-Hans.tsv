@@ -846,3 +846,9 @@ Looked after	有人照看
 Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.	大家都在往家走。明天再来迎接早晨吧：一封信、今天的选择、有人照看的东西，还有给你的书的新发现。
 No hurry. The town will wait for you.	不着急。小镇会等你。
 Everyone's home. Come back tomorrow for the morning.	大家都到家了。明天再来迎接早晨吧。
+This World was saved by a newer World Machine. Update to open it.	这个世界由更新版本的 World Machine 保存。请更新后再打开。
+This World is from a preview version and can't be opened.	这个世界来自预览版本，无法打开。
+This World code is from a preview version and can't be opened	这个世界代码来自预览版本，无法打开
+Restore the last good save	恢复上一次完好的存档
+Restored {title} from its last good save. The damaged file is kept beside it.	已从上一次完好的存档恢复 {title}。损坏的文件保留在旁边。
+Could not restore {title}: {error}	无法恢复 {title}：{error}

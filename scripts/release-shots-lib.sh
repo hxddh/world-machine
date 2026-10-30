@@ -17,8 +17,8 @@
 # and frames of another World in the first 2 s. Every camera move is also
 # caught 0.3, 1.0 and 2.5 s after it began (`after_move`).
 #
-# A sitting (v0.30 S4) is read from the window and from the observer's
-# ledger beside the library ($STATE/Observer): the morning card and the
+# A sitting (v0.30 S4) is read from the window and from the sitting
+# ledger the World's file carries (`pretend_away --show`): the morning card and the
 # Goodnight card are found by their one primary button ("Begin the day",
 # "Goodnight") on the paper hanging from the top of the place, and the
 # ledger says how many sittings there have been, how many World days this
@@ -222,19 +222,12 @@ sitting_button() {
     echo "$((290 + ${bx#+} + bw / 2)) $((100 + ${by#+} + bh / 2))"
 }
 
-# One field of the World's sitting ledger, from the observer beside the
-# library (`world-observer-sitting-v2`: sittings, the local day the
-# sitting began, the World days it passed, the morning read). Each
-# scenario's library holds one World, so its one ledger.
+# One field of the World's sitting ledger, as its file carries it (host
+# metadata beside its history: sittings, the local day the sitting began,
+# the World days it passed, the morning read). Each scenario's library
+# holds one World, so its one ledger.
 ledger() { # ledger sittings|began|days|morning
-    local line files
-    case "$1" in
-        sittings) line=2 ;; began) line=3 ;; days) line=4 ;; morning) line=5 ;;
-    esac
-    files=("$STATE"/Observer/*.sitting)
-    [ -e "${files[0]}" ] || return 0
-    [ ${#files[@]} -eq 1 ] || { echo "?${#files[@]} ledgers"; return 0; }
-    sed -n "${line}p" "${files[0]}"
+    "$BIN/examples/pretend_away" --show "$STATE/Worlds" "$1" 2>/dev/null
 }
 
 # The morning a new sitting opens on: shot as <name>, then "Begin the

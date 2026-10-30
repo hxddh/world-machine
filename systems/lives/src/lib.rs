@@ -1057,11 +1057,8 @@ impl Action for Lives {
         // from a checkpoint, its earlier Events not kept, counts the year
         // all the same.
         let year = state.world_time() / year_length(&cast).max(1);
-        let lived = retold::Days::of(state, &cast, person, year).lived(&cast, activity.id);
+        let lived = retold::Days::of(state, person, year).lived(&cast, activity.id);
         moves.set(person, retold::DID, lived.note);
-        for old in lived.let_go {
-            moves.unset(state, person, &old);
-        }
         let nth = lived.nth;
         moves.set(person, AT, Value::Entity(place));
 
@@ -1142,10 +1139,7 @@ pub const ASKED_APART_PERIODS: u64 = 61;
 /// When lines were last said. Each period's lines are kept together in
 /// one note, `lives.lines.<period>`, as a short hash of each line written
 /// in [`SAID_CODE`] characters, so the notes hold one entry a period
-/// rather than one a line. Worlds from before keep their lines in longer
-/// hashes (`lives.said.<period>`, [`SAID_BEFORE_CODE`] characters) or in a
-/// note a line (`lives.heard.<hash>`) until those are forgotten; all are
-/// read.
+/// rather than one a line.
 #[derive(Clone)]
 struct Heard<'a> {
     state: &'a WorldState,
@@ -1158,10 +1152,6 @@ struct Heard<'a> {
     /// The same, as one list in order of the lines' codes: see
     /// [`Heard::latest`].
     latest: std::cell::OnceCell<Vec<u64>>,
-    /// The same, as a World from before noted them.
-    said_before: Vec<(u64, &'a [[u8; SAID_BEFORE_CODE]])>,
-    /// Whether any line is still noted as a World from before noted it.
-    before: bool,
 }
 
 /// Where a period's lines are noted.
@@ -1172,10 +1162,6 @@ const SAID: &str = "lives.lines.";
 /// years of a harbour's days, about one chance in ten that it ever
 /// happens, and then only a line said a little differently.
 const SAID_CODE: usize = 6;
-/// Where, and in how many characters, a World from before noted a
-/// period's lines.
-const SAID_BEFORE: &str = "lives.said.";
-const SAID_BEFORE_CODE: usize = 7;
 const SAID_DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /// Each period's note under `prefix`, the latest first, read as codes of
@@ -1271,24 +1257,12 @@ fn noted_in<const N: usize>(said: &[(u64, &[[u8; N]])], code: &[u8; N]) -> Optio
 
 impl<'a> Heard<'a> {
     fn of(state: &'a WorldState, cast: &Cast) -> Self {
-        let before = state.entity(cast.notes).is_some_and(|notes| {
-            notes
-                .components
-                .range::<str, _>((
-                    std::ops::Bound::Included(HEARD_BEFORE),
-                    std::ops::Bound::Unbounded,
-                ))
-                .next()
-                .is_some_and(|(key, _)| key.starts_with(HEARD_BEFORE))
-        });
         Heard {
             state,
             notes: cast.notes,
             now: period(state, cast),
             said: said_notes(state, cast.notes, SAID),
             latest: std::cell::OnceCell::new(),
-            said_before: said_notes(state, cast.notes, SAID_BEFORE),
-            before,
         }
     }
 
@@ -1316,7 +1290,7 @@ impl<'a> Heard<'a> {
         let code = hash_code::<SAID_CODE>(short_hash::<SAID_CODE>(hash));
         // A period too late to share a number with its code (hundreds of
         // thousands of years of days) is looked for note by note.
-        let noted = if self
+        if self
             .said
             .first()
             .is_some_and(|(at, _)| *at >> PERIOD_BITS != 0)
@@ -1332,21 +1306,7 @@ impl<'a> Heard<'a> {
                 .map(|last| latest[last])
                 .filter(|entry| entry >> PERIOD_BITS == number)
                 .map(|entry| entry & ((1 << PERIOD_BITS) - 1))
-        };
-        let noted_before = (!self.said_before.is_empty())
-            .then(|| {
-                noted_in(
-                    &self.said_before,
-                    &hash_code::<SAID_BEFORE_CODE>(short_hash::<SAID_BEFORE_CODE>(hash)),
-                )
-            })
-            .flatten();
-        let before = self
-            .before
-            .then(|| integer(self.state, self.notes, &heard_key(line)))
-            .flatten()
-            .map(|at| at.max(0) as u64);
-        noted.max(noted_before).max(before)
+        }
     }
 
     fn lately(&self, line: &str) -> bool {
@@ -1364,20 +1324,10 @@ impl<'a> Heard<'a> {
                 .map(|(at, _)| *at)
         }
         let hash = line_hash(line);
-        let noted_now = noted(
+        noted(
             &self.said,
             &hash_code::<SAID_CODE>(short_hash::<SAID_CODE>(hash)),
-        );
-        let noted_before = noted(
-            &self.said_before,
-            &hash_code::<SAID_BEFORE_CODE>(short_hash::<SAID_BEFORE_CODE>(hash)),
-        );
-        let before = self
-            .before
-            .then(|| integer(self.state, self.notes, &heard_key(line)))
-            .flatten()
-            .map(|at| at.max(0) as u64);
-        noted_now.max(noted_before).max(before)
+        )
     }
 }
 
@@ -1385,14 +1335,6 @@ fn line_hash(line: &str) -> u64 {
     line.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
     })
-}
-
-/// Where a World from before noted each line.
-const HEARD_BEFORE: &str = "lives.heard.";
-
-/// A line's note in a World from before: one entry a line.
-fn heard_key(line: &str) -> String {
-    format!("{HEARD_BEFORE}{:016x}", line_hash(line))
 }
 
 /// A line's short hash in `N` characters: the best-mixed bits of its full
@@ -1425,12 +1367,9 @@ fn said_key(period: u64) -> String {
     format!("{SAID}{period}")
 }
 
-/// The period a note of lines is for, in either way of noting them.
+/// The period a note of lines is for.
 fn said_period(key: &str) -> Option<u64> {
-    key.strip_prefix(SAID)
-        .or_else(|| key.strip_prefix(SAID_BEFORE))?
-        .parse()
-        .ok()
+    key.strip_prefix(SAID)?.parse().ok()
 }
 
 /// Notes that a line was said this period: added to this period's note,
@@ -4886,14 +4825,9 @@ impl Action for Forgets {
                 if rest_over(key, value, now) {
                     return true;
                 }
-                // A period's lines, or, in a World from before, a line's.
-                let at = match said_period(key) {
-                    Some(at) => at,
-                    None if key.starts_with(HEARD_BEFORE) => match value {
-                        Value::Integer(at) => (*at).max(0) as u64,
-                        _ => return false,
-                    },
-                    None => return false,
+                // A period's lines.
+                let Some(at) = said_period(key) else {
+                    return false;
                 };
                 now.saturating_sub(at) >= HEARD_PERIODS
             })

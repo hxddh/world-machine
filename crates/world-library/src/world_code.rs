@@ -1,12 +1,12 @@
 //! World codes: a World as a short piece of text (or a `.worldcode` file
 //! holding it) that anyone can open as a *visit*.
 //!
-//! A code is `wm2:` followed by the World document as compact JSON,
+//! A code is `wm3:` followed by the World document as compact JSON,
 //! deflated and written in URL-safe base64 without padding, then `.` and
 //! the CRC-32 of that JSON as eight hex digits:
 //!
 //! ```text
-//! wm2:<base64url(deflate(json))>.<crc32 hex>
+//! wm3:<base64url(deflate(json))>.<crc32 hex>
 //! ```
 //!
 //! The document carries the World's name, its checkpoint at the start of
@@ -14,8 +14,9 @@
 //! what is pending and the season a visitor walks into, not every day it
 //! has lived. Its archive is written in the compact encoding.
 //!
-//! A `wm1:` code, as World Machine wrote before, carries the whole history
-//! in the tagged encoding and no checkpoint. It still opens.
+//! `wm3:` is World Machine 1.0's. A `wm1:` or `wm2:` code was a v0.x
+//! preview's, and is refused with a plain sentence, as a World file of
+//! theirs is (the 1.0 save contract, docs/SAVES.md).
 //!
 //! Whitespace anywhere in a code is ignored, so a code that a chat window
 //! wrapped over several lines still opens. A code that is cut short or
@@ -57,12 +58,10 @@ use world_projection::{ProjectionIntent, ProjectionSnapshot};
 use crate::{required_archive, DurableWorldSession};
 
 /// What every World code starts with; the digit is the code's format.
-pub const WORLD_CODE_PREFIX: &str = "wm2:";
-/// What a World code with the whole history, as written before checkpoints,
-/// starts with. Such codes still open.
-pub const WORLD_CODE_PREFIX_V1: &str = "wm1:";
-/// The newest code format this World Machine reads.
-const NEWEST_FORMAT: u32 = 2;
+pub const WORLD_CODE_PREFIX: &str = "wm3:";
+/// The code format this World Machine reads and writes: 1.0's. The ones
+/// before it were the v0.x previews'.
+const FORMAT: u32 = 3;
 /// The file a World code is saved in.
 pub const WORLD_CODE_SUFFIX: &str = ".worldcode";
 /// The longest text read as a World code (or `.worldcode` file): a real
@@ -90,6 +89,8 @@ pub enum WorldCodeError {
     TooSlow,
     /// A World code from a newer World Machine.
     NewerFormat(String),
+    /// A World code from a v0.x preview.
+    PreviewFormat,
     /// Cut short, changed, or otherwise not whole.
     Damaged,
     /// The code's World needs a Pack that is not installed, or cannot be
@@ -120,6 +121,10 @@ impl fmt::Display for WorldCodeError {
             Self::NewerFormat(prefix) => write!(
                 f,
                 "This World code ({prefix}) was made by a newer World Machine"
+            ),
+            Self::PreviewFormat => write!(
+                f,
+                "This World code is from a preview version and can't be opened"
             ),
             Self::Damaged => write!(
                 f,
@@ -230,11 +235,8 @@ pub fn decode_world_code(text: &str) -> Result<WorldDocument, WorldCodeError> {
         .chars()
         .filter(|character| !character.is_whitespace())
         .collect::<String>();
-    let Some(body) = code
-        .strip_prefix(WORLD_CODE_PREFIX)
-        .or_else(|| code.strip_prefix(WORLD_CODE_PREFIX_V1))
-    else {
-        return Err(newer_or_not_a_code(&code));
+    let Some(body) = code.strip_prefix(WORLD_CODE_PREFIX) else {
+        return Err(other_format(&code));
     };
     let (data, sum) = body.rsplit_once('.').ok_or(WorldCodeError::Damaged)?;
     if sum.len() != 8 {
@@ -249,7 +251,13 @@ pub fn decode_world_code(text: &str) -> Result<WorldDocument, WorldCodeError> {
         return Err(WorldCodeError::Damaged);
     }
     let json = std::str::from_utf8(&json).map_err(|_| WorldCodeError::Damaged)?;
-    let mut document = WorldDocument::from_json(json).map_err(|_| WorldCodeError::Damaged)?;
+    let mut document = WorldDocument::from_json(json).map_err(|error| match error.age() {
+        world_persistence::FormatAge::Preview => WorldCodeError::PreviewFormat,
+        world_persistence::FormatAge::Newer => {
+            WorldCodeError::NewerFormat(WORLD_CODE_PREFIX.into())
+        }
+        world_persistence::FormatAge::Current => WorldCodeError::Damaged,
+    })?;
     // Only the name travels with a code; it is someone else's text.
     document.metadata = WorldDocumentMetadata {
         display_title: code_name(document.metadata.display_title.as_deref()),
@@ -386,11 +394,11 @@ fn world_code_format(code: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
-fn newer_or_not_a_code(code: &str) -> WorldCodeError {
+/// Why a code of another format than [`FORMAT`] is refused.
+fn other_format(code: &str) -> WorldCodeError {
     match world_code_format(code) {
-        Some(version) if version > NEWEST_FORMAT => {
-            WorldCodeError::NewerFormat(format!("wm{version}:"))
-        }
+        Some(version) if version > FORMAT => WorldCodeError::NewerFormat(format!("wm{version}:")),
+        Some(version) if version >= 1 => WorldCodeError::PreviewFormat,
         _ => WorldCodeError::NotACode,
     }
 }
@@ -470,7 +478,7 @@ impl WorldVisit {
     }
 
     /// The archive the visit was opened from: the history the code
-    /// carries, which for a `wm2:` code is only what came after its
+    /// carries, which for a code is only what came after its
     /// checkpoint, and that checkpoint.
     pub fn archive(&self) -> &WorldArchive {
         &self.archive
@@ -530,7 +538,7 @@ mod tests {
     fn a_code_decodes_to_the_same_document() {
         let document = document();
         let code = encode_world_code(&document).unwrap();
-        assert!(code.starts_with("wm2:"), "{code}");
+        assert!(code.starts_with("wm3:"), "{code}");
         assert!(looks_like_world_code(&code));
         assert_eq!(decode_world_code(&code).unwrap(), document);
         // Wrapped over lines by a chat window, it still opens.
@@ -616,10 +624,10 @@ mod tests {
         let whole = encode_world_code(&document()).unwrap();
         let mut hostile = vec![
             String::new(),
-            "wm2:".into(),
-            "wm2:.".into(),
-            "wm2:!!!!.00000000".into(),
-            "wm2:AAAA.zzzzzzzz".into(),
+            "wm3:".into(),
+            "wm3:.".into(),
+            "wm3:!!!!.00000000".into(),
+            "wm3:AAAA.zzzzzzzz".into(),
             "wm99999999999999999999:x.00000000".into(),
             format!("{whole}{whole}"),
             code_of(b"null"),
@@ -717,7 +725,7 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
         // A code that fails fast fails with its own reason.
         let prepared = prepare_visit(
-            VisitSource::Code("wm2:AAAA.00000000".into()),
+            VisitSource::Code("wm3:AAAA.00000000".into()),
             registry_that_takes(Duration::ZERO),
             Duration::from_secs(5),
         );
@@ -750,8 +758,8 @@ mod tests {
                 chars[at] = if chars[at] == 'A' { 'B' } else { 'A' };
                 chars.into_iter().collect()
             },
-            "wm1:".to_string(),
-            "wm1:.00000000".to_string(),
+            "wm3:".to_string(),
+            "wm3:.00000000".to_string(),
         ] {
             let error = decode_world_code(&bad).unwrap_err();
             assert!(matches!(error, WorldCodeError::Damaged), "{bad}: {error:?}");
@@ -766,6 +774,38 @@ mod tests {
         ));
         assert!(matches!(
             decode_world_code("wm7:abc.00000000"),
+            Err(WorldCodeError::NewerFormat(_))
+        ));
+    }
+
+    /// The 1.0 save contract, on codes: a preview's code (`wm1:`, `wm2:`)
+    /// is refused plainly, as is a 1.0 code whose World a preview or a
+    /// newer World Machine wrote.
+    #[test]
+    fn preview_codes_are_refused_plainly() {
+        for old in ["wm1:abc.00000000", "wm2:abc.00000000"] {
+            let error = decode_world_code(old).unwrap_err();
+            assert!(matches!(error, WorldCodeError::PreviewFormat), "{error:?}");
+            assert_eq!(
+                error.to_string(),
+                "This World code is from a preview version and can't be opened"
+            );
+            assert!(looks_like_world_code(old));
+        }
+        let json = String::from_utf8(document().to_compact_json().unwrap()).unwrap();
+        let version = format!(
+            "\"format_version\":{}",
+            world_persistence::WORLD_ARCHIVE_COMPACT_VERSION
+        );
+        assert!(json.contains(&version), "{json}");
+        let preview = json.replace(&version, "\"format_version\":2");
+        assert!(matches!(
+            decode_world_code(&code_of(preview.as_bytes())),
+            Err(WorldCodeError::PreviewFormat)
+        ));
+        let newer = json.replace(&version, "\"format_version\":9");
+        assert!(matches!(
+            decode_world_code(&code_of(newer.as_bytes())),
             Err(WorldCodeError::NewerFormat(_))
         ));
     }

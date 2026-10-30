@@ -39,10 +39,6 @@ impl DurableWorldSession {
         if periods == 0 {
             return Ok(None);
         }
-        // A World a newer World Machine saved does not move on here: that
-        // would save over its file.
-        self.refuse_if_newer()?;
-
         self.ready_to_change(library)?;
 
         match self.change(|session| session.advance_background(periods), true, library)? {
@@ -247,7 +243,6 @@ mod tests {
             file: crate::world_file::WorldFile::new(
                 WorldDocumentTarget::File(path),
                 revision,
-                Default::default(),
                 crate::lock::Lock::none(),
             ),
             metadata: WorldDocumentMetadata::default(),

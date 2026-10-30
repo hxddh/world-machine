@@ -197,7 +197,7 @@ fn a_damaged_code_for_a_real_world_is_refused() {
         code[..code.len() * 2 / 3].to_string(),
         code[..code.len() - 3].to_string(),
         format!("{code}0"),
-        code.replacen("wm2:", "wm2:A", 1),
+        code.replacen("wm3:", "wm3:A", 1),
     ] {
         let error = WorldVisit::open_code(&bad, &registry)
             .err()
@@ -210,7 +210,7 @@ fn a_damaged_code_for_a_real_world_is_refused() {
         .unwrap();
     assert_eq!(
         not_a_code.to_string(),
-        "This is not a World code. A World code starts with wm, as in wm2:"
+        "This is not a World code. A World code starts with wm, as in wm3:"
     );
     fs::remove_dir_all(root).unwrap();
 }
@@ -235,92 +235,26 @@ fn a_guest_comes_from_another_worlds_listing() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// A `wm1:` code, as World Machine wrote them before checkpoints: the whole
-/// document in the tagged encoding, deflated.
-fn old_code(document: &world_document::WorldDocument) -> String {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-    use std::io::Write;
-    let value: serde_json::Value =
-        serde_json::from_str(&document.to_json_pretty().unwrap()).unwrap();
-    let json = serde_json::to_vec(&value).unwrap();
-    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
-    encoder.write_all(&json).unwrap();
-    let mut crc = flate2::Crc::new();
-    crc.update(&json);
-    format!(
-        "wm1:{}.{:08x}",
-        URL_SAFE_NO_PAD.encode(encoder.finish().unwrap()),
-        crc.sum()
-    )
-}
-
+/// A preview's code (`wm1:` or `wm2:`, as v0.x wrote them) for a real
+/// World is refused plainly and opens nothing (the 1.0 save contract).
 #[test]
-fn an_old_code_still_opens_as_the_same_world() {
+fn a_preview_code_is_refused_plainly() {
     let (root, registry, _library, session) = played_world("old-code");
-    let original = session.current_archive().unwrap();
-    let mut document = world_document::WorldDocument::new(original.clone());
-    document.metadata.display_title = Some("Harbor Town".into());
-    let code = old_code(&document);
-    assert!(world_library::looks_like_world_code(&code));
-
-    let decoded = decode_world_code(&code).unwrap();
-    assert_eq!(decoded.archive, original, "event for event");
-    assert_eq!(decoded.archive.checkpoint, None);
-    let visit = WorldVisit::open_code(&code, &registry).unwrap();
-    assert_eq!(visit.snapshot(), session.snapshot());
-    assert_eq!(visit.display_name(), "Harbor Town");
-    // Shared again, it is a code of today's kind for the same World.
-    let again = visit.world_code().unwrap();
-    assert!(again.starts_with("wm2:"));
-    let reopened = WorldVisit::open_code(&again, &registry).unwrap();
-    assert_eq!(
-        reopened.snapshot().world_time,
-        session.snapshot().world_time
-    );
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn an_old_world_file_still_opens_and_is_saved_anew() {
-    let (root, registry, library, session) = played_world("old-file");
-    let original = session.current_archive().unwrap();
-    // Tagged, pretty and not compressed, as World files were written before.
-    let old = root.join("Old Harbor.world");
-    let document = world_document::WorldDocument::new(original.clone());
-    fs::write(&old, document.to_json_pretty().unwrap()).unwrap();
-
-    let mut opened = DurableWorldSession::open_file(old.clone(), &registry).unwrap();
-    assert_eq!(opened.current_archive().unwrap(), original);
-    assert_eq!(opened.snapshot(), session.snapshot());
-
-    // Its next save writes it compact, gzipped and with a checkpoint, and it
-    // opens again as the same World.
-    let pass = opened
-        .snapshot()
-        .commands
-        .iter()
-        .find(|command| command.unavailable.is_none())
-        .map(|command| command.id.clone())
-        .unwrap();
-    let after = opened
-        .handle(ProjectionIntent::InvokeCommand(pass), &registry, &library)
-        .unwrap();
-    // Written away from the turn: waited for here.
-    opened.flush().unwrap();
-    let bytes = fs::read(&old).unwrap();
-    assert_eq!(bytes[..2], [0x1f, 0x8b], "gzipped");
-    let saved = world_document::WorldDocument::from_bytes(&bytes).unwrap();
-    assert_eq!(saved.archive, opened.current_archive().unwrap());
-    assert_eq!(
-        saved.archive.events[..original.events.len()],
-        original.events[..]
-    );
-    // Opened again once this World is closed (one session per file).
-    let current = opened.current_archive().unwrap();
-    drop(opened);
-    let again = DurableWorldSession::open_file(old, &registry).unwrap();
-    assert_eq!(again.snapshot(), after);
-    assert_eq!(again.current_archive().unwrap(), current);
+    let code = session.world_code().unwrap();
+    assert!(code.starts_with("wm3:"), "{code}");
+    for old in [
+        code.replacen("wm3:", "wm2:", 1),
+        code.replacen("wm3:", "wm1:", 1),
+    ] {
+        assert!(world_library::looks_like_world_code(&old));
+        let error = WorldVisit::open_code(&old, &registry)
+            .err()
+            .expect("a preview's code must not open");
+        assert!(matches!(error, WorldCodeError::PreviewFormat), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            "This World code is from a preview version and can't be opened"
+        );
+    }
     fs::remove_dir_all(root).unwrap();
 }

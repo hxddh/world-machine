@@ -846,3 +846,9 @@ Looked after	見守られたもの
 Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.	みんな家路についています。また明日、朝に来てください。手紙と、今日の選択と、見守られたものと、あなたの本に入る見つけものが待っています。
 No hurry. The town will wait for you.	急がなくて大丈夫。町はあなたを待っています。
 Everyone's home. Come back tomorrow for the morning.	みんな家にいます。また明日、朝に来てください。
+This World was saved by a newer World Machine. Update to open it.	この世界は新しいバージョンの World Machine で保存されています。開くにはアップデートしてください。
+This World is from a preview version and can't be opened.	この世界はプレビュー版のもので、開けません。
+This World code is from a preview version and can't be opened	この世界コードはプレビュー版のもので、開けません
+Restore the last good save	最後の正常なセーブに戻す
+Restored {title} from its last good save. The damaged file is kept beside it.	{title}を最後の正常なセーブから戻しました。壊れたファイルはそのそばに残してあります。
+Could not restore {title}: {error}	{title}を戻せませんでした：{error}

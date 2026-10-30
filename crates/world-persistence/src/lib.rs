@@ -10,11 +10,52 @@ use world_core::{
 };
 
 pub const WORLD_ARCHIVE_FORMAT: &str = "world-machine";
-pub const WORLD_ARCHIVE_VERSION: u32 = 1;
+/// The archive version of World Machine 1.0: an archive in memory, and in
+/// the tagged encoding a Pack process is handed. World Machine 1.0 starts
+/// its own save format: versions 1 and 2 were the v0.x previews', and an
+/// archive of either is refused ([`PersistenceError::PreviewVersion`]), as
+/// is one newer than this World Machine knows
+/// ([`PersistenceError::NewerVersion`]). See docs/SAVES.md.
+pub const WORLD_ARCHIVE_VERSION: u32 = 3;
 /// The version a World file says when its archive is written in the
-/// compact encoding (described in `compact.rs`). The archive it holds is
-/// the same archive, so it reads back as [`WORLD_ARCHIVE_VERSION`].
-pub const WORLD_ARCHIVE_COMPACT_VERSION: u32 = 2;
+/// compact encoding (described in `compact.rs`), as World Machine 1.0
+/// writes every World file. The archive it holds is the same archive, so
+/// it reads back as [`WORLD_ARCHIVE_VERSION`].
+pub const WORLD_ARCHIVE_COMPACT_VERSION: u32 = 4;
+
+/// How an archive's `format_version` stands to this World Machine's.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FormatAge {
+    /// Written by a v0.x preview (versions below 1.0's), never opened.
+    Preview,
+    /// This World Machine's own, in either encoding.
+    Current,
+    /// Written by a newer World Machine, never opened.
+    Newer,
+}
+
+impl FormatAge {
+    /// The age of an archive that says `format_version`.
+    pub fn of(format_version: u64) -> Self {
+        if format_version < u64::from(WORLD_ARCHIVE_VERSION) {
+            Self::Preview
+        } else if format_version <= u64::from(WORLD_ARCHIVE_COMPACT_VERSION) {
+            Self::Current
+        } else {
+            Self::Newer
+        }
+    }
+
+    /// The error that refuses an archive of this age, if any.
+    fn refusal(self, format_version: u64) -> Option<PersistenceError> {
+        let version = u32::try_from(format_version).unwrap_or(u32::MAX);
+        match self {
+            Self::Preview => Some(PersistenceError::PreviewVersion(version)),
+            Self::Current => None,
+            Self::Newer => Some(PersistenceError::NewerVersion(version)),
+        }
+    }
+}
 
 mod compact;
 mod fast;
@@ -295,13 +336,17 @@ impl WorldArchive {
     }
 
     /// Reads an archive in either encoding from a parsed JSON object:
-    /// tagged (as every World file was written before the compact one) or
-    /// compact.
+    /// tagged (as a Pack process is handed one) or compact (as World files
+    /// write it). An archive a preview or a newer World Machine wrote is
+    /// refused by its version before anything else of it is read.
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, PersistenceError> {
-        let compact = value
+        let version = value
             .get("format_version")
-            .and_then(serde_json::Value::as_u64)
-            == Some(u64::from(WORLD_ARCHIVE_COMPACT_VERSION));
+            .and_then(serde_json::Value::as_u64);
+        if let Some(refused) = version.and_then(|version| FormatAge::of(version).refusal(version)) {
+            return Err(refused);
+        }
+        let compact = version == Some(u64::from(WORLD_ARCHIVE_COMPACT_VERSION));
         let archive = if compact {
             let header = ArchiveHeader::deserialize(value).map_err(PersistenceError::Json)?;
             let keys = compact::keys_from(value.get("keys")).map_err(PersistenceError::Compact)?;
@@ -331,11 +376,23 @@ impl WorldArchive {
             return Err(PersistenceError::UnsupportedFormat(self.format.clone()));
         }
         if self.format_version != WORLD_ARCHIVE_VERSION {
-            return Err(PersistenceError::UnsupportedVersion(self.format_version));
+            let version = u64::from(self.format_version);
+            return Err(FormatAge::of(version)
+                .refusal(version)
+                .unwrap_or(PersistenceError::UnsupportedVersion(self.format_version)));
         }
         validate_pack(&self.pack)
     }
 }
+
+/// What the player is told of a World a newer World Machine saved: it is
+/// refused whole, never opened in part (the app shows it in the player's
+/// language).
+pub const NEWER_SAVE_MESSAGE: &str =
+    "This World was saved by a newer World Machine. Update to open it.";
+
+/// What the player is told of a World a v0.x preview saved.
+pub const PREVIEW_SAVE_MESSAGE: &str = "This World is from a preview version and can't be opened.";
 
 /// Where a World is restored from: its first event, or a checkpoint.
 enum Start {
@@ -363,6 +420,11 @@ pub enum PersistenceError {
     Compact(String),
     UnsupportedFormat(String),
     UnsupportedVersion(u32),
+    /// An archive a v0.x preview wrote: World Machine 1.0 starts its own
+    /// save format, and opens none of theirs.
+    PreviewVersion(u32),
+    /// An archive a newer World Machine wrote.
+    NewerVersion(u32),
     InvalidPack,
     PackMismatch {
         expected: WorldPackRef,
@@ -382,6 +444,8 @@ impl fmt::Display for PersistenceError {
             Self::UnsupportedVersion(version) => {
                 write!(f, "unsupported world archive version: {version}")
             }
+            Self::PreviewVersion(_) => f.write_str(PREVIEW_SAVE_MESSAGE),
+            Self::NewerVersion(_) => f.write_str(NEWER_SAVE_MESSAGE),
             Self::InvalidPack => write!(f, "world archive pack id and version must be non-empty"),
             Self::PackMismatch { expected, found } => write!(
                 f,
@@ -401,6 +465,8 @@ impl Error for PersistenceError {
             Self::Compact(_)
             | Self::UnsupportedFormat(_)
             | Self::UnsupportedVersion(_)
+            | Self::PreviewVersion(_)
+            | Self::NewerVersion(_)
             | Self::InvalidPack
             | Self::PackMismatch { .. } => None,
         }
@@ -1290,6 +1356,59 @@ mod tests {
         ));
     }
 
+    /// The 1.0 save contract: an archive of a v0.x preview's version (1 or
+    /// 2) or of a newer World Machine's is refused, in either encoding, by
+    /// its version alone, and says so in the player's words.
+    #[test]
+    fn preview_and_newer_archives_are_refused_by_their_version() {
+        let world = World::new(baseline());
+        let archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        assert_eq!(FormatAge::of(1), FormatAge::Preview);
+        assert_eq!(FormatAge::of(2), FormatAge::Preview);
+        assert_eq!(
+            FormatAge::of(u64::from(WORLD_ARCHIVE_VERSION)),
+            FormatAge::Current
+        );
+        assert_eq!(
+            FormatAge::of(u64::from(WORLD_ARCHIVE_COMPACT_VERSION)),
+            FormatAge::Current
+        );
+        assert_eq!(FormatAge::of(5), FormatAge::Newer);
+        let tagged = archive.to_json_pretty().unwrap();
+        let compact =
+            String::from_utf8(archive.to_compact_json(&serde_json::Map::new()).unwrap()).unwrap();
+        let tagged_version = format!("\"format_version\": {WORLD_ARCHIVE_VERSION}");
+        let compact_version = format!("\"format_version\":{WORLD_ARCHIVE_COMPACT_VERSION}");
+        assert!(tagged.contains(&tagged_version), "{tagged}");
+        assert!(compact.contains(&compact_version), "{compact}");
+        for (json, written) in [(&tagged, &tagged_version), (&compact, &compact_version)] {
+            for preview in [1, 2] {
+                let old = json.replace(written, &format!("\"format_version\":{preview}"));
+                let error = WorldArchive::from_json(&old).unwrap_err();
+                assert!(
+                    matches!(error, PersistenceError::PreviewVersion(version) if version == preview),
+                    "{error:?}"
+                );
+                assert_eq!(error.to_string(), PREVIEW_SAVE_MESSAGE);
+            }
+            let newer = json.replace(written, "\"format_version\":5");
+            let error = WorldArchive::from_json(&newer).unwrap_err();
+            assert!(
+                matches!(error, PersistenceError::NewerVersion(5)),
+                "{error:?}"
+            );
+            assert_eq!(error.to_string(), NEWER_SAVE_MESSAGE);
+        }
+        // Even one whose events a preview wrote in a form 1.0 cannot read:
+        // its version is read first.
+        let unreadable = r#"{"format":"world-machine","format_version":2,"pack":{"id":"p","version":"0.13.0"},"world_time":0,"events":[["?"]]}"#;
+        assert!(matches!(
+            WorldArchive::from_json(unreadable),
+            Err(PersistenceError::PreviewVersion(2))
+        ));
+    }
+
     fn every_kind_of_value() -> Value {
         let mut map = BTreeMap::new();
         map.insert("plain".to_string(), Value::Integer(-4));
@@ -1712,8 +1831,8 @@ mod tests {
             ("[\"e-\",", "[\"e-\",1,"),
             ("{\"#\":", "{\"#\":-"),
             ("{\"{}\":", "{\"{}\":1,\"z\":"),
-            ("\"format_version\":2", "\"format_version\":1"),
-            ("\"format_version\":2", "\"format_version\":2.0"),
+            ("\"format_version\":4", "\"format_version\":3"),
+            ("\"format_version\":4", "\"format_version\":4.0"),
             ("\"keys\":[", "\"keys\":[1,"),
             ("\"last_event\":", "\"last_event\":\"x\",\"z\":"),
             ("\"changes\":[", "\"changes\":[[],"),

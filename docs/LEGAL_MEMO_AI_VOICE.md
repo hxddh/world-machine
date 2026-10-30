@@ -1,6 +1,6 @@
 # Memo for counsel: the optional AI voice, and companion-chatbot law
 
-**Prepared for one review by counsel before the demo is public. Not legal advice.** Written for v0.29 on 2026-10-09. Every fact about the law below comes from the research in [REVIEW_v0.28.md](REVIEW_v0.28.md) ("What the research found"), which was gathered from web-search summaries on 2026-10-08 without opening the pages. **All of it is unverified** and must be read against the statutes themselves.
+**Prepared for one review by counsel before the demo is public. Not legal advice.** Written for v0.29 on 2026-10-09. Every fact about the law below comes from the research in [REVIEW_v0.28.md](archive/REVIEW_v0.28.md) ("What the research found"), which was gathered from web-search summaries on 2026-10-08 without opening the pages. **All of it is unverified** and must be read against the statutes themselves.
 
 ## What the product does (verifiable in this repository)
 

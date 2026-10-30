@@ -17,18 +17,9 @@ pub const MOST_TOLD_A_YEAR: usize = 5;
 /// "<activity>|<year>|<counts>", the counts a character a kind of day
 /// ([`COUNTS`]: 0–9, then a–z and A–Z, so up to 61 a year), in the order
 /// the Pack lists its activities, the kinds not yet lived at the end left
-/// off. A World from before v0.30 keeps the activity alone.
-///
-/// v0.30.0 kept a note a kind (`lives.told_year.<activity>`, holding
-/// "<year>:<times>") and never let a past year's go: after three years a
-/// builder's place carried nearly three hundred of them in every
-/// checkpoint, and its World code grew past 50,000 characters. Those are
-/// still read for the year they were kept in, and let go of when the
-/// person next lives a day.
+/// off. One note a person, whatever the year, so a long World's
+/// checkpoint and code stay small.
 pub(crate) const DID: &str = "lives.did";
-
-/// v0.30.0's notes, one a kind of day: `<OLD_TOLD_YEAR>.<activity>`.
-const OLD_TOLD_YEAR: &str = "lives.told_year";
 
 /// A count, as [`DID`] writes it: one character each.
 const COUNTS: &[u8; 62] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -45,9 +36,6 @@ pub(crate) fn last_did(state: &WorldState, person: EntityId) -> &str {
 pub(crate) struct Days {
     year: u64,
     counts: Vec<i64>,
-    /// Whether the year's counts were read from v0.30.0's notes, which
-    /// are then let go of.
-    from_before: bool,
 }
 
 /// A day lived, as [`Days::lived`] tells it.
@@ -56,44 +44,27 @@ pub(crate) struct Lived {
     pub nth: i64,
     /// The note that keeps it, for [`DID`].
     pub note: String,
-    /// v0.30.0's notes to let go of.
-    pub let_go: Vec<String>,
 }
 
 impl Days {
     /// `person`'s days in `year`, from what they keep.
-    pub(crate) fn of(state: &WorldState, cast: &Cast, person: EntityId, year: u64) -> Self {
-        let kept = text(state, person, DID).and_then(|did| {
-            let mut parts = did.splitn(3, '|');
-            parts.next()?;
-            let kept_year = parts.next()?.parse::<u64>().ok()?;
-            let counts = parts.next()?;
-            (kept_year == year).then(|| {
-                counts
-                    .bytes()
-                    .map(|c| COUNTS.iter().position(|d| *d == c).unwrap_or(0) as i64)
-                    .collect::<Vec<_>>()
-            })
-        });
-        // Kept this year, or kept before as v0.30.0 kept it (or not at all).
-        let counted = kept.is_some();
-        let counts = kept.unwrap_or_else(|| {
-            cast.activities
-                .iter()
-                .map(|activity| {
-                    text(state, person, &format!("{OLD_TOLD_YEAR}.{}", activity.id))
-                        .and_then(|kept| kept.split_once(':'))
-                        .filter(|(kept_year, _)| kept_year.parse::<u64>().ok() == Some(year))
-                        .and_then(|(_, told)| told.parse::<i64>().ok())
-                        .unwrap_or(0)
+    pub(crate) fn of(state: &WorldState, person: EntityId, year: u64) -> Self {
+        // Kept this year, or nothing counted yet.
+        let counts = text(state, person, DID)
+            .and_then(|did| {
+                let mut parts = did.splitn(3, '|');
+                parts.next()?;
+                let kept_year = parts.next()?.parse::<u64>().ok()?;
+                let counts = parts.next()?;
+                (kept_year == year).then(|| {
+                    counts
+                        .bytes()
+                        .map(|c| COUNTS.iter().position(|d| *d == c).unwrap_or(0) as i64)
+                        .collect::<Vec<_>>()
                 })
-                .collect()
-        });
-        Days {
-            year,
-            counts,
-            from_before: !counted,
-        }
+            })
+            .unwrap_or_default();
+        Days { year, counts }
     }
 
     /// One more day of `activity`, and the note that keeps it.
@@ -118,18 +89,9 @@ impl Days {
             .iter()
             .map(|count| COUNTS[(*count).clamp(0, most) as usize] as char)
             .collect::<String>();
-        let let_go = if self.from_before {
-            cast.activities
-                .iter()
-                .map(|activity| format!("{OLD_TOLD_YEAR}.{}", activity.id))
-                .collect()
-        } else {
-            Vec::new()
-        };
         Lived {
             nth,
             note: format!("{activity}|{}|{counts}", self.year),
-            let_go,
         }
     }
 }
