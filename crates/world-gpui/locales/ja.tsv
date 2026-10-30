@@ -852,3 +852,21 @@ This World code is from a preview version and can't be opened	この世界コー
 Restore the last good save	最後の正常なセーブに戻す
 Restored {title} from its last good save. The damaged file is kept beside it.	{title}を最後の正常なセーブから戻しました。壊れたファイルはそのそばに残してあります。
 Could not restore {title}: {error}	{title}を戻せませんでした：{error}
+A small harbour that grows a day at a time	一日ずつ育っていく小さな港
+Continue	続ける
+New World	新しいワールド
+Settings	設定
+My Worlds	マイワールド
+Menu	メニュー
+World codes	ワールドコード
+Open World Code…	ワールドコードを開く…
+Paste World Code	ワールドコードを貼り付け
+How to play	遊び方
+More help	その他のヘルプ
+Show Log in File Explorer	エクスプローラーでログを表示
+Show Log Folder	ログフォルダを表示
+No account, no telemetry. Your Worlds are files on this Mac; only the optional World voice sends anything out, and only once you turn it on.	アカウント不要、テレメトリなし。ワールドはこのMac上のファイルです。外に何かを送るのは任意のワールドボイスだけで、それもオンにしたときだけです。
+No account, no telemetry. Your Worlds are files on this computer; only the optional World voice sends anything out, and only once you turn it on.	アカウント不要、テレメトリなし。ワールドはこのコンピューター上のファイルです。外に何かを送るのは任意のワールドボイスだけで、それもオンにしたときだけです。
+Each day you come back, your World lives one more day. It is saved as you play.	戻ってくるたびに、ワールドは一日ずつ進みます。遊びながら自動で保存されます。
+Up and down choose a card; Enter takes it.	上下キーでカードを選び、リターンキーで決定します。
+Esc puts away what is open.	Escで開いているものをしまいます。

@@ -26,7 +26,8 @@
 # days a sitting (three on its first), on the sitting ledger its file
 # carries; each scenario starts on a library of its own, so a harbour the
 # harness wrote opens on its first sitting, with its morning card:
-#   first     a new World from an empty library: the first ten seconds,
+#   first     a new World from an empty library: the title screen, New
+#             chosen with Enter, the first ten seconds,
 #             second by second, the welcome (no morning on the harbour's
 #             first day), the free wildflowers, then the first sitting's
 #             three days played card by card to its Goodnight, and the

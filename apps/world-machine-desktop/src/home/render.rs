@@ -519,17 +519,11 @@ impl WorldMachineHome {
     }
 }
 
-impl Render for WorldMachineHome {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        world_theme::set_dark(matches!(
-            window.appearance(),
-            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-        ));
-        window.set_rem_size(gpui::px(world_gpui::rem_size()));
-        remember_window_geometry(window, RememberedWindow::Home);
-        // The demo says it is one.
-        window.set_window_title(demo::HOME_TITLE);
-
+impl WorldMachineHome {
+    /// My Worlds and the rest: the page one step away from the title
+    /// screen, with every World, the Packs, and starting a World of any
+    /// kind.
+    pub(crate) fn library_page(&mut self, cx: &mut Context<Self>) -> gpui::Div {
         // A World where nothing has happened yet is not one of My Worlds;
         // starting that kind of World again picks it back up.
         let documents = self
@@ -744,6 +738,12 @@ impl Render for WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
+            .child(
+                div().pb_2().flex().child(
+                    ui::button("home-back", "Back", ui::ButtonKind::Secondary)
+                        .on_click(cx.listener(|this, _, window, cx| this.show_title(window, cx))),
+                ),
+            )
             .child(ui::page_title(demo::HOME_TITLE))
             .child(ui::body("Small worlds that grow a day at a time."));
 
@@ -840,7 +840,7 @@ impl Render for WorldMachineHome {
             }
         }
 
-        let mut shell = div()
+        div()
             .relative()
             .size_full()
             .bg(ui::color(tokens::WINDOW))
@@ -854,83 +854,83 @@ impl Render for WorldMachineHome {
                     .flex_1()
                     .overflow_y_scroll()
                     .child(body),
-            );
+            )
+    }
 
-        // Status floats over the bottom of the window instead of being
-        // inserted above the page, so a Pack finishing its start-up never
-        // moves the card under the pointer.
-        if let Some(status) = &self.status {
-            let tone = match status.tone {
-                HomeStatusTone::Info => tokens::ACCENT_TEXT,
-                HomeStatusTone::Success => tokens::SUCCESS,
-                HomeStatusTone::Error => tokens::DANGER,
-            };
-            shell = shell.child(
-                div()
-                    .id("world-machine-home-status")
-                    .absolute()
-                    .bottom_4()
-                    .left_0()
-                    .right_0()
-                    .flex()
-                    .justify_center()
-                    .px_6()
-                    .child(
-                        div()
-                            .max_w(px(640.0))
-                            .w_full()
-                            .pl_4()
-                            .pr_2()
-                            .py_2()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(ui::color(tokens::BORDER_STRONG))
-                            .bg(ui::color(tokens::SURFACE))
-                            .shadow_md()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.0))
-                                    .text_sm()
-                                    .text_color(ui::color(tone))
-                                    .child(ui::t(status.message.clone())),
-                            )
-                            .when_some(status.restore.clone(), |row, target| {
-                                row.child(
-                                    ui::button(
-                                        "restore-world-machine-home-status",
-                                        world_machine_desktop::restore::RESTORE_LABEL,
-                                        ui::ButtonKind::Primary,
-                                    )
-                                    .on_click(cx.listener(
-                                        move |this, _, _, cx| {
-                                            this.status = None;
-                                            this.restore_last_good(target.clone(), cx);
-                                        },
-                                    )),
-                                )
-                            })
-                            .child(
+    /// What Home said it did, or could not do, floating over the bottom of
+    /// either page instead of being inserted above it, so a Pack finishing
+    /// its start-up never moves the card under the pointer.
+    pub(crate) fn status_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        let status = self.status.as_ref()?;
+        let tone = match status.tone {
+            HomeStatusTone::Info => tokens::ACCENT_TEXT,
+            HomeStatusTone::Success => tokens::SUCCESS,
+            HomeStatusTone::Error => tokens::DANGER,
+        };
+        Some(
+            div()
+                .id("world-machine-home-status")
+                .absolute()
+                .bottom_4()
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .px_6()
+                .child(
+                    div()
+                        .max_w(px(640.0))
+                        .w_full()
+                        .pl_4()
+                        .pr_2()
+                        .py_2()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(ui::color(tokens::BORDER_STRONG))
+                        .bg(ui::color(tokens::SURFACE))
+                        .shadow_md()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .text_sm()
+                                .text_color(ui::color(tone))
+                                .child(ui::t(status.message.clone())),
+                        )
+                        .when_some(status.restore.clone(), |row, target| {
+                            row.child(
                                 ui::button(
-                                    "dismiss-world-machine-home-status",
-                                    "Dismiss",
-                                    ui::ButtonKind::Secondary,
+                                    "restore-world-machine-home-status",
+                                    world_machine_desktop::restore::RESTORE_LABEL,
+                                    ui::ButtonKind::Primary,
                                 )
                                 .on_click(cx.listener(
-                                    |this, _, _, cx| {
+                                    move |this, _, _, cx| {
                                         this.status = None;
-                                        cx.notify();
+                                        this.restore_last_good(target.clone(), cx);
                                     },
                                 )),
-                            ),
-                    ),
-            );
-        }
-
-        shell
+                            )
+                        })
+                        .child(
+                            ui::button(
+                                "dismiss-world-machine-home-status",
+                                "Dismiss",
+                                ui::ButtonKind::Secondary,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.status = None;
+                                cx.notify();
+                            })),
+                        ),
+                ),
+        )
     }
 }

@@ -9,8 +9,10 @@ mod library;
 mod packs;
 mod render;
 mod status;
+mod title;
 pub(crate) use library::*;
 pub(crate) use status::*;
+pub(crate) use title::*;
 
 pub(crate) struct WorldMachineHome {
     pub(crate) registry: Arc<world_host::WorldRegistry>,
@@ -47,6 +49,23 @@ pub(crate) struct WorldMachineHome {
     /// On a first launch Home steps aside once the first World opens, so a
     /// new player meets one window, not two.
     pub(crate) step_aside_for_first_world: bool,
+    /// Which page Home shows: the title screen, or My Worlds and the rest.
+    pub(crate) view: HomeView,
+    /// The title screen's choice the keyboard is on.
+    pub(crate) title_focus: shell::TitleChoice,
+    /// Whether the in-window app menu is open, and which item the keyboard
+    /// is on.
+    pub(crate) menu_open: bool,
+    pub(crate) menu_focus: usize,
+    /// Holds Home's keyboard: the arrows, Enter and Esc.
+    pub(crate) focus: gpui::FocusHandle,
+    /// New was chosen while the featured World Pack was still getting
+    /// ready: its World starts as soon as it is.
+    pub(crate) new_when_ready: bool,
+    /// The title screen's town when there is no World of the player's to
+    /// show: a new World of the featured Pack, made in memory and never
+    /// saved. Worked out once, when first needed.
+    pub(crate) showcase: Option<Option<std::rc::Rc<Showcase>>>,
 }
 
 /// A World name being typed on Home. Only one World is renamed at a time, so

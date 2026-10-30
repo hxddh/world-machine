@@ -123,18 +123,12 @@ impl WorldMachineHome {
             }
             match catalog.install_reviewed_pending_probe(&preview) {
                 Ok(installed) => {
-                    // A fresh install (no saved Worlds yet) opens straight
-                    // into its first World once the featured Pack is ready;
-                    // otherwise Home offers the Create handoff.
-                    let create_now = pack.featured && self.documents.is_empty();
-                    self.step_aside_for_first_world |= create_now;
-                    self.start_pack_probe(
-                        installed.pack,
-                        true,
-                        create_now,
-                        pack.featured && !create_now,
-                        cx,
-                    );
+                    // A fresh install opens on the title screen, with New
+                    // first: the featured Pack gets ready behind it, and
+                    // its first World starts when the player chooses New
+                    // (at once if it is ready by then). My Worlds offers
+                    // the Create handoff too.
+                    self.start_pack_probe(installed.pack, true, false, pack.featured, cx);
                     self.status = Some(HomeStatus::info(format!(
                         "Preparing {} for its first launch…",
                         pack.title
@@ -306,7 +300,13 @@ impl WorldMachineHome {
                         match transition {
                             Ok(()) => match this.rebuild_registry() {
                                 Ok(()) => {
-                                    if activate_on_success && create_on_success {
+                                    // New on the title screen waited for this Pack.
+                                    let new_waited = this.new_when_ready
+                                        && this.featured_pack().as_ref() == Some(&pack);
+                                    if new_waited {
+                                        this.new_when_ready = false;
+                                    }
+                                    if activate_on_success && (create_on_success || new_waited) {
                                         this.ready_pack_to_create = None;
                                         this.create_world(pack.id.clone(), cx);
                                         return;
@@ -355,6 +355,9 @@ impl WorldMachineHome {
                     Err(error) => {
                         if this.ready_pack_to_create.as_ref() == Some(&pack) {
                             this.ready_pack_to_create = None;
+                        }
+                        if this.featured_pack().as_ref() == Some(&pack) {
+                            this.new_when_ready = false;
                         }
                         let _ = this.rebuild_registry();
                         this.status = Some(HomeStatus::error(format!(

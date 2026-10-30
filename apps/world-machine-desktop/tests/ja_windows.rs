@@ -125,6 +125,8 @@ fn every_window_speaks_japanese_in_japanese() {
         "home/packs.rs",
         "home/render.rs",
         "home/status.rs",
+        "home/title.rs",
+        "app_menu.rs",
         "host_controller.rs",
         "settings.rs",
         "about.rs",

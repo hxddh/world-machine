@@ -6,6 +6,8 @@
 #[cfg(gui)]
 mod about;
 #[cfg(gui)]
+mod app_menu;
+#[cfg(gui)]
 mod build_info;
 #[cfg(gui)]
 mod diagnostics;
@@ -102,6 +104,8 @@ use world_library::{
 use world_machine_desktop::ambience;
 #[cfg(gui)]
 use world_machine_desktop::demo;
+#[cfg(gui)]
+use world_machine_desktop::shell;
 #[cfg(gui)]
 use world_machine_desktop::window_state::{self, StoredWindowBounds};
 #[cfg(gui)]
@@ -285,6 +289,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 world_sort: WorldSort::Recent,
                 world_search,
                 step_aside_for_first_world: false,
+                view: HomeView::Title,
+                title_focus: shell::TitleChoice::Continue,
+                menu_open: false,
+                menu_focus: 0,
+                focus: cx.focus_handle(),
+                new_when_ready: false,
+                showcase: None,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
