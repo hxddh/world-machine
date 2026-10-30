@@ -198,16 +198,6 @@ pub fn gate(pack_id: &str, day: Option<u32>, passes_time: bool) -> Gate {
     Gate::Open
 }
 
-/// How many of `periods` of time away a World on `day` may live through in
-/// the demo: never past its last day, and none at all for a Pack it does
-/// not offer or a day it cannot count.
-pub fn periods_to_catch_up(pack_id: &str, day: Option<u32>, periods: u64) -> u64 {
-    match day {
-        Some(day) if offers_pack(pack_id) => periods.min(u64::from(last_day().saturating_sub(day))),
-        _ => 0,
-    }
-}
-
 /// What Home is called: the demo says it is one.
 pub const HOME_TITLE: &str = if ENABLED {
     "World Machine Demo"
@@ -534,25 +524,6 @@ mod tests {
         // A day that cannot be counted is past the last.
         assert_eq!(gate(PACK_ID, None, true), Gate::Ending);
         assert_eq!(gate(PACK_ID, None, false), Gate::Open);
-        // And time away moves neither.
-        assert_eq!(
-            periods_to_catch_up("world-machine.pocket-universe", Some(1), 9),
-            0
-        );
-        assert_eq!(periods_to_catch_up(PACK_ID, None, 9), 0);
-    }
-
-    #[test]
-    fn time_away_stops_at_the_last_day() {
-        let last = last_day();
-        assert_eq!(
-            periods_to_catch_up(PACK_ID, Some(1), 28),
-            u64::from(last - 1)
-        );
-        assert_eq!(periods_to_catch_up(PACK_ID, Some(last - 1), 4), 1);
-        assert_eq!(periods_to_catch_up(PACK_ID, Some(last), 4), 0);
-        assert_eq!(periods_to_catch_up(PACK_ID, Some(last + 2), 4), 0);
-        assert_eq!(periods_to_catch_up(PACK_ID, Some(2), 1), 1);
     }
 
     #[test]
