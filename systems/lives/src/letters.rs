@@ -201,10 +201,15 @@ pub fn daily_with(
         .filter(|person| enrolled(state, *person) && !gone(state, *person))
         .collect::<Vec<_>>();
     if let Some(stranger) = people.iter().find(|person| !away && !met.contains(person)) {
-        let request = ActionRequest::new("lives_greets")
+        let mut request = ActionRequest::new("lives_greets")
             .actor(*stranger)
             .arg("who", Value::Entity(*stranger))
             .arg("later", "a quiet day");
+        // Someone who has written, asked a favour or looked after what is
+        // the player's says hello as to someone they know of.
+        if strangers::crossed(world, *stranger) {
+            request = request.arg("known", "crossed paths");
+        }
         return Ok(world.execute(actions, &request).ok().map(|event| event.id));
     }
     if let Some(most) = quiet.letters_a_week {

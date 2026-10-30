@@ -102,6 +102,24 @@ pub(crate) const MET_KINDS: [&str; 6] = [
     "spoken",
 ];
 
+/// The kinds of event in which someone crosses the player's path without
+/// meeting them: a letter written to them, a favour asked of them (the
+/// `conversation` System's `favour_asked`), something of theirs looked
+/// after overnight (the `ritual` System's `tended_overnight`). Whoever has
+/// done one is met in a quiet day's hello as someone the player knows of,
+/// never as a stranger (v0.31 play: Mia asked a favour and watered the
+/// player's flowers, then said "We haven't met properly" on day 4). Those
+/// Systems' tests hold their kinds to this.
+pub const CROSSED_KINDS: [&str; 3] = ["letter_written", "favour_asked", "tended_overnight"];
+
+/// Whether `who` has crossed the player's path ([`CROSSED_KINDS`]).
+pub(crate) fn crossed(world: &World, who: EntityId) -> bool {
+    world
+        .events_of_kind(&CROSSED_KINDS)
+        .into_iter()
+        .any(|event| event.actor == Some(who))
+}
+
 /// Whom the player meets in an event, if anyone.
 pub(crate) fn met_in(event: &Event) -> Option<EntityId> {
     match event.kind.as_str() {

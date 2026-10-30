@@ -653,6 +653,15 @@ pub(crate) const MEETINGS: [&str; 4] = [
     "At last! I'm {name}. I've been meaning to say hello.",
 ];
 
+/// How someone introduces themselves who has crossed the player's path
+/// already (written to them, asked them a favour, looked after something
+/// of theirs) without saying hello: never as to a stranger.
+pub(crate) const CROSSED_PATHS: [&str; 3] = [
+    "We keep crossing paths, and I never said. I'm {name}.",
+    "Hello again! I'm {name}, in case nobody said.",
+    "Good to put a face to it all at last. I'm {name}.",
+];
+
 /// How a letter to the player begins and ends.
 pub(crate) const LETTER_OPENINGS: [&str; 10] = [
     "A few lines, since I didn't see you today.",

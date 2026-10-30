@@ -82,7 +82,9 @@ pub enum Stage {
 /// slots: `{name}` is whose turn it is (their first name), `{a}` and `{b}`
 /// a newborn's parents, `{trade}` a trade in words, `{age}` a number,
 /// `{heir}` and `{heirloom}` who inherits what, `{memorial}` the
-/// memorial's name. A line is picked from each list by chance.
+/// memorial's name; in a coming of age, a leaving home, a retirement and a
+/// death, `{their}` is "his", "her" or "their" for whose turn it is. A
+/// line is picked from each list by chance.
 #[derive(Debug)]
 pub struct KinWords {
     pub born: &'static [&'static str],
@@ -494,6 +496,14 @@ pub(crate) fn remembering(
     Some((who, lines))
 }
 
+/// "his", "her" or "their": how a line speaks of what is `who`'s own,
+/// for the `{their}` in a Pack's words ("with a trade of {their} own"),
+/// as their pronouns have it (v0.31: "Mia is grown now, with a trade of
+/// their own").
+fn their(state: &WorldState, cast: &Cast, who: EntityId) -> String {
+    crate::pronouns(state, cast, who).their().to_string()
+}
+
 fn words(lines: &'static [&'static str], seed: u64, slots: &[(&'static str, String)]) -> String {
     pick(lines, seed)
         .map(|line| fill_owned(line, slots))
@@ -694,6 +704,7 @@ impl Action for ComesOfAge {
         let slots = [
             ("name", first_name(state, who)),
             ("trade", kin.trade_words(&trade)),
+            ("their", their(state, &cast, who)),
         ];
         let told = words(kin.words.came_of_age, seed / 7, &slots);
         let said = words(kin.words.came_of_age_said, seed / 11, &slots);
@@ -730,7 +741,10 @@ impl Action for LeavesHome {
             return Err(ActionError::Invalid("not grown".into()));
         }
         let seed = mix(&[who.0, 89]);
-        let slots = [("name", first_name(state, who))];
+        let slots = [
+            ("name", first_name(state, who)),
+            ("their", their(state, &cast, who)),
+        ];
         let told = words(kin.words.left_home, seed, &slots);
         let said = words(kin.words.left_home_said, seed / 3, &slots);
         let mut draft = draft("left_home", who, who, told, said);
@@ -773,6 +787,7 @@ impl Action for Retires {
         let slots = [
             ("name", first_name(state, who)),
             ("trade", kin.trade_words(current)),
+            ("their", their(state, &cast, who)),
         ];
         let told = words(kin.words.retired, seed, &slots);
         let said = words(kin.words.retired_said, seed / 3, &slots);
@@ -825,7 +840,11 @@ impl Action for Dies {
         let mourner = closest(state, &cast, who);
         let now = period(state, &cast) as i64;
         let seed = mix(&[who.0, now as u64, 101]);
-        let slots = [("name", first_name(state, who)), ("age", age.to_string())];
+        let slots = [
+            ("name", first_name(state, who)),
+            ("age", age.to_string()),
+            ("their", their(state, &cast, who)),
+        ];
         let told = words(kin.words.died, seed, &slots);
         let said = mourner
             .map(|_| words(kin.words.died_said, seed / 3, &slots))

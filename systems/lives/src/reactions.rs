@@ -282,10 +282,10 @@ impl Action for Greets {
             ("name", first_name(state, who)),
             ("settlement", cast.settlement.to_string()),
         ];
-        let lines: &[&str] = if arg_text(request, "later").is_ok() {
-            &MEETINGS
-        } else {
-            &GREETINGS
+        let lines: &[&str] = match (arg_text(request, "later"), arg_text(request, "known")) {
+            (Ok(_), Ok(_)) => &CROSSED_PATHS,
+            (Ok(_), Err(_)) => &MEETINGS,
+            _ => &GREETINGS,
         };
         // A Pack may give the place's own hello, in its own words.
         let own = arg_text(request, "line")
