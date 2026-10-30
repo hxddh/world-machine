@@ -111,14 +111,14 @@ These are checked by `a_year_*`, `your_hands_shape_*`, `branches_become_*` and `
 
 - **The storm as a storm.** When the harbour's great storm is on, the sky and land darken and the rain drives in; winter brings snow that lies, autumn rain and fog, Mars its dust storms, Icebridge its blizzards. All of it follows from the World's state.
 
-  ![The storm](review/v12-storm.png)
+  ![The storm](../review/v12-storm.png)
 
 - **Your hands.** The plus beside the drawer handle opens what the World lets you do: build, decorate, plant, move, give, invite, each with its cost. Picking a bench lights up where it can go.
 
-  ![Choosing where the bench goes](review/v12-hands.png)
+  ![Choosing where the bench goes](../review/v12-hands.png)
 
 - **Where you put it.** Clicking a place builds it there, recorded like any other change, and the day does not pass.
 
-  ![The bench by the houses](review/v12-bench.png)
+  ![The bench by the houses](../review/v12-bench.png)
 
 Still to check by hand: the pair of branches a stranger can tell apart, a timed turn on a year-old World on a real Mac, and the two-week diary.

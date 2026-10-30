@@ -10,7 +10,7 @@
 # and the two Pack binaries; it defaults to target/release. Frames are
 # counted from the diorama's own frame log (WORLD_GPUI_FRAME_LOG), CPU from
 # /proc as a share of one core, for the app alone and with its Pack
-# processes. The bar (docs/REVIEW_v0.28.md, plan item 5): covered or
+# processes. The bar (docs/archive/REVIEW_v0.28.md, plan item 5): covered or
 # minimised, no frames drawn and under 2% of one core. Exits 1 when it is
 # missed. "Covered" moves the input focus to the covering window, as a
 # window manager does; covered with the focus kept is measured but not held

@@ -104,10 +104,10 @@ These are checked by `what_you_choose_changes_the_place_and_comes_back`, `a_new_
 
 - **One card per question.** Mara asks about her oven with both answers on the card; ← and → lean, ⏎ chooses.
 
-  ![A question card](review/v11-question.png)
+  ![A question card](../review/v11-question.png)
 
 - **What you chose stands in the harbour.** Day 22 of the demo harbour: the pier's first section, bunting, a lamp post, Sofia's stall and parcels by the houses, all from recorded state. The storm season's climax asks what to save; hauling every boat up costs more than Noah has, so it is greyed.
 
-  ![The harbour on day 22](review/v11-harbour.png)
+  ![The harbour on day 22](../review/v11-harbour.png)
 
 Still to check by hand: the before-and-after pair a stranger can tell apart, and the two-week diary on a real Mac.

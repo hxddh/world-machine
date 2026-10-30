@@ -98,6 +98,6 @@ These are checked by the tests below, next to the year-long, consequence, story-
 
 - **Asking Max about his day.** He answers from what he did, and his card shows where the player stands with him.
 
-  ![Asking Max about his day](review/v14-talk.png)
+  ![Asking Max about his day](../review/v14-talk.png)
 
 Still to do: a commissioned artist's set, drawings for what the player builds, trying World voice's deadline against a real model on a Mac, and, as before, the two-week diary on a real Mac and the five signing secrets.

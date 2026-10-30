@@ -8,19 +8,19 @@
 
 **First launch.** One window, the right World, and a clear first move. Most of it is text around a picture: the heading, three meters at "0 of 10", "Pressurized", "Systems keeper", "Rover scout", six rows of *People and places* that repeat what the picture shows, and "Where things stand" cards below the fold.
 
-![First launch](review/v08r-first.png)
+![First launch](../review/v08r-first.png)
 
 **Five sols in.** The pair now stand together, a heart between them, and the ridge has grown domes and masts. But the Habitat and Hydroponics Bay are still white cards floating in the sky, and Nia and Tomas are "NC" and "TV". The rover is a pill-shaped label. The picture is a quarter of the window; the sidebar history holds more of the story than the scene does.
 
-![Five sols](review/v08r-five-sols.png)
+![Five sols](../review/v08r-five-sols.png)
 
 **Coming back.** The return is now a sequence ("While you were away · 1 of 2", "Jonas asked Leo for help", *Next →*). The scene behind it is a diagram of the harbour: eight white place cards, nine initials, a halo, "cash ↓110" and "cash ↑15" chips, dotted lines. Nothing moves, and the beat doesn't take you to where it happened; it lights two circles in a crowded chart.
 
-![Return](review/v08r-return.png)
+![Return](../review/v08r-return.png)
 
 **Home.** The covers are real landscapes now. Under each one are four text actions (*What if…, Rename, Export…, Remove*), a search field and filter chips for six Worlds. Two Ares branches have identical covers.
 
-![Home](review/v08r-home.png)
+![Home](../review/v08r-home.png)
 
 ## Against the products that do it best
 
@@ -94,29 +94,29 @@ All nine are built, in both Pocket Universe and Tiny Society. Every screenshot b
 
 **The World fills the window.** Nia and Tomas are partners now, a heart over them beside the rover, and Nia says what she did this sol. The stakes are a strip over the sky; your turn is one card. At rest the window shows at most 40 words, which a test in each World now enforces.
 
-![Ares](review/v09-mars.png)
+![Ares](../review/v09-mars.png)
 
 **Coming back is a short film.** The camera goes to Jonas and Leo for the first beat, Jonas asks his question over his head, and the film moves on by itself.
 
-![Return](review/v09-return.png)
+![Return](../review/v09-return.png)
 
 **Click anyone to ask them something.** Their answer comes back as a speech bubble, and a request they make names a choice that is on offer.
 
-![Ask](review/v09-ask.png)
+![Ask](../review/v09-ask.png)
 
 **Everything else is one ⌘I away,** in a drawer over the scene:
 
-![Drawer](review/v09-drawer.png)
+![Drawer](../review/v09-drawer.png)
 
 **Every World looks like itself.** Night over Mars, and on Icebridge penguins in scarves:
 
-![Night](review/v09-night.png)
+![Night](../review/v09-night.png)
 
-![Penguins](review/v09-penguins.png)
+![Penguins](../review/v09-penguins.png)
 
 **Home is covers,** each one drawn from that World's own stage, with the other actions behind ⋯:
 
-![Home](review/v09-home.png)
+![Home](../review/v09-home.png)
 
 ### What is measured
 

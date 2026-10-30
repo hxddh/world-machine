@@ -23,7 +23,7 @@ Measured on 2026-09-30 at `1a6b607` (v0.23.0):
 
 ## What a player sees
 
-![A new World: Day 2, rain, a question before any welcome](review/v23-first-minute.png)
+![A new World: Day 2, rain, a question before any welcome](../review/v23-first-minute.png)
 
 **The first minute (M):**
 - A new World opens on Day 2, in rain, straight into a question.
@@ -31,7 +31,7 @@ Measured on 2026-09-30 at `1a6b607` (v0.23.0):
 - Answering changes nothing visible.
 - The first build on a plot appears finished at once, while Mara says "I'm sorry, Jonas. I can't keep you."
 
-![Day 1,082 at noon](review/v23-day-1080.png)
+![Day 1,082 at noon](../review/v23-day-1080.png)
 
 **Day 1,082 at noon (M):**
 - The works the harbour built now stand, which is v0.21's promise kept.
@@ -40,26 +40,26 @@ Measured on 2026-09-30 at `1a6b607` (v0.23.0):
 - Two of the skyline's towers are lighthouses that are meant to be a clock tower and a telescope.
 - The bottom 40% of the window is empty water.
 
-![The whole town, zoomed out](review/v23-whole-town.png)
+![The whole town, zoomed out](../review/v23-whole-town.png)
 
 **The whole town, zoomed out (M):**
 - The postcard view is a 175-pixel band, with about 80% of the screen bare paper.
 - At night the sky is missing.
 
-![Ares, Mars](review/v23-ares.png)
+![Ares, Mars](../review/v23-ares.png)
 
 **Pocket Universe (M):**
 - Pocket Universe wears the harbour's drawings: on Mars there is a lighthouse, a thatched cottage, gulls and grass.
 - Maple Street, 1987, has a lighthouse and a sea.
 - Icebridge's penguins live in cottages with flower boxes.
 
-![A farewell, in three panels](review/v23-moment.png)
+![A farewell, in three panels](../review/v23-moment.png)
 
 **Moments (M):**
 - "Ivo's farewell" is three nearly identical panels, with no ferry and no leaving.
 - It names the place "Harbor", the seed's internal name.
 
-![Dusk, in the return film](review/v23-dusk.png)
+![Dusk, in the return film](../review/v23-dusk.png)
 
 **What already delights (M):**
 - Dusk and night: lit windows and silhouettes, the moon and stars, reflections on the water.
@@ -402,11 +402,11 @@ The first stage, "coherent".
 | Zero English in the zh-Hans interface | 0 in 646 lines, walked in a test |
 | Almanac reachable after the first New Year | from the drawer and with Y |
 
-![Day 1,082 at noon](review/v24-noon.png)
-![The whole town at dusk](review/v24-postcard.png)
-![Ares](review/v24-ares.png)
-![Icebridge](review/v24-icebridge.png)
-![The drawer](review/v24-drawer.png)
+![Day 1,082 at noon](../review/v24-noon.png)
+![The whole town at dusk](../review/v24-postcard.png)
+![Ares](../review/v24-ares.png)
+![Icebridge](../review/v24-icebridge.png)
+![The drawer](../review/v24-drawer.png)
 
 Next is v0.25: a crafted and trusted product, with the speed back.
 
@@ -428,8 +428,8 @@ The second stage, "crafted and trusted".
 | At least 2,000 duplicated lines removed | 2,319 (1,664 of them code) |
 | Nightly job for every ignored bar | yes |
 
-![The harbour, drawn by hand](review/v25-noon.png)
-![Night, with the window gone dark](review/v25-night.png)
+![The harbour, drawn by hand](../review/v25-noon.png)
+![Night, with the window gone dark](../review/v25-night.png)
 
 Next is v0.26: a layered World voice measured on a fresh blind set, then going out.
 
@@ -450,10 +450,10 @@ The third stage, "the voice done right, and out into the world". The decisions i
 
 The judge's verdicts were given by Claude Haiku 4.5 reading the exact judge prompt, 25 lines to a batch with opaque ids, through an agent rather than the app's own request; no key was available. Nothing was tuned after the set was opened.
 
-![A favour, noted in the drawer](review/v26-favour.png)
-![Night, with the drawer as paper under a lamp](review/v26-night.png)
-![Day 1, with washing, a handcart and boats](review/v26-day1.png)
-![Where the demo ends](review/v26-demo-end.png)
+![A favour, noted in the drawer](../review/v26-favour.png)
+![Night, with the drawer as paper under a lamp](../review/v26-night.png)
+![Day 1, with washing, a handcart and boats](../review/v26-day1.png)
+![Where the demo ends](../review/v26-demo-end.png)
 
 Next: a fresh review. The judge's recall, the decisions below and a Mac to test on decide what v0.27 is.
 

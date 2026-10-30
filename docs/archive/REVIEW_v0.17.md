@@ -34,7 +34,7 @@ A scripted player answered the first question each day, made something every thi
   - Maple Street asks "Maple Arcade can't take much more." and "Who carries this on after us?" on 188 days each. Both come from Pocket Universe's first design (pressure and succession), which still runs under the new systems.
 - **Quiet days** come back after the first month in Tiny Society: 5 in every 60 days. Maple Street has none.
 
-![A return in v0.17: a zoomed scene with bands of light across it](review/v17-return.png)
+![A return in v0.17: a zoomed scene with bands of light across it](../review/v17-return.png)
 
 A return to Tiny Society (above, from the real app under the Linux preview) shows two new faults.
 - **The film card:** it says "While you were away · 2 of 9" with nothing under it. This may be the screenshot catching it between beats, which needs checking.
@@ -125,11 +125,11 @@ The whole plan went into `v0.18.0`. Measured with the same scripted player as ab
 - **Two verbs:** Suggest in both Packs; Host through **World → Invite a Guest**.
 - **On the desktop:** the strip.
 
-  ![The strip along a screen's edge, resting and with a letter open](review/v18-strip.png)
+  ![The strip along a screen's edge, resting and with a letter open](../review/v18-strip.png)
 - **Sharing:** postcards and World codes that open as read-only visits.
 - **The return:** every beat has words, and fog no longer draws bands.
 
-  ![A return in v0.18: the film card has words and the scene has no bands](review/v18-return.png)
+  ![A return in v0.18: the film card has words and the scene has no bands](../review/v18-return.png)
 
 Still open: none of it has been used on a Mac; Pocket Universe has no year turns of its own; a World code holds the whole history, so it is long.
 

@@ -34,8 +34,8 @@ Every number is measured unless it says otherwise. The full reports and their lo
 
 **v0.27 should make the town answer the player,** make favours seen and doable, and tighten the voice and the plumbing. Notarization, the store and the widget still wait on the decisions at the end.
 
-![The pier, built on a hilltop](review/v27-pier-on-hill.png)
-![Three years: a catalogue on a lawn](review/v27-three-years.png)
+![The pier, built on a hilltop](../review/v27-pier-on-hill.png)
+![Three years: a catalogue on a lawn](../review/v27-three-years.png)
 
 ## What the player found
 
@@ -70,9 +70,9 @@ Every number is measured unless it says otherwise. The full reports and their lo
     - Clicks hit the wrong person, and name labels stack.
     - Labels showed before the buildings were painted.
 
-![A favour: the target found at last, and a contradictory reply](review/v27-favour.png)
-![The demo's ending](review/v27-demo-end.png)
-![The drawer's "More" tab](review/v27-drawer-more.png)
+![A favour: the target found at last, and a contradictory reply](../review/v27-favour.png)
+![The demo's ending](../review/v27-demo-end.png)
+![The drawer's "More" tab](../review/v27-drawer-more.png)
 
 **What already delights:**
 - night;
@@ -83,7 +83,7 @@ Every number is measured unless it says otherwise. The full reports and their lo
 
 These lines are the product's real voice, and the scene should say what they say.
 
-![Night](review/v27-night.png)
+![Night](../review/v27-night.png)
 
 ## What the measurements found
 

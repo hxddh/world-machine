@@ -85,10 +85,10 @@ These are checked by the tests below, next to the year-long, consequence and sto
 
 - **Talking to Max.** The camera moves in on him, he gestures as he answers, and the conversation builds in his card.
 
-  ![Talking to Max on Maple Street](review/v13-talk.png)
+  ![Talking to Max on Maple Street](../review/v13-talk.png)
 
 - **The harbour at dusk.** The lighthouse, the timbered pub, the bakery's awning and the school's bell. The residents in their hats and aprons, and lit windows glowing.
 
-  ![The harbour at dusk](review/v13-harbour.png)
+  ![The harbour at dusk](../review/v13-harbour.png)
 
 Still to do: a commissioned artist's set to replace these first drawings, Home covers drawn with them, answers from World voice that do not hold up the window, and, as before, the two-week diary on a real Mac and the five signing secrets.

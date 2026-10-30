@@ -6,15 +6,15 @@
 
 ## What a new player sees
 
-![First launch: three abstract hills](review/v16-first-launch.png)
+![First launch: three abstract hills](../review/v16-first-launch.png)
 
 A first launch opens a new Pocket Universe World and asks which place to start. The three covers are abstract hills. The drawn scenes that Home shows once a player has Worlds (people, domes, a rover) never appear here, so the product's first picture is its plainest.
 
-![The first Pocket Universe World](review/v16-first-world.png)
+![The first Pocket Universe World](../review/v16-first-world.png)
 
 Picking the 1987 town opens a night street with two people and a choice to let the night pass. Lena's first line, "Max Park paid me in pie. Worth it.", is about Max, the radio volunteer beside her, before the player has met either of them. The lower third is empty ground. The two far buildings are grey boxes with three dots, and the gauges read "Trust" and "Tension".
 
-![Tiny Society on day 22](review/v16-tiny-society.png)
+![Tiny Society on day 22](../review/v16-tiny-society.png)
 
 Tiny Society, one click further away, is the product the release notes describe: a harbour, a lighthouse, a market, fourteen people with faces, rain, and a question in Jonas's own words. The card's portrait of Jonas does not match Jonas on the scene, though. On the scene he has a sou'wester and a beard; the portrait is a clean-shaven face with brown hair. The card draws people with the old generic figure (`Figure::of`), not the Pack outline the scene uses, and it shows no mood.
 
@@ -91,7 +91,7 @@ A release that turns the showcase into a product a player keeps. It has six part
    - Pocket Universe is shown in Chinese, at the same 95% bar as Tiny Society.
    - Snapshots stop carrying every voice ever kept: only today's and the latest few per person, so a year-old snapshot is back under 20 ms.
 
-**Out of scope for this release:** new Packs, multiplayer, and anything needing the Apple account (notarization, notifications, updates). Those still wait on the five signing secrets in [RELEASE_SIGNING.md](RELEASE_SIGNING.md).
+**Out of scope for this release:** new Packs, multiplayer, and anything needing the Apple account (notarization, notifications, updates). Those still wait on the five signing secrets in [RELEASE_SIGNING.md](../RELEASE_SIGNING.md).
 
 ## How we'll know
 
@@ -144,10 +144,10 @@ All six parts shipped in `v0.17.0`, still made entirely by the program. Measured
 | Pocket Universe at parity | 162 to 200 lines and five scenes for each of six residents (tested). 98.9% of a year of Pocket Universe is shown in Chinese (a test holds 95%). |
 | Snapshot under 20 ms at a year | 14 ms on this machine (19 ms for `v0.16.0` measured the same way). Voices carried at day 60: 388 (was 513); only those a screen can show. |
 
-![First launch in v0.17: the harbour](review/v17-first-launch.png)
+![First launch in v0.17: the harbour](../review/v17-first-launch.png)
 
-![A question in v0.17: Jonas as the scene draws him](review/v17-tiny-society.png)
+![A question in v0.17: Jonas as the scene draws him](../review/v17-tiny-society.png)
 
-![Maple Street at dusk in v0.17: scaffolding, a path, a foreground](review/v17-maple-street-dusk.png)
+![Maple Street at dusk in v0.17: scaffolding, a path, a foreground](../review/v17-maple-street-dusk.png)
 
 Still outside the code: signing and notarization, playtests and timing on real Macs, and a human pass over the generated art, music, lines and both Chinese catalogs. A quiet month now brings a letter most days, which may be more than players want; the next review should look at how often.

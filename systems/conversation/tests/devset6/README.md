@@ -1,7 +1,7 @@
 # World voice development set 6 (v0.28, V3) — development data, not a measure
 
 Written by the voice's owner (V3) for v0.28, by hand, from the plan's list of
-what fails (`docs/REVIEW_v0.27.md` and the v0.27 measurement's categories),
+what fails (`docs/archive/REVIEW_v0.27.md` and the v0.27 measurement's categories),
 **never from set 5's lines** (spent; its misses and wrong declines were not
 read). The checks may be tuned on everything here, so no number from this
 folder is a blind result. The blind sets the lead measures with (blind set 6

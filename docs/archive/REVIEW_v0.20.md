@@ -18,18 +18,18 @@ Measured on 2026-09-29 at `9bf918e` (v0.20.0):
 
 ## What a player sees at day 600
 
-![Day 602 at noon](review/v20-day-600.png)
+![Day 602 at noon](../review/v20-day-600.png)
 
 The town finished 62 works in three years, and this picture shows almost none of them:
 - the same four buildings as in the first month;
 - sixteen people standing in one row;
 - one card, "Let the day pass".
 
-![Day 602 at night](review/v20-night.png)
+![Day 602 at night](../review/v20-night.png)
 
 At ten at night the windows are lit and everyone is still standing outside.
 
-![The book at day 600](review/v20-book.png)
+![The book at day 600](../review/v20-book.png)
 
 The book holds 400 entries, every one drawn with the same grey person.
 
@@ -333,9 +333,9 @@ Still open from leaps 2 and 3:
 - the core residents do not die;
 - nothing new has been seen on a Mac.
 
-![A moment strip](review/v22-moment.png)
-![A legend](review/v22-legend.png)
-![Every age](review/v22-ages.png)
+![A moment strip](../review/v22-moment.png)
+![A legend](../review/v22-legend.png)
+![Every age](../review/v22-ages.png)
 
 Leaps 5 and 6 are next, as v0.23.
 
@@ -357,8 +357,8 @@ Still open:
 - the `fm` helper, built and wired in;
 - everything since v0.21, seen on a Mac.
 
-![A plot's offers](review/v23-plot.png)
-![The design canvas](review/v23-design.png)
+![A plot's offers](../review/v23-plot.png)
+![The design canvas](../review/v23-design.png)
 
 ## Sources
 - Animal Crossing: New Horizons sales and features: https://en.wikipedia.org/wiki/Animal_Crossing:_New_Horizons

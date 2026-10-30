@@ -7,7 +7,7 @@ The review has five parts, each written independently:
 - **Measurement:** the repo's own harnesses in release, with v0.26.1 rebuilt and timed alongside, round by round, on a busy and on a quiet machine.
 - **Architecture:** v0.27's diff and the whole tree.
 - **Research:** web sources, with URLs and dates. Pages could not be fetched directly, so facts come from search summaries of the cited pages.
-- **Art direction:** the art director checked the real-window screenshots against [the bible](ART_DIRECTION.md).
+- **Art direction:** the art director checked the real-window screenshots against [the bible](../ART_DIRECTION.md).
 
 Every number is measured unless it says otherwise. The full reports and their logs are kept in the review workspace.
 
@@ -39,8 +39,8 @@ Some of the waiting is the debug build, but the unpainted zoom is a bug, and non
 
 **v0.28 should make every picture the player sees a finished one, and make talk safe, fair and lawful.** It should also clear the way to Windows and Steam. The notarized build, the store page and February's Next Fest still wait on the decisions at the end, and the Next Fest deadline is 10 January.
 
-![A new World, 35 seconds in](review/v28-first-launch-fog.jpg)
-![Year three, zoomed out: unpainted](review/v28-zoomed-out-unpainted.jpg)
+![A new World, 35 seconds in](../review/v28-first-launch-fog.jpg)
+![Year three, zoomed out: unpainted](../review/v28-zoomed-out-unpainted.jpg)
 
 ## What the player found
 
@@ -59,10 +59,10 @@ Some of the waiting is the debug build, but the unpainted zoom is a bug, and non
    - The year-two quay reads as a line-up of about 20 people, two of them standing in the lighthouse door.
    - Maple Street showed no card for several seconds, and Enter opened the Make something panel.
 
-![The first screen in the real window](review/v28-first-screen.jpg)
-![Year two: a line-up on the quay](review/v28-year-two-lineup.jpg)
-![The thanks in the wrong card](review/v28-thanks-wrong-card.jpg)
-![The demo's recap](review/v28-demo-recap.jpg)
+![The first screen in the real window](../review/v28-first-screen.jpg)
+![Year two: a line-up on the quay](../review/v28-year-two-lineup.jpg)
+![The thanks in the wrong card](../review/v28-thanks-wrong-card.jpg)
+![The demo's recap](../review/v28-demo-recap.jpg)
 
 **What delights:**
 - the pier going up with Evan on it;
@@ -337,7 +337,7 @@ v0.28.0 shipped the plan above on 2026-10-08. Every blind set was written by age
 | A painted town within 3 s of a new World (release, real window) | 8 of 9 runs; the miss was at load 13 | met in practice |
 | No unpainted frame after the first, at launch, Find, return film, every zoom of year three, year two | 0 in every run; the first frame itself is whole, in 10 of 10 launches | **met** |
 | Longest frame under 8 ms in 10 of 10 runs | 4 of 10 (7.1–10.8 ms, the pan and dusk phases), on a busy 4-core box | missed |
-| Art director's sign-off on real-window shots | signed after three rounds ([ART_DIRECTION](ART_DIRECTION.md#v028-sign-off)) | **met** |
+| Art director's sign-off on real-window shots | signed after three rounds ([ART_DIRECTION](../ART_DIRECTION.md#v028-sign-off)) | **met** |
 | Day 1 on the Harbour Front with ≥4 residents and ≥3 buildings | 4 and 3, held by a test and by the harness on the real window's first frame | **met** (waived for Pocket Universe's one-keeper starts) |
 | Blind set 6: ≥95% declined, ≤1% wrongly, per language | en 94.7% / 4.0%, zh 94.3% / 2.3%, ja 93.0% / 0.9% (all 94.0% / 2.4%, 4,801 lines) | missed (ja's wrongly met) |
 | Talk for rewards: 0 completions (300 blind lines × 2 people × 31 readings) | 0 by a model or reply; 8 of 600 own-words tries did a "look in on" favour | missed |

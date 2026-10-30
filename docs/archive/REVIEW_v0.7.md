@@ -8,23 +8,23 @@
 
 **First launch opens two windows.** Home and the new World open together. Behind the start cards, Home already lists an unbegun "A new World" with a generic cover and a *What if…* button, before the player has chosen anything. Two thirds of the World window below the cards is empty.
 
-![First launch](review/v07r-first-launch.png)
+![First launch](../review/v07r-first-launch.png)
 
 **Five sols in, the scene looks the way it did on sol 1.** Three domes and two masts have appeared on the ridge. Nia, Tomas, the habitat, the greenhouse and the rover all sit exactly where they started. The only thing that shows the pair's story is the text on a line ("Getting to know each other", then "Partners"). The rover is a grey pill floating in the sky. The page heading, "A larger choice is here", describes the engine rather than the colony. So does the first choice, which reads "Leave the larger intervention alone for now and let existing dynamics keep working."
 
-![Five sols](review/v07r-five-sols.png)
+![Five sols](../review/v07r-five-sols.png)
 
 **Home still counts in engine time.** The colony card says "time 50", where the World itself says "Sol 5", and its summary is cut off mid-word: "Current thread · Nia and Tomas stopped dividing the work into separate turns. Kestrel now launches with them as one expedition c".
 
-![Home card](review/v07r-home-card.png)
+![Home card](../review/v07r-home-card.png)
 
 **Coming back is a list.** Thirty hours away gives a heading ("While you were away"), change chips on four people ("cash ↑15"), and two lines under *What happened*. Nothing on screen shows the day passing or where anyone went. In Tiny Society's crowded scene the Harbor tile covers the Anchor Pub, and "Wedding bre…" is cut off.
 
-![Return](review/v07r-return.png)
+![Return](../review/v07r-return.png)
 
 **A library of branches is a wall of text.** Once a player has branched, each card carries three lines of provenance. Branched Worlds get generic covers because their scenery is never written to the file. Every card still says "time 110" or "time 230".
 
-![Home list](review/v07r-home-list.png)
+![Home list](../review/v07r-home-list.png)
 
 ## Against the products that do each moment best
 
@@ -63,33 +63,33 @@ Items 1 to 3 change the World Pack protocol. As with `Scenery` and `CanvasMark`,
 
 **The World is a place.** Nia stays at the habitat when she looks after the others and Tomas goes out with the rover when he explores; once they are partners they go together, a heart between them. The stakes sit above the scene.
 
-![Ares, five sols in](review/v08-ares.png)
+![Ares, five sols in](../review/v08-ares.png)
 
 **People walk.** A turn that moves someone shows them walking over, here Tomas leaving the habitat for the rover on the first sol:
 
-![Walking](review/v08-walk.png)
+![Walking](../review/v08-walk.png)
 
 **The harbour stands people at their work.** Nothing covers anything else and no name is cut off:
 
-![Harbour](review/v08-harbour.png)
+![Harbour](../review/v08-harbour.png)
 
 **Coming back is a moment.** One beat at a time, the people it is about lit up, then your turn:
 
-![Return](review/v08-return.png)
+![Return](../review/v08-return.png)
 
 **A choice shows what it moves, measured.** Hovering "Give them a shared project" lights Trust ▲▲ and shows where it would end up; the pair it concerns are lit on the scene and asking on the card:
 
-![Gauges](review/v08-gauges.png)
+![Gauges](../review/v08-gauges.png)
 
-![Choice](review/v08-choice.png)
+![Choice](../review/v08-choice.png)
 
 **Home is a shelf of living Worlds:**
 
-![Home](review/v08-home.png)
+![Home](../review/v08-home.png)
 
 **Night and dusk follow the player's clock:**
 
-![Night](review/v08-night.png)
+![Night](../review/v08-night.png)
 
 ## Not verifiable from here
 

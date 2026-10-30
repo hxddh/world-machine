@@ -4,9 +4,9 @@ Reviewed on 2026-10-08 at `1fc5ff0` (v0.28.0), with the persistent-pi deadline f
 
 The review has five parts, each written independently:
 - **Player:** the release app and the demo build played in their real window under Xvfb, about 150 screenshots of free play plus the 66 frames of `scripts/release-shots.sh`, in English, Chinese and Japanese.
-- **Art direction:** the art director judged the player's frames, not curated ones, against [the bible](ART_DIRECTION.md).
+- **Art direction:** the art director judged the player's frames, not curated ones, against [the bible](../ART_DIRECTION.md).
 - **Measurement:** the repo's own harnesses in release, with v0.27.0 rebuilt and timed alongside on the same 4-core machine, plus callgrind for work per turn.
-- **Architecture:** v0.28's diff and the whole tree, against [the invariants](../AGENTS.md).
+- **Architecture:** v0.28's diff and the whole tree, against [the invariants](../../AGENTS.md).
 - **Research:** web sources with URLs, all dated 2026-10-08. Pages could not be opened through the network proxy, so every fact comes from search summaries and should be read again before money is spent on it.
 
 Every number is measured unless it says otherwise. The full reports, logs and screenshots are kept in the review workspace.
@@ -34,10 +34,10 @@ Every number is measured unless it says otherwise. The full reports, logs and sc
 
 **v0.29 should make the game right as it is played, not as it is checked:** sharp on the subject of every moment, each Pocket Universe place its own, cards and words that fit, and Windows playable. The research changes the order. Steam is 95% Windows and a game gets one Next Fest, so Windows must be playable before the demo, not after. Next Fest registration closes on 10 January 2027.
 
-![The return film's eighth beat, in Chinese: the lighthouse is the blur](review/v29-return-beat-blur.jpg)
-![Ares opening: the harbour's meadow for half a second (left), then Mars](review/v29-place-opens-on-harbour.jpg)
-![Find Leo: the talk card runs off the window](review/v29-talk-card-off-window.jpg)
-![The lighthouse in a shadow box](review/v29-lighthouse-shadow-box.jpg)
+![The return film's eighth beat, in Chinese: the lighthouse is the blur](../review/v29-return-beat-blur.jpg)
+![Ares opening: the harbour's meadow for half a second (left), then Mars](../review/v29-place-opens-on-harbour.jpg)
+![Find Leo: the talk card runs off the window](../review/v29-talk-card-off-window.jpg)
+![The lighthouse in a shadow box](../review/v29-lighthouse-shadow-box.jpg)
 
 ## What the player found
 
@@ -432,7 +432,7 @@ v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6
 | At most 4 people in a line, overlapping at most 20% | the people test passes; in the frames, people still overlap within groups (an accepted deviation) | met by test |
 | Dusk within a gold hue band | hue 34–40, the dusk test passes; the harbour's dusk sky stays beige-pink (an accepted deviation) | met by test |
 | The longest frame under 8 ms in 10 of 10 runs on a quiet box | 6 of 10 (6.3–13.2 ms, and one of 102.4 ms, about that run's 99 ms opening frame; the cause is not confirmed) | missed |
-| The art director's sign-off on free play | four rounds on 2026-10-09; final at `8b0e994`: all four places YES with deviations ([ART_DIRECTION](ART_DIRECTION.md#v029-sign-off)) | **met**, with 19 deviations |
+| The art director's sign-off on free play | four rounds on 2026-10-09; final at `8b0e994`: all four places YES with deviations ([ART_DIRECTION](../ART_DIRECTION.md#v029-sign-off)) | **met**, with 19 deviations |
 | Every store shot matches the frame the player sees | the store shots were not captured again; they are still v0.28's, under review | missed |
 | **2. Cards and words that fit** | | |
 | 0 frames where a card or bubble covers its own speaker or a Find target; every card inside the window | the card tests pass; from round 3 the art director saw neither, but cards clip people beside the speaker (an accepted deviation) | **met** |
@@ -486,6 +486,6 @@ v0.29.0 shipped the plan above on 2026-10-10. The bars were measured once, at `6
 **For v0.30.**
 - Find the slow opening frame. Make a zoom glide stop asking for a new tile set every frame (its "moving" check never sees the camera move: ~180 tiles wasted on one zoom out).
 - Measure set 7 with a key; a fresh blind set for hearing, written by someone who did not tune.
-- The art deviations in [KNOWN_ISSUES](KNOWN_ISSUES.md), the harbour's dusk sky first.
+- The art deviations in [KNOWN_ISSUES](../KNOWN_ISSUES.md), the harbour's dusk sky first.
 - Play the first 30 minutes on a real Windows PC, and five think-aloud testers on the demo.
 - Store shots captured from the frames players see.

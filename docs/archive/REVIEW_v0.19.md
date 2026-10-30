@@ -12,7 +12,7 @@ Measured on 2026-09-29 at `f568d46` (release builds, a 4-core Linux machine with
 
 ## First: a long-kept World stops opening (M)
 
-![A three-year World fails to open](review/v19-long-world-fails-to-open.png)
+![A three-year World fails to open](../review/v19-long-world-fails-to-open.png)
 
 A 1,080-day Tiny Society World fails on **Open** in the real app: *"external Pack request frame exceeds the 16777216-byte protocol limit"*.
 
@@ -82,7 +82,7 @@ Four scripted players over three years of Tiny Society:
   - Zoom is scroll-wheel only, turning a card is Space only, and the strip, guests and World codes are menu-only.
   - Of about 12 things to do in the first week, a newcomer would likely find about 6 (I).
 
-![A 600-day World](review/v19-day-600.png)
+![A 600-day World](../review/v19-day-600.png)
 
 ### Engineering (M)
 

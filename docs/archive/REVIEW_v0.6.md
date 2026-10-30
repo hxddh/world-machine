@@ -8,17 +8,17 @@
 
 **1. First launch.** The app creates a World named *Pocket Universe · Empty World* and opens it. Home already lists it with *What if…*, *Rename* and *Export…* on a World that does not exist yet, beside four Packs of equal weight. Two of those four are engine fixtures: *Future Archaeologist* promises to "recover fragments … without exposing the hidden ground truth".
 
-![Home on first launch](review/v06-first-home.png)
+![Home on first launch](../review/v06-first-home.png)
 
 **2. The first question is a form.** "What kind of world should exist here?" is three rows of text in a box titled *Choose what happens next*, above two cards of instructions ("Keep · Grow · Return — Save it like a document…"). The title bar shows *Branch* and *What if…* on a World with no history, and the file label is the Pack id `world-machine.pocket-universe`.
 
-![The first question](review/v06-first-world.png)
+![The first question](../review/v06-first-world.png)
 
 **3. The choice does not change the look.** A Mars colony opens on the same grey dotted canvas, with the same green house icon for a pressurised habitat that a 1987 arcade or an ice bridge gets. The World is still called *Empty World*, in the title bar and on Home, for the rest of its life.
 
 **4. Three turns in, nothing on screen has moved.** The colony opened a water-recovery loop, a dust front changed the rover routes, and the crew harvested its first meal. All of that is text in History. The scene is pixel for pixel what it was, and every entry sits under *The beginning*, because a turn in the app does not move time.
 
-![Three turns in](review/v06-three-turns.png)
+![Three turns in](../review/v06-three-turns.png)
 
 **5. The choices still speak engine.** "Create a goal that neither **actor** can complete alone; future **interactions** will lean toward trust." "Leave both open choices alone and let one more **persistent change** happen."
 
@@ -55,32 +55,32 @@ Still open from before: a check on a real Mac, the Analyst panel's layout, and f
 
 **Where a World begins** is now three pictures, each in its place's own colours:
 
-![Where a World begins](review/v07-beginning.png)
+![Where a World begins](../review/v07-beginning.png)
 
 **Ares** stands on red dust under a peach sky and is called Ares Pocket Colony in its window and on Home; **Maple Street** is a street at dusk. *Branch* appears once there is history, *What if…* once there are two choices.
 
-![Ares](review/v07-ares.png)
+![Ares](../review/v07-ares.png)
 
-![Maple Street](review/v07-maple-street.png)
+![Maple Street](../review/v07-maple-street.png)
 
 **Time reads in the World's own unit** ("Sol 2", "Sol 1–2"), and each turn is a sol of its own in History instead of everything sitting under *The beginning*:
 
-![Sols](review/v07-sols.png)
+![Sols](../review/v07-sols.png)
 
 **Each place is drawn as what it is.** Ares Habitat is a dome and its greenhouse a tree; Maple Arcade is a shopfront, Icebridge a bridge. In Tiny Society the harbour is a lighthouse and the bakery a shop. Every place used to wear the same green house:
 
-![Places](review/v07-places.png)
+![Places](../review/v07-places.png)
 
 **The World grows on screen.** Five sols in, Ares has three domes and two masts on its ridge, one for each time it grew, and the next sol adds another:
 
-![Ares after five sols](review/v07-growth.png)
+![Ares after five sols](../review/v07-growth.png)
 
 **Home** offers two Worlds to start, and the colony you began is drawn in its own colours:
 
-![Home](review/v07-home.png)
+![Home](../review/v07-home.png)
 
 **The promise is on screen.** Every World window says, beside its name, that the World keeps going and when it next moves:
 
-![Keeps going](review/v07-keeps-going.png)
+![Keeps going](../review/v07-keeps-going.png)
 
 The between-sessions notification is not built yet. macOS delivers notifications reliably only to a signed app, and whether one arrives cannot be checked from the Linux preview; it is the first thing to do once the signing secrets from item 8 exist.

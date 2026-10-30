@@ -75,19 +75,19 @@ Items 1 to 7 are built, in both Pocket Universe and Tiny Society, and released i
 
 **Every period brings a card, and someone asking it.** A winter's day in the harbour: Mara's oven is failing and the card is hers, marked with what it would do to money and spirits. The new pier and the lamp on the point stand on the ridge as outlines, a pip for every part.
 
-![A card](review/v10-card.png)
+![A card](../review/v10-card.png)
 
 **On Mars too.** Nia needs a spare seal; the second dome, the relay mast and the map past the edge are the pair's goals.
 
-![Mars](review/v10-mars.png)
+![Mars](../review/v10-mars.png)
 
 **A chapter ends on a card of its own,** in the World's words, and the next begins where it left off.
 
-![Chapter end](review/v10-chapter-end.png)
+![Chapter end](../review/v10-chapter-end.png)
 
 **The story so far is at the top of the drawer:** what is being built, and every chapter closed.
 
-![Chapter book](review/v10-chapters.png)
+![Chapter book](../review/v10-chapters.png)
 
 ### Against the bar
 
