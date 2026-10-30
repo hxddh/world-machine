@@ -349,3 +349,16 @@ Any one of these sends the plan back to P3/P4 before money goes into the store.
 ## Already decided (2026-10-30)
 
 - **No compatibility with any earlier version or record.** 1.0 starts its own save format; v0.x saves, fixtures, digests and compatibility code are removed. The contract in P0 protects saves from 1.0 on.
+
+## The owner's answers (2026-10-30)
+
+1. **Apple Developer Program: not for now.** Mac builds stay ad-hoc signed and are not notarized, so on macOS Sequoia they open only after a trip to System Settings. The signing path stays ready behind its secrets, and P6's Mac signing waits until enrolment.
+2. **Real devices: none for now.** P5's sign-off on real screens and P7's four-device matrix are blocked until devices exist. Until then:
+   - the gates rely on CI: the macOS and Windows runners, release-shots under Xvfb, and the soak test;
+   - every art verdict says plainly that it was judged on Xvfb frames;
+   - 1.0 is not released without at least one real Windows PC and one real Mac.
+3. **What 1.0 sells: Tiny Society.** Pocket Universe stays in the build, unmarketed, and can follow as a free update.
+4. **The AI voice at 1.0: off by default, labelled "experimental".**
+   - It is turned on in Settings, with the disclosure kept.
+   - The game is complete without it: P4's talk works with no key.
+   - If Steam review objects, the store build drops it and keeps it only in the direct build.
