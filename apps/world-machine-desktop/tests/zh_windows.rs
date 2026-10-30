@@ -118,6 +118,14 @@ fn every_window_speaks_chinese_in_chinese() {
     let mut read = 0;
     for file in [
         "main.rs",
+        "document_window.rs",
+        "file_type_tests.rs",
+        "home.rs",
+        "home/library.rs",
+        "home/packs.rs",
+        "home/render.rs",
+        "home/status.rs",
+        "host_controller.rs",
         "settings.rs",
         "about.rs",
         "sharing.rs",

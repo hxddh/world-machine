@@ -761,6 +761,32 @@ fn no_words_go_on_screen_from_the_code_untranslated() {
     let sources = [
         ("window.rs", include_str!("../window.rs")),
         ("world_window.rs", include_str!("world_window.rs")),
+        (
+            "world_window/asking.rs",
+            include_str!("world_window/asking.rs"),
+        ),
+        (
+            "world_window/bubbles.rs",
+            include_str!("world_window/bubbles.rs"),
+        ),
+        (
+            "world_window/camera.rs",
+            include_str!("world_window/camera.rs"),
+        ),
+        (
+            "world_window/controls.rs",
+            include_str!("world_window/controls.rs"),
+        ),
+        ("world_window/dock.rs", include_str!("world_window/dock.rs")),
+        ("world_window/hud.rs", include_str!("world_window/hud.rs")),
+        (
+            "world_window/render_world.rs",
+            include_str!("world_window/render_world.rs"),
+        ),
+        (
+            "world_window/widgets.rs",
+            include_str!("world_window/widgets.rs"),
+        ),
         ("drawer.rs", include_str!("drawer.rs")),
         ("marking.rs", include_str!("marking.rs")),
         ("stories.rs", include_str!("stories.rs")),
