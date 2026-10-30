@@ -41,8 +41,8 @@ env:
   #   write_untranslated                     world-builtins: a list for translators
   #   show_lines                             world-builtins: prints lines for translators
   #   write_place_fixtures                   pocket-universe: regenerates world-gpui fixtures
-  #   write_the_v0…                         both Packs: regenerate checked-in old-World fixtures
-  #                                          (write_the_v022_fixture(s), v023, and any later one)
+  #   write_this_release_save                both Packs: write a release's save to check in
+  #                                          (WORLD_PACK_WRITE_RELEASE; docs/SAVES.md)
   #   show_sixty_periods, show_sixty_days, show_stories, probe_parts, measure_a_year
   #                                          both Packs: print for a review, assert nothing
   #   time_a_year_old_world                  pocket-universe: prints timings, asserts nothing
@@ -64,7 +64,7 @@ env:
     --skip write_untranslated
     --skip show_lines
     --skip write_place_fixtures
-    --skip write_the_v0
+    --skip write_this_release_save
     --skip show_sixty_periods
     --skip show_sixty_days
     --skip show_stories

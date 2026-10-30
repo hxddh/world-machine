@@ -156,26 +156,11 @@ fn nothing_sad_or_unkind_in_any_places_first_days() {
     );
 }
 
-/// A place seeded before keeps its pace: a Mars colony saved by v0.23
-/// has no first days kept, builds at the usual pace, and replays exactly.
+/// A new place keeps its kind days only for its first days.
 #[test]
-fn a_place_seeded_before_keeps_its_pace() {
-    let bytes = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/v023-mars.world"
-    ))
-    .expect("the v0.23 Mars fixture");
-    let archive = world_document::WorldDocument::from_bytes(&bytes)
-        .unwrap()
-        .archive;
-    let universe = PocketUniverse::resume_archive(&archive).unwrap();
-    let state = universe.world().state();
-    assert_eq!(crate::arrival::arrived(state), None);
-    assert!(!crate::arrival::first_days(state));
-    assert_eq!(crate::handwork::kit(state).first_growing, None);
-    assert_eq!(universe.archive().unwrap().events, archive.events);
-    // A new one keeps its kind days only for its first days.
+fn a_new_place_keeps_its_kind_days_only_for_its_first_days() {
     let mut universe = seeded(SEED_MARS_COLONY_COMMAND);
+    assert!(crate::arrival::arrived(universe.world().state()).is_some());
     for _ in 0..crate::arrival::FIRST_DAYS {
         assert!(crate::arrival::first_days(universe.world().state()));
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();

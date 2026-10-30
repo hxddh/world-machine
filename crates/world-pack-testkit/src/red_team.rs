@@ -254,7 +254,7 @@ pub const HELD_OUT: [(&str, &str, &str, &str); 2] = [
 /// What v0.26 did on the held-out sets with their recorded verdicts, per
 /// set, Pack and language: (declined, out of the World, wrongly declined,
 /// in it). Together: set 3 188/210 and 9/236, set 4 437/477 and 2/356
-/// (docs/REVIEW_v0.26.md). The guard may decline no fewer, and wrongly
+/// (docs/archive/REVIEW_v0.26.md). The guard may decline no fewer, and wrongly
 /// decline no more.
 pub const FLOORS: &[(&str, &str, &str, usize, usize, usize, usize)] = &[
     ("redteam3", "pocket-universe", "en", 42, 45, 1, 45),
@@ -281,7 +281,7 @@ pub const SET_FIVE: (&str, &str, &str) = (
 
 /// What v0.27 did on set 5 with its recorded checklists, for one Pack, per
 /// language: (language, declined, out of the World, wrongly declined, in
-/// it). Together 1,132/1,244 and 25/1,562 (docs/REVIEW_v0.27.md), from the
+/// it). Together 1,132/1,244 and 25/1,562 (docs/archive/REVIEW_v0.27.md), from the
 /// rows of that measurement; each Pack keeps its own.
 pub type SetFiveFloor = (&'static str, usize, usize, usize, usize);
 
