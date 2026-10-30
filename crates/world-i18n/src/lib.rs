@@ -510,10 +510,19 @@ impl Catalog {
                 // What the speaker did themselves is told of them in the
                 // third person too: "I moved into a home of my own" is
                 // "<name> moved into a home of their own" (the turn the
-                // letters make, the other way).
+                // letters make, the other way). Every turn a letter makes of
+                // its writer's own pronouns is turned back: "I told you
+                // something I'd never told anyone" is "<name> told you
+                // something they'd never told anyone", "I confided I was
+                // sweet on Leo" is "<name> confided they were sweet on Leo".
                 let theirs = told.starts_with(MYSELF).then(|| {
                     told.replace(" my own", " their own")
+                        .replace(" my time", " their time")
+                        .replace(" my distance", " their distance")
                         .replace(" of my ", " of their ")
+                        .replace(" myself", " themselves")
+                        .replace(" I'd ", " they'd ")
+                        .replace(&format!(" {MYSELF} was "), " they were ")
                         .replace(", and we ", ", and they ")
                 });
                 // Only where the speaker is still in it after.
@@ -1129,6 +1138,41 @@ id_like_this\tSKIP
                     .translate("The news here is that I moved into a home of my own.")
                     .as_deref(),
                 Some(shown)
+            );
+        }
+    }
+
+    /// The writer's own pronouns, turned to "I", "me" and "myself" in a
+    /// letter, are turned back to read the line told of anyone: over a
+    /// year of v0.30 "I told you something I'd never told anyone" was kept
+    /// in English in Chinese and Japanese letters.
+    #[test]
+    fn a_writers_own_pronouns_are_read_back_as_told_of_anyone() {
+        let catalog = Catalog::parse(
+            "@I\t我\n\
+             {a} told you something they'd never told anyone\t{a}告诉了你一件从未对任何人说过的事\n\
+             {a} confided they were sweet on {b}\t{a}坦白自己喜欢{b}\n\
+             {a} kept to themselves\t{a}独来独往\n\
+             Do you remember when {told}? I do.\t你还记得{told}的时候吗？我记得。\n",
+        );
+        for (letter, shown) in [
+            (
+                "Do you remember when I told you something I'd never told anyone? I do.",
+                "你还记得我告诉了你一件从未对任何人说过的事的时候吗？我记得。",
+            ),
+            (
+                "Do you remember when I confided I was sweet on Leo? I do.",
+                "你还记得我坦白自己喜欢Leo的时候吗？我记得。",
+            ),
+            (
+                "Do you remember when I kept to myself? I do.",
+                "你还记得我独来独往的时候吗？我记得。",
+            ),
+        ] {
+            assert_eq!(
+                catalog.translate(letter).as_deref(),
+                Some(shown),
+                "{letter}"
             );
         }
     }
