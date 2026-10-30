@@ -32,10 +32,6 @@ impl WorldLibrary {
         id: WorldDocumentId,
         document: &WorldDocument,
     ) -> Result<WorldDocumentSummary, LibraryError> {
-        if self.legacy_path(&id).try_exists()? {
-            return Err(LibraryError::DocumentAlreadyExists(id));
-        }
-
         // Summaries intentionally consume the whole document so host-only
         // metadata such as display titles survives every Library create path.
         match create_document_file(&self.path(&id), document) {

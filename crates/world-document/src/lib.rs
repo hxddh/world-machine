@@ -10,8 +10,8 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::sync::OnceLock;
 use world_persistence::{
-    ArchiveHead, ArchivedCheckpoint, CheckpointFit, CompactHistory, PersistenceError, WorldArchive,
-    WorldPackRef,
+    ArchiveHead, ArchivedCheckpoint, CheckpointFit, CompactHistory, FormatAge, PersistenceError,
+    WorldArchive, WorldPackRef, NEWER_SAVE_MESSAGE, PREVIEW_SAVE_MESSAGE,
 };
 
 pub const DOCUMENT_METADATA_FIELD: &str = "document";
@@ -28,16 +28,17 @@ const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// The schema of the World files this World Machine writes: what a file
 /// may hold beyond what its Pack version says. Written in every file's
-/// summary beside the app that wrote it; a file without one is schema 0,
-/// as every file before v0.25 was.
+/// summary beside the app that wrote it.
 ///
 /// It goes up whenever a newer app writes something an older one would
-/// misread or lose. An app that finds a file of a newer schema than its
-/// own opens it to look at only, and never saves over it (see
-/// [`FileWriter::is_newer`]).
+/// misread or lose. The 1.0 save contract (docs/SAVES.md): a file of a
+/// newer schema than this app's is refused whole, never opened in part;
+/// one of an older schema than 1.0's, or with no summary at all, was
+/// written by a v0.x preview and is refused too.
 ///
-/// - 1: v0.25. The writer and schema themselves.
-pub const WORLD_FILE_SCHEMA: u32 = 1;
+/// - 2: World Machine 1.0, its own save format (with the sitting ledger
+///   the file carries). 0 and 1 were the previews'.
+pub const WORLD_FILE_SCHEMA: u32 = 2;
 
 static WRITING_APP: OnceLock<String> = OnceLock::new();
 
@@ -76,31 +77,24 @@ impl FileWriter {
         }
     }
 
-    /// Whether the file was written by a newer World Machine than this
-    /// one: it may hold what this one would misread or lose, so it is
-    /// opened to look at only, and never saved over.
-    pub fn is_newer(&self) -> bool {
-        self.schema > WORLD_FILE_SCHEMA
+    /// How the file stands to this World Machine: a preview's, its own, or
+    /// a newer one's.
+    pub fn age(&self) -> FormatAge {
+        match self.schema.cmp(&WORLD_FILE_SCHEMA) {
+            std::cmp::Ordering::Less => FormatAge::Preview,
+            std::cmp::Ordering::Equal => FormatAge::Current,
+            std::cmp::Ordering::Greater => FormatAge::Newer,
+        }
     }
 
-    /// A sentence for the player saying why a newer file is only looked
-    /// at.
-    pub fn newer_message(&self) -> String {
-        let by = self
-            .app
-            .as_deref()
-            .map(|app| {
-                world_core::text::clean_text(app)
-                    .chars()
-                    .take(80)
-                    .collect::<String>()
-            })
-            .filter(|app| !app.is_empty())
-            .map(|app| format!(" ({app})"))
-            .unwrap_or_default();
-        format!(
-            "This World was saved by a newer World Machine{by}. It is open to look at, but nothing is saved to it: update World Machine to play it on"
-        )
+    /// Refuses a file this World Machine may not open: one a v0.x preview
+    /// or a newer World Machine wrote.
+    pub fn check(&self) -> Result<(), DocumentError> {
+        match self.age() {
+            FormatAge::Current => Ok(()),
+            FormatAge::Preview => Err(DocumentError::PreviewFile),
+            FormatAge::Newer => Err(DocumentError::NewerFile),
+        }
     }
 }
 
@@ -134,6 +128,34 @@ pub struct WorldDocumentMetadata {
     /// writes them, so the cover draws each one as the World does.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_drawings: Vec<serde_json::Value>,
+    /// The host's sitting ledger for this World (v0.30 S4, kept in the
+    /// file from 1.0), so a World moved to another machine, or synced,
+    /// keeps its sittings. Host metadata: never an Event or State, never
+    /// replayed, and the World never reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_sittings: Option<DocumentSittings>,
+}
+
+/// A World's sittings, as the host's ledger keeps them in its file (see
+/// `world_observer::SittingLedger`, which works out each sitting from it).
+/// The local day is the only wall-clock reading anywhere in a World file,
+/// and it stays here, beside the history, never in it.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DocumentSittings {
+    /// How many sittings there have been.
+    #[serde(default)]
+    pub sittings: u64,
+    /// The local day (days since 1970-01-01 on the player's calendar) the
+    /// latest sitting began on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub began_on: Option<i64>,
+    /// How many World days the latest sitting has passed.
+    #[serde(default)]
+    pub days_passed: u32,
+    /// The morning the window has shown in the latest sitting, by its
+    /// moment's stable key: presentation only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub morning_read: Option<String>,
 }
 
 /// One person, place or thing on a World's stage, as its cover draws it.
@@ -181,6 +203,7 @@ impl WorldDocumentMetadata {
             && !self.display_moves_alone
             && self.display_cast.is_empty()
             && self.display_drawings.is_empty()
+            && self.host_sittings.is_none()
     }
 }
 
@@ -456,10 +479,14 @@ impl WorldDocument {
         plain.then(|| &file[HEADER..file.len() - TRAILER])
     }
 
-    /// Reads a World file however it was written: gzipped or not, compact
-    /// or tagged, with or without a checkpoint.
+    /// Reads a World file, under the 1.0 save contract: a file a v0.x
+    /// preview or a newer World Machine wrote is refused whole
+    /// ([`DocumentError::PreviewFile`], [`DocumentError::NewerFile`]), and
+    /// nothing of it is read past its summary.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DocumentError> {
-        Self::from_json_bytes(&unpacked(bytes)?)
+        let json = unpacked(bytes)?;
+        check_file(&json)?;
+        Self::from_json_bytes(&json)
     }
 
     /// [`Self::from_bytes`], with the history as the file writes it, to
@@ -467,6 +494,7 @@ impl WorldDocument {
     /// [`Self::file_from_history`]); `None` for a file not written so.
     pub fn from_bytes_kept(bytes: &[u8]) -> Result<(Self, Option<CompactHistory>), DocumentError> {
         let json = unpacked(bytes)?;
+        check_file(&json)?;
         let (archive, metadata, history) =
             WorldArchive::from_json_slice_kept(&json, DOCUMENT_METADATA_FIELD)?;
         Ok((
@@ -479,8 +507,11 @@ impl WorldDocument {
     }
 
     /// What a list of Worlds shows of the World in a file, read from the
-    /// summary at its start without unpacking its history; `None` for a
-    /// file written without one, which is read whole instead.
+    /// summary at its start without unpacking its history. Every World
+    /// file 1.0 writes begins with one; `None` for a file without, which
+    /// is no 1.0 World file (a v0.x preview's, or none at all). The
+    /// summary is handed back whoever wrote the file: [`FileWriter::check`]
+    /// says whether it may be opened.
     pub fn summary_from_bytes(bytes: &[u8]) -> Result<Option<DocumentSummary>, DocumentError> {
         if !bytes.starts_with(&GZIP_MAGIC) {
             return Ok(None);
@@ -502,7 +533,7 @@ impl WorldDocument {
 
     /// Who wrote a World file, read from the summary at its start without
     /// unpacking its history. A file with no summary, or none that says,
-    /// was written before files said: schema 0.
+    /// was written by a v0.x preview: schema 0.
     pub fn writer_from_bytes(bytes: &[u8]) -> Result<FileWriter, DocumentError> {
         Ok(Self::summary_from_bytes(bytes)?
             .map(|summary| summary.writer)
@@ -537,26 +568,23 @@ impl WorldDocument {
         self
     }
 
-    /// The document in the tagged encoding World files were written in
-    /// before the compact one, which older World Machines read (they pass
-    /// over the checkpoint).
-    pub fn to_json_pretty(&self) -> Result<String, DocumentError> {
-        // Keep WorldArchive's existing header validation as the source of truth.
-        let archive_json = self.archive.to_json_pretty()?;
-        let mut value: serde_json::Value = serde_json::from_str(&archive_json)?;
-        let object = value.as_object_mut().ok_or(DocumentError::InvalidRoot)?;
-        if !self.metadata.is_empty() {
-            object.insert(
-                DOCUMENT_METADATA_FIELD.into(),
-                serde_json::to_value(&self.metadata)?,
-            );
-        }
-        Ok(serde_json::to_string_pretty(&value)?)
-    }
-
-    /// Reads a document written as JSON, in either encoding.
+    /// Reads a document written as JSON with no file summary, such as a
+    /// World code's ([`Self::to_compact_json`]). Its archive is held to the
+    /// 1.0 contract by its own version.
     pub fn from_json(json: &str) -> Result<Self, DocumentError> {
         Self::from_json_bytes(json.as_bytes())
+    }
+}
+
+/// Refuses a World file's JSON that 1.0 may not open: one with no summary
+/// (a v0.x preview's), or whose summary says a preview or a newer World
+/// Machine wrote it.
+fn check_file(json: &[u8]) -> Result<(), DocumentError> {
+    match summary_prefix(json) {
+        Prefix::Whole(summary) => (*summary)?.writer.check(),
+        Prefix::None => Err(DocumentError::PreviewFile),
+        // A summary that never ends: not a whole World file.
+        Prefix::More => Err(DocumentError::InvalidRoot),
     }
 }
 
@@ -903,6 +931,27 @@ pub enum DocumentError {
     InvalidRoot,
     Io(std::io::Error),
     TooLarge,
+    /// A World file a v0.x preview wrote: 1.0 starts its own save format.
+    PreviewFile,
+    /// A World file a newer World Machine wrote.
+    NewerFile,
+}
+
+impl DocumentError {
+    /// Whether the 1.0 save contract refused it, and why: a preview's save
+    /// or a newer World Machine's, however it was found out (the file's
+    /// summary, or its archive's version). `Current` for any other error.
+    pub fn age(&self) -> FormatAge {
+        match self {
+            Self::PreviewFile | Self::Persistence(PersistenceError::PreviewVersion(_)) => {
+                FormatAge::Preview
+            }
+            Self::NewerFile | Self::Persistence(PersistenceError::NewerVersion(_)) => {
+                FormatAge::Newer
+            }
+            _ => FormatAge::Current,
+        }
+    }
 }
 
 impl fmt::Display for DocumentError {
@@ -913,6 +962,8 @@ impl fmt::Display for DocumentError {
             Self::InvalidRoot => write!(f, "World document JSON root must be an object"),
             Self::Io(error) => write!(f, "unreadable World document: {error}"),
             Self::TooLarge => write!(f, "World document is too large to open"),
+            Self::PreviewFile => f.write_str(PREVIEW_SAVE_MESSAGE),
+            Self::NewerFile => f.write_str(NEWER_SAVE_MESSAGE),
         }
     }
 }
@@ -923,7 +974,7 @@ impl Error for DocumentError {
             Self::Persistence(error) => Some(error),
             Self::Json(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::InvalidRoot | Self::TooLarge => None,
+            Self::InvalidRoot | Self::TooLarge | Self::PreviewFile | Self::NewerFile => None,
         }
     }
 }
@@ -973,8 +1024,13 @@ mod tests {
         }
     }
 
+    /// The document as compact JSON, as a World code carries it.
+    fn json_of(document: &WorldDocument) -> String {
+        String::from_utf8(document.to_compact_json().unwrap()).unwrap()
+    }
+
     #[test]
-    fn reads_legacy_bare_archives_without_metadata() {
+    fn reads_a_bare_archive_without_metadata() {
         let bare = archive(12).to_json_pretty().unwrap();
 
         let document = WorldDocument::from_json(&bare).unwrap();
@@ -987,7 +1043,7 @@ mod tests {
     fn display_title_round_trips_as_document_only_metadata() {
         let document = WorldDocument::new(archive(8)).with_display_title("A Small Mars");
 
-        let json = document.to_json_pretty().unwrap();
+        let json = json_of(&document);
         let decoded = WorldDocument::from_json(&json).unwrap();
         let pure_archive = WorldArchive::from_json(&json).unwrap();
 
@@ -1005,7 +1061,7 @@ mod tests {
             .with_display_title("A Small Mars")
             .with_display_summary("Ridge Network · care-led");
 
-        let json = document.to_json_pretty().unwrap();
+        let json = json_of(&document);
         let decoded = WorldDocument::from_json(&json).unwrap();
         let pure_archive = WorldArchive::from_json(&json).unwrap();
 
@@ -1021,7 +1077,7 @@ mod tests {
     fn lineage_round_trips_inside_the_same_world_file() {
         let document = WorldDocument::new(archive(32)).with_lineage(lineage());
 
-        let json = document.to_json_pretty().unwrap();
+        let json = json_of(&document);
         let decoded = WorldDocument::from_json(&json).unwrap();
 
         assert_eq!(decoded, document);
@@ -1032,7 +1088,7 @@ mod tests {
     #[test]
     fn pure_archive_reader_ignores_document_metadata() {
         let document = WorldDocument::new(archive(32)).with_lineage(lineage());
-        let json = document.to_json_pretty().unwrap();
+        let json = json_of(&document);
 
         let archive = WorldArchive::from_json(&json).unwrap();
 
@@ -1042,7 +1098,7 @@ mod tests {
 
     #[test]
     fn empty_metadata_is_not_written() {
-        let json = WorldDocument::new(archive(5)).to_json_pretty().unwrap();
+        let json = json_of(&WorldDocument::new(archive(5)));
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert!(value.get(DOCUMENT_METADATA_FIELD).is_none());
@@ -1135,8 +1191,7 @@ mod tests {
         let older = encoder.finish().unwrap();
         assert_eq!(WorldDocument::summary_from_bytes(&older).unwrap(), None);
         assert_eq!(
-            WorldDocument::summary_from_bytes(document.to_json_pretty().unwrap().as_bytes())
-                .unwrap(),
+            WorldDocument::summary_from_bytes(json_of(&document).as_bytes()).unwrap(),
             None
         );
     }
@@ -1264,25 +1319,88 @@ mod tests {
         assert!(WorldDocument::deflated_json(&file[..12]).is_none());
     }
 
+    /// The 1.0 save contract, on a World file: one a v0.x preview wrote
+    /// (no summary, as before v0.25; or the previews' schema, as v0.25 to
+    /// v0.30 wrote) or a newer World Machine wrote is refused whole, in
+    /// the player's words, and a cut file is refused.
     #[test]
-    fn older_world_files_still_open() {
+    fn preview_and_newer_world_files_are_refused() {
         let document = WorldDocument::new(lived_archive()).with_display_title("Harbor");
-        // Tagged and pretty, as World files were written before.
-        let tagged = document.to_json_pretty().unwrap();
-        assert!(tagged.contains("\"set_component\""));
-        let read = WorldDocument::from_bytes(tagged.as_bytes()).unwrap();
-        assert_eq!(read, document);
-        assert_eq!(WorldDocument::from_json(&tagged).unwrap(), document);
-        // Compact but not gzipped.
-        let compact = document.to_compact_json().unwrap();
-        assert_eq!(WorldDocument::from_bytes(&compact).unwrap(), document);
-        // Tagged and gzipped.
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(tagged.as_bytes()).unwrap();
-        let gzipped = encoder.finish().unwrap();
-        assert_eq!(WorldDocument::from_bytes(&gzipped).unwrap(), document);
+        let file = document.to_bytes().unwrap();
+        assert_eq!(
+            WorldDocument::from_bytes(&file).unwrap().metadata,
+            document.metadata
+        );
+        let json = unpacked(&file).unwrap().into_owned();
+        let schema = format!("\"schema\":{WORLD_FILE_SCHEMA}");
+        let text = String::from_utf8(json).unwrap();
+        assert!(text.contains(&schema), "{text}");
+        let refused = |text: &str| WorldDocument::from_bytes(&gzipped(text.as_bytes()).unwrap());
+        // A preview's: before files said (no summary), or schema 1.
+        let bare = refused(&json_of(&document)).unwrap_err();
+        assert!(matches!(bare, DocumentError::PreviewFile), "{bare:?}");
+        assert_eq!(bare.to_string(), PREVIEW_SAVE_MESSAGE);
+        assert_eq!(bare.age(), FormatAge::Preview);
+        let preview = refused(&text.replace(&schema, "\"schema\":1")).unwrap_err();
+        assert!(matches!(preview, DocumentError::PreviewFile), "{preview:?}");
+        let unsaid = refused(&text.replace(&format!(",{schema}"), "")).unwrap_err();
+        assert!(matches!(unsaid, DocumentError::PreviewFile), "{unsaid:?}");
+        // Not gzipped, as before v0.20: no 1.0 World file.
+        assert!(matches!(
+            WorldDocument::from_bytes(&document.to_compact_json().unwrap()),
+            Err(DocumentError::PreviewFile)
+        ));
+        // A newer World Machine's.
+        let newer = refused(&text.replace(&schema, "\"schema\":3")).unwrap_err();
+        assert!(matches!(newer, DocumentError::NewerFile), "{newer:?}");
+        assert_eq!(newer.to_string(), NEWER_SAVE_MESSAGE);
+        assert_eq!(newer.age(), FormatAge::Newer);
+        assert!(WorldDocument::from_bytes_kept(
+            &gzipped(text.replace(&schema, "\"schema\":3").as_bytes()).unwrap()
+        )
+        .is_err());
+        // Its summary still reads, for a list to say why.
+        let summary = WorldDocument::summary_from_bytes(
+            &gzipped(text.replace(&schema, "\"schema\":3").as_bytes()).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(summary.writer.age(), FormatAge::Newer);
+        // An archive of a newer version, under a summary that says 1.0.
+        let archive_version = format!(
+            "\"format_version\":{}",
+            world_persistence::WORLD_ARCHIVE_COMPACT_VERSION
+        );
+        assert!(text.contains(&archive_version));
+        let newer = refused(&text.replace(&archive_version, "\"format_version\":9")).unwrap_err();
+        assert_eq!(newer.age(), FormatAge::Newer, "{newer:?}");
+        assert_eq!(newer.to_string(), NEWER_SAVE_MESSAGE);
         // A cut file is refused.
-        let bytes = document.to_bytes().unwrap();
-        assert!(WorldDocument::from_bytes(&bytes[..bytes.len() / 2]).is_err());
+        assert!(WorldDocument::from_bytes(&file[..file.len() / 2]).is_err());
+    }
+
+    /// The sitting ledger travels in the file as host metadata, beside the
+    /// history and never in it.
+    #[test]
+    fn the_sitting_ledger_travels_in_the_file_beside_the_history() {
+        let mut document = WorldDocument::new(lived_archive());
+        document.metadata.host_sittings = Some(DocumentSittings {
+            sittings: 4,
+            began_on: Some(20_391),
+            days_passed: 1,
+            morning_read: Some("event-12".into()),
+        });
+        let file = document.to_bytes().unwrap();
+        let read = WorldDocument::from_bytes(&file).unwrap();
+        assert_eq!(read.metadata.host_sittings, document.metadata.host_sittings);
+        let summary = WorldDocument::summary_from_bytes(&file).unwrap().unwrap();
+        assert_eq!(
+            summary.metadata.host_sittings,
+            document.metadata.host_sittings
+        );
+        // The archive the Pack is handed knows nothing of it.
+        assert_eq!(read.archive.events, document.archive.events);
+        let archive = serde_json::to_string(&read.archive).unwrap();
+        assert!(!archive.contains("20391") && !archive.contains("host_sittings"));
     }
 }

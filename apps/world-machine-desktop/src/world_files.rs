@@ -46,8 +46,7 @@ pub(crate) fn imported_document_id(
         .and_then(|name| name.to_str())
         .unwrap_or("imported-world");
     let base = file_name
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))
+        .strip_suffix(WORLD_DOCUMENT_SUFFIX)
         .unwrap_or(file_name);
     unique_document_id(sanitize_document_base(base), Some(library))
 }
@@ -60,9 +59,7 @@ pub(crate) fn library_document_id_for_path(
         return None;
     }
     let file_name = source.file_name()?.to_str()?;
-    let raw_id = file_name
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))?;
+    let raw_id = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX)?;
     let id = WorldDocumentId::new(raw_id).ok()?;
     library
         .contains(&id)
@@ -112,10 +109,7 @@ pub(crate) fn suggested_world_file_name(semantic_title: &str, fallback_label: &s
     } else {
         semantic_title
     };
-    let source = source
-        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        .or_else(|| source.strip_suffix(WORLD_DOCUMENT_SUFFIX))
-        .unwrap_or(source);
+    let source = source.strip_suffix(WORLD_DOCUMENT_SUFFIX).unwrap_or(source);
     let stem = source
         .chars()
         .map(|ch| {
@@ -145,20 +139,14 @@ pub(crate) fn canonical_world_path(mut path: PathBuf) -> PathBuf {
     if file_name.ends_with(WORLD_DOCUMENT_SUFFIX) {
         return path;
     }
-    if let Some(base) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-        path.set_file_name(format!("{base}{WORLD_DOCUMENT_SUFFIX}"));
-    } else {
-        path.set_extension("world");
-    }
+    path.set_extension("world");
     path
 }
 
 pub(crate) fn is_world_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| {
-            name.ends_with(WORLD_DOCUMENT_SUFFIX) || name.ends_with(LEGACY_WORLD_DOCUMENT_SUFFIX)
-        })
+        .is_some_and(|name| name.ends_with(WORLD_DOCUMENT_SUFFIX))
 }
 
 pub(crate) fn is_world_pack_file(path: &Path) -> bool {

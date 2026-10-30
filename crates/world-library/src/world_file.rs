@@ -2,7 +2,7 @@
 //!
 //! Everything that says what a World's file holds and how it is written is
 //! owned here, together: where it is ([`WorldDocumentTarget`]), what it held
-//! when last read or written whole, who wrote it, what of it is kept for
+//! when last read or written whole, what of it is kept for
 //! writing changes ([`Saved`]), the writer thread that writes them, and the
 //! lock that makes this the file's only writer. They change together or not
 //! at all: the file is retargeted (Save As), read again (Reload) or written
@@ -11,7 +11,7 @@
 //! wrong (the writer restarted and the kept history did not), and it can no
 //! longer be written.
 
-use world_document::{FileWriter, WorldDocument};
+use world_document::WorldDocument;
 use world_persistence::ArchivedEvent;
 
 use crate::change::Saved;
@@ -24,8 +24,6 @@ pub(crate) struct WorldFile {
     target: WorldDocumentTarget,
     /// What the file held when this World last read it or wrote it whole.
     revision: DocumentRevision,
-    /// Who wrote the file the World was read from.
-    writer: FileWriter,
     /// What the file holds, kept so a change writes only what is new;
     /// `None` until the first change after the file was (re)started.
     saved: Option<Saved>,
@@ -37,16 +35,10 @@ pub(crate) struct WorldFile {
 
 impl WorldFile {
     /// A file just read or written whole, with nothing kept for changes yet.
-    pub(crate) fn new(
-        target: WorldDocumentTarget,
-        revision: DocumentRevision,
-        writer: FileWriter,
-        lock: Lock,
-    ) -> Self {
+    pub(crate) fn new(target: WorldDocumentTarget, revision: DocumentRevision, lock: Lock) -> Self {
         Self {
             target,
             revision,
-            writer,
             saved: None,
             writes: Writes::default(),
             lock,
@@ -57,11 +49,10 @@ impl WorldFile {
     pub(crate) fn kept(
         target: WorldDocumentTarget,
         revision: DocumentRevision,
-        writer: FileWriter,
         lock: Lock,
         kept: Option<(Saved, Composer)>,
     ) -> Self {
-        let mut file = Self::new(target, revision, writer, lock);
+        let mut file = Self::new(target, revision, lock);
         if let Some((saved, composer)) = kept {
             file.keep(saved, composer);
         }
@@ -70,10 +61,6 @@ impl WorldFile {
 
     pub(crate) fn target(&self) -> &WorldDocumentTarget {
         &self.target
-    }
-
-    pub(crate) fn writer(&self) -> &FileWriter {
-        &self.writer
     }
 
     /// What is kept of the file for changes, if anything is yet.
@@ -97,12 +84,9 @@ impl WorldFile {
         self.writes.queue(events, head, self.revision);
     }
 
-    /// Where the file is written, and an older name of it.
-    pub(crate) fn paths(
-        &self,
-        library: &WorldLibrary,
-    ) -> (std::path::PathBuf, Option<std::path::PathBuf>) {
-        self.target.paths(library)
+    /// Where the file is written.
+    pub(crate) fn path(&self, library: &WorldLibrary) -> std::path::PathBuf {
+        self.target.path(library)
     }
 
     /// Waits until the file holds every change handed over, trying once
@@ -134,7 +118,7 @@ impl WorldFile {
         if self.writes.idle() {
             // A look at the file's length and time does, if this World
             // wrote it last; otherwise, or if they differ, its bytes.
-            let (path, _) = self.target.paths(library);
+            let path = self.target.path(library);
             if self.writes.untouched(&path) != Some(true) {
                 self.verify(library)?;
             }
@@ -144,7 +128,7 @@ impl WorldFile {
             // is gone (removed, or replaced by a file) can never take this
             // change, so it is refused now, before the World moves on,
             // rather than kept and then never saved.
-            let (path, _) = self.target.paths(library);
+            let path = self.target.path(library);
             if let Some(folder) = path
                 .parent()
                 .filter(|folder| !folder.as_os_str().is_empty())
@@ -175,11 +159,10 @@ impl WorldFile {
         Ok(revision)
     }
 
-    /// The file as read again from disk (`revision`, written by `writer`):
-    /// whatever was not yet written is let go of.
-    pub(crate) fn read_again(&mut self, revision: DocumentRevision, writer: FileWriter) {
+    /// The file as read again from disk (`revision`): whatever was not yet
+    /// written is let go of.
+    pub(crate) fn read_again(&mut self, revision: DocumentRevision) {
         self.restart(revision);
-        self.writer = writer;
     }
 
     /// Moves the World to a file just written whole at `target` (Save As),
@@ -194,7 +177,6 @@ impl WorldFile {
         let _ = self.writes.flush();
         self.restart(revision);
         self.target = target;
-        self.writer = FileWriter::current();
         // The old file's lock is let go of only now, once nothing more is
         // written to it.
         self.lock = lock;

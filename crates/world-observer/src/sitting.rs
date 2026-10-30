@@ -1,12 +1,14 @@
 //! Sittings (v0.30 S4, "one day a day"): a World moves one of its days a
-//! sitting, and a sitting is a day of the player's own, counted on this
-//! device's calendar. How many World days a sitting may pass is worked out
-//! here, as a pure function of the device's ledger and the day the sitting
-//! begins on.
+//! sitting, and a sitting is a day of the player's own, counted on the
+//! calendar of the device it is played on. How many World days a sitting
+//! may pass is worked out here, as a pure function of the World's ledger
+//! and the day the sitting begins on.
 //!
-//! Wall-clock time lives only in this ledger, on this device. It never
-//! enters a World's record: the World is only ever told that a sitting
-//! began, and it is the player who lets each of its days pass.
+//! Wall-clock time lives only in this ledger, which the World's file
+//! carries as host metadata beside its history (so a World moved to
+//! another machine, or synced, keeps its sittings). It never enters a
+//! World's record: the World is only ever told that a sitting began, and
+//! it is the player who lets each of its days pass.
 
 /// How many World days a World's very first sitting may pass: enough for
 /// the first evening to show what the place is.
@@ -24,15 +26,15 @@ pub fn local_day(unix_seconds: i64, utc_offset_seconds: i64) -> i64 {
     (unix_seconds + utc_offset_seconds).div_euclid(SECONDS_PER_DAY)
 }
 
-/// A World's sittings on this device, as its ledger keeps them. Kept by the
-/// observer beside the Library, never in the World.
+/// A World's sittings, as its ledger keeps them: carried in the World's
+/// file as host metadata, never in its events or state.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SittingLedger {
     /// How many sittings there have been.
     pub sittings: u64,
-    /// The local day the latest sitting began on: `None` with sittings
-    /// counted is a World sat with before ledgers were kept (v0.29 and
-    /// earlier), whose next sitting is a later one.
+    /// The local day the latest sitting began on: `None` before the first
+    /// (a ledger that counts sittings but cannot say when, as a damaged
+    /// one, has a later sitting next).
     pub began_on: Option<i64>,
     /// How many World days the latest sitting has passed.
     pub days_passed: u32,
@@ -56,13 +58,56 @@ impl SittingLedger {
             ..self.clone()
         }
     }
+
+    /// The sitting that opening the World on local day `today` is: a new
+    /// one, written down in the ledger as begun, or the one already begun
+    /// that day.
+    pub fn sit(&mut self, today: i64) -> Sitting {
+        let sitting = sitting_at(self, today);
+        if sitting.new {
+            *self = sitting.begun(self, today);
+        }
+        sitting
+    }
+
+    /// Writes down that the sitting begun on `today` passed one of its
+    /// World days: nothing past its allowance, and nothing for a sitting
+    /// that is not today's. Returns the sitting as it now stands.
+    pub fn spend_day(&mut self, today: i64) -> Sitting {
+        *self = self.spent(today);
+        sitting_at(self, today)
+    }
+
+    /// Writes down that the window showed the morning `moment` (its stable
+    /// key) in the sitting begun on `today`, so it shows once: nothing for
+    /// a sitting that is not today's, nor for a key that is empty or
+    /// spans lines. Whether the ledger changed.
+    pub fn read_morning(&mut self, today: i64, moment: &str) -> bool {
+        if self.began_on != Some(today)
+            || self.morning_read.as_deref() == Some(moment)
+            || moment.is_empty()
+            || moment.contains(['\n', '\r'])
+        {
+            return false;
+        }
+        self.morning_read = Some(moment.to_string());
+        true
+    }
+
+    /// The morning read in the sitting begun on `began_on`, by its moment's
+    /// stable key.
+    pub fn morning_read_on(&self, began_on: i64) -> Option<&str> {
+        (self.began_on == Some(began_on))
+            .then_some(self.morning_read.as_deref())
+            .flatten()
+    }
 }
 
 /// A sitting: which one it is, whether it begins now, and how many World
 /// days it may pass.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Sitting {
-    /// 1 for the first sitting with this World on this device.
+    /// 1 for the World's first sitting.
     pub number: u64,
     /// Whether this sitting begins now, rather than going on with one
     /// begun earlier the same day.
@@ -135,7 +180,7 @@ pub fn sitting_at(ledger: &SittingLedger, today: i64) -> Sitting {
             left: FIRST_SITTING_DAYS,
             days_away: 0,
         },
-        // Sat with before ledgers were kept: a later sitting.
+        // Sittings counted, but not when: a later sitting.
         None => later(ledger, 0),
         Some(began) if today == began => {
             let allowance = allowance(ledger.sittings);
@@ -245,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn a_world_sat_with_before_ledgers_has_a_later_sitting() {
+    fn a_ledger_that_cannot_say_when_has_a_later_sitting() {
         let before = SittingLedger {
             sittings: 1,
             ..SittingLedger::default()
@@ -294,6 +339,36 @@ mod tests {
         };
         assert_eq!(sitting_at(&odd, 10).number, 1);
         assert_eq!(sitting_at(&odd, 10).left, FIRST_SITTING_DAYS);
+    }
+
+    #[test]
+    fn a_ledger_sits_spends_and_reads_its_morning_in_place() {
+        let mut ledger = SittingLedger::default();
+        let first = ledger.sit(100);
+        assert!(first.new);
+        assert_eq!(ledger.sittings, 1);
+        assert_eq!(ledger.began_on, Some(100));
+        // The same day again goes on with it, and changes nothing.
+        let again = ledger.clone();
+        assert!(!ledger.sit(100).new);
+        assert_eq!(ledger, again);
+        assert_eq!(ledger.spend_day(100).left, FIRST_SITTING_DAYS - 1);
+        assert_eq!(ledger.days_passed, 1);
+        // Spending in a sitting that is not today's changes nothing.
+        assert_eq!(ledger.spend_day(101).left, SITTING_DAYS);
+        assert_eq!(ledger.days_passed, 1);
+        // The morning is kept for its own sitting only, once.
+        assert!(!ledger.read_morning(99, "event-1"));
+        assert!(ledger.read_morning(100, "event-1"));
+        assert!(!ledger.read_morning(100, "event-1"));
+        assert!(!ledger.read_morning(100, "two\nlines"));
+        assert_eq!(ledger.morning_read_on(100), Some("event-1"));
+        assert_eq!(ledger.morning_read_on(101), None);
+        // The next day: a new sitting of one day, its morning unread.
+        let next = ledger.sit(101);
+        assert!(next.new);
+        assert_eq!((next.number, next.left), (2, SITTING_DAYS));
+        assert_eq!(ledger.morning_read_on(101), None);
     }
 
     #[test]

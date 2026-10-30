@@ -11,7 +11,7 @@ crates/world-document 8
 crates/world-gpui 588
 crates/world-i18n 11
 crates/world-library 26
-crates/world-observer 1
+crates/world-observer 0
 crates/world-pack-process 1
 crates/world-pack-protocol 2
 crates/world-pack-testkit 11
@@ -24,4 +24,4 @@ systems/days 24
 systems/hands 23
 systems/lives 19
 systems/storylets 2
-apps/world-machine-desktop 142
+apps/world-machine-desktop 141

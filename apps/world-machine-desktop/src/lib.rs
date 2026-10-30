@@ -12,5 +12,6 @@ pub mod demo;
 pub mod display;
 pub mod key_store;
 pub mod platform;
+pub mod restore;
 pub mod steam;
 pub mod window_state;

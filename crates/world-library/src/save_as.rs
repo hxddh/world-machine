@@ -10,7 +10,8 @@ use world_projection::ProjectionSnapshot;
 
 impl DurableWorldSession {
     /// Save the current in-memory World to a new external file and continue
-    /// this session on that file.
+    /// this session on that file. The file carries everything the World's
+    /// own does, its sitting ledger with it.
     ///
     /// Unlike a normal edit, Save As intentionally does not verify the old
     /// target revision. This lets a stale window preserve the World it opened
@@ -19,9 +20,6 @@ impl DurableWorldSession {
         &mut self,
         destination: PathBuf,
     ) -> Result<ProjectionSnapshot, LibraryError> {
-        // Written anew by this app, a newer World's file would lose what
-        // this app does not know.
-        self.refuse_if_newer()?;
         // The new file is this World's alone from before it is written.
         let lock = Lock::take_new(&destination)?;
         let mut archive = required_archive(self.session.as_ref())?;
@@ -192,7 +190,6 @@ mod tests {
             file: crate::world_file::WorldFile::new(
                 WorldDocumentTarget::File(path),
                 revision,
-                Default::default(),
                 crate::lock::Lock::none(),
             ),
             metadata: WorldDocumentMetadata::default(),

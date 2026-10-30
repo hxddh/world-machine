@@ -1,7 +1,6 @@
-//! A new player's arrival in a place: its first days are kind. A place
-//! seeded from this version on records the period it began
-//! (`pocket.arrived`), so what is here applies only to such Worlds: a
-//! World seeded before keeps its history and its rules exactly.
+//! A new player's arrival in a place: its first days are kind. Seeding a
+//! place records the period it began (`pocket.arrived`); a universe not
+//! yet seeded has none, and nothing here applies to it.
 
 use crate::{BACKGROUND_PERIOD, UNIVERSE};
 use world_core::{StateChange, Value, WorldState};

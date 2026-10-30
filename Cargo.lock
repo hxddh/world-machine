@@ -4319,7 +4319,6 @@ dependencies = [
  "ritual",
  "serde_json",
  "storylets",
- "world-compare",
  "world-core",
  "world-document",
  "world-gpui",
@@ -7153,14 +7152,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-compare"
-version = "0.1.0"
-dependencies = [
- "world-core",
- "world-projection",
-]
-
-[[package]]
 name = "world-core"
 version = "0.1.0"
 
@@ -7171,7 +7162,6 @@ dependencies = [
  "flate2",
  "serde",
  "serde_json",
- "world-core",
  "world-persistence",
 ]
 
@@ -7340,6 +7330,7 @@ dependencies = [
  "world-core",
  "world-document",
  "world-host",
+ "world-library",
  "world-pack-protocol",
  "world-persistence",
  "world-projection",

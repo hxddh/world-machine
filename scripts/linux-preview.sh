@@ -67,7 +67,7 @@ for pack in pocket-universe tiny-society; do
 done
 # AWAY_HOURS=N: open every World as a return after N hours away.
 if [ -n "${AWAY_HOURS:-}" ]; then
-    (cd "$SRC" && cargo run -q -p world-observer --example pretend_away -- "$STATE/Worlds" "$AWAY_HOURS")
+    (cd "$SRC" && cargo run -q -p world-library --example pretend_away -- "$STATE/Worlds" "$AWAY_HOURS")
 fi
 
 cat > "$WORK/session.sh" <<'SESSION'

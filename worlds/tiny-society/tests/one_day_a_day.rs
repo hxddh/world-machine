@@ -1,13 +1,16 @@
-//! One day a day (v0.30 S4): sittings as the observer's ledger gives them,
+//! One day a day (v0.30 S4): sittings as the World's ledger gives them,
 //! played through the harbour as the app plays them. The World is told only
 //! that a sitting began, and passes its days by its own card; the player's
-//! clock never enters what it records.
+//! clock never enters what it records. The ledger itself is host metadata
+//! the World's file carries beside its history (1.0), never in it.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use tiny_society::TinySocietyBranch;
-use world_observer::{ObserverKey, ObserverStore, FIRST_SITTING_DAYS};
-use world_projection::{CommandRole, SITTING_BEGINS_COMMAND};
+use world_document::{DocumentSittings, WorldDocument};
+use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
+use world_observer::{SittingLedger, FIRST_SITTING_DAYS};
+use world_projection::{CommandRole, ProjectionIntent, SITTING_BEGINS_COMMAND};
 
 fn temp_root(label: &str) -> PathBuf {
     let nonce = std::time::SystemTime::now()
@@ -34,16 +37,14 @@ fn pass_one_day(branch: &mut TinySocietyBranch) {
 /// A new harbour played through `sittings`, the first on local day `first`
 /// and each `gap` local days after the last, every day each allows passed:
 /// the World as it then stands.
-fn play(first: i64, gap: i64, sittings: i64, label: &str) -> TinySocietyBranch {
-    let root = temp_root(label);
-    let store = ObserverStore::new(root.clone());
-    let key = ObserverKey::new("library:one-day-a-day").unwrap();
+fn play(first: i64, gap: i64, sittings: i64) -> TinySocietyBranch {
+    let mut ledger = SittingLedger::default();
     let mut branch = TinySocietyBranch::new_world().unwrap();
     for n in 0..sittings {
         let today = first + n * gap;
         // The app opens the World twice the same day: one sitting.
         for _ in 0..2 {
-            let sitting = store.sit(&key, today).unwrap();
+            let sitting = ledger.sit(today);
             // The app tells the World on every open until the sitting
             // passes a day; the World keeps its morning to one a day, and
             // refuses the rest.
@@ -55,12 +56,82 @@ fn play(first: i64, gap: i64, sittings: i64, label: &str) -> TinySocietyBranch {
             }
             for _ in 0..sitting.left {
                 pass_one_day(&mut branch);
-                store.spend_day(&key, today).unwrap();
+                ledger.spend_day(today);
             }
         }
     }
-    let _ = std::fs::remove_dir_all(root);
     branch
+}
+
+fn to_document(ledger: &SittingLedger) -> DocumentSittings {
+    DocumentSittings {
+        sittings: ledger.sittings,
+        began_on: ledger.began_on,
+        days_passed: ledger.days_passed,
+        morning_read: ledger.morning_read.clone(),
+    }
+}
+
+/// The same, played the app's way: a Library harbour opened for each
+/// sitting, its ledger written into its file as host metadata after every
+/// step, and its days passed by its own card. The World's file as it then
+/// stands.
+fn play_in_file(first: i64, gap: i64, sittings: i64, label: &str) -> (PathBuf, PathBuf) {
+    let root = temp_root(label);
+    let library = WorldLibrary::new(root.join("Worlds"));
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(tiny_society::tiny_society_registration())
+        .unwrap();
+    let id = WorldDocumentId::new("one-day-a-day").unwrap();
+    DurableWorldSession::create(
+        id.clone(),
+        tiny_society::TINY_SOCIETY_PACK_ID,
+        &registry,
+        &library,
+    )
+    .unwrap();
+    for n in 0..sittings {
+        let today = first + n * gap;
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        let mut ledger = session
+            .sittings()
+            .map(|kept| SittingLedger {
+                sittings: kept.sittings,
+                began_on: kept.began_on,
+                days_passed: kept.days_passed,
+                morning_read: kept.morning_read.clone(),
+            })
+            .unwrap_or_default();
+        let sitting = ledger.sit(today);
+        session
+            .set_sittings(to_document(&ledger), &library)
+            .unwrap();
+        if sitting.left == sitting.allowance {
+            let _ = session.handle(
+                ProjectionIntent::InvokeCommand(SITTING_BEGINS_COMMAND.into()),
+                &registry,
+                &library,
+            );
+        }
+        for _ in 0..sitting.left {
+            let day = session
+                .snapshot()
+                .commands
+                .into_iter()
+                .find(|command| command.role == Some(CommandRole::PassesTime))
+                .expect("the day's card");
+            session
+                .handle(ProjectionIntent::InvokeCommand(day.id), &registry, &library)
+                .unwrap();
+            ledger.spend_day(today);
+            session
+                .set_sittings(to_document(&ledger), &library)
+                .unwrap();
+        }
+        session.flush().unwrap();
+    }
+    (library.path(&id), root)
 }
 
 /// The record holds no wall time: the same sittings on two calendars far
@@ -72,8 +143,8 @@ fn no_event_or_state_carries_the_wall_clock() {
     // Local days (since 1970) and their midnights in Unix seconds, of two
     // calendars nobody's World could stumble on by chance.
     let (one, two) = (31_337_421_i64, 48_151_623_i64);
-    let daily = play(one, 1, 4, "daily");
-    let monthly = play(two, 30, 4, "monthly");
+    let daily = play(one, 1, 4);
+    let monthly = play(two, 30, 4);
     assert_eq!(
         daily.world().events(),
         monthly.world().events(),
@@ -103,11 +174,55 @@ fn no_event_or_state_carries_the_wall_clock() {
     );
 }
 
+/// The same, with the ledger in the World's file (1.0): the file carries
+/// the local day its latest sitting began on, as host metadata beside the
+/// history, and nothing else of either clock; the history and the state it
+/// replays to are the same on both calendars, and hold no number of
+/// either; and replaying the file's events, with its ledger thrown away,
+/// is the very same World.
+#[test]
+fn the_world_file_carries_the_ledger_beside_a_history_without_the_wall_clock() {
+    let (one, two) = (31_337_421_i64, 48_151_623_i64);
+    let (daily, daily_root) = play_in_file(one, 1, 4, "file-daily");
+    let (monthly, monthly_root) = play_in_file(two, 30, 4, "file-monthly");
+    let read = |path: &PathBuf| WorldDocument::from_bytes(&std::fs::read(path).unwrap()).unwrap();
+    let (daily, monthly) = (read(&daily), read(&monthly));
+    // The ledger is the file's: the last sitting's day, on each calendar.
+    let kept = daily.metadata.host_sittings.clone().expect("a ledger");
+    assert_eq!((kept.sittings, kept.began_on), (4, Some(one + 3)));
+    let kept = monthly.metadata.host_sittings.clone().expect("a ledger");
+    assert_eq!((kept.sittings, kept.began_on), (4, Some(two + 90)));
+    // The history is not: the same on both, with no clock in it.
+    assert_eq!(daily.archive.events, monthly.archive.events);
+    assert_eq!(daily.archive.world_time, monthly.archive.world_time);
+    let history = serde_json::to_string(&daily.archive).unwrap();
+    let society = tiny_society::TinySociety::resume_archive(&daily.archive).unwrap();
+    let state = format!("{:?}", society.world().state());
+    for n in 0..4 {
+        for day in [one + n, two + 30 * n] {
+            for number in [day, day * 86_400] {
+                let number = number.to_string();
+                assert!(!history.contains(&number), "{number} in the history");
+                assert!(!state.contains(&number), "{number} in the state");
+            }
+        }
+    }
+    // Replayed with no ledger at all, it is the same World.
+    let mut bare = daily.clone();
+    bare.metadata = Default::default();
+    let replayed = tiny_society::TinySociety::resume_archive(&bare.archive).unwrap();
+    assert_eq!(replayed.world().state(), society.world().state());
+    let monthly_society = tiny_society::TinySociety::resume_archive(&monthly.archive).unwrap();
+    assert_eq!(monthly_society.world().state(), society.world().state());
+    let _ = std::fs::remove_dir_all(daily_root);
+    let _ = std::fs::remove_dir_all(monthly_root);
+}
+
 /// The first sitting passes three days, every later one one: four sittings
 /// are six days, and three mornings (none on the harbour's first day).
 #[test]
 fn sittings_pass_three_days_then_one_each_with_a_morning_each() {
-    let branch = play(1_000, 1, 4, "count");
+    let branch = play(1_000, 1, 4);
     let world = branch.world();
     let days = world.events_of_kind(&["day_began"]).len() as u32;
     assert_eq!(days, FIRST_SITTING_DAYS + 3);
@@ -134,14 +249,12 @@ fn sittings_pass_three_days_then_one_each_with_a_morning_each() {
 /// line of any morning comes twice.
 #[test]
 fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
-    let root = temp_root("five");
-    let store = ObserverStore::new(root.clone());
-    let key = ObserverKey::new("library:five-mornings").unwrap();
+    let mut ledger = SittingLedger::default();
     let mut branch = TinySocietyBranch::new_world().unwrap();
     let mut lines = Vec::new();
     let mut finds = 0;
     for today in 500..506 {
-        let sitting = store.sit(&key, today).unwrap();
+        let sitting = ledger.sit(today);
         assert!(sitting.new);
         // A morning comes on every day but the harbour's first.
         let came = branch
@@ -185,7 +298,7 @@ fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
         }
         for _ in 0..sitting.left {
             pass_one_day(&mut branch);
-            store.spend_day(&key, today).unwrap();
+            ledger.spend_day(today);
         }
     }
     assert_eq!(finds, 5);
@@ -201,5 +314,4 @@ fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
         .invoke_projection_command(SITTING_BEGINS_COMMAND)
         .is_err());
     assert_eq!(branch.world().events().len(), before);
-    let _ = std::fs::remove_dir_all(root);
 }

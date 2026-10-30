@@ -286,7 +286,7 @@ fn a_code_reopens_as_the_same_world() {
         code.len(),
         started.elapsed()
     );
-    assert!(code.starts_with("wm2:"));
+    assert!(code.starts_with("wm3:"));
     // The plan's target: 50,000 characters. The largest part of it is the
     // lives System's memory of the lines heard in its latest ninety days.
     assert!(code.len() < 50_000, "{} characters", code.len());
