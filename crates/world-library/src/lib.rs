@@ -114,6 +114,13 @@ pub struct WorldDocumentSummary {
 pub struct UnreadableWorldFile {
     pub file_name: String,
     pub reason: String,
+    /// Whether the 1.0 save contract refused it (a preview's or a newer
+    /// World Machine's), rather than it being damaged: `reason` is then the
+    /// contract's sentence for the player.
+    pub age: FormatAge,
+    /// A damaged World with a backup that reads as a World file, which can
+    /// be put back to its last good save (`restore_backup`).
+    pub restorable: bool,
 }
 
 /// Everything the Worlds folder holds: the Worlds that can be opened, and the
@@ -214,7 +221,7 @@ impl WorldLibrary {
             Err(error) => return Err(LibraryError::Io(error)),
         };
         let summary = WorldDocument::summary_from_bytes(&bytes)?
-            .ok_or(LibraryError::Document(DocumentError::PreviewFile))?;
+            .ok_or_else(|| LibraryError::from(DocumentError::PreviewFile))?;
         summary.writer.check()?;
         Ok(Some(summary))
     }
@@ -286,6 +293,8 @@ impl WorldLibrary {
                 Err(error) => unreadable.push(UnreadableWorldFile {
                     file_name: file_name.to_owned(),
                     reason: error.to_string(),
+                    age: FormatAge::Current,
+                    restorable: false,
                 }),
             }
         }
@@ -297,9 +306,12 @@ impl WorldLibrary {
                 Ok(Some(document)) => document,
                 Ok(None) => continue,
                 Err(error) => {
+                    let age = error.save_age();
                     unreadable.push(UnreadableWorldFile {
                         file_name: id.file_name(),
                         reason: error.to_string(),
+                        age,
+                        restorable: age == FormatAge::Current && has_good_backup(&self.path(&id)),
                     });
                     continue;
                 }
@@ -310,6 +322,8 @@ impl WorldLibrary {
                     unreadable.push(UnreadableWorldFile {
                         file_name: id.file_name(),
                         reason: error.to_string(),
+                        age: FormatAge::Current,
+                        restorable: false,
                     });
                     continue;
                 }
@@ -2186,6 +2200,8 @@ mod tests {
             vec![UnreadableWorldFile {
                 file_name: "old.world".into(),
                 reason: "This World is from a preview version and can't be opened.".into(),
+                age: FormatAge::Preview,
+                restorable: false,
             }]
         );
         let _ = fs::remove_dir_all(root);
@@ -3104,6 +3120,8 @@ mod tests {
             listing.unreadable[0].reason,
             "This World was saved by a newer World Machine. Update to open it."
         );
+        assert_eq!(listing.unreadable[0].age, FormatAge::Newer);
+        assert!(!listing.unreadable[0].restorable);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3208,6 +3226,12 @@ mod tests {
         fs::write(&path, &whole[..whole.len() / 2]).unwrap();
         assert!(DurableWorldSession::open(id.clone(), &registry, &library).is_err());
         assert!(has_good_backup(&path));
+        // Too damaged to list, Home still offers it back from the listing.
+        let listing = library.listing().unwrap();
+        assert!(listing.documents.is_empty());
+        assert_eq!(listing.unreadable.len(), 1);
+        assert_eq!(listing.unreadable[0].age, FormatAge::Current);
+        assert!(listing.unreadable[0].restorable);
         let kept = library.restore_backup(&id).unwrap().expect("kept");
         assert_eq!(kept, root.join("restored.world.damaged"));
         assert_eq!(fs::read(&kept).unwrap(), whole[..whole.len() / 2]);
@@ -3224,6 +3248,7 @@ mod tests {
         fs::write(backup_path(&path), b"also broken").unwrap();
         fs::write(&path, b"broken").unwrap();
         assert!(!has_good_backup(&path));
+        assert!(!library.listing().unwrap().unreadable[0].restorable);
         assert!(library.restore_backup(&id).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"broken");
         let _ = fs::remove_dir_all(root);

@@ -2465,6 +2465,67 @@ impl WorldMachineHome {
     /// Find a World, and choose whether the list reads most-recent-first or
     /// A to Z. Shown only once there are enough Worlds for the list to be hard
     /// to scan.
+    /// What Home says about the files in the Worlds folder that cannot be
+    /// listed: the damaged ones by name, each that has a good backup with
+    /// the offer to restore it, and each the save contract refused with its
+    /// own reason. None when every file is listed.
+    fn unreadable_documents_notice(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let damaged = unreadable_documents_note(&self.unreadable_documents);
+        let (refused, more_refused) = refused_documents(&self.unreadable_documents);
+        if damaged.is_none() && refused.is_empty() {
+            return None;
+        }
+        let mut notice = div()
+            .w_full()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(ui::color(tokens::DANGER))
+            .bg(ui::color(tokens::DANGER_SOFT))
+            .text_xs()
+            .text_color(ui::color(tokens::DANGER))
+            .flex()
+            .flex_col()
+            .gap_2();
+        if let Some(note) = damaged {
+            notice = notice.child(note);
+            for target in restorable_documents(&self.library, &self.unreadable_documents) {
+                let id = SharedString::from(format!("restore-unreadable-{}", target.title));
+                notice = notice.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(target.title.clone())
+                        .child(
+                            ui::button(
+                                id,
+                                world_machine_desktop::restore::RESTORE_LABEL,
+                                ui::ButtonKind::Primary,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.restore_last_good(target.clone(), cx);
+                                },
+                            )),
+                        ),
+                );
+            }
+        }
+        for file in refused {
+            notice = notice.child(format!(
+                "{}: {}",
+                file.file_name,
+                ui::t(file.reason.clone())
+            ));
+        }
+        if more_refused > 0 {
+            notice = notice.child(format!("…and {more_refused} more that cannot be opened."));
+        }
+        Some(notice)
+    }
+
     fn world_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut order = div().flex_shrink_0().flex().items_center().gap_2().child(
             div()
@@ -3797,6 +3858,9 @@ impl Render for WorldMachineHome {
                 .child(self.featured_included_pack_card(featured, cx));
         }
 
+        // Shown whether or not any World can be listed: a folder of only
+        // refused or damaged files must still say what happened to them.
+        let mut unreadable_notice = self.unreadable_documents_notice(cx);
         if has_documents || self.included_packs.is_empty() {
             body = body.child(home_section_title(my_worlds_title(
                 visible_document_count,
@@ -3805,24 +3869,18 @@ impl Render for WorldMachineHome {
             if show_world_controls {
                 body = body.child(self.world_controls(cx));
             }
-            if let Some(note) = unreadable_documents_note(&self.unreadable_documents) {
-                body = body.child(
-                    div()
-                        .w_full()
-                        .p_3()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(ui::color(tokens::DANGER))
-                        .bg(ui::color(tokens::DANGER_SOFT))
-                        .text_xs()
-                        .text_color(ui::color(tokens::DANGER))
-                        .child(note),
-                );
+            if let Some(notice) = unreadable_notice.take() {
+                body = body.child(notice);
             }
             if show_world_controls && pack_filters.len() > 1 {
                 body = body.child(world_filters);
             }
             body = body.child(saved);
+        }
+        if let Some(notice) = unreadable_notice {
+            body = body
+                .child(home_section_title(my_worlds_title(0, 0)))
+                .child(notice);
         }
 
         if !visible_included_packs.is_empty() {
@@ -4053,10 +4111,59 @@ fn removal_result_message(title: &str) -> String {
 #[cfg(gui)]
 const UNREADABLE_DOCUMENT_NAME_LIMIT: usize = 3;
 
+/// The files the 1.0 save contract refused (a preview's, or a newer World
+/// Machine's), each said with its own reason, up to the limit; and how many
+/// more there are.
+#[cfg(gui)]
+fn refused_documents(unreadable: &[UnreadableWorldFile]) -> (Vec<&UnreadableWorldFile>, usize) {
+    let refused = unreadable
+        .iter()
+        .filter(|file| file.age != world_library::FormatAge::Current)
+        .collect::<Vec<_>>();
+    let hidden = refused.len().saturating_sub(UNREADABLE_DOCUMENT_NAME_LIMIT);
+    (
+        refused
+            .into_iter()
+            .take(UNREADABLE_DOCUMENT_NAME_LIMIT)
+            .collect(),
+        hidden,
+    )
+}
+
+/// The damaged files that can be put back to their last good save, up to
+/// the limit, each as a World to restore.
+#[cfg(gui)]
+fn restorable_documents(
+    library: &WorldLibrary,
+    unreadable: &[UnreadableWorldFile],
+) -> Vec<RestoreTarget> {
+    unreadable
+        .iter()
+        .filter(|file| file.restorable)
+        .take(UNREADABLE_DOCUMENT_NAME_LIMIT)
+        .map(|file| {
+            let stem = file
+                .file_name
+                .strip_suffix(WORLD_DOCUMENT_SUFFIX)
+                .unwrap_or(&file.file_name);
+            RestoreTarget {
+                path: library.root().join(&file.file_name),
+                title: stem.to_owned(),
+                document: WorldDocumentId::new(stem).ok(),
+            }
+        })
+        .collect()
+}
+
 /// Name the files that could not be read, without letting a folder full of
-/// them push every World off the screen.
+/// them push every World off the screen. Files the save contract refused are
+/// not among them: they are said with their reasons (`refused_documents`).
 #[cfg(gui)]
 fn unreadable_documents_note(unreadable: &[UnreadableWorldFile]) -> Option<String> {
+    let unreadable = unreadable
+        .iter()
+        .filter(|file| file.age == world_library::FormatAge::Current)
+        .collect::<Vec<_>>();
     if unreadable.is_empty() {
         return None;
     }
@@ -4583,6 +4690,8 @@ mod file_type_tests {
         let file = |name: &str| UnreadableWorldFile {
             file_name: name.into(),
             reason: "unexpected end of input".into(),
+            age: world_library::FormatAge::Current,
+            restorable: false,
         };
 
         assert_eq!(unreadable_documents_note(&[]), None);
@@ -4609,6 +4718,45 @@ mod file_type_tests {
                 "5 files in your Worlds folder could not be read and are not listed: a.world, b.world, c.world, and 2 more."
             )
         );
+    }
+
+    #[test]
+    fn refused_files_are_said_with_their_reasons_not_as_damaged() {
+        let file = |name: &str, age| UnreadableWorldFile {
+            file_name: name.into(),
+            reason: "This World is from a preview version and can't be opened.".into(),
+            age,
+            restorable: false,
+        };
+        let preview = world_library::FormatAge::Preview;
+        let current = world_library::FormatAge::Current;
+
+        let only_refused = [file("old.world", preview)];
+        assert_eq!(unreadable_documents_note(&only_refused), None);
+        let (refused, hidden) = refused_documents(&only_refused);
+        assert_eq!(refused, vec![&only_refused[0]]);
+        assert_eq!(hidden, 0);
+
+        let mixed = [
+            file("a.world", preview),
+            file("b.world", current),
+            file("c.world", preview),
+            file("d.world", preview),
+            file("e.world", preview),
+        ];
+        assert_eq!(
+            unreadable_documents_note(&mixed).as_deref(),
+            Some("One file in your Worlds folder could not be read and is not listed: b.world.")
+        );
+        let (refused, hidden) = refused_documents(&mixed);
+        assert_eq!(
+            refused
+                .iter()
+                .map(|file| file.file_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a.world", "c.world", "d.world"]
+        );
+        assert_eq!(hidden, 1);
     }
 
     #[test]
