@@ -22,17 +22,34 @@ name: Release shots
 # software one. What it proves is that every picture the player is shown is
 # a painted one, in the release build, in the real window.
 
+# CI (ci.yml) also calls it on every pull request that touches the window,
+# with only the `first` scenario: the first ten minutes of a new World, a
+# quick check that fits CI's budget. A release always plays every scenario.
 on:
   workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Scenarios to play (scripts/release-shots.sh); empty plays all of them.
+        required: false
+        type: string
+        default: ''
   workflow_call:
+    inputs:
+      scenarios:
+        description: Scenarios to play (scripts/release-shots.sh); empty plays all of them.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
-# Called by the release, `github.workflow` is the release's name, so a run by
-# hand on the same ref never cancels the one a release waits for.
+# Called by the release (or CI), `github.workflow` is the caller's name, so
+# a run by hand on the same ref never cancels the one a release waits for.
+# A pull request's newer push cancels its older check; on main and for a
+# release each commit plays to the end.
 concurrency:
-  group: release-shots-${{ github.workflow }}-${{ github.ref }}
+  group: release-shots-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -66,11 +83,16 @@ jobs:
             libfontconfig-dev libfreetype-dev libasound2-dev libssl-dev \
             fonts-dejavu-core fonts-noto-cjk
       - name: Play the first ten minutes and the key moments
-        run: bash scripts/release-shots.sh "$RUNNER_TEMP/shots"
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        # SCENARIOS is a list of names, split on purpose.
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/release-shots.sh "$RUNNER_TEMP/shots" $SCENARIOS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: release-shots
+          name: release-shots${{ inputs.scenarios && '-quick' || '' }}
           path: ${{ runner.temp }}/shots
           if-no-files-found: error
           retention-days: 30
