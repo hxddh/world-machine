@@ -12,7 +12,6 @@ members = [
   "crates/world-pack-catalog",
   "crates/world-pack-server",
   "crates/world-projection",
-  "crates/world-compare",
   "crates/world-gpui",
   "crates/world-persistence",
   "crates/world-document",
