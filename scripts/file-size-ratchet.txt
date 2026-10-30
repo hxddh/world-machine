@@ -1,0 +1,16 @@
+# Line counts of the tracked .rs files already over 3,000 lines
+# (scripts/check-file-sizes.py). A count may go down, never up; a file not
+# listed here may not pass 3,000 lines. Lower a number when its file
+# shrinks (`python3 scripts/check-file-sizes.py --update`), and drop the
+# line once the file is split under the limit.
+# Recorded at f33ce8c2 (v0.30 review, P0).
+crates/world-gpui/src/diorama/people.rs 3818
+crates/world-gpui/src/diorama/stage_view.rs 3003
+crates/world-library/src/lib.rs 3350
+crates/world-pack-protocol/src/lib.rs 4595
+crates/world-projection/src/lib.rs 3196
+crates/world-voice-prompt/src/bounds/lexicon.rs 3777
+systems/storylets/src/lib.rs 3130
+worlds/pocket-universe/src/eras.rs 3032
+worlds/pocket-universe/src/story.rs 4171
+worlds/tiny-society/src/story.rs 4798

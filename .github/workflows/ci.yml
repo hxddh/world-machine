@@ -1,22 +1,43 @@
 name: CI
 
 on:
+  # One run per change: a pull request is checked by its pull_request run,
+  # and main by its push run. (Pushes to every branch as well started each
+  # PR's checks twice. The screenshot job's screenshots/** branches, which
+  # carry no source, are not main and start nothing.)
   push:
-    # The screenshot job pushes its captures to a branch of its own.
-    # Those commits carry no source, so there is nothing for CI to
-    # check; excluding them here is what keeps that push cheap,
-    # rather than a marker in the commit message.
-    branches-ignore:
-      - 'screenshots/**'
+    branches:
+      - main
   pull_request:
+  # A branch with no pull request yet: `gh workflow run ci.yml --ref <branch>`.
+  workflow_dispatch:
 
+# A newer push to the same pull request cancels the run it supersedes. On
+# main every commit is checked to the end.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Read-only by default; a job that needs more says so itself.
 permissions:
   contents: read
+
+# Tests too slow for every pull request: they run every night instead, in
+# release with the rest of the workspace (nightly.yml, long-bars, which
+# skips none of them). Each takes from half a minute to seven in a debug
+# build on CI's runner, and the slowest alone held the test job past 25
+# minutes. They are skipped here by name, as libtest filters.
+#
+#   golden::no_night_glow_has_a_straight_hard_edge          world-gpui: the tile painter's
+#   golden::no_shadow_has_a_straight_hard_edge              night-glow, shadow, dusk and
+#   golden::dusk_is_gold                                    night-sky picture bars, each
+#   golden::at_night_nothing_over_the_scene_is_brighter_than_its_sky   drawn many times over
+env:
+  SLOW: >-
+    --skip golden::no_night_glow_has_a_straight_hard_edge
+    --skip golden::no_shadow_has_a_straight_hard_edge
+    --skip golden::dusk_is_gold
+    --skip golden::at_night_nothing_over_the_scene_is_brighter_than_its_sky
 
 jobs:
   changes:
@@ -27,6 +48,7 @@ jobs:
       pull-requests: read
     outputs:
       gpui: ${{ steps.filter.outputs.gpui }}
+      window: ${{ steps.filter.outputs.window }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,7 +58,8 @@ jobs:
         with:
           # The app depends on every crate in the workspace (the kernel,
           # every System, both Worlds and their Packs), so a change to any
-          # of them is a change to the app.
+          # of them is a change to the app. The window is what the release
+          # shots play: its drawing, the desktop app, and the harness.
           filters: |
             gpui:
               - 'crates/**'
@@ -47,9 +70,22 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.github/workflows/ci.yml'
+            window:
+              - 'crates/world-gpui/**'
+              - 'crates/world-theme/**'
+              - 'crates/world-art/**'
+              - 'crates/world-sound/**'
+              - 'apps/world-machine-desktop/**'
+              - 'scripts/release-shots*.sh'
+              - '.github/workflows/release-shots.yml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
 
-  test:
+  # The checks that read the tree, the format and the lints: everything
+  # but the tests, beside them rather than before them.
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -61,7 +97,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: semantic
+          shared-key: lint
       - run: bash ./scripts/check-boundaries.sh
       - name: Check included World Packs agree about their identity
         run: python3 ./scripts/check-included-packs.py
@@ -71,18 +107,87 @@ jobs:
         run: python3 ./scripts/check-workflows.py
       - name: Check the app icon
         run: python3 ./scripts/check-app-icon.py
+      - name: Check no Rust file grows past its recorded size
+        run: python3 ./scripts/check-file-sizes.py
       - run: cargo fmt --all -- --check
       # world-gpui builds and tests on Linux: its golden pictures are drawn
       # by a CPU rasteriser. Only the desktop app is macOS-gated, and it is
       # linted here too, as the AGENTS.md guardrail runs it: whatever is
       # macOS-only in it must be gated so, not left as dead code elsewhere.
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace --exclude world-machine-desktop
+
+  # The workspace's tests, in five shards run side by side (balanced by
+  # what each took in a debug build: the window's tests, each World, the
+  # library's three years with the builtins' languages, and the rest). The last
+  # shard is the whole workspace less the others, so a new crate is tested
+  # without anyone adding it here (check-workflows.py holds that every
+  # crate the last shard leaves out is tested by another).
+  test:
+    name: test (${{ matrix.shard.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: window
+            packages: -p world-gpui
+            save: false
+          - name: Pocket Universe
+            packages: -p pocket-universe
+            save: false
+          - name: Tiny Society
+            packages: -p tiny-society
+            save: false
+          - name: library and builtins
+            packages: -p world-library -p world-builtins
+            save: false
+          - name: the rest
+            packages: >-
+              --workspace --exclude world-machine-desktop
+              --exclude world-gpui --exclude pocket-universe --exclude tiny-society
+              --exclude world-library --exclude world-builtins
+            save: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ce678459e9fc7500d337468f904b95f1b5c10b5e # 1.98.1
+      # One cache for every shard, saved by the one that builds nearly
+      # every crate (the rest builds the World crates and, through the
+      # living-stage bench, the window's), so shards do not race to save.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: semantic
+          save-if: ${{ matrix.shard.save }}
+      - name: Test
+        env:
+          PACKAGES: ${{ matrix.shard.packages }}
+        # PACKAGES and SLOW are lists of flags, split on purpose.
+        run: |
+          # shellcheck disable=SC2086
+          cargo test --locked $PACKAGES -- $SLOW
       - name: Verify external Pack conformance command
+        if: matrix.shard.name == 'the rest'
         run: |
           mkdir -p target/pack-check
           cargo run --locked -p tiny-society-pack -- --write-bundle target/pack-check/tiny-society.worldpack
           cargo run --locked -p world-pack-catalog --bin world-pack-check -- target/pack-check/tiny-society.worldpack
+
+  # A quick release-shots check (docs/REVIEW_v0.30.md, P0) on changes to the
+  # window: the release app in its real window under Xvfb, playing a new
+  # World's first sitting to its Goodnight (the `first` scenario). A release
+  # plays every scenario (release-package.yml).
+  release-shots:
+    needs: changes
+    if: needs.changes.outputs.window == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-shots.yml
+    with:
+      scenarios: first
 
   # What the app may be built from (deny.toml): permissive licences only,
   # no crate with a known vulnerability or yanked, no wildcard versions,

@@ -822,8 +822,12 @@ pub(crate) fn three_years() -> ProjectionSnapshot {
 /// At 1440 by 900 at twice the pixels: painting the still layers
 /// afresh (a new hour, the weather, the season, a zoom) off the
 /// window's thread takes well under a second, and working out and
-/// drawing a frame over them under 8 ms. (That no frame on the window's
-/// thread waits for painting is `a_three_year_world_never_waits_for_painting`.) What this measures is the CPU's part: painting the
+/// drawing a frame over them under 8 ms. (Its companion bar, that no
+/// frame on the World window's thread waited for painting, measured the
+/// tile painter's off-thread path and was deleted with it in 84f2f3ef;
+/// the World window now draws the living stage, whose 120 Hz bar
+/// `living-stage-bench --window` reports.) What this measures is the
+/// CPU's part: painting the
 /// images, and working out every primitive a frame hands GPUI. The
 /// GPU's part (compositing a few images and the live primitives) needs
 /// a Mac to measure.

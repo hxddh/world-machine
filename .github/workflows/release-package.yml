@@ -52,7 +52,43 @@ concurrency:
 #   See docs/RELEASE_SIGNING.md.
 
 jobs:
+  # A release is built only from a commit the nightly bars passed on
+  # (docs/REVIEW_v0.30.md, P0): a successful run of nightly.yml, scheduled
+  # or by hand, with this exact commit as its head. Run it before cutting a
+  # release:
+  #   gh workflow run nightly.yml --ref <branch or tag>
+  # A dry run (no tag, nothing published) is let through with a warning.
+  nightly-gate:
+    name: The nightly passed on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Find a green nightly on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          publishing=false
+          if [[ "$GITHUB_REF" == refs/tags/* || -n "${INPUT_RELEASE_TAG:-}" ]]; then
+              publishing=true
+          fi
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?head_sha=$GITHUB_SHA&status=success&per_page=1" \
+            --jq '.workflow_runs[0].html_url // empty')"
+          if [[ -n "$run" ]]; then
+              echo "The nightly passed on $GITHUB_SHA: $run" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+          fi
+          message="No green nightly on $GITHUB_SHA. Run \`gh workflow run nightly.yml --ref $GITHUB_REF_NAME\`, wait for it to pass, then release again."
+          if [[ "$publishing" == "true" ]]; then
+              echo "::error title=Release refused: no green nightly::$message"
+              exit 1
+          fi
+          echo "::warning title=Dry run without a green nightly::$message"
+
   macos-release:
+    needs: nightly-gate
     runs-on: macos-15
     permissions:
       contents: read
@@ -334,6 +370,7 @@ jobs:
   # set WORLD_MACHINE_WINDOWS_SIGN (see docs/RELEASE_SIGNING.md, "Windows")
   # once a certificate exists; nothing here requires one.
   windows-release:
+    needs: nightly-gate
     if: inputs.windows || vars.WORLD_MACHINE_WINDOWS_RELEASE == 'true'
     runs-on: windows-2025
     permissions:
@@ -383,17 +420,19 @@ jobs:
   # because a tag this workflow creates (a dispatch with release_tag) starts
   # no other workflow. Nothing is published unless it passed.
   release-shots:
+    needs: nightly-gate
     permissions:
       contents: read
     uses: ./.github/workflows/release-shots.yml
 
   publish:
-    needs: [macos-release, windows-release, release-shots]
+    needs: [nightly-gate, macos-release, windows-release, release-shots]
     # The Windows package is optional: a release goes out with the Mac one
     # alone when it was not asked for, but never when it failed. The release
-    # shots are not optional.
+    # shots and the nightly gate are not optional.
     if: >-
       !cancelled()
+      && needs.nightly-gate.result == 'success'
       && needs.macos-release.result == 'success'
       && needs.macos-release.outputs.publish == 'true'
       && needs.windows-release.result != 'failure'
