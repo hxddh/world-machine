@@ -297,6 +297,42 @@ fn no_motion_is_linear() {
             "window/world_window.rs",
             include_str!("../window/world_window.rs"),
         ),
+        (
+            "window/world_window/asking.rs",
+            include_str!("../window/world_window/asking.rs"),
+        ),
+        (
+            "window/world_window/bubbles.rs",
+            include_str!("../window/world_window/bubbles.rs"),
+        ),
+        (
+            "window/world_window/camera.rs",
+            include_str!("../window/world_window/camera.rs"),
+        ),
+        (
+            "window/world_window/controls.rs",
+            include_str!("../window/world_window/controls.rs"),
+        ),
+        (
+            "window/world_window/dock.rs",
+            include_str!("../window/world_window/dock.rs"),
+        ),
+        (
+            "window/world_window/hud.rs",
+            include_str!("../window/world_window/hud.rs"),
+        ),
+        (
+            "window/world_window/render_world.rs",
+            include_str!("../window/world_window/render_world.rs"),
+        ),
+        (
+            "window/world_window/widgets.rs",
+            include_str!("../window/world_window/widgets.rs"),
+        ),
+        (
+            "window/world_window/tests.rs",
+            include_str!("../window/world_window/tests.rs"),
+        ),
         ("window.rs", include_str!("../window.rs")),
     ];
     let drawing = [
