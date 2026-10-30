@@ -1203,6 +1203,14 @@ pub(crate) fn gather_at_hubs(
     if people.is_empty() || hubs.is_empty() {
         return;
     }
+    // Each person's place in the order of their ids, for the order they
+    // come in.
+    let mut by_id = people.clone();
+    by_id.sort_by(|a, b| items[*a].id.cmp(&items[*b].id));
+    let mut rank = vec![0_u64; items.len()];
+    for (n, at) in by_id.iter().enumerate() {
+        rank[*at] = n as u64;
+    }
     let stretch_at = |px: f32| {
         stretches
             .iter()
@@ -1217,6 +1225,21 @@ pub(crate) fn gather_at_hubs(
             .is_some_and(|age| age == world_projection::AgeStage::Baby)
     };
     let mut moved = BTreeMap::<usize, BTreeMap<u8, RoutineStop>>::new();
+    // Every hub, and every two near each other, to gather round: the same
+    // every hour.
+    let mut choices = Vec::<Vec<(f32, SelectionId)>>::new();
+    for (n, a) in hubs.iter().enumerate() {
+        choices.push(vec![*a]);
+        for b in &hubs[n + 1..] {
+            if (b.0 - a.0).abs() <= HUB_APART && (b.0 - a.0).abs() > 0.02 {
+                choices.push(if a.0 <= b.0 {
+                    vec![*a, *b]
+                } else {
+                    vec![*b, *a]
+                });
+            }
+        }
+    }
     for hour in HUB_HOURS {
         let now = people
             .iter()
@@ -1300,58 +1323,100 @@ pub(crate) fn gather_at_hubs(
         // carry; then the nearest), two by two in turn to each hub, never
         // more than a stretch's share in one; and how many would stand in
         // one window round the hubs, those who stay where they are too.
-        let plan = |pair: &[(f32, SelectionId)]| -> (usize, Vec<(usize, usize)>) {
+        // What each of those out is, read once an hour rather than once a
+        // hub: every hub and pair of hubs asks the same of them.
+        let sits = |stop: &RoutineStop| stop.stance == Some(Stance::Sitting);
+        // Someone at a hub already with nobody, and nothing there to use,
+        // joins those gathering there (else the scene sends them off on
+        // an errand).
+        let alone = |stop: &RoutineStop| {
+            stop.with.is_none() && !kept_at.get(&stop.at).copied().unwrap_or(false)
+        };
+        struct Out {
+            at: usize,
+            stop: RoutineStop,
+            px: Option<f32>,
+            stays: bool,
+            carries: bool,
+            sits: bool,
+            speaker: bool,
+            alone: bool,
+            from: Option<usize>,
+        }
+        let facts = out
+            .iter()
+            .map(|(at, stop, px)| Out {
+                at: *at,
+                stop: *stop,
+                px: *px,
+                stays: stays(stop),
+                carries: carries(stop),
+                sits: sits(stop),
+                speaker: is_speaker(*at),
+                alone: alone(stop),
+                from: counted_in(stop),
+            })
+            .collect::<Vec<_>>();
+        // Who would come round a pair (how many, and whether whoever speaks
+        // is among them), and how many stand there already; and, when
+        // asked, each who comes with the key they come in by (whoever
+        // speaks first, then the nearest the middle, then by id; a
+        // distance is never below zero, so its bits order as it does).
+        let census = |pair: &[(f32, SelectionId)],
+                      mut keep: Option<&mut Vec<(u64, usize)>>|
+         -> (usize, usize, bool) {
             let centre = pair.iter().map(|hub| hub.0).sum::<f32>() / pair.len() as f32;
             let at_a_hub = |px: f32| pair.iter().any(|hub| (hub.0 - px).abs() <= HUB_THERE);
             // Someone sitting a while comes only to sit at a seat that is a
             // hub.
             let a_seat = pair.iter().any(|hub| seats.contains(&hub.1));
-            let sits = |stop: &RoutineStop| stop.stance == Some(Stance::Sitting);
-            // Someone at a hub already with nobody, and nothing there to use,
-            // joins those gathering there (else the scene sends them off on
-            // an errand).
-            let alone = |stop: &RoutineStop| {
-                stop.with.is_none() && !kept_at.get(&stop.at).copied().unwrap_or(false)
+            let comes = |one: &Out| {
+                (!one.stays
+                    || one.carries
+                    || (one.speaker && one.sits)
+                    || (a_seat && one.sits && !pair.iter().any(|hub| hub.1 == one.stop.at)))
+                    && (one.speaker || !one.px.is_some_and(at_a_hub) || one.alone)
             };
-            let comes = |at: usize, stop: &RoutineStop, px: Option<f32>| {
-                (!stays(stop)
-                    || carries(stop)
-                    || (is_speaker(at) && sits(stop))
-                    || (a_seat && sits(stop) && !pair.iter().any(|hub| hub.1 == stop.at)))
-                    && (is_speaker(at) || !px.is_some_and(at_a_hub) || alone(stop))
-            };
-            let there = out
-                .iter()
-                .filter(|(at, stop, px)| {
-                    !comes(*at, stop, *px) && px.is_some_and(|px| (px - centre).abs() <= HUB_VIEW)
-                })
-                .count();
-            let mut coming = out
-                .iter()
-                .filter(|(at, stop, px)| comes(*at, stop, *px))
-                .map(|(at, stop, px)| (*at, *stop, px.unwrap_or(0.0)))
-                .collect::<Vec<_>>();
-            coming.sort_by(|a, b| {
-                is_speaker(b.0)
-                    .cmp(&is_speaker(a.0))
-                    .then((a.2 - centre).abs().total_cmp(&(b.2 - centre).abs()))
-                    .then(items[a.0].id.cmp(&items[b.0].id))
-            });
+            let (mut there, mut come, mut speaker_comes) = (0, 0, false);
+            for (n, one) in facts.iter().enumerate() {
+                if comes(one) {
+                    come += 1;
+                    speaker_comes |= one.speaker;
+                    if let Some(coming) = keep.as_deref_mut() {
+                        let near = u64::from((one.px.unwrap_or(0.0) - centre).abs().to_bits());
+                        let key = (u64::from(!one.speaker) << 63) | (near << 31) | rank[one.at];
+                        coming.push((key, n));
+                    }
+                } else if one.px.is_some_and(|px| (px - centre).abs() <= HUB_VIEW) {
+                    there += 1;
+                }
+            }
+            (there, come, speaker_comes)
+        };
+        // Round a hub, or two near each other: those who come, in turn,
+        // two by two to each hub, never more than a stretch's share in one;
+        // and how many would stand in one window round the hubs, those who
+        // stay where they are too.
+        let plan = |pair: &[(f32, SelectionId)]| -> (usize, Vec<(usize, usize)>) {
+            let mut coming = Vec::with_capacity(facts.len());
+            let (there, ..) = census(pair, Some(&mut coming));
+            coming.sort_unstable();
             let mut counts = counts_now.clone();
-            let mut gathered = Vec::<(usize, usize)>::new();
-            for (at, stop, _) in coming {
+            let mut gathered = Vec::<(usize, usize)>::with_capacity(HUB_MOST);
+            for (_, n) in coming {
                 if there + gathered.len() >= HUB_MOST {
                     break;
                 }
+                let one = &facts[n];
                 let turn = gathered.len() / 2 % pair.len();
-                let from = counted_in(&stop);
+                let from = one.from;
                 let fits = |hub: usize, counts: &BTreeMap<Option<usize>, usize>| {
                     let to = stretch_at(pair[hub].0);
                     // Three to a seat.
                     let seat = seats.contains(&pair[hub].1);
                     let here = gathered.iter().filter(|(_, at)| *at == hub).count();
                     let room =
-                        (!seat || here < SEAT_MOST) && here < HUB_EACH && (seat || !sits(&stop));
+                        (!seat || here < SEAT_MOST) && here < HUB_EACH && (seat || !one.sits);
                     // (The share is the noon bar's: held at noon, when
                     // the Packs measure it. Other hours a window at rest
                     // gathers six or more even of a town of eight, v0.30
@@ -1373,26 +1438,13 @@ pub(crate) fn gather_at_hubs(
                         *count = count.saturating_sub(1);
                     }
                 }
-                gathered.push((at, hub));
+                gathered.push((one.at, hub));
             }
             (there + gathered.len(), gathered)
         };
         // Of every hub and every two near each other, round whoever speaks
         // where they stay at what they do: them in the window, then the
         // most in it, then the nearest the spot.
-        let mut choices = Vec::<Vec<(f32, SelectionId)>>::new();
-        for (n, a) in hubs.iter().enumerate() {
-            choices.push(vec![*a]);
-            for b in &hubs[n + 1..] {
-                if (b.0 - a.0).abs() <= HUB_APART && (b.0 - a.0).abs() > 0.02 {
-                    choices.push(if a.0 <= b.0 {
-                        vec![*a, *b]
-                    } else {
-                        vec![*b, *a]
-                    });
-                }
-            }
-        }
         let middle = |pair: &[(f32, SelectionId)]| {
             pair.iter().map(|hub| hub.0).sum::<f32>() / pair.len() as f32
         };
@@ -1402,33 +1454,76 @@ pub(crate) fn gather_at_hubs(
             .map(|pair| (middle(pair) - target).abs())
             .fold(f32::MAX, f32::min);
         let reach = HUB_VIEW.max(nearest_middle + 0.02);
-        let Some((hubs_now, gathered)) = choices
-            .into_iter()
+        // How a choice ranks: whoever speaks in the window too (come, or
+        // near enough), then the most in it, then the nearest the spot,
+        // then the fewer hubs.
+        struct Rank {
+            seen: bool,
+            count: usize,
+            off: f32,
+            hubs: usize,
+        }
+        let ranks = |a: &Rank, b: &Rank| {
+            a.seen
+                .cmp(&b.seen)
+                .then(a.count.cmp(&b.count))
+                .then(b.off.total_cmp(&a.off))
+                .then(b.hubs.cmp(&a.hubs))
+        };
+        let near_speaker = |pair: &[(f32, SelectionId)]| {
+            speaker.is_some_and(|(_, _, px)| {
+                px.is_some_and(|px| (px - middle(pair)).abs() <= HUB_VIEW)
+            })
+        };
+        // The best is the last of those that rank highest. Who would come
+        // and who stands there already bound how a choice can rank (no
+        // more can come than would, nor more than [`HUB_MOST`] in all, and
+        // whoever speaks is in the window only if they would come or are
+        // near), so a choice is planned only while it could still rank as
+        // high as the best planned so far: highest bound first.
+        let mut open = choices
+            .iter()
             .filter(|pair| !speaker_stays || (middle(pair) - target).abs() <= reach)
-            .map(|pair| {
-                let (count, gathered) = plan(&pair);
-                (count, pair, gathered)
-            })
-            .max_by(|a, b| {
-                // Whoever speaks in the window too: come, or near enough.
-                let seen = |pair: &[(f32, SelectionId)], gathered: &[(usize, usize)]| {
-                    speaker.is_none_or(|(at, _, px)| {
-                        gathered.iter().any(|(other, _)| other == at)
-                            || px.is_some_and(|px| (px - middle(pair)).abs() <= HUB_VIEW)
-                    })
+            .enumerate()
+            .map(|(order, pair)| {
+                let (there, come, speaker_comes) = census(pair, None);
+                let bound = Rank {
+                    seen: speaker.is_none() || near_speaker(pair) || speaker_comes,
+                    count: there + come.min(HUB_MOST.saturating_sub(there)),
+                    off: (middle(pair) - target).abs(),
+                    hubs: pair.len(),
                 };
-                seen(&a.1, &a.2)
-                    .cmp(&seen(&b.1, &b.2))
-                    .then(a.0.cmp(&b.0))
-                    .then(
-                        (middle(&b.1) - target)
-                            .abs()
-                            .total_cmp(&(middle(&a.1) - target).abs()),
-                    )
-                    .then(b.1.len().cmp(&a.1.len()))
+                (bound, order, pair.as_slice())
             })
-            .map(|(_, pair, gathered)| (pair, gathered))
-        else {
+            .collect::<Vec<_>>();
+        open.sort_unstable_by(|a, b| ranks(&b.0, &a.0).then(a.1.cmp(&b.1)));
+        // The best so far: how it ranks, its place among the choices, its
+        // hubs, and who gathers there.
+        type Best<'a> = (Rank, usize, &'a [(f32, SelectionId)], Vec<(usize, usize)>);
+        let mut best: Option<Best<'_>> = None;
+        for (bound, order, pair) in open {
+            if best
+                .as_ref()
+                .is_some_and(|(rank, ..)| ranks(&bound, rank).is_lt())
+            {
+                break;
+            }
+            let (count, gathered) = plan(pair);
+            let rank = Rank {
+                seen: speaker.is_none_or(|(at, _, _)| {
+                    gathered.iter().any(|(other, _)| other == at) || near_speaker(pair)
+                }),
+                count,
+                ..bound
+            };
+            let better = best.as_ref().is_none_or(|(top, top_order, ..)| {
+                ranks(&rank, top).then(order.cmp(top_order)).is_gt()
+            });
+            if better {
+                best = Some((rank, order, pair, gathered));
+            }
+        }
+        let Some((_, _, hubs_now, gathered)) = best else {
             continue;
         };
         // Two by two at each hub, talking.

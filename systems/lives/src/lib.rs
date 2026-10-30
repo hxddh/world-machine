@@ -40,8 +40,8 @@ mod host;
 mod pronouns;
 mod retold;
 pub use pronouns::{pronouns, they_all, Pronouns, A_SLOTS, B_SLOTS, PRONOUNS};
+use retold::TOLD_NTH;
 pub use retold::{cited, player_act, told_enough, year_length, Act, MOST_TOLD_A_YEAR};
-use retold::{TOLD_NTH, TOLD_THIS_YEAR};
 mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
 #[doc(hidden)]
@@ -943,7 +943,7 @@ impl Action for Lives {
         } else {
             pressing(state, person, seed)
         };
-        let last = text(state, person, "lives.did").unwrap_or("");
+        let last = retold::last_did(state, person);
         // Rather than say the same again, people do something else: an
         // activity is fresh if it still has something to say that nobody
         // said lately.
@@ -1052,7 +1052,17 @@ impl Action for Lives {
         if !quarrel && integer(state, person, REGARD).unwrap_or(0) < 10 {
             moves.regard(state, person, 1);
         }
-        moves.set(person, "lives.did", activity.id);
+        // What they did, and which time this year this kind of day is told
+        // of them, this one included: counted on them, so a World resumed
+        // from a checkpoint, its earlier Events not kept, counts the year
+        // all the same.
+        let year = state.world_time() / year_length(&cast).max(1);
+        let lived = retold::Days::of(state, &cast, person, year).lived(&cast, activity.id);
+        moves.set(person, retold::DID, lived.note);
+        for old in lived.let_go {
+            moves.unset(state, person, &old);
+        }
+        let nth = lived.nth;
         moves.set(person, AT, Value::Entity(place));
 
         let mut told = fill(activity.told, &words);
@@ -1105,18 +1115,6 @@ impl Action for Lives {
         }
         remember_saying(&mut moves, &heard, &said);
         remember_saying(&mut moves, &heard, &base);
-        // Which time this year this kind of day is told of them, this one
-        // included: counted on them, so a World resumed from a checkpoint,
-        // its earlier Events not kept, counts the year all the same.
-        let year = state.world_time() / year_length(&cast).max(1);
-        let key = format!("{TOLD_THIS_YEAR}.{}", activity.id);
-        let nth = text(state, person, &key)
-            .and_then(|kept| kept.split_once(':'))
-            .filter(|(kept_year, _)| kept_year.parse::<u64>().ok() == Some(year))
-            .and_then(|(_, told)| told.parse::<i64>().ok())
-            .unwrap_or(0)
-            + 1;
-        moves.set(person, &key, format!("{year}:{nth}"));
         let mut draft = EventDraft::new("lived");
         draft.payload.insert(TOLD_NTH.into(), Value::Integer(nth));
         if let Some(who) = remembers {

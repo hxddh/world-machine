@@ -439,9 +439,8 @@ fn place_line(world: &World, who: EntityId, place: EntityId) -> String {
 fn need_line(world: &World, who: EntityId) -> (String, Option<String>) {
     // Worked out once for where the World stands, not once for everyone
     // asked: the openers ask it of every resident in every snapshot.
-    struct OnOffer(Vec<world_projection::ProjectionCommand>);
-    let commands = world.as_it_stands(|| OnOffer(crate::projection::commands_on_offer(world)));
-    crate::talk::request(world, who, &commands.0)
+    let commands = crate::projection::commands_on_offer(world);
+    crate::talk::request(world, who, &commands)
         .unwrap_or_else(|| ("Nothing right now. Just time.".into(), None))
 }
 

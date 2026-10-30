@@ -104,6 +104,13 @@ const THE_DAY: &str = "the day {told}";
 /// An evening two people spent together, as something to speak of.
 const EVENING: &str = "the evening {a} and {b} spent at {place}";
 
+/// Something that happened lately, to speak of: an evening two people
+/// spent somewhere, or a day as it was told.
+enum Happening<'a> {
+    Evening(EntityId, EntityId, EntityId),
+    Day(&'a str),
+}
+
 fn text_hash(text: &str) -> u64 {
     mix(&text.bytes().map(u64::from).collect::<Vec<_>>())
 }
@@ -606,7 +613,9 @@ fn next_first(
             .world_time()
             .saturating_sub(HAPPENING_PERIODS * cast.period.max(1));
         let from = events.partition_point(|event| event.world_time < since);
-        // Each as (the key it is remembered by, what it is called).
+        // Each as (who it is between, the key it is remembered by, how it
+        // is told); what it is called is worked out only for the one
+        // spoken of.
         let happenings = events[from..]
             .iter()
             .filter_map(|event| {
@@ -620,40 +629,39 @@ fn next_first(
                         Some(Value::Entity(place)) if state.entity(*place).is_some() => *place,
                         _ => return None,
                     };
-                    let about = fill_owned(
-                        EVENING,
-                        &[
-                            ("a", first_name(state, a)),
-                            ("b", first_name(state, b)),
-                            ("place", name(state, place)),
-                        ],
-                    );
-                    return Some((
-                        vec![a, b],
-                        format!("h{}-{}-{}", a.0.min(b.0), a.0.max(b.0), place.0),
-                        about,
-                    ));
+                    let key = format!("h{}-{}-{}", a.0.min(b.0), a.0.max(b.0), place.0);
+                    return Some((vec![a, b], key, Happening::Evening(a, b, place)));
                 }
                 if !SPOKEN_OF.contains(&event.kind.as_str()) {
                     return None;
                 }
                 match event.payload.get("told") {
-                    Some(Value::Text(told)) if !told.is_empty() => Some((
-                        Vec::new(),
-                        happening_key(told),
-                        fill_owned(THE_DAY, &[("told", inside(told))]),
-                    )),
+                    Some(Value::Text(told)) if !told.is_empty() => {
+                        Some((Vec::new(), happening_key(told), Happening::Day(told)))
+                    }
                     _ => None,
                 }
             })
             .collect::<Vec<_>>();
+        let called = |happening: &Happening| match happening {
+            Happening::Evening(a, b, place) => fill_owned(
+                EVENING,
+                &[
+                    ("a", first_name(state, *a)),
+                    ("b", first_name(state, *b)),
+                    ("place", name(state, *place)),
+                ],
+            ),
+            Happening::Day(told) => fill_owned(THE_DAY, &[("told", inside(told))]),
+        };
         order.iter().copied().find_map(|who| {
             let spoken = spoken_of(state, who);
-            let (key, about) = happenings
+            let (key, happening) = happenings
                 .iter()
                 .filter(|(between, key, _)| !between.contains(&who) && !spoken.contains(key))
-                .map(|(_, key, about)| (key, about))
+                .map(|(_, key, happening)| (key, happening))
                 .max_by_key(|(key, _)| mix(&[who.0, text_hash(key), now, 107]))?;
+            let about = called(happening);
             let seed = mix(&[who.0, text_hash(key), now, 109]);
             let intro = pick(&SUBJECT_INTROS, seed)?;
             let line = pick(&REACTIONS, seed >> 8)?;

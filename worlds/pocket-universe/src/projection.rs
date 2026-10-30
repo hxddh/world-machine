@@ -14,9 +14,18 @@ use world_projection::{
     SelectionId, Tone,
 };
 
-/// The choices a World offers now, before any is previewed.
-pub(crate) fn commands_on_offer(world: &World) -> Vec<ProjectionCommand> {
-    commands(world, seed_id(world) != "unseeded")
+/// The choices a World offers now, before any is previewed: worked out
+/// once for where the World stands, however often a snapshot, its
+/// previews and its residents' openers ask.
+pub(crate) fn commands_on_offer(world: &World) -> std::sync::Arc<Vec<ProjectionCommand>> {
+    struct OnOffer(std::sync::Arc<Vec<ProjectionCommand>>);
+    let on_offer = world.as_it_stands(|| {
+        OnOffer(std::sync::Arc::new(commands(
+            world,
+            seed_id(world) != "unseeded",
+        )))
+    });
+    std::sync::Arc::clone(&on_offer.0)
 }
 
 /// What the player said to people today, and what they answered; a
@@ -73,7 +82,7 @@ fn snapshot_on<'scope>(
         });
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
-    let commands = commands(world, seeded);
+    let commands = commands_on_offer(world).as_ref().clone();
     let talks = crate::talk::talks(world, &commands);
     let exchanges = exchanges(world, &commands);
     let almanac = crate::almanac::almanac(world.state());
