@@ -182,6 +182,38 @@ fn grounded_answers_cite_what_someone_knows() {
         answer(&world, MARA, "Is the pier hard to build?"),
         "The new pier is coming along. 2 of 5 done."
     );
+    // Asked about one work by name, that work, not the first going up.
+    let mut two = kit.clone();
+    two.works = |_| {
+        vec![
+            world_projection::Goal {
+                id: "pier".into(),
+                label: "The new pier".into(),
+                shape: world_projection::MarkShape::Bridge,
+                done: 2,
+                parts: 5,
+            },
+            world_projection::Goal {
+                id: "lamp".into(),
+                label: "The lamp on the point".into(),
+                shape: world_projection::MarkShape::Lamp,
+                done: 3,
+                parts: 3,
+            },
+        ]
+    };
+    let ask_two = |words: &str| {
+        let heard = hear(world.state(), &two, MARA, words);
+        grounded::answer(&world, &two, MARA, heard, words).line
+    };
+    assert_eq!(
+        ask_two("How's the lamp going?"),
+        "The lamp on the point is finished. It's done us all good."
+    );
+    assert_eq!(
+        ask_two("How's the building going?"),
+        "The new pier is coming along. 2 of 5 done."
+    );
     assert_eq!(
         answer(&world, MARA, "Did you write me a letter?"),
         "I haven't written to you yet. Maybe one day."

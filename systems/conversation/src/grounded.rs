@@ -268,7 +268,10 @@ pub(crate) fn shaped(
         return Some(letter(world, kit, who));
     }
     let works = (kit.works)(world);
-    if asks(BUILDING) || names_work(kit, &text, &works) {
+    if let Some(work) = named_work(kit, &text, &works) {
+        return Some(how_the_work_goes(work));
+    }
+    if asks(BUILDING) {
         return Some(building(&works));
     }
     if asks(FESTIVAL) && heard.intent != Intent::Coming {
@@ -315,8 +318,14 @@ fn head(label: &str) -> Option<String> {
 
 /// Whether the words name one of the place's works, by its head word or
 /// any other name the World gives it.
-fn names_work(kit: &Kit, text: &str, works: &[world_projection::Goal]) -> bool {
-    works.iter().any(|work| {
+/// The work the words name, if they name one: asked about the lamp, the
+/// lamp, whatever else is going up.
+fn named_work<'a>(
+    kit: &Kit,
+    text: &str,
+    works: &'a [world_projection::Goal],
+) -> Option<&'a world_projection::Goal> {
+    works.iter().find(|work| {
         head(&work.label).is_some_and(|head| has(text, &head))
             || (kit.aliases)(&work.label)
                 .iter()
@@ -416,24 +425,31 @@ fn letter(world: &World, kit: &Kit, who: EntityId) -> String {
 
 /// How the place's work is going: the work under way, or the last one
 /// finished.
+/// What is being built, asked about building in general: the first work
+/// not yet finished, or the last one finished.
 fn building(works: &[world_projection::Goal]) -> String {
-    if let Some(work) = works.iter().find(|work| !work.finished()) {
-        let name = capitalized(&work.label);
-        return if work.done == 0 {
-            format!("{name} is still to be started. Everyone's talking about it.")
-        } else {
-            format!(
-                "{name} is coming along. {} of {} done.",
-                work.done, work.parts
-            )
-        };
-    }
-    match works.last() {
-        Some(work) => format!(
-            "{} is finished. It's done us all good.",
-            capitalized(&work.label)
-        ),
+    match works
+        .iter()
+        .find(|work| !work.finished())
+        .or_else(|| works.last())
+    {
+        Some(work) => how_the_work_goes(work),
         None => "Nothing's being built just now.".into(),
+    }
+}
+
+/// How one work is going: still to be started, coming along, or finished.
+fn how_the_work_goes(work: &world_projection::Goal) -> String {
+    let name = capitalized(&work.label);
+    if work.finished() {
+        format!("{name} is finished. It's done us all good.")
+    } else if work.done == 0 {
+        format!("{name} is still to be started. Everyone's talking about it.")
+    } else {
+        format!(
+            "{name} is coming along. {} of {} done.",
+            work.done, work.parts
+        )
     }
 }
 
