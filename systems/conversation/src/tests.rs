@@ -21,6 +21,8 @@ fn kit(_: &WorldState) -> Kit {
         place_line: |_, _, _| "The bakery's doing fine.".into(),
         need_line: |_, _| ("Flour, mostly.".into(), Some("tiny.flour".into())),
         work_line: |_, _| Some("Up at four for the bread.".into()),
+        role_line: |world, who| Some(format!("{} bakes.", lives::first_name(world.state(), who))),
+        works: |_| Vec::new(),
         place_mood: |_| "The harbour's quiet.".into(),
         coming_up: |_| Some("the fair in 3 days".into()),
         aliases: |name| match name {
@@ -204,10 +206,7 @@ fn only_plain_words_to_someone_living_here_are_recorded() {
             intent: Intent::Greet,
             about: None,
         },
-        &Reply {
-            line: "Hi.".into(),
-            asks_for: None,
-        },
+        &Reply::said("Hi."),
     );
     assert!(world.execute(&actions, &forged).is_err());
     let long = "a".repeat(MOST_WORDS + 1);
@@ -225,10 +224,7 @@ fn request_with(who: EntityId, intent: Intent, about: Option<EntityId>) -> Actio
         who,
         "words",
         Heard { intent, about },
-        &Reply {
-            line: "An answer.".into(),
-            asks_for: None,
-        },
+        &Reply::said("An answer."),
     )
 }
 

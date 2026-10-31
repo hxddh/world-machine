@@ -4745,3 +4745,24 @@ A favour done for {name}	帮了{name}一个忙
 A letter from {name}	{name}的来信
 A keepsake from {name}	{name}送的纪念品
 A wish of {name}'s granted	实现了{name}的一个心愿
+# Talk that never says it does not understand (P4a): answers from what someone knows, and three things to ask.
+{x}'s the baker.	{x}是面包师。
+{x}'s learning the baking.	{x}在学做面包。
+{x} runs the pub.	{x}经营着酒馆。
+{x} teaches the children.	{x}教孩子们念书。
+{x} fishes for a living.	{x}靠打鱼为生。
+{x}'s the carpenter.	{x}是木匠。
+{x}'s still at school.	{x}还在上学。
+{x}'s the mayor.	{x}是镇长。
+{x} works in the shop.	{x}在店里帮忙。
+{x}'s only little.	{x}还小呢。
+{x}'s looking for work.	{x}在找工作。
+Learning the bread.	在学做面包。
+My loaves are getting there.	我烤的面包越来越像样了。
+Timber and nails.	木料和钉子。
+There's always something wants mending.	总有东西要修。
+Lessons all day.	一整天都在上课。
+Some of them are even good.	有些还挺有意思的。
+Meetings, letters, and keeping everyone talking.	开会、写信，还得让大家多沟通。
+Minding the shop.	看店。
+You hear everything over a counter.	站在柜台后面什么都能听到。

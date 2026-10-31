@@ -4814,3 +4814,24 @@ A favour done for {name}	{name}の頼みごとを引き受けた
 A letter from {name}	{name}からの手紙
 A keepsake from {name}	{name}からの贈りもの
 A wish of {name}'s granted	{name}の願いをかなえた
+# Talk that never says it does not understand (P4a): answers from what someone knows, and three things to ask.
+{x}'s the baker.	{x}はパン屋さんだよ。
+{x}'s learning the baking.	{x}はパン作りを修業中なの。
+{x} runs the pub.	{x}はパブをやってるよ。
+{x} teaches the children.	{x}は子どもたちの先生だよ。
+{x} fishes for a living.	{x}は漁師だよ。
+{x}'s the carpenter.	{x}は大工さんだよ。
+{x}'s still at school.	{x}はまだ学生だよ。
+{x}'s the mayor.	{x}は町長さんだよ。
+{x} works in the shop.	{x}はお店で働いてるよ。
+{x}'s only little.	{x}はまだ小さいの。
+{x}'s looking for work.	{x}は仕事を探してるところ。
+Learning the bread.	パン作りを修業中。
+My loaves are getting there.	私のパンもだいぶ形になってきた。
+Timber and nails.	材木と釘ばかり。
+There's always something wants mending.	直すものはいつだってあるんだ。
+Lessons all day.	一日中授業だよ。
+Some of them are even good.	中にはおもしろいのもあるけど。
+Meetings, letters, and keeping everyone talking.	会議に手紙、それにみんなの話をつなぐこと。
+Minding the shop.	お店番だよ。
+You hear everything over a counter.	カウンター越しに何でも耳に入るの。

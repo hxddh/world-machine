@@ -2225,3 +2225,72 @@ We keep crossing paths, and I never said.	我们老是碰到，我却一直没�
 Hello again!	又见面啦！
 I'm {name}, in case nobody said.	我是{name}，怕没人跟你说过。
 Good to put a face to it all at last.	总算能对上号了。
+# Talk that never says it does not understand (P4a): answers from what someone knows, and three things to ask.
+How was your day?	你今天过得怎么样？
+Who is {name}?	{name}是谁？
+Where is {name}?	{name}在哪儿？
+What happened lately?	最近发生了什么？
+What's coming up?	接下来有什么活动？
+How's the building work going?	工程进展得怎么样？
+Tell me about your letter.	说说你的信吧。
+Tell me about your family.	说说你的家人吧。
+my work	我的工作
+my day	我的一天
+my family	我的家人
+what's new	最近的新鲜事
+what happened lately	最近发生的事
+what's coming up	接下来的活动
+my letter	我写的信
+But I could tell you about {a}, {b} or {c}.	不过我可以跟你聊聊{a}、{b}或者{c}。
+Ask me about {a}, {b} or {c} instead.	不如问问我{a}、{b}或者{c}吧。
+Oh, that's beyond me, love.	哎呀，亲爱的，这我可说不上来。
+I couldn't tell you that, pet.	这个我可答不上，宝贝。
+Not my area.	这不归我管。
+Can't help you there.	这个我帮不上忙。
+That's outside my line.	这不在我的本行之内。
+I'll leave that one to others.	这事还是留给别人吧。
+Oh, um, I wouldn't know.	哦，呃，这我不清楚。
+I'm not the one to ask, sorry.	这事别问我啦，抱歉。
+Ooh, no idea!	哟，完全不知道！
+But listen.	不过你听我说。
+Couldn't tell you!	这我可说不上来！
+Anyway.	总之。
+No idea.	不知道。
+Moving on!	说点别的吧！
+Couldn't say.	说不上来。
+I can't speak to that.	这个我没法说。
+That's not something I know about.	这方面的事我不了解。
+I wish I could help with that.	真希望我能帮上这个忙。
+I'd tell you if I knew.	我要是知道就告诉你了。
+Wouldn't know.	不清楚。
+Can't say I do.	说不上知道。
+Hm, that drifted right past me.	嗯，这事我没留意过。
+Oh, I was miles away.	哦，我刚才走神了。
+I couldn't say.	我说不好。
+I couldn't tell you about that.	这个我可说不上来。
+That's not one for me.	这事不该问我。
+{x}'s at {place} just now.	{x}这会儿在{place}。
+I haven't seen {x} about today.	我今天没见到{x}。
+I'm at {place} today.	我今天在{place}。
+Out and about in {place}.	在{place}到处转转。
+You'll have heard.	你应该听说了。
+Well, since you ask.	既然你问起来了。
+I wrote to you {ago}.	我{ago}给你写过信。
+I hope it found you well.	希望你一切都好。
+Not from me.	不是我写的。
+{x} wrote to you {ago}, didn't they?	{x}{ago}给你写过信，对吧？
+I haven't written to you yet.	我还没给你写过信。
+{work} is still to be started.	{work}还没开工。
+Everyone's talking about it.	大家都在议论。
+{work} is coming along.	{work}进展得不错。
+{done} of {parts} done.	{parts}部分里已经完成了{done}。
+{work} is finished.	{work}已经完工了。
+It's done us all good.	这对大家都是好事。
+Nothing's being built just now.	眼下没在建什么。
+{x} works at {place}.	{x}在{place}工作。
+Maybe one day.	也许哪天会写吧。
+Couldn't tell you, sorry!	这我可说不上来，抱歉！
+It's been a quiet day or two in {place}.	{place}这一两天都挺平静的。
+It's been a quiet week or two in {place}.	{place}这一两周都挺平静的。
+It's been a quiet sol or two in {place}.	{place}这一两个火星日都挺平静的。
+It's been a quiet moon or two in {place}.	{place}这一两个月都挺平静的。

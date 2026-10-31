@@ -161,6 +161,8 @@ pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
         place_line,
         need_line,
         work_line,
+        role_line,
+        works: crate::story::goals,
         place_mood: crate::talk::harbour_mood,
         coming_up: |world| {
             let almanac = crate::almanac::almanac(world.state());
@@ -270,14 +272,44 @@ fn work_line(world: &World, who: EntityId) -> Option<String> {
     Some(
         match text(world, who, JOB)?.as_str() {
             "baker" => "Up before dawn for the bread, every day.",
+            "apprentice_baker" => "Learning the bread. My loaves are getting there.",
             "pub_owner" => "Pulling pints and hearing everyone's troubles.",
             "teacher" => "Lessons, marking, more lessons.",
             "fisher" => "Out on the water whenever the weather lets me.",
+            "carpenter" => "Timber and nails. There's always something wants mending.",
+            "student" => "Lessons all day. Some of them are even good.",
+            "mayor" => "Meetings, letters, and keeping everyone talking.",
+            "shop_assistant" => "Minding the shop. You hear everything over a counter.",
             "unemployed" => "I haven't any. It's eating at me.",
             _ => return None,
         }
         .into(),
     )
+}
+
+/// Who someone is, as anybody in the harbour would put it: by their
+/// trade, or where they work.
+fn role_line(world: &World, who: EntityId) -> Option<String> {
+    let state = world.state();
+    let x = lives::first_name(state, who);
+    let line = match text(world, who, JOB)?.as_str() {
+        "baker" => "{x}'s the baker.",
+        "apprentice_baker" => "{x}'s learning the baking.",
+        "pub_owner" => "{x} runs the pub.",
+        "teacher" => "{x} teaches the children.",
+        "fisher" => "{x} fishes for a living.",
+        "carpenter" => "{x}'s the carpenter.",
+        "student" => "{x}'s still at school.",
+        "mayor" => "{x}'s the mayor.",
+        "shop_assistant" => "{x} works in the shop.",
+        "child" => "{x}'s only little.",
+        "unemployed" => "{x}'s looking for work.",
+        _ => {
+            let place = crate::life::work(state, who).filter(|at| state.entity(*at).is_some())?;
+            return Some(format!("{x} works at {}.", lives::name(state, place)));
+        }
+    };
+    Some(line.replace("{x}", &x))
 }
 
 /// What a language model should be asked to hear the player's words to

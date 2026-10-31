@@ -10,6 +10,20 @@ pub struct Reply {
     pub line: String,
     /// The choice they ask for, when the answer asks for something.
     pub asks_for: Option<String>,
+    /// What they offer to be asked instead, when they cannot answer what
+    /// was asked: three questions, as the player could say them.
+    pub offers: Vec<String>,
+}
+
+impl Reply {
+    /// A plain answer, asking for nothing and offering nothing.
+    pub fn said(line: impl Into<String>) -> Self {
+        Self {
+            line: line.into(),
+            asks_for: None,
+            offers: Vec::new(),
+        }
+    }
 }
 
 pub(crate) fn pick<'a>(lines: &[&'a str], seed: u64) -> &'a str {
@@ -631,14 +645,18 @@ pub(crate) fn family(world: &World, kit: &Kit, who: EntityId, seed: u64) -> Stri
             "There's {}. We're having a hard time.",
             lives::first_name(state, loved)
         ),
-        None => pick(
+        None => match pick(
             &[
                 "No one of my own. {s} is family enough.",
                 "Just me. Everyone in {s} looks out for each other, though.",
             ],
             seed,
-        )
-        .replace("{s}", kit.settlement),
+        ) {
+            // Begun with the place's name, the sentence begins with a
+            // capital.
+            line if line.contains(". {s}") => line.replace("{s}", &capitalized(kit.settlement)),
+            line => line.replace("{s}", kit.settlement),
+        },
     }
 }
 
@@ -684,10 +702,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
     let state = world.state();
     let seed = lives::mix(&[who.0, period(state, kit) as u64, spoken_today(world, who)]);
     let trait_ = first_trait(state, who);
-    let line = |text: String| Reply {
-        line: text,
-        asks_for: None,
-    };
+    let line: fn(String) -> Reply = Reply::said;
     let about_name = heard.about.map(|about| lives::first_name(state, about));
     let mut answer = match heard.intent {
         Intent::Greet => line(greeting(state, who, seed)),
@@ -722,19 +737,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
                 _ => sky,
             }
         }),
-        Intent::Coming => line(match (kit.coming_up)(world) {
-            Some(coming) => format!(
-                "{}{}",
-                capitalized(&coming),
-                match trait_.as_str() {
-                    "shy" => ". I might go, if it's not too crowded.",
-                    "sociable" | "warm" => ". I wouldn't miss it!",
-                    "prickly" => ". I suppose I'll show my face.",
-                    _ => ". I'll be there.",
-                }
-            ),
-            None => "Nothing for a while. Just the usual.".into(),
-        }),
+        Intent::Coming => line(coming(world, kit, who)),
         Intent::Gift => line(
             if lives::regard(state, who) < -20 {
                 "Hm. I'll take it. It doesn't change anything."
@@ -814,40 +817,12 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
             }),
             None => line("Who do you mean?".into()),
         },
-        Intent::News => {
-            let since = state
-                .world_time()
-                .saturating_sub(kit.period.max(1).saturating_mul(5));
-            let news = lives::news_since(world, since);
-            let latest = news.iter().rev().take(2).rev().cloned().collect::<Vec<_>>();
-            let coming = (kit.coming_up)(world)
-                .map(|coming| format!(" And {coming}!"))
-                .unwrap_or_default();
-            if latest.is_empty() {
-                line(format!(
-                    "Nothing much. It's been a quiet {} or two in {}.{coming}",
-                    kit.unit, kit.settlement
-                ))
-            } else {
-                line(format!(
-                    "{}{}{coming}",
-                    pick(
-                        &["Have you heard? ", "News? Well. ", "You won't believe it. "],
-                        seed
-                    ),
-                    latest
-                        .iter()
-                        .map(|told| format!("{}.", told.trim_end_matches('.')))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ))
-            }
-        }
+        Intent::News => line(news(world, kit, seed)),
         Intent::Need => {
             let (text, asks_for) = (kit.need_line)(world, who);
             Reply {
-                line: text,
                 asks_for,
+                ..Reply::said(text)
             }
         }
         Intent::Work => line(
@@ -941,17 +916,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
             }
             .into(),
         ),
-        Intent::Unclear => line(format!(
-            "{} Ask me how I am, about my day, or about someone here.",
-            pick(
-                &[
-                    "Sorry, I didn't follow.",
-                    "Hm? Say that another way?",
-                    "I'm not sure what you mean.",
-                ],
-                seed
-            )
-        )),
+        Intent::Unclear => grounded::deflection(world, kit, who, seed),
     };
     // Seeing the player for the first time today, people bring up what
     // was said before.
@@ -967,6 +932,58 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
             }
         }
     }
+    let offered = answer.line.clone();
     favour::answer(world, kit, who, heard, &mut answer);
+    if !answer.line.starts_with(&offered) {
+        answer.offers.clear();
+    }
     answer
+}
+
+/// What is coming up on the calendar, as someone looks forward to it.
+pub(crate) fn coming(world: &World, kit: &Kit, who: EntityId) -> String {
+    match (kit.coming_up)(world) {
+        Some(coming) => format!(
+            "{}{}",
+            capitalized(&coming),
+            match first_trait(world.state(), who).as_str() {
+                "shy" => ". I might go, if it's not too crowded.",
+                "sociable" | "warm" => ". I wouldn't miss it!",
+                "prickly" => ". I suppose I'll show my face.",
+                _ => ". I'll be there.",
+            }
+        ),
+        None => "Nothing for a while. Just the usual.".into(),
+    }
+}
+
+/// The place's news of the last few periods, and what is coming up.
+pub(crate) fn news(world: &World, kit: &Kit, seed: u64) -> String {
+    let since = world
+        .world_time()
+        .saturating_sub(kit.period.max(1).saturating_mul(5));
+    let news = lives::news_since(world, since);
+    let latest = news.iter().rev().take(2).rev().cloned().collect::<Vec<_>>();
+    let coming = (kit.coming_up)(world)
+        .map(|coming| format!(" And {coming}!"))
+        .unwrap_or_default();
+    if latest.is_empty() {
+        format!(
+            "Nothing much. It's been a quiet {} or two in {}.{coming}",
+            kit.unit, kit.settlement
+        )
+    } else {
+        format!(
+            "{}{}{coming}",
+            pick(
+                &["Have you heard? ", "News? Well. ", "You won't believe it. "],
+                seed
+            ),
+            latest
+                .iter()
+                .map(|told| format!("{}.", told.trim_end_matches('.')))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }

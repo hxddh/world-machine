@@ -1,11 +1,14 @@
 //! What the player might say to someone, from what the World knows of
-//! them: two or three openers shown beside the words a player can type, so
-//! nobody faces an empty box. Each is plain words this System's own ears
-//! hear as what it says (held by a test), and is sent as the player's own
-//! words: an opener does nothing that typing it would not.
+//! them: three openers shown beside the words a player can type, so
+//! nobody faces an empty box and typing is never needed. Each is plain
+//! words this System's own ears hear as what it says (held by a test),
+//! and is sent as the player's own words: an opener does nothing that
+//! typing it would not. After each answer they are fresh: the three
+//! things someone offered to be asked when they could not answer, or the
+//! next of what they could be asked ([`crate::grounded::offers`]).
 
-use crate::{worst_need, Kit};
-use world_core::{EntityId, World};
+use crate::{grounded, spoken_today, worst_need, Kit, SPOKEN};
+use world_core::{EntityId, Value, World};
 
 /// An opener for someone low: tired, lonely, hungry.
 pub const HOLDING_UP: &str = "You look tired. How are you holding up?";
@@ -24,15 +27,61 @@ pub const ALL: [&str; 5] = [HOLDING_UP, THINK_OF, NEED, WORK, NEWS];
 /// The most openers shown for someone.
 pub const MOST: usize = 3;
 
-/// What the player might open with to `who`, most telling first: how
-/// they are holding up when they are low, what they think of whoever they
-/// feel most strongly about, what they need when something is on offer,
-/// their work, and what is new. At most [`MOST`].
+/// What the player might say to `who` now. Offered three things to ask by
+/// their last answer today, those. Otherwise, most telling first: before
+/// anything is said today, how they are holding up when they are low,
+/// what they think of whoever they feel most strongly about and what
+/// they need when something is on offer; then the next of what they could
+/// be asked. At most [`MOST`].
 pub fn openers(world: &World, kit: &Kit, who: EntityId) -> Vec<String> {
     let state = world.state();
     if !crate::can_talk_to(state, kit, who) {
         return Vec::new();
     }
+    if let Some(offered) = offered_today(world, who) {
+        return offered;
+    }
+    let turn = spoken_today(world, who);
+    let mut lines = Vec::new();
+    if turn == 0 {
+        lines.extend(first(world, kit, who));
+    }
+    for offer in grounded::offers(world, kit, who, turn) {
+        if !lines.contains(&offer.question) {
+            lines.push(offer.question);
+        }
+    }
+    lines.truncate(MOST);
+    lines
+}
+
+/// What `who` offered to be asked in their last answer today, if it
+/// offered anything.
+fn offered_today(world: &World, who: EntityId) -> Option<Vec<String>> {
+    let now = world.world_time();
+    let last = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time == now)
+        .find(|event| event.kind == SPOKEN && event.targets.first() == Some(&who))?;
+    match last.payload.get("offers") {
+        Some(Value::List(offers)) => Some(
+            offers
+                .iter()
+                .filter_map(|offer| match offer {
+                    Value::Text(offer) => Some(offer.clone()),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// The most telling openers, before anything is said today.
+fn first(world: &World, kit: &Kit, who: EntityId) -> Vec<String> {
+    let state = world.state();
     let mut lines = Vec::new();
     let (_, lack) = worst_need(state, who);
     if lack >= 60 {
@@ -50,11 +99,6 @@ pub fn openers(world: &World, kit: &Kit, who: EntityId) -> Vec<String> {
     if (kit.need_line)(world, who).1.is_some() {
         lines.push(NEED.to_string());
     }
-    if (kit.work_line)(world, who).is_some() {
-        lines.push(WORK.to_string());
-    }
-    lines.push(NEWS.to_string());
-    lines.truncate(MOST);
     lines
 }
 

@@ -259,6 +259,8 @@ fn kit_with(cast: &lives::Cast) -> conversation::Kit {
         place_line,
         need_line,
         work_line,
+        role_line,
+        works: crate::story::goals,
         place_mood,
         coming_up: |world| {
             let almanac = crate::almanac::almanac(world.state());
@@ -452,6 +454,17 @@ fn work_line(world: &World, who: EntityId) -> Option<String> {
         SLOT_E => format!("Out past {place} as often as I can."),
         _ => format!("I help out at {place}."),
     })
+}
+
+/// Who someone is, as anybody would put it: where they work.
+fn role_line(world: &World, who: EntityId) -> Option<String> {
+    let state = world.state();
+    let place = crate::life::work(state, who).filter(|at| state.entity(*at).is_some())?;
+    Some(format!(
+        "{} works at {}.",
+        lives::first_name(state, who),
+        lives::name(state, place)
+    ))
 }
 
 /// What a language model should be asked to hear the player's words to

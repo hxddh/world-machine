@@ -19,6 +19,7 @@
 
 mod ears;
 pub mod faces;
+pub mod grounded;
 
 mod phrases_feeling;
 mod phrases_people;
@@ -201,6 +202,11 @@ pub struct Kit {
     pub need_line: fn(&World, EntityId) -> (String, Option<String>),
     /// What someone says about their work, if they have any.
     pub work_line: fn(&World, EntityId) -> Option<String>,
+    /// Who someone is, as anybody would put it: "Mara's the baker."
+    pub role_line: fn(&World, EntityId) -> Option<String>,
+    /// What the place is making together, done and under way, for what
+    /// its people can say about the work.
+    pub works: fn(&World) -> Vec<world_projection::Goal>,
     /// How the place as a whole is doing, in anybody's words.
     pub place_mood: fn(&World) -> String,
     /// What is coming up soon on the place's calendar, in a few words:
@@ -560,7 +566,14 @@ pub fn request(who: EntityId, words: &str, heard: Heard, reply: &Reply) -> Actio
     if let Some(asks_for) = &reply.asks_for {
         request = request.arg("asks_for", asks_for.as_str());
     }
+    if !reply.offers.is_empty() {
+        request = request.arg("offers", offers_value(&reply.offers));
+    }
     request
+}
+
+fn offers_value(offers: &[String]) -> Value {
+    Value::List(offers.iter().map(|offer| offer.as_str().into()).collect())
 }
 
 /// Hears the player's words to someone and answers them, ready to record.
@@ -575,7 +588,7 @@ pub fn say(world: &World, kit: &Kit, who: EntityId, words: &str) -> Result<Actio
         return Ok(care_request(who, words, care));
     }
     let heard = hear(world.state(), kit, who, words);
-    let answer = reply(world, kit, who, heard);
+    let answer = grounded::answer(world, kit, who, heard, words);
     Ok(echoed(
         world,
         kit,
@@ -778,6 +791,29 @@ impl Action for Says {
             }
             _ => {}
         }
+        // What someone offers to be asked instead comes only with an
+        // answer that could not say: three questions, in plain words.
+        let offers = match request.args.get("offers") {
+            None => Vec::new(),
+            Some(Value::List(items))
+                if items.len() == grounded::OFFERS
+                    && intent == Intent::Unclear
+                    && text("voiced").is_none() =>
+            {
+                items
+                    .iter()
+                    .map(|item| match item {
+                        Value::Text(offer) if plain(offer, 200) => Ok(offer.clone()),
+                        _ => Err(ActionError::Invalid("an offer must be plain words".into())),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            Some(_) => {
+                return Err(ActionError::Invalid(
+                    "only an answer that cannot say offers three things to ask".into(),
+                ))
+            }
+        };
         let asks_for = text("asks_for");
         if asks_for.is_some_and(|asks_for| !plain(asks_for, 200))
             || (asks_for.is_some() && intent != Intent::Need)
@@ -930,6 +966,9 @@ impl Action for Says {
         if let Some(asks_for) = asks_for {
             draft.payload.insert("asks_for".into(), asks_for.into());
         }
+        if !offers.is_empty() {
+            draft.payload.insert("offers".into(), offers_value(&offers));
+        }
         if intent == Intent::Invite && accepts_invite(state, &kit, who) {
             draft.payload.insert("accepted".into(), "yes".into());
         }
@@ -1002,6 +1041,8 @@ pub mod favour;
 pub mod openers;
 pub mod report;
 
+#[cfg(test)]
+mod grounded_tests;
 #[cfg(test)]
 mod never_pays;
 #[cfg(test)]
@@ -1131,7 +1172,7 @@ pub fn hearing_for(world: &World, kit: &Kit, who: EntityId, words: &str) -> Opti
     }
     let words = &world_core::text::clean_text(words);
     let heard = hear(state, kit, who, words);
-    let own = reply(world, kit, who, heard);
+    let own = grounded::answer(world, kit, who, heard, words);
     Some(hearing(world, kit, who, words, &own.line))
 }
 
@@ -1369,7 +1410,7 @@ fn listened_request(
 ) -> Result<ActionRequest, String> {
     let state = world.state();
     let heard = hear(state, kit, who, words);
-    let own = reply(world, kit, who, heard);
+    let own = grounded::answer(world, kit, who, heard, words);
     let told = hearing(world, kit, who, words, &own.line);
     let Some(listened) = listener.listen(&told) else {
         return Ok(request(who, words, heard, &own));
@@ -1445,8 +1486,8 @@ fn listened_request(
         words,
         heard,
         &Reply {
-            line: answer.into(),
             asks_for,
+            ..Reply::said(answer)
         },
     ))
     .arg("voiced", "yes"))
