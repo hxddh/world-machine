@@ -1,10 +1,10 @@
-# Install World Machine on macOS
+# Install World Machine 1.0 on macOS
 
 Requirements: a Mac with Apple Silicon or Intel running macOS 14 or newer. Nothing else is needed, and nothing is typed.
 
 1. Download the `.dmg` from the [Releases page](https://github.com/hxddh/world-machine/releases) and open it.
 2. Drag **World Machine** onto the **Applications** shortcut in the window that appears.
-3. Open World Machine from Applications. Your first World opens by itself.
+3. Open World Machine from Applications. It opens on its title screen; choose **New World** to begin.
 
 ## Until the app is notarized
 
@@ -28,7 +28,9 @@ Download the new release and drag it onto Applications again, replacing the old 
 
 In the app, choose **Help → Copy Diagnostics**, then **Help → Report a Problem…** and paste the diagnostics into the issue. The text contains the build label, your macOS version, the paths the app uses, and the last lines of its log; nothing else. **Help → Show Log in Finder** opens the log, and **World Machine → About World Machine…** shows the build label.
 
-If the app does not start at all, open an issue with the [bug report template](https://github.com/hxddh/world-machine/issues/new/choose) and include your macOS version and the release you downloaded.
+If the app does not start at all, open an issue with the [bug report template](https://github.com/hxddh/world-machine/issues/new/choose) and include your macOS version and the release you downloaded. Support is through GitHub Issues: there is no support e-mail address yet.
+
+If World Machine closes unexpectedly, it keeps a crash report on your Mac and offers it once on the next launch. **Send Report…** copies the report and opens a new issue for you to paste it into; nothing is sent unless you post it.
 
 ## For the technically inclined
 

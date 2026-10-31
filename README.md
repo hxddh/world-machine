@@ -2,13 +2,13 @@
 
 Persistent worlds that remember and evolve. A World grows a day at a time: each day you sit down with it, a morning brings a letter, a choice, something looked after and a find, and you let the day pass when you are ready.
 
-> **Early release for macOS.** No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on — see [privacy](docs/PRIVACY.md). Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
+> **World Machine 1.0 for macOS.** No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on — see [privacy](docs/PRIVACY.md). Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
 
 ## Try it in three steps
 
 1. **Download** the `.dmg` from the [Releases page](https://github.com/hxddh/world-machine/releases), open it, and drag World Machine onto Applications. macOS 14 or newer, Apple Silicon or Intel. Until the app is notarized, the first launch asks once; [docs/INSTALL.md](docs/INSTALL.md) shows the one step.
-2. **Your first World opens by itself.** Pick a place to seed and let it live.
-3. **Come back later.** The World kept going; the briefing says what changed.
+2. **Choose New World** on the title screen. Your harbour's first session is six days, then Goodnight.
+3. **Come back tomorrow.** Each sitting brings one new day and its morning. Nothing moves while you are away, and with **Play freely** on in Settings the next day comes as soon as you want it.
 
 <!-- screenshot: docs/screenshots/home.png (captured on a real Mac; the CI runner cannot rasterize text) -->
 
