@@ -355,81 +355,84 @@ impl ProjectionView {
 
         self.dress_frame(&mut frame);
 
-        let mut root =
-            div()
-                .id("world-stage")
-                .relative()
-                .size_full()
-                .overflow_hidden()
-                .track_focus(&focus)
-                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                    this.on_key(event, window, cx)
-                }))
-                .on_scroll_wheel(
-                    cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
-                        this.on_wheel(event, window, cx)
-                    }),
-                )
-                .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
-                    this.on_pinch(event, window, cx)
-                }))
-                // Dragging pans along the place.
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
-                        this.drag_from(f32::from(event.position.x))
-                    }),
-                )
-                .on_mouse_move(
-                    cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                        if event.pressed_button == Some(gpui::MouseButton::Left) {
-                            this.drag_to(f32::from(event.position.x), window, cx);
-                        } else if this.looking.drag.is_some() {
-                            this.drag_end();
-                        }
-                    }),
-                )
-                .on_mouse_up(
-                    gpui::MouseButton::Left,
-                    cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
-                )
-                .child({
-                    // The scene: the living stage, its looks baked off this
-                    // thread as the camera needs them, everyone in depth.
-                    let started = Instant::now();
-                    let scene =
-                        diorama::stage_view::living_scene(frame.clone(), &self.snapshot, window);
-                    let planned = started.elapsed();
-                    scene.child(
-                        canvas(|_, _, _| (), move |_, _, _, _| frame_log(planned))
-                            .absolute()
-                            .size_0(),
-                    )
-                })
-                // Clicking the open ground puts away whatever is open.
-                .child(
-                    div()
-                        .id("world-ground")
+        let mut root = div()
+            .id("world-stage")
+            .relative()
+            .size_full()
+            .overflow_hidden()
+            .track_focus(&focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.touched(cx);
+                this.on_key(event, window, cx)
+            }))
+            .on_scroll_wheel(
+                cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                    this.touched(cx);
+                    this.on_wheel(event, window, cx)
+                }),
+            )
+            .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
+                this.on_pinch(event, window, cx)
+            }))
+            // Dragging pans along the place.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                    this.touched(cx);
+                    this.drag_from(f32::from(event.position.x))
+                }),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    this.touched(cx);
+                    if event.pressed_button == Some(gpui::MouseButton::Left) {
+                        this.drag_to(f32::from(event.position.x), window, cx);
+                    } else if this.looking.drag.is_some() {
+                        this.drag_end();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
+            )
+            .child({
+                // The scene: the living stage, its looks baked off this
+                // thread as the camera needs them, everyone in depth.
+                let started = Instant::now();
+                let scene =
+                    diorama::stage_view::living_scene(frame.clone(), &self.snapshot, window);
+                let planned = started.elapsed();
+                scene.child(
+                    canvas(|_, _, _| (), move |_, _, _, _| frame_log(planned))
                         .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
-                            if this.just_dragged() || this.on_a_control(event.position(), window) {
-                                return;
+                        .size_0(),
+                )
+            })
+            // Clicking the open ground puts away whatever is open.
+            .child(
+                div()
+                    .id("world-ground")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                        if this.just_dragged() || this.on_a_control(event.position(), window) {
+                            return;
+                        }
+                        if !this.place_on_ground(event.position(), window, cx) {
+                            let marking = &mut this.looking.marking;
+                            if marking.design.is_none() {
+                                marking.card = None;
+                                marking.offers = None;
+                                marking.naming = None;
+                                marking.plot_focus = None;
                             }
-                            if !this.place_on_ground(event.position(), window, cx) {
-                                let marking = &mut this.looking.marking;
-                                if marking.design.is_none() {
-                                    marking.card = None;
-                                    marking.offers = None;
-                                    marking.naming = None;
-                                    marking.plot_focus = None;
-                                }
-                                this.look_away(cx);
-                            }
-                        })),
-                );
+                            this.look_away(cx);
+                        }
+                    })),
+            );
 
         // Nothing is named before it is painted (the art bible's §6).
         let painted = diorama::painted(window);
@@ -795,7 +798,12 @@ impl ProjectionView {
         if let Some(night) = lit(|| self.render_night(cx)) {
             root = root.child(night);
         }
-        root = root.child(self.render_hud(pointing, cx));
+        // The handles, the gauges and the zoom quieten at rest (1.0 P5).
+        let chrome = self.chrome_now(pointing.is_some(), still);
+        if chrome < 1.0 && !still {
+            window.request_animation_frame();
+        }
+        root = root.child(self.render_hud(pointing, cx).opacity(chrome));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
             let hint = pointing
                 .filter(|(pointer, _)| *pointer == Pointer::Zoom)
@@ -808,6 +816,7 @@ impl ProjectionView {
                     .flex()
                     .items_center()
                     .gap_1()
+                    .opacity(chrome)
                     .child(self.render_zoom(cx))
                     .children(hint),
             );
