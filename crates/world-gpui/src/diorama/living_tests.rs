@@ -557,6 +557,45 @@ fn the_first_look_is_baked_round_the_camera_and_the_whole_after() {
     );
 }
 
+/// A day passes (the World changes) with the camera at rest: its new close
+/// look is shown, and its new whole look is baked but still on its way to
+/// the display. The old whole look is kept until it is, so a zoom right out
+/// (or the camera sent far along the place) on the next frame still has a
+/// look of the whole place to stand in: never an unpainted frame (1.0 P5:
+/// the soak showed nothing for 100-450 ms there, two to five frames, the old
+/// whole look let go a frame too soon).
+#[test]
+fn a_look_of_the_whole_place_is_kept_until_its_successor_is_ready() {
+    use ls::Light::Noon;
+    let (seen, whole) = ((4000.0, 4500.0), (0.0, 9000.0));
+    let wants = [
+        want(2, Noon, seen),
+        Want {
+            shown: false,
+            ..want(0, Noon, seen)
+        },
+    ];
+    let held_now = [
+        held(2, 0, Noon, None, true),                   // the old World, whole
+        held(1, 2, Noon, Some((3800.0, 4700.0)), true), // the new, close
+        held(1, 0, Noon, None, false),                  // the new, whole, on its way
+    ];
+    let kept = sv::keep(&held_now, &wants);
+    assert_eq!(kept, vec![true, true, true]);
+    // The camera then zooms right out: the old whole look stands in.
+    let out = want(1, Noon, whole);
+    let standing = held_now
+        .iter()
+        .zip(&kept)
+        .filter(|(_, kept)| **kept)
+        .map(|(held, _)| *held)
+        .collect::<Vec<_>>();
+    assert_eq!(sv::choose(&standing, &out), Some(0));
+    // Once the new whole look is ready, the old one goes.
+    let held_now = [held_now[0], held_now[1], held(1, 0, Noon, None, true)];
+    assert_eq!(sv::keep(&held_now, &wants), vec![false, true, true]);
+}
+
 /// Zooming out a step at a time and back in, as the release harness and
 /// the nightly soak do, each step a glide of a third of a second begun
 /// before the last look has baked: once the first look is shown, no frame

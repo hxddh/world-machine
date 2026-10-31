@@ -151,32 +151,7 @@ pub fn choose(held: &[Held], want: &Want) -> Option<usize> {
         .map(|(at, _)| at)
 }
 
-/// Which of `held` a window keeps: each look a want asks for (ready or on
-/// its way to the display), and while one the frame shows is not ready,
-/// the look standing in for it: for the camera's own (the first), and for
-/// any other of a level baked whole. (v0.30 S1c: a close level's light
-/// fading in stands in with whatever stands in for the first, rather than
-/// keeping a close look of its own; a look baked ahead stands in for
-/// nothing. Four close looks at once were more pixels than the budget.)
-/// Everything else is let go.
-pub fn keep(held: &[Held], wants: &[Want]) -> Vec<bool> {
-    let mut keep = vec![false; held.len()];
-    for (nth, want) in wants.iter().enumerate() {
-        if let Some(at) = held.iter().position(|held| held.answers(want)) {
-            keep[at] = true;
-            if held[at].ready {
-                continue;
-            }
-        }
-        if !want.shown || (nth > 0 && want.level >= SPANNED_FROM) {
-            continue;
-        }
-        if let Some(at) = choose(held, want) {
-            keep[at] = true;
-        }
-    }
-    keep
-}
+pub use super::keeping::keep;
 
 /// The next look to bake, if none is baking: the first wanted that is
 /// not held. With nothing at all to show yet for the first want, its
