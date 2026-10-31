@@ -233,6 +233,11 @@ pub(crate) struct Looking {
     /// The clock that keeps a living World moving; dropped (stopping it)
     /// while the window cannot be seen.
     pub(crate) clock: Option<gpui::Task<()>>,
+    /// Keeps the frames drawn while things move at the player's cap.
+    pub(crate) pacer: crate::frames::Pacer,
+    /// The camera is gliding and wants the next frame, asked for once the
+    /// frame it is in has been worked out (at the player's cap).
+    pub(crate) glide_wants: bool,
     /// Hears when the window is covered, minimised, or shown again.
     pub(crate) visibility: Option<gpui::Subscription>,
     /// The last chapter whose ending card the player has turned past.

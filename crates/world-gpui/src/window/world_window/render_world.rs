@@ -14,15 +14,16 @@ impl ProjectionView {
         self.watch_visibility(window, cx);
         self.keep_living(window, cx);
         // In front, the World is drawn at the display's own rate (60 or
-        // 120 times a second); with Reduce Motion on, a few times a second
-        // is enough for what still moves; covered, not at all.
+        // 120 times a second), or at the player's frame cap; with Reduce
+        // Motion on, a few times a second is enough for what still moves;
+        // covered, not at all.
         if pace(
             window.is_visible(),
             window.is_window_active(),
             cx.reduce_motion(),
         ) == Pace::EveryFrame
         {
-            window.request_animation_frame();
+            self.request_frame(window, cx);
         }
         let focus = self
             .looking
@@ -94,6 +95,9 @@ impl ProjectionView {
             stage = diorama::staging::cast_on(&stage, staged);
         }
         let camera = self.camera(&stage, window, staged.as_ref().and_then(|s| s.camera));
+        if std::mem::take(&mut self.looking.glide_wants) {
+            self.request_frame(window, cx);
+        }
 
         // Who is needed where they are, and who is talking: whoever the
         // window opened on first.

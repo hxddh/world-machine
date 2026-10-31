@@ -9,6 +9,7 @@ pub mod art;
 pub mod brush;
 pub mod design;
 pub mod diorama;
+pub mod frames;
 #[cfg(test)]
 mod golden;
 pub mod hand;

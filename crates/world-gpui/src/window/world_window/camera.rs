@@ -76,7 +76,7 @@ impl ProjectionView {
         // painted ahead asks the painter for nothing (v0.29 round 2's
         // silent beats).
         if wants {
-            window.request_animation_frame();
+            self.looking.glide_wants = true;
         }
         self.looking.camera_now = Some(current);
         current

@@ -33,6 +33,32 @@ impl ProjectionView {
         }));
     }
 
+    /// Asks for the next frame of something moving, at the player's frame
+    /// cap ([`crate::frames`]): at the next refresh, or after the wait
+    /// that keeps the frames at the cap. Uncapped (and when the painter
+    /// draws synchronously, as in tests), every refresh.
+    pub(crate) fn request_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let cap = if crate::painter::synchronous() {
+            None
+        } else {
+            crate::frames::frame_cap()
+        };
+        match self.looking.pacer.ask(Instant::now(), cap) {
+            crate::frames::Ask::Now => window.request_animation_frame(),
+            crate::frames::Ask::After(wait) => {
+                cx.spawn_in(window, async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.looking.pacer.fired();
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            crate::frames::Ask::Waiting => {}
+        }
+    }
+
     /// Listens, once, for the window being covered or shown: covered, the
     /// clock stops; shown again, the World is drawn at once, and that frame
     /// starts the clock and the pace again.
