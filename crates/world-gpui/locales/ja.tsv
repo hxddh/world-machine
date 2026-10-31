@@ -956,3 +956,6 @@ About this version	このバージョンについて
 ↑ ↓ choose a setting, ← → change it, Enter turns it on or off, and Esc closes Settings.	↑ ↓ で項目を選び、← → で変え、リターンキーでオン・オフ、Esc で設定を閉じます。
 Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.	質問や問題があれば、メールでご連絡ください。あなたが送らないかぎり、何も送信されません。
 Every crate in Cargo.lock when the app was built, for every platform.	アプリのビルド時に依存関係の一覧にあったすべてのパッケージです（全プラットフォーム分）。
+Questions or problems? Report them on GitHub. Nothing is sent unless you send it.	質問や問題があれば、GitHubでお知らせください。あなたが送らないかぎり、何も送信されません。
+If you like, send it to us: Send Report copies it and opens a new issue on GitHub in your browser. Paste it there; nothing goes until you post it.	よければ送ってください。「レポートを送る」はレポートをコピーし、ブラウザでGitHubの新しいイシューを開きます。そこに貼り付けてください。あなたが投稿するまで何も送られません。
+The report is copied. Paste it into the new issue on GitHub.	レポートをコピーしました。GitHubの新しいイシューに貼り付けてください。

@@ -4307,7 +4307,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.30.0"
+version = "1.0.0"
 dependencies = [
  "calendar",
  "chronicle",
@@ -4333,7 +4333,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.30.0"
+version = "1.0.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5871,7 +5871,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.13.0"
+version = "1.0.0"
 dependencies = [
  "calendar",
  "chronicle",
@@ -5900,7 +5900,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.13.0"
+version = "1.0.0"
 dependencies = [
  "serde_json",
  "tiny-society",
@@ -7228,7 +7228,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.30.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "cpal",

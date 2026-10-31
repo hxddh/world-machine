@@ -956,3 +956,6 @@ About this version	关于此版本
 ↑ ↓ choose a setting, ← → change it, Enter turns it on or off, and Esc closes Settings.	↑ ↓ 选择一项设置，← → 调整它，按回车打开或关闭，按 Esc 关闭设置。
 Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.	有问题或遇到故障？请发邮件给我们。除非你亲自发送，否则什么都不会发出。
 Every crate in Cargo.lock when the app was built, for every platform.	构建应用时依赖清单里的每一个软件包，涵盖所有平台。
+Questions or problems? Report them on GitHub. Nothing is sent unless you send it.	有问题或遇到故障？请在 GitHub 上告诉我们。除非你亲自发送，否则什么都不会发出。
+If you like, send it to us: Send Report copies it and opens a new issue on GitHub in your browser. Paste it there; nothing goes until you post it.	如果愿意，可以把它发给我们：“发送报告”会复制这份报告，并在浏览器里打开 GitHub 上的新问题页面。把它粘贴进去；在你按下提交之前，什么都不会发出。
+The report is copied. Paste it into the new issue on GitHub.	报告已复制。请把它粘贴到 GitHub 上的新问题里。

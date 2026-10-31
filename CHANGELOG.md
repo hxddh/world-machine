@@ -2,6 +2,134 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v1.0.0 (2026-10-31)
+
+**Worlds from the v0.x previews do not open.** 1.0 starts its own save format, by the owner's decision ([v0.30 review](docs/REVIEW_v0.30.md#already-decided-2026-10-30)). A World, World code or save from any v0.x release is refused whole with "This World is from a preview version and can't be opened." Home lists it with that reason, and the file is left exactly as it was. Start a new World. From 1.0 on, the [save contract](docs/SAVES.md) holds:
+- World files are schema 2, the archive is `format_version` 3 (4 in the compact encoding files are written in), World codes are `wm3:`, and Tiny Society and Pocket Universe are both `1.0.0`.
+- A save from a newer World Machine or a newer Pack is refused before anything opens ("This World was saved by a newer World Machine. Update to open it.") and is never written over.
+- A World that fails to load for any other reason offers **Restore the last good save** from its `.bak`, and keeps the damaged file beside it.
+- A Pack's version is bumped whenever an Action, a System or a payload changes, and every later release opens every release's saves.
+- The sitting ledger is host metadata in the World file, never an event or state, so a World that is moved, synced, saved as a new file, exported or imported keeps its sittings.
+- The v0.20–v0.27 fixtures, the continuation, replay and replayed-state digests and the compatibility tests are gone. Determinism is tested on fresh Worlds of every place: their recorded events rebuild the very World, snapshot and snapshot JSON that was played.
+
+This release is the plan from the [v0.30 review](docs/REVIEW_v0.30.md), "A finished harbour", in seven slices. Tiny Society is the product; Pocket Universe stays in the build, unmarketed. In short:
+- **Shipped:** a clean base (P0), the first hour (P1), time that respects the player (P2), verbs with feel and a role (P3), talk and words without AI (P4), the product shell and the demo (P6), and the nightly soak (P7).
+- **P5, the look:** see its entry below.
+- **Not yet:** see the end of this entry. Nothing is signed or on Steam, and nothing has been measured on a real device or with a real person.
+
+- **P0. A clean base.**
+  - The three nightly failures since v0.30 are fixed in the code, with no bar changed:
+    - a three-year World code was 51,492 characters (bar 50,000); a person's year of days is now one note, and the code is 49,933;
+    - letters partly English in Chinese and Japanese;
+    - slow Pocket Universe turns. A turn now runs 37–42% fewer instructions than v0.30.0 (Ares 609M → 386M, Icebridge 662M → 432M, Maple Street 652M → 378M).
+  - No v0.x compatibility: old fixtures, digests, tests, old-format readers, the observer's catch-up API and the unused `world-compare` crate (1,650 lines) are gone.
+  - The 1.0 save contract and the ledger in the World file, as above.
+  - The four giant files are split into modules, as pure moves:
+    - `world_window.rs`, 7,410 lines, to a root of 800;
+    - the desktop `main.rs`, 5,081 lines, to under 400;
+    - the conversation System's `lib.rs`, 5,948 lines, to 1,453;
+    - the lives System's `lib.rs`, 5,455 lines, to 1,134.
+
+    A file-size ratchet holds them: a recorded file may only shrink, and no other may pass 3,000 lines.
+  - **CI.** Each change now runs once, where every push to a PR used to run twice at 30–32 minutes. A lint job runs beside five test shards. The four slow tile-painter picture bars move to the nightly, and a quick release-shots run checks PRs that touch the window. Local shard timings put it at 10–13 minutes; that was not measured on GitHub.
+  - **Releases wait for the nightly.** A release builds and publishes only from a commit the nightly passed on. A red scheduled night opens an issue, and the next green night closes it.
+  - `NEXT_TASK.md` and the stale roadmap are gone, and the old reviews moved to `docs/archive/`.
+- **P1. The first hour.**
+  - **A title screen.** The town at dusk, "A small harbour that grows a day at a time", and Continue, New World, Settings and My Worlds, walked with the arrows and chosen with Enter. A first launch offers New first and no longer opens a World by itself.
+  - **An in-window app menu on every platform:** Settings, About, Save As, the World codes, Help and Quit, with Ctrl+, and Ctrl+Q off a Mac. Help is a new in-app page.
+  - **The friction list:**
+    - no first-day soft lock in any place: the free thing has a Later button, and Enter puts it away;
+    - Enter presses "Begin the day" and "Goodnight";
+    - what you place stands where you clicked, and a later build never moves it;
+    - the parcel answers a click;
+    - the "saved" word is never hidden;
+    - plain words for failed dialogs instead of "ZBus Error", with Documents/World Machine as a fallback;
+    - Home tells the day said goodnight to, not the next;
+    - a morning letter asks nothing of the day, so it never names someone other than the day's favour.
+  - **The first session is designed.** A new harbour's first sitting is six World days, then Goodnight:
+    - day 1: the hello, the first request, and a build going up;
+    - days 2–6: each opens on its morning, with a letter, a find, the build looked after and the day's question;
+    - day 5: Spring Clean.
+
+    It takes about 26 minutes at the intended pace (bar 20 to 40), played by a test through the host's sitting ledger.
+  - **Report** sits only under a line the AI voice wrote, never under a built-in one.
+  - **A stale-copy pass** in three languages:
+    - no Mac words off a Mac;
+    - no old clock, and nothing about time passing while you are away;
+    - the AI voice described as experimental and off unless turned on.
+
+    A test scans every string and catalog line for these.
+- **P2. Time that respects the player.**
+  - **The evening is yours.** Goodnight has "Not yet": the place stays open, and nothing passes a day until you say Goodnight. Nothing says Goodnight on a clock.
+  - **Play freely** (Settings, off by default): Goodnight offers "Sleep now", and the next sitting begins at once with its morning.
+  - **Asleep is not locked.** The drawer, the story, letters, finds, the Book, photos, postcards and the strip stay open over the town at night. Only passing a day waits.
+  - The title bar and Home say what is true: "Waits for you", "Asleep · a new day in N h", or "Play freely".
+- **P3. Verbs with feel, and a role.**
+  - **Works rise over days.** A work is marked out, framed, nearly done, then finished. Each stage is a recorded `work_rose` Event caused by the one before, back to the deed. The first build takes two days, and the pier's new section and the point lamp rise from a site over three. New drawings show the site and the nearly built work, and scaffolding is sized to what it is round.
+  - **Residents lend a hand.** A crew works at the site and someone carries a load over first thing. Within two days someone sits on the bench you put down or waters the flower boxes.
+  - **A role:** the player is the harbour's new keeper of the Book, said from Leo's hello on.
+  - **The Book** has a title page and the year's arc to fill: Spring Clean, the Midsummer Fair, the autumn gale and the Winter Lights. Each page is a recorded Event. The year closes with a chapter of credits: every resident the year names, with what they did, and the player's deeds last. Play goes on into year two.
+  - **Long-term goals,** counted from recorded deeds alone and shown in the drawer as "n of m":
+    - two town projects, the lighthouse and the school roof;
+    - the book of finds and the almanac;
+    - eight residents' hearts of five beats each.
+  - **24 achievements** in `data/achievements.toml`, mapped onto the Book, with Steam ids and names in three languages. They are worked out from a World alone, so a replayed World unlocks the same ones. Nothing is wired to Steam yet.
+- **P4. Talk and words without AI.**
+  - **Talk never says "I don't understand".** With the AI voice off, residents answer from what they know:
+    - where someone is, and who they are;
+    - what happened lately;
+    - how the place's works are going, including a work asked about by name;
+    - their letter, and the festival.
+
+    Anything else gets an in-character deflection that offers three things to ask, drawn from the resident's own facts. The three are recorded on the spoken Event, so replay never matches again. They stand as chips under the talk after every answer, so typing is never needed. A test talks to residents of both Packs in English, Chinese and Japanese, with questions, nonsense and typos.
+  - **Content for thirty sittings:**
+    - two in five letters are about something the player did that no letter has told yet: 32% of 34 morning letters in a 30-sitting run (bar 25%);
+    - letter openings, closings and leads go through every form before any repeats;
+    - Tiny Society's book of finds grows from 28 to 128 finds: eight for each of its four places in each season;
+    - what is looked after overnight rests between visits and has seasonal lines: 15 different things over 34 mornings, all 34 lines different;
+    - chapters past 12 keep their length: chapters 13–39 of a 400-day run go from 5–18 words to 34–57.
+
+    `thirty_sittings.rs` plays the first sitting and 29 more and fails on any repeated letter, looked-after line or find. A three-year World code is 43,340 characters.
+  - **New lines:** 158 in each Systems catalog and 124 in each Tiny Society catalog, in Chinese and Japanese.
+- **P5. The look.** _[Placeholder: the maintainer fills this in when the P5 PR merges. Nothing from P5 had merged when this entry was written.]_
+- **P6. Platforms and the product shell.**
+  - **Settings,** walked by the keyboard, in sections:
+    - **Sound:** a master volume over music, effects, ambient sound and voices.
+    - **Display:** language, text size, contrast, and **Reduce Motion**, which follows the system until chosen. It now stills the camera too.
+    - **Performance:** a frame rate of 30, 60 or the display's, with 60 by default, and a battery saver capped at 30.
+    - **Playing:** Play freely.
+    - **Controls:** the keyboard shortcuts.
+    - **Crash reports:** offered or never.
+    - **AI voice:** labelled experimental.
+  - **Acknowledgements:** every crate in `Cargo.lock` with its licence, generated by a script and checked by a test.
+  - **What's New and Known Issues** in the app.
+  - **Support through GitHub Issues.** Help, About and Settings say "Report them on GitHub", and **Write to Support…** opens a new issue. There is no support e-mail address yet.
+  - **Opt-in crash reports.** A panic writes a report on this computer, and the next launch offers it once. **Send Report…** copies it and opens a new GitHub issue to paste it into. Nothing is sent automatically.
+  - **The demo is a real slice:** the first session's six days, Goodnight, Sleep now, the second morning, and a closing card with "Wishlist Tiny Society on Steam" when that day ends. It takes 31.8 minutes at the intended pace (bar 25 to 45): Goodnight at 26 and the wishlist card at 30.9. The demo's World, sittings included, opens in the full app.
+- **P7. Proof.**
+  - **A two-hour soak in the nightly** (`scripts/soak.sh`). The release app runs under Xvfb with Play freely on, sitting after sitting: Enter answers, passes days and begins mornings, with talk, building, zooms and the drawer in between. It fails on:
+    - a panic or a dead or frozen app;
+    - any unpainted frame;
+    - memory that grows;
+    - frame time that worsens;
+    - fewer than 30 sittings an hour.
+
+**Measured** (on a shared Linux VM, by tests at the intended pace or headless, unless said):
+- The first session: about 26 minutes (bar 20 to 40). The demo: 31.8 minutes (bar 25 to 45).
+- Thirty sittings: no repeated letter, looked-after line or find. 32% of morning letters are about the player (bar 25%). 128 finds in Tiny Society.
+- A warm builder's three-year World code: 43,340 characters (bar 50,000; v0.30.0 failed it at 51,492).
+- The soak's first local five-minute run: 11 sittings, memory falling after warm-up, frame time p95 2.1 ms, no panic. It **failed** on 8 unpainted frames 100–300 ms after zooming out and back in, a stage finding recorded in [KNOWN_ISSUES](docs/KNOWN_ISSUES.md). The two-hour soak has not been run locally.
+- PR CI: estimated at 10–13 minutes from local shard timings, not measured on GitHub.
+
+**Not yet:**
+- **No signing.** The Mac build is ad-hoc signed and not notarized, so macOS asks once before the first launch ([INSTALL](docs/INSTALL.md)). The Windows installer is unsigned, and nobody has installed or played it on a real PC.
+- **No Steam.** There are no Steamworks, depots, Cloud, overlay, controller or Steam Deck support. The achievements are mapped but not wired. The demo's wishlist link is a placeholder (Steam's front page) until `WORLD_MACHINE_WISHLIST_URL` is set.
+- **No sign-off on real screens.** The art and sound have not been judged on a real Mac or Windows screen. Every art verdict was given on Xvfb frames.
+- **No device numbers.** None of the four devices of the 1.0 bar has been measured: a 120 Hz MacBook Pro, a 60 Hz MacBook Air, a Windows laptop at 150% DPI, and a Windows desktop with two monitors.
+- **No people.** There have been no think-alouds, no five-day test, no stranger test and no closed beta. No native speaker has read the Chinese or Japanese.
+- **No support address.** Support goes through GitHub Issues until there is one.
+- **No store.** The store page, trailer, press kit, age rating, EULA and privacy review and the trademark search are not done.
+
 ## v0.30.0 (2026-10-16)
 
 **Worlds from `v0.20` onward open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; neither Pack's version changed, though both now register the new `ritual` System. Every fixture from v0.20 to v0.27 still replays event for event in both Packs, and `replayed-state.digest`, the golden of the state each one rebuilds to from its recorded events alone, is unchanged in both. What was re-blessed is presentation only:

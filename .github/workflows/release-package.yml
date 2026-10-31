@@ -348,6 +348,7 @@ jobs:
             target/release-package/release-manifest.json \
             --demo-manifest target/release-package/release-manifest-demo.json \
             --repository "$GITHUB_REPOSITORY" \
+            --changelog CHANGELOG.md \
             > target/release-notes/RELEASE_NOTES.md
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
