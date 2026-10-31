@@ -188,12 +188,14 @@ impl Action for Reacts {
             })
             .collect::<Vec<_>>();
         let said = pick_line(&options, &heard, who);
+        // Remembered as it was picked, the line looked up the next time;
+        // a voice only restyles it as it is said.
+        let mut moves = Moves::default();
+        remember_saying(&mut moves, &heard, &said);
         let said = match (cast.voice)(who) {
             Some(voice) => restyle(voice, &said, mix(&[who.0, heard.now, 41])),
             None => said,
         };
-        let mut moves = Moves::default();
-        remember_saying(&mut moves, &heard, &said);
         if deed != "moved_by_hand" {
             moves.regard(state, who, 2);
         }

@@ -573,7 +573,9 @@ fn a_warm_builder_draws_eight_newcomers_in_three_years() {
     // harbour also houses the eight people what the player built drew,
     // each of whom the lives System remembers much about (about 50.3k at
     // v0.23, 49.95k at v0.25, 49.2k at v0.26 once troubles' rests that have
-    // run out are let go of and only the last favour is kept).
+    // run out are let go of and only the last favour is kept; 49.9k by 1.0,
+    // and 48.8k once a line is remembered as it was chosen rather than as
+    // a voice restyled it).
     assert!(code.len() < 50_000, "{}", code.len());
 }
 
