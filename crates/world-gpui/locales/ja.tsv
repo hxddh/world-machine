@@ -898,3 +898,62 @@ The year closes in the Book	この一年が書に閉じられる
 Begin the new year	新しい一年をはじめる
 Working toward	めざしているもの
 You are the new keeper of its Book.	あなたはその新しい「港の書」の書き手です。
+Performance	パフォーマンス
+Playing	プレイ
+Controls	操作
+Crash reports and support	クラッシュレポートとサポート
+AI voice (experimental)	AIの声（試験的）
+Master volume	マスター音量
+Every sound, together	すべての音をまとめて
+Effects	効果音
+Ambient sound	環境音
+Reduce motion	視差効果を減らす
+The scene holds still: nobody strolls, the sea and the clouds stay put, and nothing glides.	景色が静止します。誰も歩き回らず、海と雲はその場にとどまり、何も滑るように動きません。
+30 fps	30フレーム/秒
+60 fps	60フレーム/秒
+Display rate	ディスプレイのリフレッシュレート
+Frame rate	フレームレート
+How often a World's window draws while things move. Fewer frames use less power.	動きがあるあいだ、ワールドのウインドウが描き直す頻度です。フレームが少ないほど電力を使いません。
+Battery saver	バッテリー節約
+At most 30 frames a second, whatever the frame rate says, so a battery lasts longer.	フレームレートの設定にかかわらず最大で毎秒30フレームにして、バッテリーを長持ちさせます。
+Offer it to me	知らせてほしい
+Don't ask	たずねない
+After a crash	クラッシュしたあと
+A crash report is kept on this computer. Offered, it is shown to you once on the next launch; nothing is ever sent unless you send it.	クラッシュレポートはこのコンピュータに保存されます。「知らせてほしい」を選ぶと次の起動時に一度だけ表示されます。あなたが送らないかぎり、何も送信されません。
+The keyboard, wherever a World is open. Keys cannot be changed yet.	ワールドを開いているときのキー操作です。キーはまだ変更できません。
+Choose a card	カードを選ぶ
+Take the card	カードを選んで決める
+Turn the card over	カードを裏返す
+Look along the place	あたりを見渡す
+Look closer or further	近づく・離れる
+Open the drawer	引き出しを開く
+Take a photo	写真を撮る
+Make a postcard	絵はがきを作る
+Put away what is open	開いているものをしまう
+Show as strip	帯で表示
+Close the window	ウインドウを閉じる
+Quit	終了
+Crash Report	クラッシュレポート
+Copy Report	レポートをコピー
+Send Report…	レポートを送る…
+Show Report File	レポートファイルを表示
+Not Now	今はしない
+Don't Ask Again	今後たずねない
+World Machine closed unexpectedly	World Machineが予期せず終了しました
+A crash report was saved on this computer. Nothing has been sent.	クラッシュレポートをこのコンピュータに保存しました。何も送信されていません。
+If you like, send it to us: Send Report opens a new e-mail in your own mail program, and nothing goes until you send it.	よければ送ってください。「レポートを送る」はお使いのメールアプリで新しいメールを開くだけで、あなたが送信するまで何も送られません。
+You won't be asked again. Reports are still saved; Settings can turn asking back on.	今後はたずねません。レポートは引き続き保存されます。設定でまたたずねるようにできます。
+What's New	新機能
+Known Issues	既知の問題
+Acknowledgements	謝辞
+These notes are in English.	この説明は英語です。
+Help → Report a Problem… tells us about anything else.	そのほかの問題は「ヘルプ → 問題を報告…」からお知らせください。
+World Machine is built with the work of many others. Each piece of software below is used under the licence named over it.	World Machineは多くの人の仕事の上に作られています。以下の各ソフトウェアは、その上に記したライセンスのもとで使われています。
+Fonts: none are bundled; the app draws with the system's own fonts.	フォント：同梱していません。アプリはシステムのフォントで描きます。
+Sounds: none are bundled; every sound is synthesised by world-sound.	サウンド：同梱していません。すべての音はworld-soundで合成しています。
+Pictures: the app's art is World Machine's own (Apache-2.0).	画像：アプリの絵はWorld Machine自身のものです（Apache-2.0）。
+Write to Support…	サポートに連絡…
+About this version	このバージョンについて
+↑ ↓ choose a setting, ← → change it, Enter turns it on or off, and Esc closes Settings.	↑ ↓ で項目を選び、← → で変え、リターンキーでオン・オフ、Esc で設定を閉じます。
+Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.	質問や問題があれば、メールでご連絡ください。あなたが送らないかぎり、何も送信されません。
+Every crate in Cargo.lock when the app was built, for every platform.	アプリのビルド時に依存関係の一覧にあったすべてのパッケージです（全プラットフォーム分）。

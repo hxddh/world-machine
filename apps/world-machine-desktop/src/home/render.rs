@@ -882,6 +882,18 @@ impl WorldMachineHome {
         cx: &mut Context<Self>,
     ) -> Option<gpui::Stateful<gpui::Div>> {
         let status = self.status.as_ref()?;
+        // The title screen of a first launch is the game's, not a note
+        // that an included World is getting ready behind it: that is said
+        // only once New has been chosen and waits for it.
+        if self.view == HomeView::Title
+            && !shell::title_shows_status(
+                status.tone == HomeStatusTone::Info,
+                !self.probing_packs.is_empty(),
+                self.new_when_ready,
+            )
+        {
+            return None;
+        }
         let tone = match status.tone {
             HomeStatusTone::Info => tokens::ACCENT_TEXT,
             HomeStatusTone::Success => tokens::SUCCESS,

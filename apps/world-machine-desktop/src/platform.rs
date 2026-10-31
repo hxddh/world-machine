@@ -63,6 +63,12 @@ pub trait Platform: Sync {
     /// Whether the operating system asks for more contrast.
     fn increase_contrast(&self) -> bool;
 
+    /// Whether the operating system asks for less motion. Only the Mac's
+    /// is read; elsewhere the player's own setting decides.
+    fn reduce_motion(&self) -> bool {
+        false
+    }
+
     /// The operating system and machine, for a diagnostics report.
     fn host_description(&self) -> String;
 }
@@ -199,6 +205,13 @@ impl Platform for Mac {
     fn increase_contrast(&self) -> bool {
         Command::new("/usr/bin/defaults")
             .args(["read", "com.apple.universalaccess", "increaseContrast"])
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+    }
+
+    fn reduce_motion(&self) -> bool {
+        Command::new("/usr/bin/defaults")
+            .args(["read", "com.apple.universalaccess", "reduceMotion"])
             .output()
             .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
     }

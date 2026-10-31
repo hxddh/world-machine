@@ -6,6 +6,15 @@
 //! (`home/title.rs`, `app_menu.rs`) draw it and do what is chosen through
 //! the app's existing actions.
 
+/// Where a player writes for help, and where a crash report goes when they
+/// choose to send one. A placeholder until the owner names the real
+/// address: `.invalid` never delivers anywhere.
+pub const SUPPORT_EMAIL: &str = "support@world-machine.invalid";
+
+/// The line Help, About and Settings show over [`SUPPORT_EMAIL`].
+pub const SUPPORT_LINE: &str =
+    "Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.";
+
 /// The one line under the title: what the game promises.
 pub const PROMISE: &str = "A small harbour that grows a day at a time";
 
@@ -59,6 +68,15 @@ pub fn title_choices(can_continue: bool) -> Vec<TitleChoice> {
         TitleChoice::MyWorlds,
     ]);
     choices
+}
+
+/// Whether the title screen shows Home's status line. A note (`info`) said
+/// while a World is getting ready behind the title screen (`preparing`) is
+/// not shown until the player chooses New and waits on it
+/// (`new_chosen`): a first launch opens on the game, not on "Preparing…".
+/// Anything else (an error, a World ready) is shown as it comes.
+pub fn title_shows_status(info: bool, preparing: bool, new_chosen: bool) -> bool {
+    !(info && preparing && !new_chosen)
 }
 
 /// Which way a key moves the focus through a list.
@@ -303,6 +321,7 @@ pub fn every_line(os: Os) -> Vec<&'static str> {
         show_log_label(os),
         privacy_line(os),
         key_store_line(os),
+        SUPPORT_LINE,
     ];
     for choice in title_choices(true) {
         lines.push(choice.label());
@@ -347,6 +366,17 @@ mod tests {
                 TitleChoice::MyWorlds
             ]
         );
+    }
+
+    #[test]
+    fn a_first_launch_title_is_not_covered_by_preparing() {
+        // Preparing behind the title, New not chosen: not shown.
+        assert!(!title_shows_status(true, true, false));
+        // New chosen and waiting: shown, so the wait is explained.
+        assert!(title_shows_status(true, true, true));
+        // Nothing preparing, or an error: shown.
+        assert!(title_shows_status(true, false, false));
+        assert!(title_shows_status(false, true, false));
     }
 
     #[test]
@@ -467,7 +497,12 @@ mod tests {
             }
             catalog.extend(app);
             for os in [Os::Mac, Os::Windows, Os::Other] {
-                for line in every_line(os) {
+                let mut lines = every_line(os);
+                // Settings' sections, levels, rates and shortcuts, and the
+                // notes windows' own words.
+                lines.extend(crate::settings_plan::every_line());
+                lines.extend(crate::notices::every_line());
+                for line in lines {
                     let shown = catalog.translate(line);
                     assert!(
                         shown.as_deref().is_some_and(|shown| shown != line),

@@ -118,49 +118,21 @@ pub fn crash_file_name(at: SystemTime) -> String {
     format!("world-machine-{seconds}-{}.log", std::process::id())
 }
 
-fn write_crash_log(location: &str, message: &str) -> Option<PathBuf> {
-    let dir = crash_log_dir()?;
-    fs::create_dir_all(&dir).ok()?;
-    let now = SystemTime::now();
-    let thread = std::thread::current();
-    let report = crash_report(
-        now,
+/// The text of a crash report for a panic here, now.
+fn crash_text(location: &str, message: &str) -> String {
+    crash_report(
+        SystemTime::now(),
         &build_info::display_label(),
         &host_description(),
-        thread.name().unwrap_or("unnamed"),
+        std::thread::current().name().unwrap_or("unnamed"),
         location,
         message,
         &std::backtrace::Backtrace::force_capture().to_string(),
-    );
-    write_new(&dir, &crash_file_name(now), report.as_bytes()).ok()
+    )
 }
 
-/// Writes `bytes` to a new file in `dir` named `name`, or, when a file of
-/// that name is already there (two crashes in one second), `name` with
-/// `-2`, `-3`… before its extension: an earlier report is never overwritten.
-fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
-    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
-    for attempt in 1..=1000u32 {
-        let candidate = match (attempt, extension) {
-            (1, _) => name.to_string(),
-            (_, "") => format!("{stem}-{attempt}"),
-            (_, extension) => format!("{stem}-{attempt}.{extension}"),
-        };
-        let path = dir.join(candidate);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                file.write_all(bytes)?;
-                return Ok(path);
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "every crash report name is taken",
-    ))
-}
+#[cfg(test)]
+use world_machine_desktop::crash_reports::write_new;
 
 /// The log file path once the sink is open. `None` when logging could not
 /// start; the app keeps running without it.
@@ -196,20 +168,27 @@ pub fn init() -> Option<PathBuf> {
     ));
 
     let previous = std::panic::take_hook();
+    let record = crash_log_dir().map(|dir| {
+        world_machine_desktop::crash_reports::hook(
+            dir,
+            || crash_file_name(SystemTime::now()),
+            crash_text,
+            |location, message, written| {
+                error(format!("panic at {location}: {message}"));
+                if let Some(path) = written {
+                    error(format!("crash log written to {}", path.display()));
+                }
+            },
+        )
+    });
     std::panic::set_hook(Box::new(move |panic| {
-        let location = panic
-            .location()
-            .map(|location| format!("{}:{}", location.file(), location.line()))
-            .unwrap_or_else(|| "unknown location".to_string());
-        let message = panic
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|message| message.to_string())
-            .or_else(|| panic.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-string panic payload".to_string());
-        error(format!("panic at {location}: {message}"));
-        if let Some(path) = write_crash_log(&location, &message) {
-            error(format!("crash log written to {}", path.display()));
+        match &record {
+            Some(record) => record(panic),
+            None => {
+                let (location, message) =
+                    world_machine_desktop::crash_reports::panic_details(panic);
+                error(format!("panic at {location}: {message}"));
+            }
         }
         previous(panic);
     }));

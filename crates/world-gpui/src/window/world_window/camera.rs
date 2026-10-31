@@ -12,6 +12,7 @@ impl ProjectionView {
         stage: &Stage,
         window: &Window,
         scene: Option<Camera>,
+        still: bool,
     ) -> Camera {
         let whole = Camera::whole(stage);
         // Whoever was being talked to is put away (Esc, the close button,
@@ -64,7 +65,9 @@ impl ProjectionView {
         // A drag moves the view with the hand, at once; and the window's
         // first frame is where the camera is meant to be, never a glide
         // there from somewhere else (the welcome's view, a keeper's).
-        let snap = self.looking.drag.is_some_and(|(.., moved)| moved);
+        // With Reduce Motion on, nothing glides: the camera is where it
+        // is sent at once.
+        let snap = still || self.looking.drag.is_some_and(|(.., moved)| moved);
         let (current, wants) =
             self.looking
                 .glide
@@ -76,7 +79,7 @@ impl ProjectionView {
         // painted ahead asks the painter for nothing (v0.29 round 2's
         // silent beats).
         if wants {
-            window.request_animation_frame();
+            self.looking.glide_wants = true;
         }
         self.looking.camera_now = Some(current);
         current

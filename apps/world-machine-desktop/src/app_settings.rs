@@ -89,6 +89,82 @@ pub struct AppSettings {
     /// is known. Interface state, never a World's. Omitted while empty.
     #[serde(default, skip_serializing_if = "HintSettings::is_empty")]
     pub hints: HintSettings,
+    /// The level every sound plays under, as a percentage; absent is 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_volume: Option<u8>,
+    /// How often a World's window may draw while things move; absent is
+    /// [`FrameRate::Sixty`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<FrameRate>,
+    /// Battery saver: at most 30 frames a second, whatever `frame_rate`
+    /// says. Off unless turned on, and omitted while off.
+    #[serde(default, skip_serializing_if = "is_off")]
+    pub battery_saver: bool,
+    /// Whether the scene holds still; absent follows the system's Reduce
+    /// Motion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduce_motion: Option<bool>,
+    /// Whether a crash report saved on this computer is offered on the
+    /// next launch. Asked unless the player chose never; nothing is ever
+    /// sent without them sending it.
+    #[serde(default, skip_serializing_if = "CrashReports::is_default")]
+    pub crash_reports: CrashReports,
+}
+
+/// How often a World's window may draw while things move.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameRate {
+    /// 30 frames a second.
+    Thirty,
+    /// 60 frames a second.
+    #[default]
+    Sixty,
+    /// As often as the display refreshes (120 times a second on some).
+    Display,
+}
+
+impl FrameRate {
+    pub const ALL: [FrameRate; 3] = [FrameRate::Thirty, FrameRate::Sixty, FrameRate::Display];
+
+    /// The most frames a second, or `None` for the display's own rate.
+    pub fn cap(self) -> Option<u32> {
+        match self {
+            FrameRate::Thirty => Some(30),
+            FrameRate::Sixty => Some(60),
+            FrameRate::Display => None,
+        }
+    }
+
+    /// What Settings calls it, in English.
+    pub fn label(self) -> &'static str {
+        match self {
+            FrameRate::Thirty => "30 fps",
+            FrameRate::Sixty => "60 fps",
+            FrameRate::Display => "Display rate",
+        }
+    }
+}
+
+/// The battery saver's own cap.
+pub const BATTERY_SAVER_FPS: u32 = 30;
+
+/// Whether a crash report is offered on the next launch.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashReports {
+    /// Offered once, on the next launch: the player chooses what, if
+    /// anything, to do with it.
+    #[default]
+    Ask,
+    /// Never offered; the reports are still written, as files.
+    Never,
+}
+
+impl CrashReports {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// The gentle pointers' record, by name.
@@ -215,6 +291,27 @@ impl AppSettings {
             .min(100)
     }
 
+    /// The level every sound plays under, from 0 to 100.
+    pub fn master_level(&self) -> u8 {
+        self.master_volume.unwrap_or(100).min(100)
+    }
+
+    /// The frame rate chosen, or 60.
+    pub fn frame_rate(&self) -> FrameRate {
+        self.frame_rate.unwrap_or_default()
+    }
+
+    /// The most frames a second a World's window draws, after the battery
+    /// saver; `None` is the display's own rate.
+    pub fn frame_cap(&self) -> Option<u32> {
+        let cap = self.frame_rate().cap();
+        if self.battery_saver {
+            Some(cap.map_or(BATTERY_SAVER_FPS, |cap| cap.min(BATTERY_SAVER_FPS)))
+        } else {
+            cap
+        }
+    }
+
     /// What a new install starts with: nothing chosen yet, and sound on at
     /// a gentle level, so the first World is heard without being loud. Only
     /// a missing settings file reads this way; an existing file keeps the
@@ -247,6 +344,11 @@ impl AppSettings {
             play_freely: false,
             strip: StripSettings::default(),
             hints: HintSettings::default(),
+            master_volume: None,
+            frame_rate: None,
+            battery_saver: false,
+            reduce_motion: None,
+            crash_reports: CrashReports::Ask,
         }
     }
 
@@ -439,6 +541,35 @@ pub fn save_text_scale(root: &Path, percent: u32) -> Result<(), AppSettingsError
 /// Mac.
 pub fn save_increase_contrast(root: &Path, on: Option<bool>) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.increase_contrast = on)
+}
+
+/// The level every sound plays under, from 0 to 100.
+pub fn save_master_volume(root: &Path, percent: u8) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| {
+        settings.master_volume = (percent < 100).then_some(percent)
+    })
+}
+
+/// How often a World's window may draw.
+pub fn save_frame_rate(root: &Path, rate: FrameRate) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| {
+        settings.frame_rate = (rate != FrameRate::default()).then_some(rate)
+    })
+}
+
+/// Battery saver on or off.
+pub fn save_battery_saver(root: &Path, on: bool) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.battery_saver = on)
+}
+
+/// Whether the scene holds still, or `None` to follow the system.
+pub fn save_reduce_motion(root: &Path, on: Option<bool>) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.reduce_motion = on)
+}
+
+/// Whether a crash report is offered on the next launch.
+pub fn save_crash_reports(root: &Path, choice: CrashReports) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.crash_reports = choice)
 }
 
 /// Whether the drawer shows the World's inner workings.
@@ -641,9 +772,98 @@ mod tests {
                 shown: vec!["hands".into()],
                 used: vec!["zoom".into()],
             },
+            master_volume: Some(40),
+            frame_rate: Some(FrameRate::Display),
+            battery_saver: true,
+            reduce_motion: Some(true),
+            crash_reports: CrashReports::Never,
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
+    }
+
+    /// 1.0 P6: every new setting starts where a player expects, is left out
+    /// of the file while it is, survives being written down through its own
+    /// save, and changes nothing else.
+    #[test]
+    fn the_p6_settings_start_sensibly_and_round_trip() {
+        const NEW_FIELDS: [&str; 5] = [
+            "master_volume",
+            "frame_rate",
+            "battery_saver",
+            "reduce_motion",
+            "crash_reports",
+        ];
+        let fixture = Fixture::new();
+        let root = &fixture.root;
+        let fresh = load(root).unwrap();
+        assert_eq!(fresh.master_level(), 100, "master volume");
+        assert_eq!(fresh.frame_rate(), FrameRate::Sixty);
+        assert_eq!(fresh.frame_cap(), Some(60));
+        assert!(!fresh.battery_saver);
+        assert_eq!(fresh.increase_contrast, None, "contrast follows the system");
+        assert_eq!(fresh.reduce_motion, None, "motion follows the system");
+        assert_eq!(fresh.crash_reports, CrashReports::Ask);
+        assert!(!fresh.world_voice, "the AI voice is off");
+        save(root, &AppSettings::empty()).unwrap();
+        let written = fs::read_to_string(settings_path(root)).unwrap();
+        for field in NEW_FIELDS {
+            assert!(!written.contains(field), "{field} in {written}");
+        }
+
+        save_master_volume(root, 35).unwrap();
+        save_frame_rate(root, FrameRate::Thirty).unwrap();
+        save_battery_saver(root, true).unwrap();
+        save_reduce_motion(root, Some(true)).unwrap();
+        save_crash_reports(root, CrashReports::Never).unwrap();
+        save_text_scale(root, 150).unwrap();
+        save_increase_contrast(root, Some(true)).unwrap();
+        let kept = load(root).unwrap();
+        assert_eq!(kept.master_level(), 35);
+        assert_eq!(kept.frame_rate(), FrameRate::Thirty);
+        assert!(kept.battery_saver);
+        assert_eq!(kept.reduce_motion, Some(true));
+        assert_eq!(kept.crash_reports, CrashReports::Never);
+        assert_eq!(kept.text_scale, Some(150));
+        assert_eq!(kept.increase_contrast, Some(true));
+        let written = fs::read_to_string(settings_path(root)).unwrap();
+        assert!(written.contains("\"frame_rate\": \"thirty\""), "{written}");
+        assert!(
+            written.contains("\"crash_reports\": \"never\""),
+            "{written}"
+        );
+
+        // Back to where they started, and out of the file again.
+        save_master_volume(root, 100).unwrap();
+        save_frame_rate(root, FrameRate::Sixty).unwrap();
+        save_battery_saver(root, false).unwrap();
+        save_reduce_motion(root, None).unwrap();
+        save_crash_reports(root, CrashReports::Ask).unwrap();
+        let written = fs::read_to_string(settings_path(root)).unwrap();
+        for field in NEW_FIELDS {
+            assert!(!written.contains(field), "{field} in {written}");
+        }
+        assert_eq!(
+            load(root).unwrap().text_scale,
+            Some(150),
+            "nothing else changed"
+        );
+    }
+
+    #[test]
+    fn the_battery_saver_caps_every_rate_at_thirty() {
+        let mut settings = AppSettings::empty();
+        for (rate, cap) in [
+            (FrameRate::Thirty, Some(30)),
+            (FrameRate::Sixty, Some(60)),
+            (FrameRate::Display, None),
+        ] {
+            settings.frame_rate = Some(rate);
+            settings.battery_saver = false;
+            assert_eq!(settings.frame_cap(), cap, "{rate:?}");
+            settings.battery_saver = true;
+            assert_eq!(settings.frame_cap(), Some(30), "{rate:?} on battery");
+        }
     }
 
     /// Play freely (1.0 P2) is off for a new install and for a file written

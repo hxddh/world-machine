@@ -14,8 +14,9 @@ use gpui::{
 use world_gpui::ui;
 use world_theme::tokens;
 
+use crate::notes_window::{self, Notes};
 use crate::{build_info, diagnostics, WorldMachineHome};
-use world_machine_desktop::shell;
+use world_machine_desktop::{notices, shell};
 
 actions!(
     world_machine,
@@ -29,6 +30,10 @@ actions!(
         ReportProblem,
         InstallGuide,
         CheckForUpdates,
+        WhatsNew,
+        KnownIssues,
+        Acknowledgements,
+        WriteToSupport,
         // Standard app and window behaviour.
         HideApp,
         HideOthers,
@@ -80,6 +85,10 @@ pub fn install(cx: &mut App) {
         cx.open_url(&diagnostics::issue_url());
     });
     cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
+    cx.on_action(|_: &WhatsNew, cx| notes_window::open(Notes::WhatsNew, cx));
+    cx.on_action(|_: &KnownIssues, cx| notes_window::open(Notes::KnownIssues, cx));
+    cx.on_action(|_: &Acknowledgements, cx| notes_window::open(Notes::Acknowledgements, cx));
+    cx.on_action(|_: &WriteToSupport, cx| write_to_support(cx));
     cx.on_action(|_: &CheckForUpdates, cx| {
         diagnostics::info("opening the releases page");
         cx.open_url(diagnostics::RELEASES_URL);
@@ -195,13 +204,18 @@ pub fn set_menus(cx: &mut App) {
         ]),
         Menu::new("Help").items([
             MenuItem::action("Help", ShowHelp),
+            MenuItem::action("What's New", WhatsNew),
+            MenuItem::action("Known Issues", KnownIssues),
             MenuItem::separator(),
             MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Install Guide", InstallGuide),
             MenuItem::action("Report a Problem…", ReportProblem),
+            MenuItem::action("Write to Support…", WriteToSupport),
             MenuItem::separator(),
             MenuItem::action("Copy Diagnostics", CopyDiagnostics),
             MenuItem::action(show_log_label(), OpenLogFolder),
+            MenuItem::separator(),
+            MenuItem::action("Acknowledgements", Acknowledgements),
         ]),
     ]);
 }
@@ -236,6 +250,38 @@ fn show_log_label() -> &'static str {
     shell::show_log_label(shell::Os::current())
 }
 
+/// A new e-mail to support in the player's own mail program; nothing is
+/// sent until they send it.
+fn write_to_support(cx: &mut App) {
+    diagnostics::info("opening an e-mail to support");
+    cx.open_url(&format!(
+        "mailto:{}?subject={}",
+        shell::SUPPORT_EMAIL,
+        world_machine_desktop::crash_reports::encode(&format!(
+            "World Machine {}",
+            build_info::display_label()
+        ))
+    ));
+}
+
+/// Where to write for help, said the same way in About, Help and Settings:
+/// the line, and the address under it.
+pub(crate) fn support_line() -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(ui::caption(shell::SUPPORT_LINE))
+        .child(
+            div()
+                .id("support-address")
+                .text_sm()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(ui::color(tokens::ACCENT_TEXT))
+                .child(shell::SUPPORT_EMAIL),
+        )
+}
+
 fn copy_diagnostics(cx: &mut App) {
     let report = diagnostics::report();
     cx.write_to_clipboard(ClipboardItem::new_string(report));
@@ -254,7 +300,7 @@ fn open_log_folder(cx: &mut App) {
 }
 
 fn open_about_window(cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(520.0), px(420.0)), cx);
+    let bounds = Bounds::centered(None, size(px(560.0), px(480.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -391,8 +437,24 @@ impl Render for AboutView {
                         about_button("about-install-guide", "Install Guide").on_click(
                             cx.listener(|_, _, _, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL)),
                         ),
+                    )
+                    .child(
+                        about_button("about-write-to-support", "Write to Support…")
+                            .on_click(cx.listener(|_, _, _, cx| write_to_support(cx))),
+                    )
+                    .child(
+                        about_button("about-whats-new", notices::WHATS_NEW).on_click(
+                            cx.listener(|_, _, _, cx| notes_window::open(Notes::WhatsNew, cx)),
+                        ),
+                    )
+                    .child(
+                        about_button("about-acknowledgements", notices::ACKNOWLEDGEMENTS_TITLE)
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                notes_window::open(Notes::Acknowledgements, cx)
+                            })),
                     ),
             )
+            .child(support_line())
     }
 }
 
@@ -412,7 +474,7 @@ fn about_button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::D
 /// The short in-app Help page: how a World is played, and where more help
 /// is, on every platform (Help in the in-window menu and the menu bar).
 fn open_help_window(cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(520.0), px(460.0)), cx);
+    let bounds = Bounds::centered(None, size(px(560.0), px(560.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -507,6 +569,32 @@ impl Render for HelpView {
                     .child(
                         about_button("help-show-log", show_log_label())
                             .on_click(cx.listener(|_, _, _, cx| open_log_folder(cx))),
+                    )
+                    .child(
+                        about_button("help-write-to-support", "Write to Support…")
+                            .on_click(cx.listener(|_, _, _, cx| write_to_support(cx))),
+                    ),
+            )
+            .child(support_line())
+            .child(ui::heading("About this version"))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(about_button("help-whats-new", notices::WHATS_NEW).on_click(
+                        cx.listener(|_, _, _, cx| notes_window::open(Notes::WhatsNew, cx)),
+                    ))
+                    .child(
+                        about_button("help-known-issues", notices::KNOWN_ISSUES_TITLE).on_click(
+                            cx.listener(|_, _, _, cx| notes_window::open(Notes::KnownIssues, cx)),
+                        ),
+                    )
+                    .child(
+                        about_button("help-acknowledgements", notices::ACKNOWLEDGEMENTS_TITLE)
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                notes_window::open(Notes::Acknowledgements, cx)
+                            })),
                     ),
             )
             .child(
