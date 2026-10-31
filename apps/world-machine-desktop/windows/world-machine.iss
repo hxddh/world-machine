@@ -3,7 +3,7 @@
 ; Built by package.sh, which stages the app in target\windows-package\stage
 ; and passes the version, the stage and the output folder:
 ;
-;   ISCC.exe /DAppVersion=0.29.0 /DStageDir=... /DOutputDir=... world-machine.iss
+;   ISCC.exe /DAppVersion=1.0.0 /DStageDir=... /DOutputDir=... world-machine.iss
 ;
 ; Per-user by default (no administrator prompt; the app keeps its own files
 ; under %APPDATA% and %LOCALAPPDATA% either way), with the option of all
