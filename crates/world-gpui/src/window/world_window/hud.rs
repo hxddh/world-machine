@@ -183,11 +183,13 @@ impl ProjectionView {
         if self.snapshot.world_time > 0 {
             // Named for the part of the day the sky shows.
             let dark = matches!(scene::daylight_now(), scene::Daylight::Night);
-            right = right.child(
-                pill()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(crate::i18n::now_label(&self.snapshot, dark)),
-            );
+            right = right.child(pill().font_weight(FontWeight::SEMIBOLD).child(
+                crate::i18n::now_label(
+                    &self.snapshot,
+                    dark,
+                    self.looking.sitting.goodnight || self.looking.sitting.asleep.is_some(),
+                ),
+            ));
         }
         // A pointer at one of these handles hangs just under it.
         let hint_under = |handle: Stateful<Div>, pointers: &[Pointer], cx: &mut Context<Self>| {

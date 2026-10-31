@@ -530,8 +530,10 @@ pub fn day_lived(
 /// The moment now, as the window's own clock shows it over the sky: a
 /// World that counts in a part of the day ("Night 5", "Day 5") is
 /// counted in the part the sky shows, so "Night 5" never hangs under a
-/// noon sun. Any other unit ("Sol 3") is as it is.
-pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool) -> String {
+/// noon sun. Any other unit ("Sol 3") is as it is. Asleep (or saying
+/// Goodnight), it is the day just lived, as [`day_lived`] tells it.
+pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool, asleep: bool) -> String {
+    let time = day_lived(snapshot.world_time, snapshot.calendar.as_ref(), asleep);
     let unit = snapshot
         .calendar
         .as_ref()
@@ -542,10 +544,10 @@ pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool) -> String {
         _ => None,
     };
     match (swapped, &snapshot.calendar) {
-        (Some(unit), Some(calendar)) if calendar.length > 0 && snapshot.world_time > 0 => {
-            day_label(unit, snapshot.world_time.div_ceil(calendar.length))
+        (Some(unit), Some(calendar)) if calendar.length > 0 && time > 0 => {
+            day_label(unit, time.div_ceil(calendar.length))
         }
-        _ => moment_label(snapshot, snapshot.world_time),
+        _ => moment_label(snapshot, time),
     }
 }
 
@@ -835,9 +837,14 @@ mod tests {
         set_thread_language(None);
         assert_eq!(shown.openers[0].lines[0], "最近有什么新鲜事吗？");
         set_thread_language(Some(Language::English));
-        assert_eq!(now_label(&snapshot, true), "Night 5");
-        assert_eq!(now_label(&snapshot, false), "Day 5");
-        assert_eq!(now_label(&calendar_at("Sol", 50), false), "Sol 5");
+        assert_eq!(now_label(&snapshot, true, false), "Night 5");
+        assert_eq!(now_label(&snapshot, false, false), "Day 5");
+        assert_eq!(now_label(&calendar_at("Sol", 50), false, false), "Sol 5");
+        // Asleep after the sixth day passed, the night over the town is
+        // the sixth's, never the seventh's (v0.31 release shots: "Night 7"
+        // over a World said goodnight to on day 6).
+        assert_eq!(now_label(&calendar_at("Day", 70), true, true), "Night 6");
+        assert_eq!(now_label(&calendar_at("Day", 70), true, false), "Night 7");
         // Asleep after the third day passed, the World still says the
         // third: the fourth is the next sitting's.
         let after_three = calendar_at("Day", 40);
