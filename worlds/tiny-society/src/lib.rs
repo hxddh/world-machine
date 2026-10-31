@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod achievements;
 mod actions;
 #[cfg(test)]
 mod agency;
