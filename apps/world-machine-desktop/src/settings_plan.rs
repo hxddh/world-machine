@@ -220,6 +220,17 @@ pub fn refocus<T: PartialEq>(does: KeyDoes, was: Option<&T>, at: usize, after: &
     at.min(after.len().saturating_sub(1))
 }
 
+/// Which child of the Settings page holds `section`'s controls: the page
+/// is its title and its caption, the status line when there is one, then
+/// each section's heading followed by its controls.
+pub fn section_child(section: Section, status_shown: bool) -> usize {
+    let at = Section::ALL
+        .iter()
+        .position(|each| *each == section)
+        .unwrap_or(0);
+    2 + usize::from(status_shown) + 2 * at + 1
+}
+
 /// How far one step moves a level.
 pub const LEVEL_STEP: u8 = 10;
 
@@ -310,6 +321,17 @@ mod tests {
         assert_eq!(fewer[now], Control::Language);
         // A control that is gone: the nearest that is left.
         assert!(refocus(KeyDoes::Toggle, Some(&first), all.len() - 1, &fewer) < fewer.len());
+    }
+
+    /// The page scrolls to the section the keyboard is in: its controls
+    /// stand after the title, the caption, any status line and the
+    /// headings and controls of every section before it.
+    #[test]
+    fn the_page_scrolls_to_the_focused_section() {
+        assert_eq!(section_child(Section::Sound, false), 3);
+        assert_eq!(section_child(Section::Display, false), 5);
+        assert_eq!(section_child(Section::Makers, false), 17);
+        assert_eq!(section_child(Section::Makers, true), 18);
     }
 
     #[test]

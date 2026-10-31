@@ -95,6 +95,8 @@ struct SettingsView {
     focus: gpui::FocusHandle,
     /// Which control the keyboard is on, in `settings_plan::controls` order.
     focused: usize,
+    /// The page's scroll, moved to the section the keyboard is in.
+    scroll: gpui::ScrollHandle,
 }
 
 impl SettingsView {
@@ -141,6 +143,7 @@ impl SettingsView {
             status: None,
             focus: cx.focus_handle(),
             focused: 0,
+            scroll: gpui::ScrollHandle::new(),
         };
         view.reload();
         view
@@ -504,6 +507,13 @@ impl SettingsView {
         // The controls can change under the focus (sound or the voice
         // turned off): a change stays on its control; a move goes on.
         self.focused = settings_plan::refocus(does, focused, self.focused, &self.controls());
+        // The focused control is never left off the page.
+        if let Some(control) = self.controls().get(self.focused) {
+            self.scroll.scroll_to_item(settings_plan::section_child(
+                control.section(),
+                self.status.is_some(),
+            ));
+        }
         cx.stop_propagation();
         cx.notify();
     }
@@ -736,6 +746,7 @@ impl Render for SettingsView {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .size_full()
             .p_6()
             .flex()
