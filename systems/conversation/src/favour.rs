@@ -922,6 +922,14 @@ mod tests {
     const MARA: EntityId = EntityId::new(1);
     const LEO: EntityId = EntityId::new(2);
 
+    /// Whoever asks the player a favour has crossed their path: the
+    /// `lives` System counts this kind so, and nobody who asked one says
+    /// hello after as to a stranger.
+    #[test]
+    fn asking_a_favour_crosses_the_players_path() {
+        assert!(lives::CROSSED_KINDS.contains(&ASKED));
+    }
+
     fn kit(_: &WorldState) -> Kit {
         Kit {
             period: 10,

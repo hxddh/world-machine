@@ -876,14 +876,16 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         town.live(item, home, &plan);
     }
 
-    town.projection(
+    let mut canvas = town.projection(
         items,
         Vec::new(),
         LABELS,
         season_of(state),
         crate::plots::canvas_plots(world),
         "harbour",
-    )
+    );
+    canvas.built_plots = crate::plots::built_plots(world);
+    canvas
 }
 
 /// Where the harbour gathers on a festival: the bandstand, once there is

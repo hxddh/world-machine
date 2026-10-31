@@ -146,10 +146,17 @@ impl WorldMachineHome {
         // What a person needs to tell their Worlds apart: which kind of World
         // it is and how far it has lived. Event counts and file ids are the
         // archive's business; the World's own window still shows the file.
+        // A World asleep is told by the day the player said goodnight
+        // to (v0.31 play: "Day 4" after Goodnight on day 3).
+        let lived = world_gpui::i18n::day_lived(
+            document.world_time,
+            document.display_calendar.as_ref(),
+            observer::asleep(&document),
+        );
         details = details.child(ui::caption(world_card_meta(
             &title,
             &pack_title,
-            document.world_time,
+            lived,
             document.display_calendar.as_ref(),
         )));
 

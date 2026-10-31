@@ -701,7 +701,7 @@ fn codes_are_sorted_as_sorting_sorts_them() {
 const KIN_WORDS: KinWords = KinWords {
     born: &["{a} and {b} had a baby: {name}"],
     born_said: &["Welcome, {name}."],
-    came_of_age: &["{name} came of age as a {trade}"],
+    came_of_age: &["{name} came of age as a {trade}, a trade of {their} own"],
     came_of_age_said: &["Grown!"],
     left_home: &["{name} moved out"],
     left_home_said: &["My own door."],
@@ -805,6 +805,12 @@ fn kin_world() -> (World, ActionRegistry) {
     for id in PEOPLE {
         let entity = state.entity(EntityId::new(id)).unwrap().clone();
         let entity = entity.with_component("job", if id == 2 { "student" } else { "miller" });
+        // Ben is "he" by his own say.
+        let entity = if id == 2 {
+            entity.with_component(PRONOUNS, "he")
+        } else {
+            entity
+        };
         state = {
             let mut next = WorldState::default();
             for other in state.entities() {
@@ -959,6 +965,12 @@ fn someone_comes_of_age_takes_a_trade_and_the_old_retire() {
     assert_eq!(came.len(), 1, "Ben comes of age once");
     assert_eq!(came[0].actor, Some(EntityId::new(2)));
     assert_eq!(text(world.state(), EntityId::new(2), "job"), Some("miller"));
+    // His own trade, as his pronouns have it (v0.31: "Mia is grown now,
+    // with a trade of their own").
+    assert_eq!(
+        told(came[0]).as_deref(),
+        Some("Ben came of age as a miller, a trade of his own")
+    );
     // Eve turns 67 and retires in time.
     for _ in 0..60 {
         kin_pass(&mut world, &registry);

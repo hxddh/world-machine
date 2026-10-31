@@ -1,7 +1,8 @@
 //! Lived places, played now: a builder's place (the first question each
 //! period, something built or made every third one) in each of the three
-//! places at 90 and 120 periods (the ages the v0.x saves had), as the window
-//! opens on each.
+//! places at 90 and 120 periods (the ages the v0.x saves had), and at 40
+//! and 80 (v0.31 play: Icebridge at 40 and Maple Street at 80 opened on
+//! three busy of six or more), as the window opens on each.
 //! Until 1.0 these bars were held on places saved by v0.20–v0.27; 1.0
 //! starts its own save format, so the places are played afresh, the same
 //! way.
@@ -49,7 +50,7 @@ fn played(ages: &[usize]) -> Vec<(String, ProjectionSnapshot)> {
 /// The lived places, played once for every test here.
 fn lived() -> &'static [(String, ProjectionSnapshot)] {
     static LIVED: OnceLock<Vec<(String, ProjectionSnapshot)>> = OnceLock::new();
-    LIVED.get_or_init(|| played(&[90, 120]))
+    LIVED.get_or_init(|| played(&[40, 80, 90, 120]))
 }
 
 /// Every lived place, opened, shows its people doing something at ten in

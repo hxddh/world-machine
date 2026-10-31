@@ -470,3 +470,11 @@ fn every_line_of_the_morning_has_its_slots() {
         assert!(line.contains("{who}") && line.contains("{place}"), "{line}");
     }
 }
+
+/// Whoever looks after something of the player's overnight has crossed
+/// their path: the `lives` System counts this kind so (v0.31 play: Mia
+/// watered the player's flowers, then said "We haven't met properly").
+#[test]
+fn looking_after_the_players_things_crosses_their_path() {
+    assert!(lives::CROSSED_KINDS.contains(&TENDED));
+}

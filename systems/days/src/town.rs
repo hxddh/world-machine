@@ -931,6 +931,7 @@ impl Town {
             ground,
             ice,
             plots,
+            built_plots: Vec::new(),
             setting: Some(setting.into()),
             clusters,
             // The Pack says how its place looks, if it does.

@@ -189,19 +189,21 @@ impl WorldMachineHome {
                 Ok(Ok(Some(mut paths))) => paths.pop(),
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
+                    diagnostics::error(format!("install pack dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Could not open Install Pack dialog: {error}"
-                        )));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::no_file_window(),
+                        ));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
+                    diagnostics::error(format!("install pack dialog: {error}"));
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(HomeStatus::error(format!(
-                            "Install Pack dialog was interrupted: {error}"
-                        )));
+                        this.status = Some(HomeStatus::error(
+                            world_machine_desktop::plain_errors::file_window_closed(),
+                        ));
                         cx.notify();
                     });
                     return;

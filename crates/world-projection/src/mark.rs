@@ -10,8 +10,6 @@
 //! (`<command>=<argument>`); that form is still read, from Packs on v7 and
 //! from what older apps sent. Nothing here decides anything.
 
-use crate::MarkShape;
-
 /// How many cells a design has along each side.
 pub const PATTERN_SIDE: usize = 16;
 /// How many cells a design has.
@@ -369,4 +367,60 @@ mod tests {
         assert_eq!((command, name), ("pack.name.7", Some("Ann = Bea")));
         assert_eq!(command_with("pack.name.7", "Ann"), "pack.name.7=Ann");
     }
+}
+
+/// The silhouette a built thing is drawn as on the horizon, and a place as
+/// on its tile.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MarkShape {
+    #[default]
+    House,
+    Dome,
+    Tower,
+    Tree,
+    Lamp,
+    /// A shopfront under an awning.
+    Shop,
+    /// An arched span.
+    Bridge,
+    /// A vehicle on wheels: a rover, a cart, a bus.
+    Rover,
+    /// A small boat.
+    Boat,
+    /// A parcel or crate: an order, a delivery, a thing to be made.
+    Parcel,
+    /// A market stall under a striped awning.
+    Stall,
+    /// A string of little flags between two poles.
+    Bunting,
+    /// A wooden pier on its piles.
+    Pier,
+    /// A small garden bed in flower.
+    Garden,
+    /// A flag on a pole.
+    Flag,
+    /// A lamp on a post, lit after dusk.
+    Lantern,
+    /// A tent.
+    Tent,
+    /// A wooden bench.
+    Bench,
+    /// Seedlings just up out of the ground.
+    Sprouts,
+    /// A stone well with a little roof and a bucket.
+    Well,
+    /// A swing hung from a frame.
+    Swing,
+    /// A round stone fountain, water rising.
+    Fountain,
+    /// A post with arms pointing the way.
+    Signpost,
+    /// A birdhouse on a pole.
+    Birdhouse,
+    /// A long box of flowers.
+    Planter,
+    /// A figure on a plinth.
+    Statue,
+    /// A pillar box for letters.
+    Postbox,
 }

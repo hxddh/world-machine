@@ -175,6 +175,39 @@ impl FirstScreen {
     }
 }
 
+/// Whose line the window opens on, and where they stand (by `x_of`):
+/// whoever speaks at the World's latest moment with the most residents
+/// round them at rest, the first to speak where that is a tie. On a
+/// World's first day, always the first, who welcomes the player (v0.31:
+/// at day 80 in the 1987 town the first to speak stood with two others
+/// while seven more were busy together down the street, and the window
+/// opened on the three).
+pub(crate) fn opening_voice<'a>(
+    snapshot: &'a ProjectionSnapshot,
+    stage: &crate::diorama::Stage,
+    x_of: impl Fn(SelectionId) -> Option<f32>,
+) -> Option<(&'a world_projection::Voice, f32)> {
+    let voices = super::world_window::voices_now(snapshot)
+        .into_iter()
+        .filter_map(|voice| Some((voice, x_of(voice.speaker)?)))
+        .collect::<Vec<_>>();
+    let first_day = snapshot
+        .calendar
+        .as_ref()
+        .is_none_or(|calendar| snapshot.world_time <= calendar.length.max(1));
+    if first_day {
+        return voices.into_iter().next();
+    }
+    let mut best: Option<((&'a world_projection::Voice, f32), usize)> = None;
+    for (voice, x) in voices {
+        let round = rest_screen(stage, busiest_view(stage, Some(x))).0;
+        if best.as_ref().is_none_or(|(_, most)| round > *most) {
+            best = Some(((voice, x), round));
+        }
+    }
+    best.map(|(opener, _)| opener)
+}
+
 /// The first screen of `snapshot` in a window `view` large at `hour` (well
 /// into it): where the window opens with the camera at rest (on whoever
 /// speaks, and the most residents round them: [`busiest_view`], as the
@@ -193,9 +226,7 @@ pub fn first_screen_busy(snapshot: &ProjectionSnapshot, view: (f32, f32), hour: 
         let (x, _, w, _) = stage.frame_of(index)?;
         Some(x + w / 2.0)
     };
-    let speaker = super::world_window::voices_now(snapshot)
-        .first()
-        .and_then(|voice| x_of(&stage, voice.speaker));
+    let speaker = opening_voice(snapshot, &stage, |who| x_of(&stage, who)).map(|(_, x)| x);
     if stage.people.is_empty() {
         return FirstScreen::default();
     }
@@ -1082,6 +1113,225 @@ mod tests {
             "no card before the toy"
         );
         crate::scene::pin_hour(None);
+    }
+
+    /// The first day's free thing never takes the day away (v0.31 play:
+    /// in each of the second Pack's places "Choose a spot for the bench"
+    /// opened by itself, Enter did nothing and no card came until a plot
+    /// was clicked). In the first World and in every place, once it opens it
+    /// says how to place it and how to leave it, Enter leaves it for later
+    /// and the day's card comes up; so does its "Later" button.
+    #[gpui::test]
+    fn the_free_offer_never_holds_the_first_day_back(cx: &mut gpui::TestAppContext) {
+        use gpui::VisualTestContext;
+        crate::scene::pin_hour(Some(12));
+        let snapshot = |json: &str| {
+            let wire: world_pack_protocol::ProjectionSnapshotWire =
+                serde_json::from_str(json).expect("a wire snapshot");
+            ProjectionSnapshot::try_from(wire).expect("a snapshot")
+        };
+        for (name, json) in [
+            ("first", None),
+            (
+                "dust",
+                Some(include_str!("../../tests/fixtures/first-dust.json")),
+            ),
+            (
+                "street",
+                Some(include_str!("../../tests/fixtures/first-street.json")),
+            ),
+            (
+                "ice",
+                Some(include_str!("../../tests/fixtures/first-ice.json")),
+            ),
+        ] {
+            for by_button in [false, true] {
+                let snapshot = json.map_or_else(first_day, snapshot);
+                assert!(free_offer(&snapshot).is_some(), "{name}: something free");
+                let recording = Recording {
+                    now: snapshot.clone(),
+                    done: snapshot.clone(),
+                    heard: Default::default(),
+                };
+                let window =
+                    cx.add_window(move |_, _| super::super::ProjectionView::controlled(recording));
+                let view = window.root(cx).expect("the World");
+                let cx = &mut VisualTestContext::from_window(window.into(), cx);
+                cx.simulate_resize(gpui::size(gpui::px(1100.0), gpui::px(900.0)));
+                cx.run_until_parked();
+                // As long as the welcome takes, and a little more.
+                for _ in 0..40 {
+                    cx.executor()
+                        .advance_clock(std::time::Duration::from_secs(1));
+                    view.update(cx, |view, cx| {
+                        if let Some(at) = view.looking.opening {
+                            view.looking.opening =
+                                at.checked_sub(std::time::Duration::from_secs(1));
+                        }
+                        cx.notify();
+                    });
+                    cx.run_until_parked();
+                }
+                view.read_with(cx, |view, _| {
+                    assert!(view.looking.free_offer, "{name}: the free thing is offered");
+                    assert!(view.looking.hands.is_some(), "{name}: the hands are open");
+                });
+                assert!(cx.debug_bounds("bottom-card").is_none(), "{name}");
+                let later = cx.debug_bounds("hands-later").expect("a Later button");
+                if by_button {
+                    cx.simulate_click(later.center(), gpui::Modifiers::none());
+                } else {
+                    cx.simulate_keystrokes("enter");
+                }
+                cx.run_until_parked();
+                view.read_with(cx, |view, _| {
+                    assert!(view.looking.hands.is_none(), "{name}: put away");
+                    assert!(!view.looking.free_offer, "{name}");
+                });
+                assert!(
+                    cx.debug_bounds("bottom-card").is_some(),
+                    "{name} ({}): the day's card comes up",
+                    if by_button { "Later" } else { "Enter" }
+                );
+            }
+        }
+        crate::scene::pin_hour(None);
+    }
+
+    /// What the player puts on a plot stands on that plot, exactly where it
+    /// is, and nothing built after moves it (v0.31 play: the wildflowers
+    /// landed in front of the plot clicked, and the pier bought
+    /// next stood up under them). The World keeps where along the ground it
+    /// went as a whole percent of the place, which the plot's middle need not
+    /// fall on; it stands at the plot's middle, in the plot's row.
+    #[test]
+    fn what_is_put_on_a_plot_stands_on_it_and_stays() {
+        use crate::diorama::{ground_spot, stage, Stage};
+        use world_projection::{CanvasItem, CanvasItemKind, MarkShape};
+        let mut snapshot = first_day();
+        let (width, height) = (1100.0, 848.0);
+        let pub_x = snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.label == "Anchor Pub")
+            .and_then(|item| item.px)
+            .expect("the pub");
+        // The plot by the pub, as the scene paints it.
+        let plots = crate::mark::plots_of(&snapshot).to_vec();
+        let plot = (0..plots.len())
+            .min_by(|a, b| {
+                (plots[*a].px - pub_x)
+                    .abs()
+                    .total_cmp(&(plots[*b].px - pub_x).abs())
+            })
+            .expect("a plot");
+        let before = stage(&snapshot, width, height);
+        let paint = before
+            .plots
+            .iter()
+            .find(|paint| paint.plot == plot)
+            .cloned()
+            .expect("the plot is painted");
+        // Clicked there, as the World keeps it: a whole percent.
+        let spot = f32::from(ground_spot(&before, paint.x)) / 100.0;
+        let planter = CanvasItem {
+            label: "Wildflower shoots".into(),
+            shape: Some(MarkShape::Sprouts),
+            spot: Some(spot),
+            px: Some(pub_x - 1.7),
+            y: 0.76,
+            id: SelectionId::from_stable_key("entity-700").unwrap(),
+            kind: CanvasItemKind::Object,
+            at: SelectionId::from_stable_key("entity-103"),
+            ..CanvasItem::default()
+        };
+        snapshot.canvas.items.push(planter);
+        let index = snapshot.canvas.items.len() - 1;
+        let at = |stage: &Stage| {
+            let spot = stage
+                .things
+                .iter()
+                .find(|spot| spot.index == index)
+                .copied()
+                .expect("the wildflowers stand on the scene");
+            (spot.x, spot.y)
+        };
+        let placed = stage(&snapshot, width, height);
+        let (x, y) = at(&placed);
+        assert!(
+            (x - paint.x).abs() < 0.5,
+            "on the plot's middle: {x:.1} against {:.1}",
+            paint.x
+        );
+        assert!(
+            (y - paint.y).abs() <= placed.building_w * 0.06,
+            "in the plot's row: {y:.1} against its front edge at {:.1}",
+            paint.y
+        );
+        // The pier bought next, its scaffold, and a stall the town puts up
+        // beside them: the wildflowers stay exactly where they stood.
+        let built = [
+            CanvasItem {
+                label: "The new pier, a new section on".into(),
+                shape: Some(MarkShape::Pier),
+                px: Some(pub_x + 0.1),
+                y: 0.86,
+                id: SelectionId::from_stable_key("entity-412").unwrap(),
+                kind: CanvasItemKind::Object,
+                at: SelectionId::from_stable_key("entity-101"),
+                ..CanvasItem::default()
+            },
+            CanvasItem {
+                label: "The new pier".into(),
+                shape: Some(MarkShape::Bridge),
+                art: Some("scaffold".into()),
+                px: Some(pub_x + 0.02),
+                y: 0.86,
+                id: SelectionId::from_stable_key("entity-910000001").unwrap(),
+                kind: CanvasItemKind::Object,
+                ..CanvasItem::default()
+            },
+            CanvasItem {
+                label: "A stall".into(),
+                shape: Some(MarkShape::Stall),
+                px: Some(x / width + 0.01),
+                y: 0.68,
+                id: SelectionId::from_stable_key("entity-413").unwrap(),
+                kind: CanvasItemKind::Object,
+                ..CanvasItem::default()
+            },
+        ];
+        snapshot.canvas.items.extend(built);
+        let after = stage(&snapshot, width, height);
+        let (x_after, y_after) = at(&after);
+        assert_eq!(x_after, x, "never moved along by what is built after");
+        // A fuller street brings every row a hair back (the town growing up);
+        // the wildflowers stay on their plot as it does.
+        let plot_after = after
+            .plots
+            .iter()
+            .find(|paint| paint.plot == plot)
+            .map(|paint| paint.y)
+            .expect("the plot is still painted");
+        assert!(
+            ((y_after - plot_after) - (y - paint.y)).abs() < 0.01,
+            "still on the plot: {y_after:.2} by its edge at {plot_after:.2}"
+        );
+        // And once a work is built on that plot, which then offers nothing
+        // and is no longer among the plots to build on: still there.
+        let taken = snapshot.canvas.plots.remove(plot);
+        snapshot.canvas.built_plots.push(taken);
+        let built_on = stage(&snapshot, width, height);
+        let (x_built, y_built) = at(&built_on);
+        assert!(
+            (x_built - x).abs() < 0.5,
+            "still on the plot once it is built on: {x_built:.1} against {x:.1}"
+        );
+        assert!(
+            (y_built - y_after).abs() <= built_on.building_w * 0.06,
+            "still in the plot's row: {y_built:.1} against {y_after:.1}"
+        );
     }
 
     /// The opening bar, in the real window (1100 by 900, a stage 848 high

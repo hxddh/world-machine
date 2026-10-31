@@ -1004,6 +1004,7 @@ pub(crate) fn lay_out(
         crate::drawings::setting_of(place),
     );
     canvas.look = Some(look(place));
+    canvas.built_plots = crate::plots::built_plots(world);
     canvas
 }
 

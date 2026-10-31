@@ -39,7 +39,7 @@ const WORDS: KinWords = KinWords {
     ],
     came_of_age: &[
         "{name} came of age and took up the trade of {trade}",
-        "{name} is grown now, with a trade of their own: {trade}",
+        "{name} is grown now, with a trade of {their} own: {trade}",
     ],
     came_of_age_said: &[
         "Grown up, they tell me. I don't feel it.",
@@ -47,15 +47,15 @@ const WORDS: KinWords = KinWords {
         "First day at work tomorrow. Don't laugh.",
     ],
     left_home: &[
-        "{name} moved into a home of their own",
-        "{name} left home for a cottage of their own",
+        "{name} moved into a home of {their} own",
+        "{name} left home for a cottage of {their} own",
     ],
     left_home_said: &[
         "My own front door! I keep opening it.",
         "Everyone cried. So did I, a bit.",
     ],
     retired: &[
-        "{name} put down their tools and retired",
+        "{name} put down {their} tools and retired",
         "{name} retired after a lifetime's work",
     ],
     retired_said: &[
@@ -63,7 +63,7 @@ const WORDS: KinWords = KinWords {
         "Time for the garden, and a bench in the sun.",
     ],
     died: &[
-        "{name} died peacefully in their sleep, at {age}",
+        "{name} died peacefully in {their} sleep, at {age}",
         "{name} slipped away quietly in the night, at {age}",
     ],
     died_said: &[

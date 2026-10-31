@@ -439,6 +439,24 @@ impl ProjectionView {
                     body = body.child(ui::caption("On the house, to welcome you."));
                 }
                 body = body.child(div().text_sm().text_color(color(tokens::TEXT)).child(hint));
+                // The first day's free thing opened by itself: it says how
+                // to place it, and how to leave it for later, so the day's
+                // card is never out of reach (v0.31's soft lock).
+                if self.looking.free_offer {
+                    body = body
+                        .child(ui::caption(
+                            "Click where you would like it in the scene. Or press Enter to do it later.",
+                        ))
+                        .child(
+                            div().flex().justify_end().child(
+                                ui::button("hands-later", "Later", ui::ButtonKind::Secondary)
+                                    .debug_selector(|| "hands-later".into())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.put_free_offer_away(cx);
+                                    })),
+                            ),
+                        );
+                }
                 if self
                     .hand_targets()
                     .is_some_and(|targets| targets.is_empty())

@@ -2915,6 +2915,8 @@ pub struct CanvasProjectionWire {
     /// Plots the player can build on; an older Pack sends none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plots: Vec<PlotWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub built_plots: Vec<PlotWire>,
     /// What kind of place it is to look at; an older Pack sends none, and
     /// a setting the app does not know is drawn as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3211,6 +3213,7 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
             ground: canvas.ground.map(Into::into),
             ice: canvas.ice,
             plots: canvas.plots.iter().map(Into::into).collect(),
+            built_plots: canvas.built_plots.iter().map(Into::into).collect(),
             setting: canvas.setting.clone(),
             clusters: canvas
                 .clusters
@@ -3275,12 +3278,8 @@ impl From<CanvasProjectionWire> for CanvasProjection {
             season: canvas.season.and_then(SeasonWire::known),
             ground: canvas.ground.and_then(GroundCoverWire::known),
             ice: canvas.ice,
-            plots: canvas
-                .plots
-                .into_iter()
-                .filter_map(PlotWire::known)
-                .take(MOST_PLOTS)
-                .collect(),
+            plots: PlotWire::all_known(canvas.plots, MOST_PLOTS),
+            built_plots: PlotWire::all_known(canvas.built_plots, MOST_PLOTS),
             setting: art_key(canvas.setting),
             clusters: canvas
                 .clusters

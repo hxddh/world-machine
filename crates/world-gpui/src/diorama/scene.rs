@@ -767,12 +767,12 @@ pub(super) fn lay_out(
             continue;
         }
         if let Some(spot) = item.spot {
-            rows.insert(index, row_key(index, 0.76));
-            things.push(spot_in_row(
-                index,
-                width * MARGIN + usable * spot.clamp(0.0, 1.0),
-                0.76,
-            ));
+            // Where the player put it; on a plot they clicked, on the plot.
+            let x = width * MARGIN + usable * spot.clamp(0.0, 1.0);
+            let reach = building_w * 0.45;
+            let (x, row) = crate::mark::plot_under(snapshot, view_w, x, reach).unwrap_or((x, 0.76));
+            rows.insert(index, row_key(index, row));
+            things.push(spot_in_row(index, x, row));
             continue;
         }
         let Some(host) = host(index) else {
@@ -1456,6 +1456,8 @@ pub(super) fn compose(
         let key = match (*building, movable(*building, *index), rank(*index)) {
             (_, _, 0) => 0,
             (true, false, _) => 1,
+            // What the player put where they chose stands there first.
+            (false, ..) if items[*index].spot.is_some() => 1,
             (true, true, _) => 2,
             _ if going_up(*building, *index) => 9,
             (false, _, rank) => 2 + rank,
@@ -1475,7 +1477,9 @@ pub(super) fn compose(
         let row = rows.get(&index).copied().unwrap_or_default();
         let nominal = spot.w;
         let h = tall(&spot, building);
-        let fixed = (building && !movable(building, index)) || rank(index) == 0;
+        let fixed = (building && !movable(building, index))
+            || rank(index) == 0
+            || (!building && items[index].spot.is_some());
         // A building that may step aside never stands in front of a thing
         // already placed behind it (what the player built on a plot).
         let hides_a_thing = |x: f32| {

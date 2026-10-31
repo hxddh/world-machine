@@ -263,6 +263,28 @@ pub fn canvas_plots(pack: &impl PlotPack, world: &World) -> Vec<world_projection
         .collect()
 }
 
+/// The plots something stands on, as a screen shows them: each where it
+/// lies, offering nothing.
+pub fn built_plots(pack: &impl PlotPack, world: &World) -> Vec<world_projection::Plot> {
+    let state = world.state();
+    if !pack.ready(state) {
+        return Vec::new();
+    }
+    crate::on_plots(state)
+        .into_iter()
+        .filter_map(|(id, _)| {
+            let px = pack.plot_px(state, slot_of(&id)?);
+            Some(world_projection::Plot {
+                id,
+                px,
+                row: PLOT_ROW as u8,
+                district: pack.stretch_id(state, pack.stretch_at(state, px)).into(),
+                offers: Vec::new(),
+            })
+        })
+        .collect()
+}
+
 /// Places the works standing on plots on their plots, and says what each
 /// thing on the scene can wear, be named, and how the place built it.
 pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {

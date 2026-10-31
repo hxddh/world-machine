@@ -112,9 +112,13 @@ impl WorldMachineHome {
                         match path {
                             Ok(path) => this.open_external_path(path, cx),
                             Err(error) => {
-                                this.status = Some(HomeStatus::error(format!(
-                                    "Could not open World file: {error}"
-                                )));
+                                diagnostics::error(format!("open world file: {error}"));
+                                this.status = Some(HomeStatus::error(
+                                    world_machine_desktop::plain_errors::could_not(
+                                        "Couldn't open that World file.",
+                                        &error.to_string(),
+                                    ),
+                                ));
                             }
                         }
                     }

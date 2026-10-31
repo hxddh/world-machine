@@ -122,6 +122,14 @@ fn the_bibles_ladder_holds() {
     };
     let cottage = height_in_p(&Subject::Building(MarkShape::House, Setting::Harbour, None));
     assert!((cottage - 2.75).abs() < 0.3, "a cottage is {cottage:.2} P");
+    // A parcel (an order waiting at a door) is carried in two arms, never
+    // the size of a cart (v0.31 play).
+    let parcel = height_in_p(&Subject::Thing(
+        MarkShape::Parcel,
+        Setting::from_key(None),
+        None,
+    ));
+    assert!(parcel <= 0.3, "a parcel is {parcel:.2} P");
     for postbox in ["pillar-box", "lamp-box", "mailbox"] {
         let got = thing(postbox);
         assert!(got <= 0.8, "a postbox ({postbox}) is {got:.2} P");

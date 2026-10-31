@@ -41,7 +41,7 @@ pub(crate) fn child_names() -> impl Iterator<Item = &'static str> {
 const GROWING_UP: [&[&str]; 4] = [
     &[
         "{name} came of age and took up the trade of {trade}",
-        "{name} is grown now, with a trade of their own: {trade}",
+        "{name} is grown now, with a trade of {their} own: {trade}",
     ],
     &[
         "Grown up, they tell me. I don't feel it.",
@@ -49,8 +49,8 @@ const GROWING_UP: [&[&str]; 4] = [
         "First day at work tomorrow. Don't laugh.",
     ],
     &[
-        "{name} moved into a home of their own",
-        "{name} left home for a place of their own",
+        "{name} moved into a home of {their} own",
+        "{name} left home for a place of {their} own",
     ],
     &[
         "My own front door! I keep opening it.",
@@ -60,7 +60,7 @@ const GROWING_UP: [&[&str]; 4] = [
 
 const OLD_AGE: [&[&str]; 4] = [
     &[
-        "{name} put down their tools and retired",
+        "{name} put down {their} tools and retired",
         "{name} retired after a lifetime's work",
     ],
     &[
@@ -68,7 +68,7 @@ const OLD_AGE: [&[&str]; 4] = [
         "Time to sit and watch the others work.",
     ],
     &[
-        "{name} died peacefully in their sleep, at {age}",
+        "{name} died peacefully in {their} sleep, at {age}",
         "{name} slipped away quietly in the night, at {age}",
     ],
     &[

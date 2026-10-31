@@ -72,6 +72,8 @@ const GAP: f32 = 20.0;
 /// The room kept above the canvas for the gauges, and below it.
 const TOP: f32 = 64.0;
 const BOTTOM: f32 = 20.0;
+/// How long something clicked that opens nothing keeps its name up.
+const POKED_NAMED_SECONDS: f32 = 2.5;
 
 /// Where the design canvas goes in a window `width` by `height`, keeping
 /// clear of what it is for, on screen at `target_x` when known, so the
@@ -277,13 +279,15 @@ impl ProjectionView {
                 );
             }
         }
-        // Things that can wear a design or take a name open their card.
+        // Things that can wear a design or take a name open their card;
+        // anything else on the scene still answers a click: it springs and
+        // says what it is (v0.31: a parcel by a door did nothing).
         if acting {
             for spot in &stage.things {
                 let item = &self.snapshot.canvas.items[spot.index];
-                if !self.has_mark_card(item.id) {
-                    continue;
-                }
+                let poked = self.looking.poked.is_some_and(|(id, at)| {
+                    id == item.id && at.elapsed().as_secs_f32() < POKED_NAMED_SECONDS
+                });
                 let (x, base) = camera.at(stage, spot.x, spot.y);
                 let w = stage.thing_w * camera.zoom;
                 let tall = w * if item.shape == Some(MarkShape::Boat) {
@@ -297,12 +301,11 @@ impl ProjectionView {
                 // being tried on it.
                 let open = self.looking.marking.card == Some(selection)
                     && self.looking.marking.design.is_none();
+                let key = format!("stage-{}", selection.stable_key());
                 out.push(
                     div()
-                        .id(SharedString::from(format!(
-                            "stage-{}",
-                            selection.stable_key()
-                        )))
+                        .id(SharedString::from(key.clone()))
+                        .debug_selector(move || key.clone())
                         .role(Role::Button)
                         .aria_label(item.label.clone())
                         .aria_expanded(open)
@@ -316,22 +319,45 @@ impl ProjectionView {
                         .flex()
                         .flex_col()
                         .items_center()
-                        .child(name_tag(item.label.clone()).when(!open, |tag| {
+                        .child(name_tag(item.label.clone()).when(!open && !poked, |tag| {
                             tag.opacity(0.0)
                                 .group_hover(group, |style| style.opacity(1.0))
                         }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            if this.just_dragged() || this.place_at(selection, cx) {
-                                return;
-                            }
-                            this.open_mark_card(selection, cx);
-                        }))
+                        .on_click(
+                            cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if !this.just_dragged() {
+                                    this.click_thing(selection, event.position(), window, cx);
+                                }
+                            }),
+                        )
                         .into_any_element(),
                 );
             }
         }
         out
+    }
+
+    /// Something on the scene clicked at `position`: what the hands hold
+    /// is put there, else its card opens, else it springs and says what
+    /// it is.
+    pub(crate) fn click_thing(
+        &mut self,
+        selection: SelectionId,
+        position: gpui::Point<Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.place_at(selection, cx) || self.open_mark_card(selection, cx) {
+            return;
+        }
+        // With something chosen to put down, the ground it stands on is
+        // where it goes.
+        if self.place_on_ground(position, window, cx) {
+            return;
+        }
+        self.looking.poked = Some((selection, Instant::now()));
+        cx.notify();
     }
 
     /// Puts what the player's hands hold on the plot `plot`. Whether it
@@ -1874,7 +1900,7 @@ mod window_tests {
 
     /// A quay with a boat that can wear a design and take a name, and a
     /// plot with three things that could stand on it, one not yet.
-    fn harbour() -> ProjectionSnapshot {
+    fn waterside() -> ProjectionSnapshot {
         let mut snapshot = ProjectionSnapshot {
             title: "Harbour".into(),
             ..ProjectionSnapshot::default()
@@ -1938,7 +1964,7 @@ mod window_tests {
         Rc<RefCell<Vec<ProjectionIntent>>>,
     ) {
         let sent = Rc::new(RefCell::new(Vec::new()));
-        let world = Recording(harbour(), sent.clone());
+        let world = Recording(waterside(), sent.clone());
         let window = cx.add_window(move |_, _| {
             let mut view = ProjectionView::controlled(Recording(world.0.clone(), world.1.clone()));
             view.looking.opening = None;
@@ -1958,6 +1984,54 @@ mod window_tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Something on the scene with no card of its own (an order waiting at
+    /// a door) still answers a click (v0.31 play: a parcel by a door did
+    /// nothing): it springs and keeps its name up, and nothing is sent.
+    #[gpui::test]
+    fn a_thing_with_no_card_answers_a_click(cx: &mut gpui::TestAppContext) {
+        let mut snapshot = waterside();
+        snapshot.canvas.items.push(CanvasItem {
+            id: id(3),
+            kind: CanvasItemKind::Object,
+            label: "Wedding bread order".into(),
+            shape: Some(MarkShape::Parcel),
+            at: Some(id(1)),
+            ..Default::default()
+        });
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        let world = Recording(snapshot, sent.clone());
+        let window = cx.add_window(move |_, _| {
+            let mut view = ProjectionView::controlled(world);
+            view.looking.opening = None;
+            view
+        });
+        let cx = VisualTestContext::from_window(window.into(), cx).into_mut();
+        cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+        cx.run_until_parked();
+        let parcel = cx
+            .debug_bounds("stage-entity-3")
+            .expect("the order can be clicked");
+        // What its click does (the click itself lands wherever the moving
+        // camera has it by then).
+        cx.update(|window, app| {
+            window
+                .root::<ProjectionView>()
+                .flatten()
+                .expect("the World")
+                .update(app, |view, cx| {
+                    view.click_thing(id(3), parcel.center(), window, cx)
+                })
+        });
+        cx.run_until_parked();
+        window
+            .read_with(cx, |view, _| {
+                assert_eq!(view.looking.poked.map(|(who, _)| who), Some(id(3)));
+                assert_eq!(view.looking.marking.card, None);
+            })
+            .unwrap();
+        assert!(sent_commands(&sent).is_empty(), "nothing is sent");
     }
 
     #[gpui::test]

@@ -360,7 +360,7 @@ impl ProjectionView {
     /// Clicking open ground while placing puts what the player picked right
     /// there: counted with the nearest place, standing at the spot along
     /// the ground that was clicked.
-    pub(super) fn place_on_ground(
+    pub(crate) fn place_on_ground(
         &mut self,
         position: gpui::Point<gpui::Pixels>,
         window: &Window,

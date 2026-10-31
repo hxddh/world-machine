@@ -1392,7 +1392,16 @@ fn workplace(world: &World, person: EntityId) -> Option<EntityId> {
 /// with, and whether the bakery at its heart is open.
 pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
     use world_projection::Gauge;
-    let people = crate::story::people(world);
+    // Everyone who lives here, those working away on the mainland too: a
+    // resident away still has their work (v0.31: "In work 7 of 7" became
+    // "6 of 6" while Evan was away, with nothing said).
+    let mut people = crate::story::people(world);
+    for id in crate::talk::RESIDENTS {
+        let state = world.state();
+        if !people.contains(&id) && state.entity(id).is_some() && !lives::gone(state, id) {
+            people.push(id);
+        }
+    }
     let workforce = people
         .iter()
         .filter(|id| component_text(world, **id, JOB).as_deref() != Some("student"))
@@ -1795,6 +1804,45 @@ mod naming_tests {
             told.contains(&worker),
             "{told:?} is filed under {worker} and does not mention them"
         );
+    }
+}
+
+#[cfg(test)]
+mod work_gauge_tests {
+    use super::*;
+
+    /// v0.31 play: "In work 7 of 7" became "6 of 6" while someone worked
+    /// away on the mainland, with nothing said. Someone away still has
+    /// their work: the count stands.
+    #[test]
+    fn someone_working_away_still_counts_in_work() {
+        let reading = |away: bool| {
+            let seeded = crate::seed::seed_world().unwrap();
+            let mut state = world_core::WorldState::default();
+            for entity in seeded.entities() {
+                let mut entity = entity.clone();
+                if away && entity.id == EVAN {
+                    entity = entity.with_component(crate::story::AWAY, "mainland");
+                }
+                state.seed_entity(entity).unwrap();
+            }
+            for relation in seeded.relations() {
+                state.seed_relation(relation.clone()).unwrap();
+            }
+            let world = World::new(state);
+            assert_eq!(
+                crate::story::people(&world).contains(&EVAN),
+                !away,
+                "away is off the scene"
+            );
+            gauges(&world)
+                .into_iter()
+                .find(|gauge| gauge.id == "work")
+                .map(|gauge| gauge.reading)
+                .unwrap()
+        };
+        assert_eq!(reading(false), "7 of 7");
+        assert_eq!(reading(true), "7 of 7");
     }
 }
 

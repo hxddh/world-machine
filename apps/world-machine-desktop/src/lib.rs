@@ -11,6 +11,7 @@ pub mod channel;
 pub mod demo;
 pub mod display;
 pub mod key_store;
+pub mod plain_errors;
 pub mod platform;
 pub mod restore;
 pub mod shell;

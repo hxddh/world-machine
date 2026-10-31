@@ -65,6 +65,13 @@ fn snapshot() -> ProjectionSnapshot {
                     },
                 ],
             }],
+            built_plots: vec![Plot {
+                id: "p1".into(),
+                px: 0.21,
+                row: 4,
+                district: "quay".into(),
+                offers: Vec::new(),
+            }],
             ..CanvasProjection::default()
         },
         ..ProjectionSnapshot::default()
@@ -83,6 +90,7 @@ fn plots_designs_names_and_variants_come_back_the_same() {
     let snapshot = snapshot();
     let back = across(&snapshot);
     assert_eq!(back.canvas.plots, snapshot.canvas.plots);
+    assert_eq!(back.canvas.built_plots, snapshot.canvas.built_plots);
     assert_eq!(back.canvas.items, snapshot.canvas.items);
     let pattern = back.canvas.items[0].pattern.as_ref().unwrap();
     assert_eq!(Design::from_pattern(pattern).unwrap(), design());

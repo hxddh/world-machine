@@ -79,7 +79,7 @@ use situations::*;
 pub use situations::{candidates, open, situations, Answer, Candidate, Kind, Situation};
 use std::collections::{BTreeMap, BTreeSet};
 use strangers::*;
-pub use strangers::{met, people_to_meet, waiting_strangers};
+pub use strangers::{met, people_to_meet, waiting_strangers, CROSSED_KINDS};
 pub use suggest::{can_suggest, suggestion_request, Idea, IDEAS, SUGGEST_REST};
 pub use voice::{keepsake_of, own_lines, restyle, scene_of, Scene, Voice};
 use world_core::{

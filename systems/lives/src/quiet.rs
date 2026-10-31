@@ -875,12 +875,14 @@ pub(crate) fn letter_notes(
 }
 
 /// A letter's stock line as a morning letter has it: read in town at the
-/// start of the day, it greets the morning and asks the player round
-/// today. Any other line is as it is.
+/// start of the day, it greets the morning, and asks nothing of the day:
+/// what the player is asked to do today is the day's favour alone, on its
+/// own chip (v0.31 play: Emma's letter said "Come and find me today" under
+/// a favour that said "Find Sofia"). Any other line is as it is.
 fn in_the_morning(line: &str) -> &str {
     match line {
         "Hello from me." => "Something to tell you.",
-        "Come by soon." => "Come and find me today.",
+        "Come by soon." => "Hope the day is kind to you.",
         line => line,
     }
 }
@@ -1021,10 +1023,22 @@ mod rhythm {
     use super::*;
 
     #[test]
-    fn a_morning_letter_greets_the_morning_and_asks_you_round_today() {
+    fn a_morning_letter_greets_the_morning_and_asks_nothing_of_the_day() {
         assert_eq!(in_the_morning("Hello from me."), "Something to tell you.");
-        assert_eq!(in_the_morning("Come by soon."), "Come and find me today.");
+        assert_eq!(
+            in_the_morning("Come by soon."),
+            "Hope the day is kind to you."
+        );
         assert_eq!(in_the_morning("Yours, Ann."), "Yours, Ann.");
+        // No closing a morning letter can end on asks the player to come
+        // or find anyone: the day's favour is the one thing asked.
+        for closing in LETTER_CLOSINGS {
+            let said = in_the_morning(closing).to_lowercase();
+            assert!(
+                !said.contains("come") && !said.contains("find") && !said.contains("today"),
+                "{said}"
+            );
+        }
         // Both are among the stock lines they stand in for.
         assert!(LETTER_OPENINGS.contains(&"Hello from me."));
         assert!(LETTER_CLOSINGS.contains(&"Come by soon."));

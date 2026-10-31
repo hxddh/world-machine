@@ -512,6 +512,11 @@ pub(crate) fn canvas_plots(world: &World) -> Vec<world_projection::Plot> {
     hands::plots::canvas_plots(&Harbour, world)
 }
 
+/// The plots something stands on, as a screen shows them.
+pub(crate) fn built_plots(world: &World) -> Vec<world_projection::Plot> {
+    hands::plots::built_plots(&Harbour, world)
+}
+
 /// Places the works standing on plots on their plots, and says what each
 /// thing on the scene can wear, be named, and how the town built it.
 pub(crate) fn dress(world: &World, items: &mut [CanvasItem]) {

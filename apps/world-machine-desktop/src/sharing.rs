@@ -20,6 +20,7 @@ use world_library::{
     looks_like_world_code, prepare_visit, write_world_code_file, VisitSource, WorldCodeError,
     WorldVisit, VISIT_TIMEOUT, WORLD_CODE_SUFFIX,
 };
+use world_machine_desktop::plain_errors;
 use world_projection::Guest;
 
 /// What a window says while a code is read and replayed.
@@ -351,6 +352,11 @@ impl WorldDocumentView {
         };
         let suggested = suggested_code_file_name(&self.document_name);
         let dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested));
+        let suggested = canonical_code_path(PathBuf::from(&suggested))
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+            .unwrap_or(suggested);
         cx.spawn(async move |this, cx| {
             let status = match dialog.await {
                 Ok(Ok(Some(path))) => {
@@ -363,16 +369,35 @@ impl WorldDocumentView {
                                 .unwrap_or_default()
                         )),
                         Err(error) => {
-                            DocumentStatus::error(format!("Could not save the World code: {error}"))
+                            diagnostics::error(format!("world code: {error}"));
+                            DocumentStatus::error(plain_errors::could_not(
+                                "Couldn't save the World code.",
+                                &error.to_string(),
+                            ))
                         }
                     }
                 }
                 Ok(Ok(None)) => return,
+                // No Save window on this computer (a Linux desktop without
+                // its file portal): saved in Documents anyway, and said
+                // where, in words (v0.31: "ZBus Error" in the title bar).
                 Ok(Err(error)) => {
-                    DocumentStatus::error(format!("Could not open the Save dialog: {error}"))
+                    diagnostics::error(format!("save dialog: {error}"));
+                    match plain_errors::save_without_dialog(None, &suggested, |path| {
+                        write_world_code_file(path, &code).map_err(|error| error.to_string())
+                    }) {
+                        Ok(path) => {
+                            DocumentStatus::success(plain_errors::saved_without_dialog(&path))
+                        }
+                        Err(error) => {
+                            diagnostics::error(format!("world code: {error}"));
+                            DocumentStatus::error(plain_errors::not_saved_without_dialog())
+                        }
+                    }
                 }
                 Err(error) => {
-                    DocumentStatus::error(format!("The Save dialog was interrupted: {error}"))
+                    diagnostics::error(format!("save dialog: {error}"));
+                    DocumentStatus::error(plain_errors::file_window_closed())
                 }
             };
             let _ = this.update(cx, |this, cx| {

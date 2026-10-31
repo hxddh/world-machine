@@ -309,6 +309,7 @@ impl ProjectionView {
         if let Some((who, x)) = self.rest_opening(stage) {
             self.looking.pan = Some(x);
             self.looking.welcome_pan = Some((who, x));
+            self.looking.opener = Some(who);
         }
     }
 
@@ -316,9 +317,9 @@ impl ProjectionView {
     /// and who it opens on: whoever speaks, or the resident nearest the
     /// middle of it. None with nobody out.
     pub(super) fn rest_opening(&self, stage: &Stage) -> Option<(SelectionId, f32)> {
-        let speaker = voices_now(&self.snapshot)
-            .first()
-            .and_then(|voice| Some((voice.speaker, self.stage_x(stage, voice.speaker)?)));
+        let speaker =
+            super::arrival::opening_voice(&self.snapshot, stage, |who| self.stage_x(stage, who))
+                .map(|(voice, x)| (voice.speaker, x));
         let centre = super::arrival::busiest_view(stage, speaker.map(|(_, x)| x));
         let who = speaker.map(|(who, _)| who).or_else(|| {
             stage
@@ -388,6 +389,14 @@ impl ProjectionView {
             thing: Some(hands.1),
         });
         self.looking.free_offer = true;
+    }
+
+    /// The first day's free thing, left for later: the hands are put away
+    /// and the day's card comes up. It stays free in the hands all day.
+    pub(crate) fn put_free_offer_away(&mut self, cx: &mut Context<Self>) {
+        self.looking.hands = None;
+        self.looking.free_offer = false;
+        cx.notify();
     }
 
     /// Where along the stage someone stands, by the middle of their
@@ -604,6 +613,25 @@ impl ProjectionView {
                 cx.notify();
                 return;
             }
+        }
+        // The sitting's paper in front takes Enter for its one button:
+        // "Begin the day" on the morning, "Goodnight" on the Goodnight
+        // card. Nothing under it is chosen.
+        if self.looking.sitting.goodnight {
+            self.fall_asleep();
+            cx.notify();
+            return;
+        }
+        if self.morning_shown().is_some() && self.looking.asking.is_none() {
+            self.begin_the_day();
+            cx.notify();
+            return;
+        }
+        // The first day's free thing, opened by itself, never holds the
+        // day back: Enter leaves it for later and the day's card comes up.
+        if self.looking.free_offer && self.looking.hands.is_some() {
+            self.put_free_offer_away(cx);
+            return;
         }
         let card = self.card_command();
         let context = EnterContext {

@@ -509,6 +509,24 @@ pub fn moment_label(snapshot: &ProjectionSnapshot, world_time: u64) -> String {
     }
 }
 
+/// The World's time to tell a sleeping World by: the day the player
+/// last lived in it. The sitting's last day passing takes the World to the
+/// start of the next, which its next sitting opens on; until then it is
+/// still the day just said goodnight to (v0.31 play: Home said "Day 4"
+/// after Goodnight on day 3). Awake, its time as it is.
+pub fn day_lived(
+    world_time: u64,
+    calendar: Option<&world_projection::Calendar>,
+    asleep: bool,
+) -> u64 {
+    match calendar {
+        Some(calendar) if asleep && calendar.length > 0 && world_time > calendar.length => {
+            world_time - calendar.length
+        }
+        _ => world_time,
+    }
+}
+
 /// The moment now, as the window's own clock shows it over the sky: a
 /// World that counts in a part of the day ("Night 5", "Day 5") is
 /// counted in the part the sky shows, so "Night 5" never hangs under a
@@ -800,6 +818,23 @@ mod tests {
         assert_eq!(now_label(&snapshot, true), "Night 5");
         assert_eq!(now_label(&snapshot, false), "Day 5");
         assert_eq!(now_label(&calendar_at("Sol", 50), false), "Sol 5");
+        // Asleep after the third day passed, the World still says the
+        // third: the fourth is the next sitting's.
+        let after_three = calendar_at("Day", 40);
+        let calendar = after_three.calendar.as_ref();
+        assert_eq!(
+            moment_label(&after_three, day_lived(40, calendar, true)),
+            "Day 3"
+        );
+        assert_eq!(
+            moment_label(&after_three, day_lived(40, calendar, false)),
+            "Day 4"
+        );
+        assert_eq!(
+            day_lived(10, calendar, true),
+            10,
+            "the first day is never before itself"
+        );
         set_thread_language(None);
     }
 
