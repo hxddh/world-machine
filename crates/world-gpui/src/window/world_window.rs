@@ -237,6 +237,8 @@ pub(crate) struct Looking {
     pub(crate) visibility: Option<gpui::Subscription>,
     /// The last chapter whose ending card the player has turned past.
     pub(crate) chapter_read: Option<u32>,
+    /// The last year whose closing card the player has turned past.
+    pub(crate) year_read: Option<u32>,
     /// What the player is doing with their own hands, if anything.
     pub(crate) hands: Option<Hands>,
     /// Where the player types what they say to someone.

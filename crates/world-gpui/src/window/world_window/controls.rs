@@ -636,6 +636,12 @@ impl ProjectionView {
                 cx.notify();
                 return;
             }
+            // And so is a year's close, after any chapter's.
+            if let Some(year) = self.year_just_closed().map(|closed| closed.year) {
+                self.looking.year_read = Some(year);
+                cx.notify();
+                return;
+            }
         }
         // The first day's free thing, opened by itself, never holds the
         // day back: Enter leaves it for later and the day's card comes up.
