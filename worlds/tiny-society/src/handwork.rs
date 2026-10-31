@@ -316,15 +316,28 @@ pub(crate) fn rises(
     ]
 }
 
-/// A work the story puts up at the harbour whole, at once: the point's
-/// lamp, whose own thread asks the next day whether to light it, so it
-/// never rises in stages behind that question.
-pub(crate) fn stands(
-    entity: EntityId,
-    name: &'static str,
-    shape: &'static str,
-) -> Vec<storylets::Effect> {
-    vec![storylets::build(entity, name, shape, crate::HARBOR, None)]
+/// The point's lamp, put up whole once its last part is in: its own
+/// thread asks the next day whether to light it, so it never rises in
+/// stages behind that question.
+pub(crate) fn the_lamp_stands() -> Vec<storylets::Effect> {
+    let name = "The lamp post on the point, unlit";
+    vec![storylets::build(
+        crate::story::LAMP,
+        name,
+        "lantern",
+        HARBOR,
+        None,
+    )]
+}
+
+/// A work the story declares done (the pier, opened): whatever of it was
+/// still going up is finished with it, so it never stands opened and
+/// "Being built".
+pub(crate) fn finished(entity: EntityId) -> Vec<storylets::Effect> {
+    [hands::RISING, hands::ROSE]
+        .into_iter()
+        .map(|key| storylets::Effect::Unset { entity, key })
+        .collect()
 }
 
 const HAND_COMMAND: &str = "tiny-society.hand.";

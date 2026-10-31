@@ -432,4 +432,12 @@ fn the_pier_rises_and_the_lamp_stands_whole() {
     assert!(rises("pier_section_built"));
     assert!(!rises("lamp_work_done"));
     assert!(!rises("lamp_glass_fetched"));
+    // Opened, the pier is finished with it: it never stands opened and
+    // still going up.
+    for opened in ["pier_opened", "pier_in_use", "pier_opened_quietly"] {
+        assert!(story::leaves_behind(opened).iter().any(|effect| matches!(
+            effect,
+            storylets::Effect::Unset { entity, key } if *entity == story::PIER && *key == hands::RISING
+        )));
+    }
 }

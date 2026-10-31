@@ -4188,9 +4188,8 @@ pub(crate) fn leaves_behind(event: &str) -> Vec<Effect> {
             mark("books"),
             build(PARCELS, "A box of new books", "parcel", SCHOOL, Some(2)),
         ],
-        "lamp_work_done" | "lamp_glass_fetched" => {
-            crate::handwork::stands(LAMP, "The lamp post on the point, unlit", "lantern")
-        }
+        "lamp_work_done" | "lamp_glass_fetched" => crate::handwork::the_lamp_stands(),
+        "pier_opened" | "pier_in_use" | "pier_opened_quietly" => crate::handwork::finished(PIER),
         "traveller_stayed" => vec![
             mark("traveller"),
             build(PARCELS, "The traveller's bags", "parcel", PUB, Some(2)),
