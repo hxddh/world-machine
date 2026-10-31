@@ -18,7 +18,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_machine_desktop::demo::{self, Beat, Pace};
-use world_projection::{CanvasItemKind, Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
+use world_projection::{CanvasItemKind, ProjectionIntent, ProjectionSnapshot, SelectionId};
+
+mod walking;
+use walking::Walker;
 
 fn day(snapshot: &ProjectionSnapshot) -> u32 {
     let length = snapshot
@@ -58,19 +61,27 @@ struct Walked {
 
 /// The demo, played at `pace` from a new World to its ending card.
 fn walk(label: &str, pace: &Pace) -> Walked {
-    let read = |text: &str| text.chars().count() as f32 / pace.chars_per_second;
-    let page = |text: &str| 4.6 * text.chars().count().div_ceil(72) as f32;
     let root = temp_root(label);
     let library = WorldLibrary::new(root.join("Library"));
     let registry = world_builtins::registry().unwrap();
     let document = WorldDocumentId::new(format!("demo-walk-{label}")).unwrap();
-    let mut session =
+    let session =
         DurableWorldSession::create(document.clone(), demo::PACK_ID, &registry, &library).unwrap();
     let mut snapshot = session.snapshot();
     let pass = demo::day_pass(&snapshot).expect("a day to pass").id.clone();
     let mut beats = BTreeMap::new();
     let mut days = Vec::new();
-    let mut clock = 2.0;
+    let mut walker = Walker {
+        session,
+        registry,
+        library,
+        pace,
+        clock: 2.0,
+        heard: Vec::new(),
+        made: Vec::new(),
+        plotted: false,
+        mornings: Vec::new(),
+    };
 
     // The town, as the window opens: a sky, its places and its people.
     let places = |snapshot: &ProjectionSnapshot, kind| {
@@ -84,7 +95,7 @@ fn walk(label: &str, pace: &Pace) -> Walked {
     assert!(snapshot.scenery.is_some(), "a sky to paint");
     assert!(places(&snapshot, CanvasItemKind::Place) >= 3);
     assert!(places(&snapshot, CanvasItemKind::Actor) >= 3);
-    beats.insert(Beat::Painted, clock);
+    beats.insert(Beat::Painted, walker.clock);
     let standing = snapshot
         .canvas
         .items
@@ -97,201 +108,70 @@ fn walk(label: &str, pace: &Pace) -> Walked {
         .map(|goal| (goal.id.clone(), goal.done))
         .collect::<BTreeMap<_, _>>();
 
-    let mut heard = Vec::new();
-    let mut made = Vec::<String>::new();
     fn note(beats: &mut BTreeMap<Beat, f32>, beat: Beat, at: f32) {
         beats.entry(beat).or_insert(at);
     }
-    let see = |beats: &mut BTreeMap<Beat, f32>, snapshot: &ProjectionSnapshot, clock: f32| {
-        if snapshot.favour.is_some() {
-            note(beats, Beat::Favour, clock);
-        }
-        // A work going up on the scene (its scaffolding a part higher
-        // than when the town opened), or something made that was not there
-        // then, standing on the scene.
-        let rose = snapshot
-            .goals
-            .iter()
-            .any(|goal| goal.done > begun.get(&goal.id).copied().unwrap_or(0));
-        let made = snapshot
-            .canvas
-            .items
-            .iter()
-            .any(|item| item.built.is_some() && !standing.contains(&item.id));
-        if rose || made {
-            note(beats, Beat::Build, clock);
-        }
-    };
     loop {
-        days.push((day(&snapshot), clock));
-        // What is said now, in turn (waited for, or not), and the
-        // morning's news.
-        for voice in &snapshot.voices {
-            if !heard.contains(voice) {
-                if pace.waits_for_what_is_said {
-                    clock += page(&voice.line);
-                }
-                heard.push(voice.clone());
+        days.push((day(&snapshot), walker.clock));
+        snapshot = walker.play_day(snapshot, &pass, &mut |snapshot, clock| {
+            if snapshot.favour.is_some() {
+                note(&mut beats, Beat::Favour, clock);
             }
-        }
-        if let Some(briefing) = &snapshot.briefing {
-            if briefing.returned {
-                // The return film: each beat told big, read, and stepped on.
-                assert!(!briefing.beats().is_empty(), "a film to show");
+            if snapshot.briefing.as_ref().is_some_and(|b| b.returned) {
                 note(&mut beats, Beat::ReturnFilm, clock);
-                for beat in briefing.beats() {
-                    clock += 1.5 + read(&beat.title) + read(&beat.detail);
-                }
-            } else if pace.reads_the_news {
-                for item in &briefing.items {
-                    clock += read(&item.title) + read(&item.detail);
-                }
             }
-        }
-        see(&mut beats, &snapshot, clock);
-        clock += pace.look_seconds;
-        // The cards, and the deeds the hands allow: something new made,
-        // planted or put up, never something taken back or moved.
-        let mut asked = 0;
-        loop {
-            let makes = |command: &world_projection::ProjectionCommand| {
-                pace.makes
-                    && command.hand.as_ref().is_some_and(|hand| {
-                        ["Build", "Plant", "Decorate"].contains(&hand.verb.as_str())
-                            && !made.contains(&hand.thing)
-                    })
-            };
-            let next = snapshot
-                .commands
+            // A work going up on the scene (its scaffolding a part higher
+            // than when the town opened), or something made that was not
+            // there then, standing on the scene.
+            let rose = snapshot
+                .goals
                 .iter()
-                .find(|command| {
-                    command.unavailable.is_none()
-                        && command.id != pass
-                        && (command.question.is_some() || makes(command))
-                })
-                .cloned();
-            let Some(command) = next.filter(|_| asked < 6) else {
-                break;
-            };
-            asked += 1;
-            if let Some(question) = &command.question {
-                clock += read(&question.prompt);
-                for answer in snapshot
-                    .commands
-                    .iter()
-                    .filter(|other| other.question.as_ref() == Some(question))
-                {
-                    clock += read(&answer.title);
-                }
+                .any(|goal| goal.done > begun.get(&goal.id).copied().unwrap_or(0));
+            let made = snapshot
+                .canvas
+                .items
+                .iter()
+                .any(|item| item.built.is_some() && !standing.contains(&item.id));
+            if rose || made {
+                note(&mut beats, Beat::Build, clock);
             }
-            clock += pace.choose_seconds;
-            if let Some(hand) = &command.hand {
-                made.push(hand.thing.clone());
-            }
-            let before = snapshot.clone();
-            let Ok(after) = session.handle(
-                ProjectionIntent::InvokeCommand(command.id.clone()),
-                &registry,
-                &library,
-            ) else {
-                break;
-            };
-            snapshot = after;
-            for voice in &snapshot.voices {
-                if !heard.contains(voice) {
-                    clock += 1.0 + read(&voice.line);
-                    heard.push(voice.clone());
-                }
-            }
-            for keepsake in snapshot.keepsakes.iter().skip(before.keepsakes.len()) {
-                clock += read(&keepsake.what) + read(&keepsake.note);
-            }
-            for letter in snapshot.letters.iter().skip(before.letters.len()) {
-                clock += read(&letter.note);
-            }
-            see(&mut beats, &snapshot, clock);
-        }
-        // The favour asked, done with its offered reply.
-        if pace.favours {
-            if let Some(favour) = snapshot.favour.clone().filter(|favour| !favour.done) {
-                clock += read(&favour.note) + pace.choose_seconds;
-                if let Ok(after) = session.handle(
-                    ProjectionIntent::Say {
-                        to: favour.whom,
-                        words: favour.reply.clone(),
-                        ears: Ears::Offered,
-                    },
-                    &registry,
-                    &library,
-                ) {
-                    if let Some(exchange) = after.exchanges.last() {
-                        clock += read(&exchange.answer);
-                    }
-                    snapshot = after;
-                }
-            }
-        }
-        // A word with someone, in the player's own words, heard by the
-        // World's own ears (the voice is off).
-        let mut people = Vec::new();
-        for talk in &snapshot.talks {
-            if !people.contains(&talk.who) {
-                people.push(talk.who);
-            }
-        }
-        for (turn, who) in people.into_iter().take(pace.talks).enumerate() {
-            let words = ["How are you today?", "What are you working on?"][turn % 2];
-            clock += 15.0;
-            if let Ok(after) = session.handle(
-                ProjectionIntent::Say {
-                    to: who,
-                    words: words.into(),
-                    ears: Ears::Own,
-                },
-                &registry,
-                &library,
-            ) {
-                if let Some(exchange) = after.exchanges.last() {
-                    clock += read(&exchange.answer);
-                }
-                snapshot = after;
-            }
-        }
-        see(&mut beats, &snapshot, clock);
+        });
         // Let the day pass, as the demo answers it.
-        clock += 3.0;
+        walker.clock += 3.0;
         match demo::gate(
             demo::PACK_ID,
             Some(day(&snapshot)),
             demo::passes_time(&snapshot, &pass),
         ) {
             demo::Gate::Open => {
-                snapshot = session
+                snapshot = walker
+                    .session
                     .handle(
                         ProjectionIntent::InvokeCommand(pass.clone()),
-                        &registry,
-                        &library,
+                        &walker.registry,
+                        &walker.library,
                     )
                     .expect("a day passes");
-                note(&mut beats, Beat::DayPassed, clock);
+                note(&mut beats, Beat::DayPassed, walker.clock);
             }
             demo::Gate::Away(days) => {
                 let before = day(&snapshot);
-                snapshot = session
-                    .advance_background(u64::from(days), &registry, &library)
+                snapshot = walker
+                    .session
+                    .advance_background(u64::from(days), &walker.registry, &walker.library)
                     .expect("the World lives days away");
                 assert_eq!(day(&snapshot), before + days, "every day lived");
                 // The window opens anew on the World, as after time away.
-                snapshot = session.snapshot();
+                snapshot = walker.session.snapshot();
                 assert!(
                     snapshot.briefing.as_ref().is_some_and(|b| b.returned),
                     "the next morning is a return"
                 );
                 // The window's note on it.
-                clock += read(demo::AWAY_NOTE);
+                walker.clock += walker.read(demo::AWAY_NOTE);
             }
             demo::Gate::Ending => {
-                note(&mut beats, Beat::Ending, clock);
+                note(&mut beats, Beat::Ending, walker.clock);
                 break;
             }
             demo::Gate::NotOffered => panic!("the demo offers Tiny Society"),
@@ -305,14 +185,14 @@ fn walk(label: &str, pace: &Pace) -> Walked {
         &demo::ENDING_BODY.to_string(),
         &demo::ENDING_KEPT.to_string(),
     ]) {
-        clock += read(line);
+        walker.clock += walker.read(line);
     }
-    clock += pace.choose_seconds;
-    session.flush().unwrap();
+    walker.clock += pace.choose_seconds;
+    walker.session.flush().unwrap();
     Walked {
         beats,
         days,
-        total: clock,
+        total: walker.clock,
         snapshot,
         recap,
         root,

@@ -507,8 +507,9 @@ impl ProjectionView {
         conversation
     }
 
-    /// Under an answer: that a model wrote it, when one did, and a way to
-    /// report it ("report this line"), recorded in the World as an Event.
+    /// Under an answer: that a model wrote it, when one did, and then a way
+    /// to report it ("report this line"), recorded in the World as an
+    /// Event. A built-in line is the World's own and is never offered.
     pub(super) fn render_line_note(
         &self,
         exchange: &world_projection::Exchange,
@@ -526,13 +527,12 @@ impl ProjectionView {
         if exchange.reported {
             return note.child(ui::t("Reported"));
         }
-        let SelectionId::Event(spoken) = exchange.moment else {
+        let Some((spoken, command)) = report_command(exchange) else {
             return note;
         };
-        let command = format!("{REPORT_COMMAND}{}", spoken.0);
         note.child(
             div()
-                .id(SharedString::from(format!("report-{}", spoken.0)))
+                .id(SharedString::from(format!("report-{spoken}")))
                 .role(Role::Button)
                 .aria_label(ui::t("Report this line"))
                 .cursor_pointer()
@@ -584,4 +584,15 @@ impl ProjectionView {
         }
         Some(row)
     }
+}
+
+/// The command that reports `exchange`'s answer, with the number of the
+/// Event it was recorded as: offered only under a line the AI voice wrote
+/// and not yet reported. A built-in line is never offered for report.
+pub(super) fn report_command(exchange: &world_projection::Exchange) -> Option<(u64, String)> {
+    let SelectionId::Event(spoken) = exchange.moment else {
+        return None;
+    };
+    (exchange.voiced && !exchange.reported)
+        .then(|| (spoken.0, format!("{REPORT_COMMAND}{}", spoken.0)))
 }

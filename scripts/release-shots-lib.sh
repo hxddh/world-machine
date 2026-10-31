@@ -289,9 +289,11 @@ begin_day_if_shown() { # begin_day_if_shown [name]
 
 # Plays the sitting's days with Enter (each card's first answer, then the
 # day's own card) until the Goodnight card comes up, shooting the window
-# after each press as <prefix>-<n>; then says Goodnight and shoots the
-# World asleep. Fails the scenario if Goodnight never comes in `presses`,
-# or the ledger has not passed `days` World days.
+# after each press as <prefix>-<n>; a morning that opens a later day of
+# the sitting (the ledger short of `days`) is shot as <prefix>-<n>-morning
+# and begun with Enter. Then says Goodnight and shoots the World asleep.
+# Fails the scenario if Goodnight never comes in `presses`, a morning
+# stays up, or the ledger has not passed `days` World days.
 play_to_goodnight() { # play_to_goodnight <days> [presses] [prefix]
     local days=$1 presses=${2:-24} prefix=${3:-card} n=0 at=""
     while [ $n -lt "$presses" ]; do
@@ -299,7 +301,16 @@ play_to_goodnight() { # play_to_goodnight <days> [presses] [prefix]
         key Return 3.5
         shot "$prefix-$n"
         at=$(sitting_button)
-        [ -n "$at" ] && break
+        [ -n "$at" ] || continue
+        [ "$(ledger days)" -lt "$days" ] || break
+        shot "$prefix-$n-morning"
+        key Return 3.5
+        shot "$prefix-$n-morning-begun"
+        if [ -n "$(sitting_button)" ]; then
+            sitting_failed "the morning of day $(($(ledger days) + 1)) stayed up after Enter"
+            return 1
+        fi
+        at=""
     done
     if [ -z "$at" ]; then
         sitting_failed "no Goodnight after $presses presses"
@@ -421,7 +432,8 @@ report() {
 # A new World from an empty library: the title screen it opens on (New
 # first, with no World to continue), New chosen with Enter, then the first
 # seconds, the welcome, the free wildflowers, then the first sitting's
-# three World days played card by card to its Goodnight, and the World
+# six World days played card by card to its Goodnight (each later day
+# opening on its morning, begun with Enter), and the World
 # asleep. The harbour's first day opens on no morning.
 scenario_first() {
     SCENARIO=first
@@ -445,7 +457,7 @@ scenario_first() {
     key Escape 1.5
     shot day1
     # Enter takes each card's first answer, and then the day's own card.
-    play_to_goodnight 3 30 day
+    play_to_goodnight 6 80 day
     [ "$(ledger sittings)" = 1 ] || sitting_failed "sitting $(ledger sittings), not the first"
     stop_app
     # Painted within 3 s; the camera at rest (v0.30 S1c) opens on the

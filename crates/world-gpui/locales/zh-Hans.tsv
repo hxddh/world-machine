@@ -184,7 +184,6 @@ Choose another saved World to compare · {count} available	选择另一个已保
 Could not compare saved Worlds: {error}	无法比较已保存的世界：{error}
 Opened Branches · {count} Worlds	已打开分支 · {count} 个世界
 Could not open Branches: {error}	无法打开分支：{error}
-The World Analyst needs Node and the Pi runtime installed on this Mac.	世界分析师需要这台 Mac 上安装 Node 和 Pi 运行时。
 Opened the World Analyst	已打开世界分析师
 Could not open the Analyst: {error}	无法打开分析师：{error}
 A new World	一个新世界
@@ -237,8 +236,6 @@ Use Install Pack… to add that exact version.	使用"安装包…"添加该确�
 Could not read World Library: {error}	无法读取世界库：{error}
 Could not show this World's branches: {error}	无法显示此世界的分支：{error}
 My Worlds · {count} World(s)	我的世界 · {count} 个世界
-{title} lived {} while you were away	{title} 在你离开的这段时间里生活了 {}
-Opened {title}, but the time you were away could not be caught up: {error}	已打开 {title}，但无法补上你离开期间的时间：{error}
 Could not open {title}: {error}	无法打开 {title}:{error}
 Could not create {title}: {error}	无法创建 {title}:{error}
 Could not open {}: choose a {} document or {} Pack	无法打开 {}:请选择一个 {} 文档或 {} 包
@@ -376,21 +373,21 @@ Strategy · {choice_title} · {horizon} periods	策略 · {choice_title} · {hor
 Branch · {label}	分支 · {label}
 Paste an API key…	粘贴 API 密钥…
 Off.	关闭。
-Worlds read from the app's own copy, and nothing leaves this Mac.	世界从应用自带的副本中读取，任何内容都不会离开这台 Mac。
+Worlds read from the app's own copy, and nothing leaves this computer.	世界从应用自带的副本中读取，任何内容都不会离开这台电脑。
 On, through {}.	已开启，通过 {}。
 On, but no program is chosen, so Worlds still read from the app's copy.	已开启，但尚未选择程序，世界仍从应用自带的副本中读取。
 On, through your API key.	已开启，通过你的 API 密钥。
 On, but no key is stored, so Worlds still read from the app's copy.	已开启，但尚未保存密钥，世界仍从应用自带的副本中读取。
 World Machine Settings	World Machine 设置
-Let Worlds speak for themselves	让世界自己诉说
-Coming back, a World tells you what happened in its own words.	当你回来时，世界会用自己的话讲述发生了什么。
+Let an AI write residents' answers	让 AI 撰写居民的回答
+Experimental, and off unless you turn it on.	实验性功能，除非你开启，否则保持关闭。
 World voice	世界之声
-Stays on this Mac · {}	留在这台 Mac 上 · {}
-Stays on this Mac · choose one in Analyst settings	留在这台 Mac 上 · 请在分析师设置中选择一个
-Each return is sent to your provider · key stored	每次回归都会发送给你的服务提供商 · 密钥已保存
-Each return is sent to your provider	每次回归都会发送给你的服务提供商
+Stays on this computer · {}	留在这台电脑上 · {}
+Stays on this computer · choose the program below	留在这台电脑上 · 请在下方选择程序
+What you say to someone is sent to your provider · key stored	你对居民说的话会发送给你的服务提供商 · 密钥已保存
+What you say to someone is sent to your provider	你对居民说的话会发送给你的服务提供商
 Where the voice comes from	声音的来源
-A program on this Mac	这台 Mac 上的程序
+A program on this computer	这台电脑上的程序
 An API key	一个 API 密钥
 Save key	保存密钥
 Forget key	忘记密钥
@@ -416,7 +413,7 @@ Voices	人声
 Everyone's own babble as they speak	每个人说话时各自的絮语
 Ticks and bells	滴答声与钟声
 Cards turning, turns passing, things built	翻牌、回合流转、建造完成
-Only an API key sends anything off this Mac: what a World has recorded, once per return.	只有使用 API 密钥时，才会有内容离开这台 Mac：每次回归发送一次世界所记录的内容。
+Only an API key sends anything off this computer: what you say to someone, and the facts of the World their answer needs.	只有使用 API 密钥时，才会有内容离开这台电脑：你对居民说的话，以及回答所需的世界事实。
 Worlds already open keep the voice they opened with.	已经打开的世界会保留它们打开时所用的声音。
 Sound	声音
 The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.	当前的世界会播放它的音乐与风景之声，每个人都用自己的声音说话，翻牌、回合与建造也各有一点声响。
@@ -756,7 +753,7 @@ Peat	泥炭褐
 Display	显示
 Language	语言
 Text size	文字大小
-Follow the Mac	跟随 Mac
+Follow the system	跟随系统
 The app and the Worlds that come with it.	应用本身，以及随附的世界。
 Everything written, from cards to speech.	所有文字，从卡片到对话。
 Increase contrast	增强对比度
@@ -827,7 +824,7 @@ Postcard saved to Pictures	明信片已保存到“图片”
 Couldn't save the postcard	没能保存这张明信片
 Keeping the postcard…	正在留下明信片…
 Add to your wishlist	加入愿望单
-The town lived on without you. The demo skips the wait; the full game lives a day for every six hours you're away.	你不在的时候，小镇照常过日子。试玩版省去了等待；完整版里，你每离开六小时，小镇就过去一天。
+The demo skips a few days ahead. In the full game nothing passes while you're away: each day you come back brings one new day.	试玩版向前跳过了几天。完整版里，你不在的时候什么都不会发生：你每回来一天，就迎来新的一天。
 World voice is on: an AI model is writing this answer. The World decides what happens.	世界之声已开启：这句回答由 AI 模型撰写。发生什么由世界决定。
 Written by AI	AI 撰写
 Reported	已举报
@@ -883,3 +880,8 @@ Couldn't save the World code.	没能存下世界码。
 Couldn't save this World.	没能存下这个世界。
 Couldn't export this World.	没能导出这个世界。
 Couldn't open that World file.	没能打开那个世界文件。
+When it is on, an AI model writes what residents answer to what you say; the World still decides what happens.	开启后，居民对你所说的话的回答由 AI 模型撰写；发生什么仍由世界决定。
+The key goes into Windows Credential Manager, never into a file.	密钥会存入 Windows 凭据管理器，绝不会写入文件。
+This system has no key store, so a key cannot be kept here.	这个系统没有密钥存储，所以无法在这里保存密钥。
+Who from {world} will visit?	{world} 的谁会来拜访？
+{name} (visit) — World Machine	{name}（拜访）— World Machine

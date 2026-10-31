@@ -81,6 +81,35 @@ fn a_line_is_reported_as_an_event_caused_by_it_and_a_models_answer_is_shown_as_o
 }
 
 #[test]
+fn a_built_in_line_is_never_reported() {
+    let mut branch = branch();
+    branch.say(MARA, "Is the pier hard to build?").unwrap();
+    let exchange = branch
+        .projection_snapshot()
+        .exchanges
+        .last()
+        .unwrap()
+        .clone();
+    assert!(!exchange.voiced, "{exchange:?}");
+    let SelectionId::Event(spoken) = exchange.moment else {
+        panic!("an exchange is its Event");
+    };
+    let before = branch.world().events().len();
+    assert!(branch
+        .invoke_projection_command(&conversation::report::command(spoken))
+        .is_err());
+    assert_eq!(branch.world().events().len(), before, "nothing recorded");
+    assert!(
+        !branch
+            .projection_snapshot()
+            .exchanges
+            .last()
+            .unwrap()
+            .reported
+    );
+}
+
+#[test]
 fn openers_stand_beside_the_words_for_everyone_the_player_can_talk_to() {
     let branch = branch();
     let snapshot = branch.projection_snapshot();

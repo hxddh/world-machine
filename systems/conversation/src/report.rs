@@ -1,9 +1,10 @@
-//! "Report this line": the player can say a resident's answer was wrong to
-//! have said (harmful, not of the World, not in character). A report is an
-//! Action like any other, recorded as an Event caused by the exchange it is
-//! about, with the answer's words and who wrote them (the World, or a model
-//! and the judge that passed it), so a report travels with the World and
-//! replays with it. It changes nothing else.
+//! "Report this line": the player can say an answer the AI voice wrote was
+//! wrong to have said (harmful, not of the World, not in character). Only
+//! a model's line can be reported; the World's own built-in lines never
+//! are. A report is an Action like any other, recorded as an Event caused
+//! by the exchange it is about, with the answer's words, the model and the
+//! judge that passed it, so a report travels with the World and replays
+//! with it. It changes nothing else.
 
 use crate::SPOKEN;
 use world_core::{
@@ -123,6 +124,11 @@ pub fn report(
         Some(Value::Text(text)) => Some(text.clone()),
         _ => None,
     };
+    // Only what the AI voice wrote can be reported: a built-in line is the
+    // World's own, and a screen never offers it.
+    if text("voiced").is_none() {
+        return Err("only a line the AI voice wrote can be reported".into());
+    }
     let mut request = request(spoken);
     if let Some(who) = event.targets.first() {
         request = request.arg("who", Value::Entity(*who));
@@ -130,12 +136,7 @@ pub fn report(
     if let Some(reply) = text("reply") {
         request = request.arg("reply", reply);
     }
-    let by = if text("voiced").is_some() {
-        "model"
-    } else {
-        "world"
-    };
-    request = request.arg("by", by);
+    request = request.arg("by", "model");
     if let Some(judge) = text("judge") {
         request = request.arg("judge", judge);
     }

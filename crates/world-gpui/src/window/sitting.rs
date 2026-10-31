@@ -950,6 +950,91 @@ mod tests {
         crate::scene::set_clock(None);
     }
 
+    /// A chapter that ended overnight never takes the morning's Enter
+    /// (v0.31 release shots: on the first sitting's festival morning Enter
+    /// marked the chapter read under the paper, and the morning stayed):
+    /// Enter begins the day, and the chapter's card is there to read after.
+    #[gpui::test]
+    fn enter_begins_the_day_with_a_chapter_just_ended(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let mut snapshot = morning_town();
+        let moment = SelectionId::from_stable_key("event-900").unwrap();
+        snapshot
+            .timeline
+            .items
+            .push(world_projection::TimelineItem {
+                id: moment,
+                world_time: snapshot.world_time,
+                title: "Spring Clean".into(),
+                subtitle: String::new(),
+                caused_by: Vec::new(),
+                routine: false,
+            });
+        snapshot.chapters.push(world_projection::Chapter {
+            number: 1,
+            title: "The first spring".into(),
+            summary: "The place came together.".into(),
+            moment: Some(moment),
+        });
+        let Opened {
+            view,
+            mut cx,
+            chosen,
+            ..
+        } = open(app, snapshot, Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        assert!(cx.debug_bounds("morning").is_some(), "the morning is up");
+        press_enter(&view, cx);
+        assert!(cx.debug_bounds("morning").is_none(), "Enter began the day");
+        assert_eq!(chosen.get(), 0, "nothing chosen under the morning");
+        view.read_with(cx, |view, _| {
+            assert!(
+                super::super::world_window::chapter_just_ended(
+                    &view.snapshot,
+                    view.looking.chapter_read
+                )
+                .is_some(),
+                "the chapter is still there to read"
+            )
+        });
+        press_enter(&view, cx);
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.looking.chapter_read, Some(1), "then read with Enter")
+        });
+        crate::scene::set_clock(None);
+    }
+
+    /// A moment that came overnight never takes the morning's Enter
+    /// (v0.31 release shots: on the first sitting's fifth morning Enter put
+    /// away the strip waiting under the paper, unseen, and the morning
+    /// stayed): Enter begins the day, and the strip is still up after.
+    #[gpui::test]
+    fn enter_begins_the_day_with_a_moment_waiting_under_it(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let snapshot = morning_town();
+        let moment = world_projection::Moment {
+            id: "moment-1".into(),
+            title: "Spring Clean".into(),
+            ..Default::default()
+        };
+        let Opened { view, mut cx, .. } = open(app, snapshot, Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        view.update(cx, |view, cx| {
+            view.reading.shown = Some((moment, std::time::Instant::now()));
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("morning").is_some(), "the morning is up");
+        // The key as the window gets it, through its key handler.
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("morning").is_none(), "Enter began the day");
+        view.read_with(cx, |view, _| {
+            assert!(view.moment_up(), "the moment is still there to see")
+        });
+        crate::scene::set_clock(None);
+    }
+
     /// With text at 200% in an 800-high window, the morning's paper is
     /// never taller than the stage: "Begin the day" stays on screen to
     /// click, and what does not fit scrolls.

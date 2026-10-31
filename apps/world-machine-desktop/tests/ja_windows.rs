@@ -12,6 +12,7 @@ const ALLOWED: &[&str] = &[
     "Machine",
     "Mac",
     "API",
+    "AI",
     "Claude",
     "Apple",
     "Finder",

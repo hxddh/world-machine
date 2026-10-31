@@ -219,7 +219,9 @@ fn the_world_file_carries_the_ledger_beside_a_history_without_the_wall_clock() {
 }
 
 /// The first sitting passes three days, every later one one: four sittings
-/// are six days, and three mornings (none on the harbour's first day).
+/// are six days, and five mornings: none on the harbour's first day, one
+/// on each later day of the first sitting as it comes (a new player's
+/// first session, played in one sitting), and one each later sitting.
 #[test]
 fn sittings_pass_three_days_then_one_each_with_a_morning_each() {
     let branch = play(1_000, 1, 4);
@@ -227,7 +229,11 @@ fn sittings_pass_three_days_then_one_each_with_a_morning_each() {
     let days = world.events_of_kind(&["day_began"]).len() as u32;
     assert_eq!(days, FIRST_SITTING_DAYS + 3);
     let mornings = world.events_of_kind(&[ritual::MORNING_CAME]);
-    assert_eq!(mornings.len(), 3, "a morning each later sitting");
+    assert_eq!(
+        mornings.len() as u32,
+        FIRST_SITTING_DAYS - 1 + 3,
+        "a morning each later day of the first sitting, and each later sitting"
+    );
     for morning in &mornings {
         // Each follows its day's beginning, and the rest follows it.
         let cause = world.event(morning.caused_by[0]).unwrap();
@@ -243,65 +249,76 @@ fn sittings_pass_three_days_then_one_each_with_a_morning_each() {
     }
 }
 
-/// Five days of sittings (the think-aloud test's span): every morning
-/// brings something new that is the player's (a find for the book, and
-/// something tended), the day's question leads when there is one, and no
-/// line of any morning comes twice.
+/// Six sittings, eight World days (past the think-aloud test's span):
+/// every morning brings something new that is the player's (a find for
+/// the book, and something tended), the day's question leads when there
+/// is one, and no line of any morning comes twice. The first sitting's
+/// later days open on their mornings as they come, and each later
+/// sitting on its own.
 #[test]
 fn five_mornings_each_bring_something_new_and_never_a_line_twice() {
     let mut ledger = SittingLedger::default();
     let mut branch = TinySocietyBranch::new_world().unwrap();
     let mut lines = Vec::new();
     let mut finds = 0;
+    let read = |branch: &TinySocietyBranch, lines: &mut Vec<String>, finds: &mut usize| {
+        let snapshot = branch.projection_snapshot();
+        let morning = snapshot.morning.clone().expect("this day's morning");
+        let find = morning.find.expect("a find");
+        *finds += 1;
+        lines.push(find.line.clone());
+        lines.extend(morning.tended.map(|tended| tended.line));
+        if let Some(letter) = morning.letter {
+            // Read in town at the start of the day, never "come by soon".
+            for stock in ["Hello from me.", "Come by soon."] {
+                assert!(!letter.note.contains(stock), "{}", letter.note);
+            }
+            lines.push(letter.note);
+        }
+        if let Some(question) = morning.question {
+            // The day's question is one the harbour puts now.
+            assert!(snapshot
+                .commands
+                .iter()
+                .any(|command| command.question.as_ref() == Some(&question)));
+            lines.push(question.prompt);
+        }
+        // The book keeps every find so far.
+        let kept = snapshot
+            .book
+            .iter()
+            .filter(|entry| entry.shelf == ritual::FINDS_SHELF && entry.found)
+            .count();
+        assert_eq!(kept, *finds);
+    };
     for today in 500..506 {
         let sitting = ledger.sit(today);
         assert!(sitting.new);
-        // A morning comes on every day but the harbour's first.
+        // A sitting opens on a morning on every day but the harbour's
+        // first.
         let came = branch
             .invoke_projection_command(SITTING_BEGINS_COMMAND)
             .is_ok();
         assert_eq!(came, today > 500);
-        let snapshot = branch.projection_snapshot();
-        if today > 500 {
-            let morning = snapshot.morning.clone().expect("this day's morning");
-            let find = morning.find.expect("a find");
-            finds += 1;
-            lines.push(find.line.clone());
-            lines.extend(morning.tended.map(|tended| tended.line));
-            if let Some(letter) = morning.letter {
-                // Read in town at the start of the day, never "come by soon".
-                for stock in ["Hello from me.", "Come by soon."] {
-                    assert!(!letter.note.contains(stock), "{}", letter.note);
-                }
-                lines.push(letter.note);
-            }
-            if let Some(question) = morning.question {
-                // The day's question is one the harbour puts now.
-                assert!(snapshot
-                    .commands
-                    .iter()
-                    .any(|command| command.question.as_ref() == Some(&question)));
-                lines.push(question.prompt);
-            }
-            // The book keeps every find so far.
-            let kept = snapshot
-                .book
-                .iter()
-                .filter(|entry| entry.shelf == ritual::FINDS_SHELF && entry.found)
-                .count();
-            assert_eq!(kept, finds);
+        if came {
+            read(&branch, &mut lines, &mut finds);
         } else {
             assert!(
-                snapshot.morning.is_none(),
+                branch.projection_snapshot().morning.is_none(),
                 "the first day opens on its welcome"
             );
         }
-        for _ in 0..sitting.left {
+        for left in (0..sitting.left).rev() {
             pass_one_day(&mut branch);
             ledger.spend_day(today);
+            // The first sitting's later days open on their mornings as
+            // they come; the day its last passes into waits for the next.
+            if today == 500 && left > 0 {
+                read(&branch, &mut lines, &mut finds);
+            }
         }
     }
-    assert_eq!(finds, 5);
+    assert_eq!(finds as u32, FIRST_SITTING_DAYS - 1 + 5);
     let unique = lines.iter().collect::<BTreeSet<_>>();
     assert_eq!(unique.len(), lines.len(), "a line came twice: {lines:#?}");
     // A sitting begun twice on one World day brings no second morning: the

@@ -447,7 +447,8 @@ mod tests {
             again.ledger().spend_day(&mut session, &library);
         }
         assert_eq!(again.ledger().sitting(&session).left, 0);
-        let days = MORNING + 1 + 5;
+        // The first morning, then each day to the next even count.
+        let days = MORNING + 2 * u64::from(FIRST_SITTING_DAYS);
         let spent = sit_on(&mut session, &registry, &library, 100).unwrap();
         assert_eq!(spent.sitting.left, 0, "the first sitting spent");
         session.flush().unwrap();
@@ -529,7 +530,7 @@ mod tests {
         assert_eq!(on_disk(&destination).days_passed, 2);
         assert_eq!(on_disk(&library.path(&document_id)).days_passed, 1);
         // Opened again the same day, the new file goes on with the sitting:
-        // never a first sitting of three days.
+        // never a new first sitting.
         drop(session);
         let mut reopened = DurableWorldSession::open_file(destination, &registry).unwrap();
         let again = sit_on(&mut reopened, &registry, &library, 400).unwrap();
@@ -557,7 +558,7 @@ mod tests {
 
     /// A World moved to another machine (or synced): its file, copied into
     /// another Worlds folder, goes on with its sittings there, never a new
-    /// first sitting of three days.
+    /// first sitting.
     #[test]
     fn a_world_moved_to_another_machine_keeps_its_sittings() {
         let root = temp_root("moved");

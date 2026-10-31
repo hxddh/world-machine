@@ -562,7 +562,7 @@ impl WorldMachineHome {
                         div()
                             .text_xs()
                             .text_color(ui::color(tokens::ACCENT_TEXT))
-                            .child("START HERE · A WORLD THAT GROWS A DAY AT A TIME"),
+                            .child(ui::t("START HERE · A WORLD THAT GROWS A DAY AT A TIME")),
                     )
                     .child(div().text_lg().child(pack.title))
                     .child(

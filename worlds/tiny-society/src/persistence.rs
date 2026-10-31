@@ -119,6 +119,19 @@ impl TinySocietyBranch {
             let one_day =
                 |world: &mut World| pass_one_day(world, actions, &behavior_registry, away);
             generated_events.extend(self.world.following(day, one_day)?);
+            // A new player's first session is played in one sitting: each
+            // of its days opens on its morning as it comes, after the day.
+            if !away && crate::arrival::first_session_morning(self.world.state()) {
+                let questions =
+                    ritual::questions_put(&crate::projection::available_commands(&self.world));
+                generated_events.extend(ritual::morning(
+                    &mut self.world,
+                    actions,
+                    &crate::life::rite(),
+                    Some(day),
+                    &questions,
+                )?);
+            }
         }
 
         Ok(generated_events)

@@ -10,9 +10,11 @@
 //! World's record: the World is only ever told that a sitting began, and
 //! it is the player who lets each of its days pass.
 
-/// How many World days a World's very first sitting may pass: enough for
-/// the first evening to show what the place is.
-pub const FIRST_SITTING_DAYS: u32 = 3;
+/// How many World days a World's very first sitting may pass: the whole of
+/// a designed first session (1.0 P1), its first festival among them, which
+/// at the game's intended pace (`demo/pacing.json`) is 20 to 40 minutes of
+/// play before Goodnight. A World Pack designs what those days bring.
+pub const FIRST_SITTING_DAYS: u32 = 6;
 
 /// How many World days any later sitting may pass, however long the player
 /// was away: a month away is one day, never thirty.
@@ -170,7 +172,7 @@ fn later(ledger: &SittingLedger, days_away: u64) -> Sitting {
 /// has left. A day before the one the ledger names (a clock that was once
 /// ahead, and is right again) begins a new sitting of one day too, so a
 /// World is never kept asleep until the calendar catches up; and never the
-/// first sitting's three, so nothing is won by turning the clock.
+/// first sitting's days, so nothing is won by turning the clock.
 pub fn sitting_at(ledger: &SittingLedger, today: i64) -> Sitting {
     match ledger.began_on {
         _ if ledger.sittings == 0 => Sitting {
@@ -210,25 +212,33 @@ mod tests {
     }
 
     #[test]
-    fn the_first_sitting_may_pass_three_days() {
-        let (first, ledger) = begin(&SittingLedger::default(), 100);
+    fn the_first_sitting_may_pass_the_first_sessions_days() {
+        let (first, mut ledger) = begin(&SittingLedger::default(), 100);
         assert_eq!(
             first,
             Sitting {
                 number: 1,
                 new: true,
-                allowance: 3,
-                left: 3,
+                allowance: FIRST_SITTING_DAYS,
+                left: FIRST_SITTING_DAYS,
                 days_away: 0
             }
         );
-        let ledger = ledger.spent(100).spent(100);
+        // A first session of twenty to forty minutes is more than one
+        // evening's days.
+        const { assert!(FIRST_SITTING_DAYS > 3) };
+        for _ in 1..FIRST_SITTING_DAYS {
+            ledger = ledger.spent(100);
+        }
         assert_eq!(sitting_at(&ledger, 100).left, 1);
         let ledger = ledger.spent(100).spent(100).spent(100);
         let spent = sitting_at(&ledger, 100);
         assert_eq!((spent.left, spent.new), (0, false));
         assert!(spent.spent());
-        assert_eq!(ledger.days_passed, 3, "never past the allowance");
+        assert_eq!(
+            ledger.days_passed, FIRST_SITTING_DAYS,
+            "never past the allowance"
+        );
     }
 
     #[test]
@@ -274,7 +284,7 @@ mod tests {
         assert!(sitting_at(&ledger, 105).spent());
         // A clock that was once ahead (the 105th) and is right again: a
         // new sitting of one day, never locked asleep until the 105th,
-        // and never the first sitting's three.
+        // and never the first sitting's days.
         for today in [104, 50, -3] {
             let back = sitting_at(&ledger, today);
             assert!(back.new, "{today}");

@@ -646,7 +646,11 @@ impl ProjectionView {
         cx: &mut Context<Self>,
     ) -> bool {
         let key = event.keystroke.key.as_str();
-        if let Some((moment, _)) = &self.reading.shown {
+        // A moment that came overnight waits under the morning's paper (or
+        // the Goodnight card): the paper takes the keys, and the strip is
+        // there once it is put away.
+        let papered = self.looking.sitting.goodnight || self.morning_shown().is_some();
+        if let Some((moment, _)) = self.reading.shown.as_ref().filter(|_| !papered) {
             match key {
                 "escape" | "enter" | "space" => {
                     self.dismiss_moment(cx);

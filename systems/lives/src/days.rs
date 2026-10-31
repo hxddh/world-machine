@@ -622,11 +622,15 @@ impl Action for Lives {
                 }
             }
         }
+        // What is remembered is the line as it was chosen, the one looked
+        // up the next time (a voice only restyles it as it is said): so a
+        // voice never hides a line from being heard, and a line said as it
+        // came is noted once.
+        remember_saying(&mut moves, &heard, &said);
+        remember_saying(&mut moves, &heard, &base);
         if let Some(voice) = (cast.voice)(person) {
             said = restyle(voice, &said, seed / 29);
         }
-        remember_saying(&mut moves, &heard, &said);
-        remember_saying(&mut moves, &heard, &base);
         let mut draft = EventDraft::new("lived");
         draft.payload.insert(TOLD_NTH.into(), Value::Integer(nth));
         if let Some(who) = remembers {

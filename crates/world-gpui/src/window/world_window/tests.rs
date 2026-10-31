@@ -1200,3 +1200,25 @@ fn each_return_beat_frames_its_own_subject_in_every_language() {
         }
     }
 }
+
+#[test]
+fn report_is_offered_only_under_a_line_the_ai_voice_wrote() {
+    let exchange = |voiced: bool, reported: bool| world_projection::Exchange {
+        who: someone(),
+        words: "Is the pier hard to build?".into(),
+        answer: "Not with the right timber.".into(),
+        moment: SelectionId::from_stable_key("event-7").expect("an event key"),
+        asks_for: None,
+        voiced,
+        reported,
+    };
+    // A built-in line is the World's own: never a Report link under it.
+    assert_eq!(asking::report_command(&exchange(false, false)), None);
+    assert_eq!(asking::report_command(&exchange(false, true)), None);
+    // A line the AI voice wrote can be reported, once.
+    assert_eq!(
+        asking::report_command(&exchange(true, false)),
+        Some((7, "conversation.report:7".to_string()))
+    );
+    assert_eq!(asking::report_command(&exchange(true, true)), None);
+}

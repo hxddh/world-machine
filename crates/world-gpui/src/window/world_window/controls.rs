@@ -605,15 +605,6 @@ impl ProjectionView {
     /// card with the scene holding the keyboard (see `arrival`).
     pub(crate) fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use super::arrival::{enter_does, passes_day, EnterContext, EnterDoes};
-        if self.controller.is_some() {
-            if let Some(number) = chapter_just_ended(&self.snapshot, self.looking.chapter_read)
-                .map(|chapter| chapter.number)
-            {
-                self.looking.chapter_read = Some(number);
-                cx.notify();
-                return;
-            }
-        }
         // The sitting's paper in front takes Enter for its one button:
         // "Begin the day" on the morning, "Goodnight" on the Goodnight
         // card. Nothing under it is chosen.
@@ -626,6 +617,17 @@ impl ProjectionView {
             self.begin_the_day();
             cx.notify();
             return;
+        }
+        // A chapter's end is a card under the sitting's paper: read with
+        // Enter once the paper is put away, never unseen beneath it.
+        if self.controller.is_some() {
+            if let Some(number) = chapter_just_ended(&self.snapshot, self.looking.chapter_read)
+                .map(|chapter| chapter.number)
+            {
+                self.looking.chapter_read = Some(number);
+                cx.notify();
+                return;
+            }
         }
         // The first day's free thing, opened by itself, never holds the
         // day back: Enter leaves it for later and the day's card comes up.
