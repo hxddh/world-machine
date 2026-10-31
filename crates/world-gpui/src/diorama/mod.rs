@@ -579,7 +579,7 @@ pub fn frame(
                 0.0
             };
             let drawing = snapshot.drawing_of(item).cloned();
-            let w = thing_width(stage, snapshot, spot, setting);
+            let w = drawn_thing_width(stage, snapshot, spot, setting);
             ThingPaint {
                 index: spot.index,
                 x: spot.x,
@@ -853,9 +853,45 @@ pub(crate) fn thing_width(
         Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
         None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
     }
-    .map_or(spot.w, |(w, _)| {
-        w.min((spot.w * ROOM * 1.3).max(w * LEAST_OF_RUNG))
-    })
+    .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3))
+}
+
+/// How wide the thing on `spot` is drawn: [`thing_width`], but never under
+/// [`LEAST_OF_RUNG`] of its rung however narrow its room. The layout keeps
+/// to the room (who stands where is unchanged); only the picture is not
+/// squeezed to a toy.
+pub(crate) fn drawn_thing_width(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> f32 {
+    drawn_thing_size(stage, snapshot, spot, setting).0
+}
+
+/// How wide and tall the thing on `spot` is drawn ([`drawn_thing_width`]).
+pub(crate) fn drawn_thing_size(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> (f32, f32) {
+    let (w, h) = thing_size(stage, snapshot, spot, setting);
+    let item = &snapshot.canvas.items[spot.index];
+    let p = stage.figure_h * spot.scale;
+    let sized = match snapshot.drawing_of(item) {
+        Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+        None => ladder::Subject::Thing(
+            item.shape.unwrap_or(MarkShape::Parcel),
+            setting,
+            art_of(item),
+        )
+        .sized(p, spot.w),
+    };
+    match sized {
+        Some((lw, lh)) if w < lw * LEAST_OF_RUNG => (lw * LEAST_OF_RUNG, lh * LEAST_OF_RUNG),
+        _ => (w, h),
+    }
 }
 
 /// How wide and tall the thing on `spot` is drawn, in stage pixels (the
@@ -875,7 +911,7 @@ pub(crate) fn thing_size(
     };
     match sized {
         Some((w, h)) => {
-            let most = (spot.w * ROOM * 1.3).max(w * LEAST_OF_RUNG);
+            let most = spot.w * ROOM * 1.3;
             if w > most {
                 (most, h * most / w.max(1e-3))
             } else {
@@ -895,7 +931,7 @@ pub(crate) fn seat_height(
     setting: art::Setting,
 ) -> f32 {
     let item = &snapshot.canvas.items[spot.index];
-    let w = thing_width(stage, snapshot, spot, setting);
+    let w = drawn_thing_width(stage, snapshot, spot, setting);
     match snapshot.drawing_of(item) {
         Some(drawing) => w / drawing.aspect.max(0.1) * 0.5,
         None => match art_of(item).or_else(|| crate::works::kit(setting, MarkShape::Bench)) {

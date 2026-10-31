@@ -74,7 +74,7 @@ fn every_prop_on_the_stage_stands_at_its_own_scale() {
                     art_of(item),
                 ),
             };
-            let size = thing_size(&stage, &snapshot, spot, setting);
+            let size = drawn_thing_size(&stage, &snapshot, spot, setting);
             if let Some(why) = off_rung(&subject, size, p, spot.w) {
                 wrong.push(format!(
                     "{name}: thing {:?} {:?}: {why}",
