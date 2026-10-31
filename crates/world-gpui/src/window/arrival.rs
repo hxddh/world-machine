@@ -1318,6 +1318,20 @@ mod tests {
             ((y_after - plot_after) - (y - paint.y)).abs() < 0.01,
             "still on the plot: {y_after:.2} by its edge at {plot_after:.2}"
         );
+        // And once a work is built on that plot, which then offers nothing
+        // and is no longer among the plots to build on: still there.
+        let taken = snapshot.canvas.plots.remove(plot);
+        snapshot.canvas.built_plots.push(taken);
+        let built_on = stage(&snapshot, width, height);
+        let (x_built, y_built) = at(&built_on);
+        assert!(
+            (x_built - x).abs() < 0.5,
+            "still on the plot once it is built on: {x_built:.1} against {x:.1}"
+        );
+        assert!(
+            (y_built - y_after).abs() <= built_on.building_w * 0.06,
+            "still in the plot's row: {y_built:.1} against {y_after:.1}"
+        );
     }
 
     /// The opening bar, in the real window (1100 by 900, a stage 848 high

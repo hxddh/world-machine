@@ -200,6 +200,15 @@ impl From<&Plot> for PlotWire {
 }
 
 impl PlotWire {
+    /// The plots a Pack sent that lie somewhere, at most `most` of them.
+    pub fn all_known(plots: Vec<PlotWire>, most: usize) -> Vec<Plot> {
+        plots
+            .into_iter()
+            .filter_map(Self::known)
+            .take(most)
+            .collect()
+    }
+
     /// The plot, if it lies somewhere on a panorama and has an id.
     pub fn known(self) -> Option<Plot> {
         (self.px.is_finite() && !self.id.trim().is_empty()).then(|| Plot {

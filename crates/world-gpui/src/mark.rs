@@ -185,7 +185,8 @@ pub fn plots_of(snapshot: &ProjectionSnapshot) -> &[Plot] {
 /// `reach` of a plot's middle (the nearest): the plot's middle, and its
 /// row as the Pack lays rows out (the back row 0.3, each a step nearer).
 /// A player who clicks a plot puts what they hold on it, exactly, however
-/// coarsely the World keeps where along the ground it is.
+/// coarsely the World keeps where along the ground it is; and it stays
+/// there once the plot is built on and offers nothing more.
 pub fn plot_under(
     snapshot: &ProjectionSnapshot,
     view_w: f32,
@@ -195,6 +196,7 @@ pub fn plot_under(
     let panorama = snapshot.canvas.width.unwrap_or(1.0).clamp(1.0, 24.0);
     plots_of(snapshot)
         .iter()
+        .chain(&snapshot.canvas.built_plots)
         .map(|plot| {
             let middle = plot.px.clamp(0.0, panorama) * view_w;
             (middle, 0.30 + plot.row as f32 * 0.095)

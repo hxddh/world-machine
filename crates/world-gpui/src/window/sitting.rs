@@ -421,6 +421,9 @@ impl ProjectionView {
             // the card). In rems, so larger text gets a taller paper; what
             // does not fit scrolls.
             .h(gpui::rems(MORNING_REMS))
+            // Never taller than the stage, so "Begin the day" stays on
+            // screen in a small window with large text; the parts scroll.
+            .max_h_full()
             .p_6()
             .rounded_2xl()
             .bg(scene_paper())
@@ -474,10 +477,12 @@ fn hanging(paper: impl gpui::IntoElement) -> Div {
         .left_0()
         .right_0()
         .top_0()
+        .bottom_0()
         .px_6()
-        .pt_3()
+        .py_3()
         .flex()
         .justify_center()
+        .items_start()
         .child(paper)
 }
 
@@ -942,6 +947,24 @@ mod tests {
         let Opened { mut cx, .. } = open(app, short, Some(Allowance { left: 1, of: 1 }));
         let one = cx.debug_bounds("morning-begin").expect("Begin the day");
         assert_eq!(one, full, "Begin the day stays put");
+        crate::scene::set_clock(None);
+    }
+
+    /// With text at 200% in an 800-high window, the morning's paper is
+    /// never taller than the stage: "Begin the day" stays on screen to
+    /// click, and what does not fit scrolls.
+    #[gpui::test]
+    fn begin_the_day_is_on_screen_with_the_largest_text(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        crate::with_text_scale(200, || {
+            let Opened { mut cx, .. } =
+                open(app, morning_town(), Some(Allowance { left: 1, of: 1 }));
+            let begin = cx.debug_bounds("morning-begin").expect("Begin the day");
+            assert!(
+                begin.bottom() <= px(800.0),
+                "Begin the day below the window: {begin:?}"
+            );
+        });
         crate::scene::set_clock(None);
     }
 

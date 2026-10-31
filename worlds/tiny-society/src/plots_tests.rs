@@ -139,6 +139,14 @@ fn a_bandstand_on_a_plot_is_finished_and_draws_a_musician() {
         !snapshot.canvas.plots.iter().any(|p| p.id == plot),
         "the plot is taken"
     );
+    assert!(
+        snapshot
+            .canvas
+            .built_plots
+            .iter()
+            .any(|p| p.id == plot && p.px == px && p.offers.is_empty()),
+        "the plot is told as built on, where it lies"
+    );
     // A plot build is a deed: it counts toward the day's two.
     let SelectionId::Entity(id) = bandstand.id else {
         panic!("an entity");

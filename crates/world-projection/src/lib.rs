@@ -28,8 +28,8 @@ pub use guest::{
 };
 pub use influence::effect_headline;
 pub use mark::{
-    clean_name, command_argument, command_with, Design, Designable, MarkError, Naming, Pattern,
-    Plot, PlotOffer, Variant, Wears, MOST_PATTERN_COLOURS, PATTERN_CELLS, PATTERN_PALETTE,
+    clean_name, command_argument, command_with, Design, Designable, MarkError, MarkShape, Naming,
+    Pattern, Plot, PlotOffer, Variant, Wears, MOST_PATTERN_COLOURS, PATTERN_CELLS, PATTERN_PALETTE,
     PATTERN_SIDE,
 };
 pub use seams::{seams_in, speaks_of_self, Seam};
@@ -1740,6 +1740,10 @@ pub struct CanvasProjection {
     /// Plots along the paths where the player can build, and what could
     /// stand on each. Empty for a World without them.
     pub plots: Vec<Plot>,
+    /// The plots something already stands on, offering nothing: where a
+    /// thing the player put down on a plot keeps standing once the plot is
+    /// built on.
+    pub built_plots: Vec<Plot>,
     /// What kind of place it is to look at, which the app dresses its
     /// ground, sky, weather and props for: "harbour" (a green shore on the
     /// sea, the look of a World that says nothing), "mars" (regolith under
@@ -1915,62 +1919,6 @@ pub struct CanvasMark {
     pub label: String,
     pub shape: MarkShape,
     pub selection: Option<SelectionId>,
-}
-
-/// The silhouette a built thing is drawn as on the horizon, and a place as
-/// on its tile.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum MarkShape {
-    #[default]
-    House,
-    Dome,
-    Tower,
-    Tree,
-    Lamp,
-    /// A shopfront under an awning.
-    Shop,
-    /// An arched span.
-    Bridge,
-    /// A vehicle on wheels: a rover, a cart, a bus.
-    Rover,
-    /// A small boat.
-    Boat,
-    /// A parcel or crate: an order, a delivery, a thing to be made.
-    Parcel,
-    /// A market stall under a striped awning.
-    Stall,
-    /// A string of little flags between two poles.
-    Bunting,
-    /// A wooden pier on its piles.
-    Pier,
-    /// A small garden bed in flower.
-    Garden,
-    /// A flag on a pole.
-    Flag,
-    /// A lamp on a post, lit after dusk.
-    Lantern,
-    /// A tent.
-    Tent,
-    /// A wooden bench.
-    Bench,
-    /// Seedlings just up out of the ground.
-    Sprouts,
-    /// A stone well with a little roof and a bucket.
-    Well,
-    /// A swing hung from a frame.
-    Swing,
-    /// A round stone fountain, water rising.
-    Fountain,
-    /// A post with arms pointing the way.
-    Signpost,
-    /// A birdhouse on a pole.
-    Birdhouse,
-    /// A long box of flowers.
-    Planter,
-    /// A figure on a plinth.
-    Statue,
-    /// A pillar box for letters.
-    Postbox,
 }
 
 /// How a connection reads: warm, strained, or neither.
