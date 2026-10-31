@@ -19,7 +19,28 @@ pub(crate) const ARRIVED: &str = "arrived";
 
 /// How many days a new player's first days last: the first session and a
 /// little more, in which nothing sad or unkind is said.
-pub(crate) const FIRST_DAYS: u64 = 5;
+pub(crate) const FIRST_DAYS: u64 = FIRST_SESSION_DAYS + 2;
+
+/// How many days a new player's first session lasts, played in one
+/// sitting (as many as the host's first sitting passes,
+/// `world_observer::FIRST_SITTING_DAYS`). It is designed, not counted:
+/// Day 1 brings the hello, the first request and the first build; each
+/// later day of it opens on its morning as it comes (a letter, a find, the
+/// build finished and looked after); Day 2 hears the first festival got
+/// ready for, the harbour asks its first favour, Day 5 is Spring Clean
+/// itself, and the morning after it is the session's last day before
+/// Goodnight.
+pub(crate) const FIRST_SESSION_DAYS: u64 = 6;
+
+/// Whether the day just begun is one of a new player's first session
+/// after its first: a day that opens on its morning as it comes, rather
+/// than when a sitting begins.
+pub(crate) fn first_session_morning(state: &WorldState) -> bool {
+    arrived(state).is_some_and(|day| {
+        let today = today(state);
+        today > day && today < day + FIRST_SESSION_DAYS
+    })
+}
 
 /// What Jonas has put by when a new player arrives: a fortnight's living
 /// and a little more, so the first days are not a scramble.

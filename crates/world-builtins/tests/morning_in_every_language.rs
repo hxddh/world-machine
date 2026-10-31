@@ -83,10 +83,15 @@ fn a_harbour_morning_reads_whole_in_chinese_and_japanese() {
     for _ in 0..8 {
         let day = pass_day(&branch.projection_snapshot());
         branch.invoke_projection_command(&day).unwrap();
-        branch
+        // A new harbour's first session opens each of its days on its
+        // morning as it comes; every later day's comes when a sitting
+        // begins.
+        let came = branch
             .invoke_projection_command(SITTING_BEGINS_COMMAND)
-            .unwrap();
-        mornings.push(branch.projection_snapshot().morning.expect("a morning"));
+            .is_ok();
+        let morning = branch.projection_snapshot().morning.expect("a morning");
+        mornings.push(morning);
+        assert!(came || mornings.len() < 6, "a later day's morning");
     }
     let parts = mornings.iter().flat_map(lines).collect::<BTreeSet<_>>();
     assert!(parts.len() >= 8 * 3, "{parts:#?}");

@@ -312,7 +312,9 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                 },
             ));
         }
-        if lacks(Need::Company) >= 70 {
+        // Nobody brings their loneliness to a newcomer in the kind first
+        // days a Pack keeps (`Cast::kind`); it waits until they are over.
+        if lacks(Need::Company) >= 70 && !(cast.kind)(state) {
             found.push((
                 lacks(Need::Company),
                 Candidate {
