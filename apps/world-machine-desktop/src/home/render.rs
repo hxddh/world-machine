@@ -320,7 +320,8 @@ impl WorldMachineHome {
 
         // A new day waiting for the player (v0.30 S4): opening the World
         // begins a new sitting, with its morning. One day, however long
-        // they were away.
+        // they were away. Asleep, how long until the next, as its title
+        // bar says it (1.0 P2).
         let waiting = document
             .display_moves_alone
             .then(|| observer::new_day_waiting(&document))
@@ -331,6 +332,13 @@ impl WorldMachineHome {
             .as_ref()
             .map(|calendar| calendar.unit.to_lowercase())
             .unwrap_or_else(|| "day".into());
+        let day_line = world_card_day_line(
+            waiting.is_some(),
+            document.display_moves_alone && observer::asleep(&document),
+            observer::next_sitting_in().unwrap_or(0),
+            &unit,
+            world_gpui::ui::play_freely(),
+        );
         let mut cover = div()
             .id(SharedString::from(format!("cover-{document_label}")))
             .role(gpui::Role::Button)
@@ -382,33 +390,35 @@ impl WorldMachineHome {
                 })),
             ),
         );
-        if waiting.is_some() {
-            cover = cover.child(
-                div()
-                    .absolute()
-                    .top_2()
-                    .left_2()
-                    .px_2()
-                    .py_1()
-                    .rounded_full()
-                    .bg(ui::color(tokens::SURFACE))
-                    .shadow_sm()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        div()
-                            .size(px(6.0))
-                            .rounded_full()
-                            .bg(ui::color(tokens::SUCCESS)),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(ui::color(tokens::TEXT))
-                            .child(new_day_waiting_line(&unit)),
-                    ),
-            );
+        if let Some(day_line) = day_line {
+            cover =
+                cover.child(
+                    div()
+                        .absolute()
+                        .top_2()
+                        .left_2()
+                        .px_2()
+                        .py_1()
+                        .rounded_full()
+                        .bg(ui::color(tokens::SURFACE))
+                        .shadow_sm()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(div().size(px(6.0)).rounded_full().bg(ui::color(
+                            if waiting.is_some() {
+                                tokens::SUCCESS
+                            } else {
+                                tokens::TEXT_TERTIARY
+                            },
+                        )))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(ui::color(tokens::TEXT))
+                                .child(day_line),
+                        ),
+                );
         }
 
         let menu_id = document.id.clone();

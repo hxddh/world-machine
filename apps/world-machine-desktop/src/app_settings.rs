@@ -74,6 +74,12 @@ pub struct AppSettings {
     /// turned on, and omitted while off.
     #[serde(default, skip_serializing_if = "is_off")]
     pub developer: bool,
+    /// Whether the player plays freely (1.0 P2): Goodnight offers "Sleep
+    /// now", and the next day comes at once. Off unless turned on, and
+    /// omitted while off. A preference of the app's: nothing of it is
+    /// written in a World, and no World is the worse for either choice.
+    #[serde(default, skip_serializing_if = "is_off")]
+    pub play_freely: bool,
     /// Where a World shown as a strip goes: which edge, which display, and
     /// whether it stays in front. Omitted while it is as it starts.
     #[serde(default, skip_serializing_if = "StripSettings::is_default")]
@@ -238,6 +244,7 @@ impl AppSettings {
             text_scale: None,
             increase_contrast: None,
             developer: false,
+            play_freely: false,
             strip: StripSettings::default(),
             hints: HintSettings::default(),
         }
@@ -439,6 +446,11 @@ pub fn save_developer(root: &Path, on: bool) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.developer = on)
 }
 
+/// Whether the player plays freely: Goodnight offers "Sleep now".
+pub fn save_play_freely(root: &Path, on: bool) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| settings.play_freely = on)
+}
+
 /// Whether World windows play their landscape's sound.
 pub fn save_ambient_sound(root: &Path, on: bool) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.ambient_sound = on)
@@ -623,6 +635,7 @@ mod tests {
             text_scale: None,
             increase_contrast: None,
             developer: false,
+            play_freely: true,
             strip: StripSettings::default(),
             hints: HintSettings {
                 shown: vec!["hands".into()],
@@ -631,6 +644,32 @@ mod tests {
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
+    }
+
+    /// Play freely (1.0 P2) is off for a new install and for a file written
+    /// before it existed, kept once turned on, and left out of the file
+    /// while off, so a file that never had it reads as it did.
+    #[test]
+    fn play_freely_is_off_until_chosen_and_kept_once_it_is() {
+        let fixture = Fixture::new();
+        assert!(!load(&fixture.root).unwrap().play_freely, "a new install");
+        save(&fixture.root, &AppSettings::empty()).unwrap();
+        let written = fs::read_to_string(settings_path(&fixture.root)).unwrap();
+        assert!(!written.contains("play_freely"), "{written}");
+        fs::write(
+            settings_path(&fixture.root),
+            r#"{"version":1,"developer":true}"#,
+        )
+        .unwrap();
+        assert!(!load(&fixture.root).unwrap().play_freely, "an older file");
+        save_play_freely(&fixture.root, true).unwrap();
+        let loaded = load(&fixture.root).unwrap();
+        assert!(loaded.play_freely);
+        assert!(loaded.developer, "nothing else changed");
+        save_play_freely(&fixture.root, false).unwrap();
+        assert!(!load(&fixture.root).unwrap().play_freely);
+        let written = fs::read_to_string(settings_path(&fixture.root)).unwrap();
+        assert!(!written.contains("play_freely"), "{written}");
     }
 
     #[test]
