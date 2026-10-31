@@ -23,6 +23,8 @@ pub(crate) fn kit(_: &WorldState) -> Kit {
         place_line: |_, _, _| "The bakery's doing fine.".into(),
         need_line: |_, _| ("Flour, mostly.".into(), Some("tiny.flour".into())),
         work_line: |_, _| Some("Up at four for the bread.".into()),
+        role_line: |world, who| Some(format!("{} bakes.", lives::first_name(world.state(), who))),
+        works: |_| Vec::new(),
         place_mood: |_| "The cove's quiet.".into(),
         coming_up: |_| None,
         aliases: |_| Vec::new(),

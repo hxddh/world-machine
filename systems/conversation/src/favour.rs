@@ -945,6 +945,8 @@ mod tests {
             place_line: |_, _, _| "It's fine.".into(),
             need_line: |_, _| ("Nothing.".into(), None),
             work_line: |_, _| None,
+            role_line: |_, _| None,
+            works: |_| Vec::new(),
             place_mood: |_| "Quiet.".into(),
             coming_up: |_| None,
             aliases: |_| Vec::new(),

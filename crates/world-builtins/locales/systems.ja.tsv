@@ -2225,3 +2225,72 @@ We keep crossing paths, and I never said.	よく行き会うのに、ちゃん�
 Hello again!	また会ったね！
 I'm {name}, in case nobody said.	{name}だよ。だれも言ってなかったら、ね。
 Good to put a face to it all at last.	やっと顔と話がつながったよ。
+# Talk that never says it does not understand (P4a): answers from what someone knows, and three things to ask.
+How was your day?	今日はどんな一日だった？
+Who is {name}?	{name}って誰？
+Where is {name}?	{name}はどこにいる？
+What happened lately?	最近何かあった？
+What's coming up?	これから何か行事はある？
+How's the building work going?	工事の進み具合はどう？
+Tell me about your letter.	手紙のこと、聞かせて。
+Tell me about your family.	家族のこと、聞かせて。
+my work	私の仕事
+my day	今日一日
+my family	家族のこと
+what's new	最近の出来事
+what happened lately	最近あったこと
+what's coming up	これからの行事
+my letter	私の手紙
+But I could tell you about {a}, {b} or {c}.	でも、{a}や{b}、{c}の話ならできるよ。
+Ask me about {a}, {b} or {c} instead.	代わりに{a}や{b}、{c}のことを聞いて。
+Oh, that's beyond me, love.	あら、それは私には手に負えないわ。
+I couldn't tell you that, pet.	それには答えられないなあ。
+Not my area.	それは専門外だね。
+Can't help you there.	そこは力になれないな。
+That's outside my line.	それは私の領分じゃない。
+I'll leave that one to others.	それは他の人に任せるよ。
+Oh, um, I wouldn't know.	あ、えっと、それは知らないな。
+I'm not the one to ask, sorry.	ごめんね、それは私の知らないことなの。
+Ooh, no idea!	えー、見当もつかない！
+But listen.	でも聞いて。
+Couldn't tell you!	知らないなあ！
+Anyway.	それはともかく。
+No idea.	知らないな。
+Moving on!	次いこう！
+Couldn't say.	なんとも言えないな。
+I can't speak to that.	それについては何とも言えない。
+That's not something I know about.	それは私の知らないことだね。
+I wish I could help with that.	それを手伝えたらいいんだけど。
+I'd tell you if I knew.	知ってたら教えるんだけどね。
+Wouldn't know.	知らないね。
+Can't say I do.	知ってるとは言えないな。
+Hm, that drifted right past me.	うーん、それは気に留めてなかったな。
+Oh, I was miles away.	あ、ぼんやりしてた。
+I couldn't say.	なんとも言えないな。
+I couldn't tell you about that.	それについては何も言えないな。
+That's not one for me.	それは私向きの話じゃないね。
+{x}'s at {place} just now.	{x}なら今{place}にいるよ。
+I haven't seen {x} about today.	今日は{x}を見かけてないな。
+I'm at {place} today.	今日は{place}にいるよ。
+Out and about in {place}.	{place}のあちこちにいるよ。
+You'll have heard.	もう聞いてるでしょ。
+Well, since you ask.	聞かれたから言うけど。
+I wrote to you {ago}.	{ago}手紙を書いたよ。
+I hope it found you well.	元気にしてるといいな。
+Not from me.	私からじゃないよ。
+{x} wrote to you {ago}, didn't they?	{x}が{ago}手紙を書いたでしょ？
+I haven't written to you yet.	まだ手紙は書いてないの。
+{work} is still to be started.	{work}はまだ始まってないの。
+Everyone's talking about it.	みんなその話ばかりよ。
+{work} is coming along.	{work}は順調に進んでるよ。
+{done} of {parts} done.	{parts}のうち{done}まで終わった。
+{work} is finished.	{work}はもう完成したよ。
+It's done us all good.	みんなのためになったよ。
+Nothing's being built just now.	今は何も建ててないよ。
+{x} works at {place}.	{x}は{place}で働いてるよ。
+Maybe one day.	いつか書くかもね。
+Couldn't tell you, sorry!	ごめん、知らないなあ！
+It's been a quiet day or two in {place}.	ここ一日二日、{place}は静かだったよ。
+It's been a quiet week or two in {place}.	ここ一、二週間、{place}は静かだったよ。
+It's been a quiet sol or two in {place}.	ここ一、二ソル、{place}は静かだったよ。
+It's been a quiet moon or two in {place}.	ここ一、二か月、{place}は静かだったよ。
