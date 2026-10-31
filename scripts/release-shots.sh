@@ -58,7 +58,8 @@
 # Each scenario's frames are read from the app's frame log: the script
 # reports when the loading wash was gone and every frame after that which
 # showed something unpainted, and fails if there is any, or if the wash
-# lasts more than 2 s (3 s for a new World). It also fails if any of the
+# lasts more than 0.5 s (1.0 P5; it was 2 s, 3 s for a new World), and
+# reports when the first look was shown under it. It also fails if any of the
 # first 2 s of a window shows another World, or if a sitting is not what
 # the game now does: a morning missing or shown twice, Goodnight after
 # another number of days than the sitting's, a day passed while asleep

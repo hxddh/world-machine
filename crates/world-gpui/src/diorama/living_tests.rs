@@ -507,6 +507,56 @@ fn the_living_stage_is_never_blank_and_lets_go_of_what_it_no_longer_needs() {
     assert_eq!(hand.slots.len(), 1);
 }
 
+/// The window's very first look is quick (1.0 P5, a loading wash under
+/// 300 ms): with nothing held, the soft whole level is baked only round
+/// what the camera sees, a fraction of a long place, and stands in at
+/// once; the whole level is still baked after the camera's own, and the
+/// quick look let go, so a zoom right out finds the whole place.
+#[test]
+fn the_first_look_is_baked_round_the_camera_and_the_whole_after() {
+    let snapshot = fixtures()
+        .into_iter()
+        .find(|(name, _)| name.ends_with("-day-1082"))
+        .map(|(_, snapshot)| snapshot)
+        .expect("the day-1082 fixture");
+    let view = (1100.0, 848.0);
+    let stage = super::stage(&snapshot, view.0, view.1);
+    let rest = Camera::rest_zoom(&stage);
+    let x = stage.width / 2.0;
+    let mut hand = Stagehand::new(1.0);
+    let mut first_span = None;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(240);
+    let mut frames = 0;
+    loop {
+        let frame = Arc::new(frame_of(&snapshot, view, Some((rest, x)), 12.0, 0.0));
+        let (_, _, _, report) = hand.frame(&frame, &snapshot, false);
+        frames += 1;
+        if first_span.is_none() {
+            first_span = hand.slots.first().map(|slot| slot.held.span);
+        }
+        if report.settled && hand.slots.iter().any(|slot| slot.held.span.is_none()) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let (from, to) = first_span
+        .flatten()
+        .expect("the first look round the camera");
+    assert!(
+        to - from < stage.width * 0.5,
+        "the first look is {:.0} of {:.0} wide",
+        to - from,
+        stage.width
+    );
+    assert!(
+        hand.slots
+            .iter()
+            .all(|slot| slot.held.level >= sv::SPANNED_FROM || slot.held.span.is_none()),
+        "the quick look is let go after {frames} frames"
+    );
+}
+
 /// Zooming out a step at a time and back in, as the release harness and
 /// the nightly soak do, each step a glide of a third of a second begun
 /// before the last look has baked: once the first look is shown, no frame

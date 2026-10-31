@@ -41,9 +41,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// The zoom levels baked, in device pixels a stage pixel for each of the
-/// display's own (v0.30 S1c): all of the place soft, at half (only ever a
-/// stand-in, while a closer look bakes: no camera is that far out), the
+/// The zoom levels baked, in device pixels a stage pixel (v0.30 S1c): all
+/// of the place soft, at half (only a stand-in: no camera is that far), the
 /// overview (one window of the place), the camera at rest (people 140 px:
 /// 2.2 to 2.4 times closer in a window 848 or more high, drawn from 2.45),
 /// and close up (to [`ZOOM_MOST`], 3.4).
@@ -113,10 +112,10 @@ impl Held {
             .is_none_or(|(from, to)| view.0 >= from - 0.5 && view.1 <= to + 0.5)
     }
 
-    /// Whether it is exactly the look `want` asks for.
+    /// Whether it is exactly the look `want` asks for (an opening look never).
     pub fn answers(&self, want: &Want) -> bool {
         self.key == want.key
-            && self.level == want.level
+            && (self.level == want.level && (self.level >= SPANNED_FROM || self.span.is_none()))
             && self.light == want.light
             && self.variant == want.variant
             && self.covers(want.view)
@@ -1019,7 +1018,8 @@ impl Stagehand {
             let Some(snapshot) = self.snapshot.clone() else {
                 return;
             };
-            let span = span_for(&want, self.width, self.view.0, self.lead);
+            let span =
+                super::interface::span_of(&want, &self.slots, self.width, self.view.0, self.lead);
             let held = Held {
                 key: want.key,
                 level: want.level,
@@ -1197,8 +1197,8 @@ impl Stagehand {
     /// whose pictures the display has is ready.
     ///
     /// A look all of whose pictures were handed over on earlier frames is
-    /// shown on a frame that hands nothing over (see [`chores`]); right
-    /// here (`now`), everything is handed over and shown at once.
+    /// shown on a frame that hands nothing over (see [`chores`]); `now` (a
+    /// test, or the very first look, under the wash) all of it at once.
     fn hand_over(&mut self, now: bool, chores: Chores) -> Vec<Arc<RenderImage>> {
         let mut out = Vec::new();
         if now {
@@ -1501,7 +1501,7 @@ impl Stagehand {
         };
         self.schedule(&wants, now);
         let chores = chores(self.complete(), self.uploads_waiting(), self.freeing.len());
-        let ahead = self.hand_over(now, chores);
+        let ahead = self.hand_over(now || !self.slots.iter().any(|s| s.held.ready), chores);
         let gone = self.evict(&wants);
         self.freeing.extend(gone);
         let take = if now {
@@ -2475,7 +2475,7 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
     let wash = if sync {
         0.0
     } else {
-        wash_over(window, report.shown, frame.still)
+        wash_over(window, report.shown)
     };
     note_stage(window, &frame, report.shown, report.settled);
     if !sync {

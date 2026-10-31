@@ -37,7 +37,7 @@ use gpui::{div, prelude::*, RenderImage};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -617,11 +617,28 @@ pub fn bake_threads_for(cores: usize) -> usize {
     }
 }
 
+/// Whether the bake running now is a window's very first look, under the
+/// loading wash (1.0 P5): the window has nothing else to draw, so that one
+/// bake may take every core but one ([`super::interface::span_of`] sets it
+/// as it schedules each bake).
+pub(super) static OPENING: AtomicBool = AtomicBool::new(false);
+
+/// How many threads the bake running now may take: [`bake_threads`], or
+/// every core but one for a window's first look.
+fn threads_now() -> usize {
+    if OPENING.load(Ordering::Relaxed) {
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        bake_threads().max(cores.saturating_sub(1))
+    } else {
+        bake_threads()
+    }
+}
+
 /// Runs `jobs` across the cores a bake may use, each taking the next job
 /// as it is free.
 fn across_cores<T: Send>(jobs: Vec<Box<dyn FnOnce() -> T + Send + '_>>) -> Vec<T> {
     let count = jobs.len();
-    let threads = bake_threads().min(count.max(1));
+    let threads = threads_now().min(count.max(1));
     let slots = jobs
         .into_iter()
         .map(|job| std::sync::Mutex::new(Some(job)))

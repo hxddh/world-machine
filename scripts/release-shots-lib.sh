@@ -337,8 +337,8 @@ play_to_goodnight() { # play_to_goodnight <days> [presses] [prefix]
 # hold at least the residents and whole buildings asked for, and no frame
 # after it may show anything unpainted. A sitting check that failed
 # (`sitting_failed`) fails the scenario too.
-measure() { # measure [bar seconds for the first painted frame (default 2)] [residents buildings]
-    python3 - "$STATE/frames.log" "$SCENARIO" "${1:-2}" "${2:-0}" "${3:-0}" <<'PY'
+measure() { # measure [bar seconds for the first painted frame (default 0.5)] [residents buildings]
+    python3 - "$STATE/frames.log" "$SCENARIO" "${1:-0.5}" "${2:-0}" "${3:-0}" <<'PY'
 import sys
 path, scenario, bar = sys.argv[1], sys.argv[2], float(sys.argv[3])
 least_people, least_buildings = int(sys.argv[4]), int(sys.argv[5])
@@ -361,6 +361,10 @@ print(f"  {scenario}: {len(frames)} frames; the opening wash gone at "
       f"{len(bad)} unpainted frames after it")
 for t, g, w in bad[:10]:
     print(f"    unpainted at {t / 1000:.2f} s: {g} pictures, wash {w}")
+# When the place first stood in under the wash (its first look shown).
+stood = next((t for t, gaps, wash in frames if gaps == 0), None)
+print(f"  {scenario}: the first look shown at "
+      f"{'never' if stood is None else f'{stood / 1000:.2f} s'}")
 ok = first_painted is not None and not bad and first_painted <= bar * 1000
 if first_painted is not None:
     painted = next(r for r in own if int(r[0]) == first_painted)
@@ -464,7 +468,7 @@ scenario_first() {
     # welcome with four residents round it and the focal building whole
     # (v0.28's three whole buildings are the overview's bar, one step out:
     # world-gpui's `the_first_screen_opens_on_the_focal_cluster`).
-    measure 3 4 1
+    measure 0.5 4 1
 }
 
 # Find: a harbour on a day with a favour; the camera's landing, frame by
@@ -581,7 +585,7 @@ scenario_places() {
         shot "harbour-$hour"
         stop_app
         # A harbour of fifteen is indoors at night, seen in its lit windows.
-        if [ "$hour" = 12 ]; then measure 2 1 1; else measure 2 0 1; fi
+        if [ "$hour" = 12 ]; then measure 0.5 1 1; else measure 0.5 0 1; fi
         for place in ares maple icebridge; do
             SCENARIO="places-$place-$hour"
             # Only Pocket Universe included: the place is the one World
@@ -596,7 +600,7 @@ scenario_places() {
             sleep 2
             shot "$place-$hour"
             stop_app
-            measure 2 1 1
+            measure 0.5 1 1
         done
     done
     SCENARIO=places

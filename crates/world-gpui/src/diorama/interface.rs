@@ -796,37 +796,53 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// How long the loading wash takes to fade into the real paint.
-pub(super) const WASH_FADE: f32 = 0.3;
+/// Where a look is baked ([`super::stage_view::span_for`]), and the
+/// window's very first look (1.0 P5, the loading wash under 300 ms): with
+/// nothing held at all, the soft whole level is baked first only round
+/// what the camera sees, as a close level is, a fraction of the whole
+/// place's work, so it stands in within a frame or two. It answers no want
+/// (`Held::answers`): the whole level is baked after the camera's own, and
+/// the quick look is let go.
+pub(super) fn span_of(
+    want: &super::stage_view::Want,
+    slots: &[super::stage_view::Slot],
+    width: f32,
+    view_w: f32,
+    lead: f32,
+) -> Option<(f32, f32)> {
+    use super::stage_view::{span_for, SPANNED_FROM};
+    let opening = slots.is_empty() && want.shown;
+    super::living_stage::OPENING.store(opening, std::sync::atomic::Ordering::Relaxed);
+    if want.level >= SPANNED_FROM || !opening {
+        return span_for(want, width, view_w, lead);
+    }
+    let spanned = super::stage_view::Want {
+        level: SPANNED_FROM,
+        ..*want
+    };
+    span_for(&spanned, width, view_w, 0.0)
+}
 
 /// How much of the loading wash lies over a window's scene this frame (0
-/// to 1): all of it until every still layer has been shown once
-/// (`all_shown`), then less and less over [`WASH_FADE`], or at once when
-/// everything is held still. A window washes only as it opens: once its
-/// place has been seen, a resize or a new hour never washes it again.
-pub(super) fn wash_over(window: &Window, all_shown: bool, still: bool) -> f32 {
+/// or 1): all of it until the window's first look has been shown, and
+/// none from that frame on (1.0 P5: the first look is a soft stand-in
+/// within a frame or two of opening, and the wash is gone with it, where a
+/// fade of 0.3 s after it ran on over the first slow frames). A window
+/// washes only as it opens: once its place has been seen, a resize or a
+/// new hour never washes it again.
+pub(super) fn wash_over(window: &Window, all_shown: bool) -> f32 {
     let id = window_id(window);
     PAINTED.with(|seen| {
         let mut seen = seen.borrow_mut();
-        let now = std::time::Instant::now();
-        let since = match seen.get(&id) {
-            Some(at) => *at,
-            None if all_shown => {
-                let first = !WASHED.with(|washed| washed.borrow().contains(&id));
-                let at = if still || first {
-                    now - std::time::Duration::from_secs_f32(WASH_FADE)
-                } else {
-                    now
-                };
-                seen.insert(id, at);
-                at
-            }
-            None => {
-                WASHED.with(|washed| washed.borrow_mut().insert(id));
-                return 1.0;
-            }
-        };
-        1.0 - ease((now.duration_since(since).as_secs_f32() / WASH_FADE).clamp(0.0, 1.0))
+        if seen.contains_key(&id) {
+            return 0.0;
+        }
+        if all_shown {
+            seen.insert(id, std::time::Instant::now());
+            return 0.0;
+        }
+        WASHED.with(|washed| washed.borrow_mut().insert(id));
+        1.0
     })
 }
 
