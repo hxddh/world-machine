@@ -831,6 +831,25 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         .rev()
         .take_while(|event| event.world_time == now)
         .collect::<Vec<_>>();
+    // What the player's hands give people to do today: a crew at each work
+    // going up, and someone drawn to a seat or a planting put down.
+    let spends_at = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .filter_map(|item| {
+            let SelectionId::Entity(person) = item.id else {
+                return None;
+            };
+            let at = work_of(state, person, &workplaces)
+                .filter(|work| town.placed.contains_key(work))
+                .unwrap_or_else(|| about_of(person, square));
+            Some((person, *town.placed.get(&at)?))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let errands = errands(world, &items, |who, thing| {
+        Some((spends_at.get(&who)? - town.placed.get(&SelectionId::Entity(thing))?).abs())
+            .filter(|away| *away <= NEAR)
+    });
     // What each of them would use near where they spend the day, and what
     // the record says they last did, worked out before anyone is moved.
     let mut doings = BTreeMap::new();
@@ -846,6 +865,11 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         let about = about_of(person, square);
         let uses = town.uses_near(&items, work.unwrap_or(about), NEAR);
         let last = last_of(state, person, &lately, &today_events, market, &uses);
+        let (work, last) = town.with_errand(
+            errands.get(&person).map(|errand| (errand.at, errand.doing)),
+            work,
+            last,
+        );
         doings.insert(person, (work, about, uses, last));
     }
     for item in items
@@ -886,6 +910,39 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
     );
     canvas.built_plots = crate::plots::built_plots(world);
     canvas
+}
+
+/// What the player's hands give the grown-ups of the harbour to do today
+/// (the `hands` System's errands): what each thing on the scene is good
+/// for is what its shape is.
+fn errands(
+    world: &World,
+    items: &[CanvasItem],
+    far: impl Fn(EntityId, EntityId) -> Option<f32>,
+) -> BTreeMap<EntityId, hands::Errand> {
+    let state = world.state();
+    let entity = |item: &CanvasItem| match item.id {
+        SelectionId::Entity(id) => Some(id),
+        _ => None,
+    };
+    let hands = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .filter_map(entity)
+        .filter(|person| {
+            !matches!(
+                text(state, *person, society_basic::JOB),
+                Some("student" | "child")
+            )
+        })
+        .collect::<Vec<_>>();
+    let uses = items
+        .iter()
+        .filter(|item| item.kind != CanvasItemKind::Actor)
+        .filter_map(|item| Some((entity(item)?, days::town::use_of(item.shape?)?)))
+        .collect::<BTreeMap<_, _>>();
+    let kit = crate::handwork::kit(state);
+    hands::errands(world, &kit, &hands, |thing| uses.get(&thing).copied(), far)
 }
 
 /// Where the harbour gathers on a festival: the bandstand, once there is

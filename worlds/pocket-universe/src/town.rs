@@ -486,6 +486,34 @@ fn role(state: &WorldState, person: EntityId) -> Option<&str> {
 }
 
 /// Whether someone is a child of the place, who lives with a couple.
+/// What the player's hands give the grown-ups of the place to do today
+/// (the `hands` System's errands): what each thing on the scene is good
+/// for is what its shape is.
+fn errands(
+    world: &World,
+    items: &[CanvasItem],
+    far: impl Fn(EntityId, EntityId) -> Option<f32>,
+) -> BTreeMap<EntityId, hands::Errand> {
+    let state = world.state();
+    let entity = |item: &CanvasItem| match item.id {
+        SelectionId::Entity(id) => Some(id),
+        _ => None,
+    };
+    let hands = items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .filter_map(entity)
+        .filter(|person| !is_child(state, *person))
+        .collect::<Vec<_>>();
+    let uses = items
+        .iter()
+        .filter(|item| item.kind != CanvasItemKind::Actor)
+        .filter_map(|item| Some((entity(item)?, days::town::use_of(item.shape?)?)))
+        .collect::<BTreeMap<_, _>>();
+    let kit = crate::handwork::kit(state);
+    hands::errands(world, &kit, &hands, |thing| uses.get(&thing).copied(), far)
+}
+
 fn is_child(state: &WorldState, person: EntityId) -> bool {
     matches!(role(state, person), Some("chick" | "child"))
 }
@@ -950,6 +978,13 @@ pub(crate) fn lay_out(
     // What each of them would use near where they spend the day, and what
     // the record says they last did, worked out before anyone is moved.
     let lately = lives::lately_lived(world, LATELY * crate::BACKGROUND_PERIOD);
+    // What the player's hands give people to do today: a crew at each work
+    // going up, and someone drawn to a seat or a planting put down.
+    let errands = errands(world, &items, |who, thing| {
+        let spends = town.placed.get(day_place.get(&who)?)?;
+        Some((spends - town.placed.get(&SelectionId::Entity(thing))?).abs())
+            .filter(|away| *away <= NEAR)
+    });
     let mut doings = BTreeMap::new();
     for item in items
         .iter()
@@ -961,6 +996,11 @@ pub(crate) fn lay_out(
         let near = day_place.get(&person).copied().unwrap_or(gathering);
         let uses = town.uses_near(&items, near, NEAR);
         let last = last_of(person, &lately, &uses);
+        let errand = errands.get(&person).map(|errand| (errand.at, errand.doing));
+        let (spends, last) = town.with_errand(errand, day_place.get(&person).copied(), last);
+        if let Some(spends) = spends {
+            day_place.insert(person, spends);
+        }
         doings.insert(person, (uses, last));
     }
     for item in items

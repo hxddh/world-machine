@@ -290,9 +290,30 @@ pub(crate) fn kit(state: &WorldState) -> Kit {
         wears: crate::plots::wears,
         naming: crate::plots::naming,
         plot_stages: Some(crate::plots::STAGES),
-        // A new player's first build is finished the next day.
-        first_growing: crate::arrival::arrived(state).map(|_| 1),
+        // A new player's first build rises a stage a day: marked out the
+        // day it is begun, its frame up the next, and finished the day
+        // after that.
+        first_growing: crate::arrival::arrived(state).map(|_| 2),
     }
+}
+
+/// A work the story puts up at the harbour that rises over the days after
+/// (the `hands` System raises it): a site marked out today, its frame up
+/// tomorrow, nearly done the day after, and finished the next, rather than
+/// standing whole at once.
+pub(crate) fn rises(
+    entity: EntityId,
+    name: &'static str,
+    shape: &'static str,
+) -> Vec<storylets::Effect> {
+    vec![
+        storylets::build(entity, name, shape, crate::HARBOR, None),
+        storylets::Effect::Put {
+            entity,
+            key: hands::RISING,
+            to: 0,
+        },
+    ]
 }
 
 const HAND_COMMAND: &str = "tiny-society.hand.";

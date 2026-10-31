@@ -6,8 +6,8 @@
 //! sitting began, and passes its days by its own card.
 //!
 //! The first session is designed, not counted: before Goodnight it walks
-//! the whole loop (someone asks something of the player, a build goes up
-//! in scaffolding and stands finished a day later, a letter comes, the
+//! the whole loop (someone asks something of the player, a build is marked
+//! out, rises a stage a day and stands finished, a letter comes, the
 //! first festival is got ready for, and something is found for the book),
 //! and at the intended pace it takes 20 to 40 minutes.
 
@@ -26,8 +26,12 @@ use walking::Walker;
 enum Beat {
     /// Someone of the place asks something of the player.
     Request,
-    /// Something the player had built stands in scaffolding.
+    /// Something the player had built is going up: its site marked out,
+    /// or its frame in scaffolding.
     BuildBegun,
+    /// What the player had built rose a stage on a later day: a site
+    /// marked out one day stands in scaffolding the next.
+    BuildRose,
     /// A letter is written to the player.
     Letter,
     /// Someone is getting ready for the first festival, days ahead.
@@ -92,8 +96,9 @@ fn first_sitting(label: &str, pace: &Pace) -> Session {
     let pass = demo::day_pass(&snapshot).expect("a day to pass").id.clone();
     let mut beats = BTreeMap::new();
     let mut days = Vec::new();
-    // What the player had built, in scaffolding, by when it stood so.
-    let mut scaffolds = BTreeMap::<SelectionId, u64>::new();
+    // What the player had built, going up: by when it was first seen so,
+    // and how it was drawn then.
+    let mut going_up = BTreeMap::<SelectionId, (u64, Option<String>)>::new();
     loop {
         let day = snapshot.world_time;
         days.push((day, walker.clock));
@@ -110,14 +115,17 @@ fn first_sitting(label: &str, pace: &Pace) -> Session {
                 note(Beat::Request);
             }
             for item in &snapshot.canvas.items {
-                if item.art.as_deref() == Some("scaffold") {
-                    scaffolds.entry(item.id).or_insert(snapshot.world_time);
+                let since = going_up.get(&item.id).map(|(since, _)| *since);
+                let later = since.is_some_and(|since| since < snapshot.world_time);
+                if item.going_up() {
+                    let (_, first) = going_up
+                        .entry(item.id)
+                        .or_insert((snapshot.world_time, item.art.clone()));
                     note(Beat::BuildBegun);
-                } else if item.built.is_some()
-                    && scaffolds
-                        .get(&item.id)
-                        .is_some_and(|since| *since < snapshot.world_time)
-                {
+                    if later && *first != item.art {
+                        note(Beat::BuildRose);
+                    }
+                } else if item.built.is_some() && later {
                     note(Beat::BuildFinished);
                 }
             }
@@ -207,6 +215,7 @@ fn a_first_session_walks_the_whole_loop_in_twenty_to_forty_minutes() {
     for beat in [
         Beat::Request,
         Beat::BuildBegun,
+        Beat::BuildRose,
         Beat::Letter,
         Beat::FestivalPreview,
         Beat::FirstFind,

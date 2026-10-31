@@ -4171,13 +4171,7 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
                 Some(3),
             ),
         ],
-        "pier_section_built" => vec![build(
-            PIER,
-            "The new pier, a new section on",
-            "pier",
-            HARBOR,
-            None,
-        )],
+        "pier_section_built" => crate::handwork::rises(PIER, "The pier's new section", "pier"),
         "pier_piles_driven" => vec![build(
             PIER,
             "The new pier, on its piles",
@@ -4194,13 +4188,9 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
             mark("books"),
             build(PARCELS, "A box of new books", "parcel", SCHOOL, Some(2)),
         ],
-        "lamp_work_done" | "lamp_glass_fetched" => vec![build(
-            LAMP,
-            "The lamp post on the point, unlit",
-            "lantern",
-            HARBOR,
-            None,
-        )],
+        "lamp_work_done" | "lamp_glass_fetched" => {
+            crate::handwork::rises(LAMP, "The lamp post on the point, unlit", "lantern")
+        }
         "traveller_stayed" => vec![
             mark("traveller"),
             build(PARCELS, "The traveller's bags", "parcel", PUB, Some(2)),
