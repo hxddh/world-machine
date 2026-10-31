@@ -14,8 +14,8 @@ Persistent worlds that remember and evolve. A World grows a day at a time: each 
 
 ## What is inside
 
-- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. It grows a day at a time, and each morning says what changed.
-- **Tiny Society**: a harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.
+- **Tiny Society** (start here): a small harbour town that lives a day at a time. Its people work, fall out, marry, grow old and remember; you answer what they ask, build and paint with your own hands, keep the Book of what they found, and watch the pier and the lamp on the point go up, then three years of works after them. Talking needs no AI: people answer from what they know of the harbour.
+- **Pocket Universe**: three smaller places (Ares, a Mars colony; Maple Street in 1987; Icebridge, a penguin town on the ice) built on the same machine. It ships in the build and is not yet presented as part of 1.0.
 - Every World is a `.world` document in your library. Open, rename, export, and import them; history is replayed from events, never re-run through an AI.
 
 ## Documentation
