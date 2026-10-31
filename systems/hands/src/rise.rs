@@ -182,7 +182,9 @@ impl Action for Rises {
 }
 
 /// The latest Event that put up or raised `fixture`, which the next stage
-/// follows from.
+/// follows from: one that made it, began it going up, or raised it a
+/// stage. What only touched it on the way (a design, a name, a morning's
+/// tending) is never where its building follows from.
 pub(crate) fn raised_by(world: &World, fixture: EntityId) -> Option<EventId> {
     world
         .history_index()
@@ -191,10 +193,22 @@ pub(crate) fn raised_by(world: &World, fixture: EntityId) -> Option<EventId> {
         .rev()
         .copied()
         .find(|id| {
-            world.event(*id).is_some_and(|event| {
-                !matches!(event.kind.as_str(), "designed" | "named" | "enjoyed")
-            })
+            world
+                .event(*id)
+                .is_some_and(|event| advances_construction(event, fixture))
         })
+}
+
+/// Whether `event` made `fixture` or moved its building on.
+pub(crate) fn advances_construction(event: &world_core::Event, fixture: EntityId) -> bool {
+    event.changes.iter().any(|change| match change {
+        StateChange::CreateEntity(entity) => entity.id == fixture,
+        StateChange::SetComponent { entity, key, .. }
+        | StateChange::RemoveComponent { entity, key } => {
+            *entity == fixture && [RISING, ROSE, BUILDING].contains(&key.as_str())
+        }
+        _ => false,
+    })
 }
 
 /// One period of what is going up rising: whatever is due its next stage

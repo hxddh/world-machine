@@ -379,8 +379,13 @@ pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
         if crate::building(state, id) {
             item.detail = "Being built".into();
             item.built = None;
-            // Its site, then scaffolding, stands until it is finished.
+            // Its site, then scaffolding, stands until it is finished: in
+            // place of the drawing it will wear finished, which the app
+            // would otherwise paint over the stage.
             item.art = shown_rising(state, id, item.kind).map(Into::into);
+            if item.art.is_some() {
+                item.drawing = None;
+            }
         } else if let Some(finished) = crate::finished_at(state, &kit, id) {
             item.built = Some(finished as u32 + 1);
         }
@@ -402,6 +407,9 @@ pub fn dress_rising(state: &WorldState, items: &mut [CanvasItem]) {
         }
         if let Some(art) = shown_rising(state, id, item.kind) {
             item.art = Some(art.into());
+            // The drawing it wears finished (a lantern's) would be painted
+            // over the stage.
+            item.drawing = None;
         }
         item.detail = "Being built".into();
         item.built = None;

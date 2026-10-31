@@ -827,6 +827,17 @@ fn what_a_pack_puts_up_rises_a_stage_a_period() {
     let mut world = World::new(state);
     assert_eq!(rising_art(world.state(), section), Some(SITE));
     assert_eq!(rising_art(world.state(), stood), Some(SCAFFOLD));
+    // Going up, it is drawn as its stage, never as the drawing it wears
+    // finished (the lamp's lantern).
+    use world_projection::{CanvasItem, SelectionId};
+    let mut items = [CanvasItem {
+        id: SelectionId::Entity(stood),
+        drawing: Some("lantern".into()),
+        ..CanvasItem::default()
+    }];
+    crate::plots::dress_rising(world.state(), &mut items);
+    assert_eq!(items[0].art.as_deref(), Some(SCAFFOLD));
+    assert_eq!(items[0].drawing, None);
     for _ in 0..3 {
         pass(&mut world, &registry);
     }
@@ -902,4 +913,45 @@ fn people_lend_a_hand_and_use_what_is_put_down() {
     assert_eq!(count(&planting, Doing::Tend, bench), 1, "{planting:?}");
     // Whoever spends their day nearest lends a hand.
     assert_eq!(seats.keys().copied().collect::<Vec<_>>(), people[..3]);
+}
+
+/// What only touches a work on the way (a morning's tending, a design, a
+/// name) is never what its next stage follows from: the building's cause
+/// stays its own chain back to the deed that began it.
+#[test]
+fn only_what_moves_a_work_on_is_its_next_stage_s_cause() {
+    let work = EntityId::new(7);
+    let event = |changes: Vec<StateChange>| Event {
+        id: world_core::EventId::new(1),
+        kind: "any".into(),
+        world_time: 0,
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: Default::default(),
+        changes,
+    };
+    let set = |entity: EntityId, key: &str| StateChange::SetComponent {
+        entity,
+        key: key.into(),
+        value: Value::Integer(1),
+    };
+    use crate::rise::advances_construction;
+    assert!(!advances_construction(
+        &event(vec![set(work, "ritual.tended_on")]),
+        work
+    ));
+    assert!(advances_construction(&event(vec![set(work, RISING)]), work));
+    assert!(advances_construction(&event(vec![set(work, ROSE)]), work));
+    assert!(advances_construction(
+        &event(vec![StateChange::RemoveComponent {
+            entity: work,
+            key: RISING.into()
+        }]),
+        work
+    ));
+    assert!(!advances_construction(
+        &event(vec![set(EntityId::new(8), RISING)]),
+        work
+    ));
 }
