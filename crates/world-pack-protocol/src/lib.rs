@@ -26,6 +26,8 @@ pub use mark::{
     DesignableWire, NamingWire, PatternWire, PlotOfferWire, PlotWire, VariantWire,
     MOST_MARK_COMMAND, MOST_PLOTS, MOST_PLOT_OFFERS, MOST_PROPOSALS,
 };
+mod keeping;
+pub use keeping::{KeepingWire, MorningLineWire, MorningWire};
 mod stories;
 pub use stories::{
     ActWire, AlmanacWire, CastWire, CueWire, LegendLineWire, LegendWire, MarkWire, MomentWire,
@@ -1193,85 +1195,9 @@ pub struct ProjectionSnapshotWire {
     /// shows no morning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub morning: Option<MorningWire>,
-}
-
-/// The morning a sitting opens on, as it crosses the boundary.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MorningWire {
-    pub moment: SelectionIdWire,
+    /// Optional both ways: the player's book (P3b); none from an older Pack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub letter: Option<LetterWire>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<QuestionWire>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tended: Option<MorningLineWire>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub find: Option<MorningLineWire>,
-}
-
-/// A line of the morning, as it crosses the boundary.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MorningLineWire {
-    pub line: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub about: Option<SelectionIdWire>,
-}
-
-impl From<&world_projection::Morning> for MorningWire {
-    fn from(morning: &world_projection::Morning) -> Self {
-        let line = |line: &world_projection::MorningLine| MorningLineWire {
-            line: line.line.clone(),
-            about: line.about.map(Into::into),
-        };
-        Self {
-            moment: morning.moment.into(),
-            letter: morning.letter.as_ref().map(|letter| LetterWire {
-                from: letter.from.into(),
-                note: letter.note.clone(),
-                moment: letter.moment.into(),
-            }),
-            question: morning.question.as_ref().map(|question| QuestionWire {
-                id: question.id.clone(),
-                prompt: question.prompt.clone(),
-            }),
-            tended: morning.tended.as_ref().map(line),
-            find: morning.find.as_ref().map(line),
-        }
-    }
-}
-
-impl From<MorningWire> for world_projection::Morning {
-    /// Every part with no words to show is left out.
-    fn from(morning: MorningWire) -> Self {
-        let line = |line: MorningLineWire| {
-            (!line.line.trim().is_empty()).then(|| world_projection::MorningLine {
-                line: line.line,
-                about: line.about.map(Into::into),
-            })
-        };
-        Self {
-            moment: morning.moment.into(),
-            letter: morning
-                .letter
-                .filter(|letter| !letter.note.trim().is_empty())
-                .map(|letter| world_projection::Letter {
-                    from: letter.from.into(),
-                    note: letter.note,
-                    moment: letter.moment.into(),
-                }),
-            question: morning
-                .question
-                .filter(|question| {
-                    !question.id.trim().is_empty() && !question.prompt.trim().is_empty()
-                })
-                .map(|question| world_projection::Question {
-                    id: question.id,
-                    prompt: question.prompt,
-                }),
-            tended: morning.tended.and_then(line),
-            find: morning.find.and_then(line),
-        }
-    }
+    pub keeping: Option<KeepingWire>,
 }
 
 /// A favour someone asked of the player, as it crosses the boundary.
@@ -2122,6 +2048,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 thanks: favour.thanks.clone(),
             }),
             morning: snapshot.morning.as_ref().map(Into::into),
+            keeping: snapshot.keeping.as_ref().map(Into::into),
         }
     }
 }
@@ -2364,6 +2291,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     thanks: favour.thanks,
                 }),
             morning: snapshot.morning.map(Into::into),
+            keeping: snapshot.keeping.map(Into::into),
         })
     }
 }
@@ -4077,6 +4005,7 @@ mod tests {
             almanac_years: Vec::new(),
             favour: None,
             morning: None,
+            keeping: None,
         }
     }
 

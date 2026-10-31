@@ -203,7 +203,7 @@ What it cost comes back	かかった費用は戻ります
 Undo	取り消す
 the world moved forward	世界が一歩進んだ
 Tiny Society	タイニー・ソサエティ
-A small harbour town that grows a day at a time, where friendships, money and luck become its history.	一日ずつ育っていく小さな港町。友情も、お金も、運も、やがて町の歴史になります。
+A small harbour town that grows a day at a time. You are its new keeper of the Book, where its friendships, money and luck become its history.	一日ずつ育っていく小さな港町。あなたはその新しい「港の書」の書き手。友情も、お金も、運も、この書の中で町の歴史になります。
 {name} put in a long day at {place} with {other}	{name}は{place}で{other}と長い一日を働いた
 Long day at {place}, but {other} kept me laughing.	{place}で長い一日だったけど、{other}がずっと笑わせてくれたよ。
 {other} and I got through a mountain of work.	{other}と山のような仕事を片づけたよ。
@@ -4742,3 +4742,75 @@ A mermaid's purse	人魚の財布（サメの卵殻）
 {name} put down her tools and retired	{name}は道具を置いて引退した
 {name} died peacefully in his sleep, at {age}	{name}は眠るように安らかに亡くなった。{age}歳だった
 {name} died peacefully in her sleep, at {age}	{name}は眠るように安らかに亡くなった。{age}歳だった
+the autumn gale	秋の大風
+The autumn gale blew through, and the whole harbour battened down together	秋の大風が吹き抜け、港じゅうで力を合わせて戸締まりをして乗りきった
+The autumn gale blew through, and the harbour weathered it	秋の大風が吹き抜けたが、港は無事に乗りきった
+The autumn gale blew through, and the harbour sat it out behind closed doors	秋の大風が吹き抜け、港の人たちは戸を閉ざしてやり過ごした
+We held together.	みんなで踏んばったね。
+Not a shutter lost!	雨戸ひとつ飛ばされなかった！
+A few slates loose.	スレートが何枚かゆるんだだけ。
+Nothing a hammer won't mend.	金づちで直せるよ。
+Long night.	長い夜だった。
+Glad it's over.	終わってよかった。
+the Winter Lights	冬の灯り
+Winter Lights	冬の灯り
+The Winter Lights are {days} days off.	冬の灯りまであと{days}日。
+Lanterns are going up along the quay.	波止場にランタンが並びはじめたよ。
+Winter Lights in {days} days.	冬の灯りまであと{days}日。
+A lantern in every window, mind.	どの窓にもランタンをひとつ、忘れずにね。
+The Winter Lights shone from every window in the harbour	冬の灯りが港じゅうの窓という窓からともった
+The harbour lit its Winter Lights	港に冬の灯りがともった
+The Winter Lights were a few lanterns on a dark quay	冬の灯りは、暗い波止場にランタンがいくつかともっただけだった
+Look at it glow, end to end!	見て、端から端まで光ってる！
+Bright enough to see the year out.	これだけ明るければ、一年を見送れるね。
+A few lights are better than none.	少しでも灯りがあるほうがいい。
+You must be our new keeper of the Book.	あなたが新しい「港の書」の書き手だね。
+The Harbour Book	港の書
+You are the harbour's new keeper of the Book.	あなたは港の新しい「港の書」の書き手です。
+You keep the harbour's Book, a page a season.	あなたは季節ごとに一ページずつ「港の書」を書きつづっています。
+Spring: a new keeper arrives	春：新しい書き手がやってくる
+Spring: the harbour wakes	春：港が目をさます
+Summer: the Midsummer Fair	夏：夏至の市
+Autumn: the gale	秋：大風
+Winter: the Winter Lights	冬：冬の灯り
+Spring Clean will fill this page	このページは春の大掃除で埋まる
+The Midsummer Fair will fill this page	このページは夏至の市で埋まる
+The autumn gale will fill this page	このページは秋の大風で埋まる
+The Winter Lights will fill this page	このページは冬の灯りで埋まる
+The end of year {n}	{n}年目の終わり
+You	あなた
+Led {festival}	{festival}を取りしきった
+Led {festival} and {other}	{festival}と{other}を取りしきった
+Asked you a favour	あなたに頼みごとをした
+Wrote you a letter	あなたに手紙を書いた
+Was part of the harbour's year	港の一年をともに過ごした
+Filled {n} of the year's 4 pages	この一年の4ページのうち{n}ページを書いた
+Made one thing by hand	手作りでひとつ作った
+Made {n} things by hand	手作りで{n}個作った
+Answered one question	質問にひとつ答えた
+Answered {n} questions	質問に{n}回答えた
+Did one favour	頼みごとをひとつ引き受けた
+Did {n} favours	頼みごとを{n}回引き受けた
+Projects	町の計画
+To complete	集めきるもの
+Hearts	心のつながり
+The lighthouse	灯台
+The school roof	学校の屋根
+Clear the path to the point	岬への道を切りひらく
+Scrape off the old paint	古いペンキをはがす
+A fresh coat of white	白いペンキを塗りなおす
+New glass for the lamp	灯りに新しいガラスを
+The lighthouse lit again	灯台にふたたび灯がともる
+Slates gathered from the beach	浜辺でスレートを集める
+The old slates off	古いスレートをはがす
+New slates on	新しいスレートをふく
+The school roof mended	学校の屋根が直った
+The book of finds	見つけたものの本
+The almanac's days	暦の日々
+Keep finding	探しつづけよう
+Live a whole year	まる一年を過ごす
+Met {name}	{name}と出会った
+A favour done for {name}	{name}の頼みごとを引き受けた
+A letter from {name}	{name}からの手紙
+A keepsake from {name}	{name}からの贈りもの
+A wish of {name}'s granted	{name}の願いをかなえた

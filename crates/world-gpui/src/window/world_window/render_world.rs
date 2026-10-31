@@ -841,6 +841,8 @@ impl ProjectionView {
                 lit(|| self.render_retelling(cx)).filter(|_| film_painted)
             } else if let Some(chapter) = lit(|| self.render_chapter_end(cx)) {
                 Some(chapter)
+            } else if let Some(year) = lit(|| self.render_year_end(cx)) {
+                Some(year)
             } else {
                 // The evening has its own card: the day is done, and
                 // Goodnight is the player's to say.

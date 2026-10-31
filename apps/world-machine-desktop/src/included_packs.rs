@@ -32,7 +32,7 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         id: "world-machine.tiny-society",
         version: "1.0.0",
         title: "Tiny Society",
-        description: "A harbour town that grows a day at a time. Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.",
+        description: "A harbour town that grows a day at a time. You are the new keeper of its Book. Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.",
         experience: "Answer what people ask · Build the pier · See how the chapter ends",
         featured: true,
         file_name: "tiny-society.worldpack",

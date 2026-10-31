@@ -62,11 +62,11 @@ impl Leaf {
 }
 
 /// The drawer's paper and inks, in the current appearance.
-fn ink(hex: u32) -> gpui::Rgba {
+pub(crate) fn ink(hex: u32) -> gpui::Rgba {
     gpui::rgb(world_theme::adapt(hex))
 }
 
-const RULE: u32 = 0xe2d5ba;
+pub(crate) const RULE: u32 = 0xe2d5ba;
 
 /// What a favour's note says under it once it is done.
 pub(crate) const FAVOUR_DONE: &str = "Done, and thanked.";
@@ -275,8 +275,18 @@ impl ProjectionView {
     fn leaf_has_content(&self, leaf: Leaf) -> bool {
         let snapshot = &self.snapshot;
         match leaf {
-            Leaf::Story => !snapshot.chapters.is_empty() || !almanac_years(snapshot).is_empty(),
-            Leaf::Built => !snapshot.goals.is_empty(),
+            Leaf::Story => {
+                snapshot.keeping.is_some()
+                    || !snapshot.chapters.is_empty()
+                    || !almanac_years(snapshot).is_empty()
+            }
+            Leaf::Built => {
+                !snapshot.goals.is_empty()
+                    || snapshot
+                        .keeping
+                        .as_ref()
+                        .is_some_and(|keeping| !keeping.aims.is_empty())
+            }
             Leaf::Kept => !snapshot.letters.is_empty() || !snapshot.keepsakes.is_empty(),
             Leaf::Found => !snapshot.book.is_empty(),
             // The World's inner workings are for someone making Worlds.
@@ -1114,13 +1124,23 @@ impl ProjectionView {
             ));
         let parts = match leaf {
             Leaf::Story => vec![
+                self.snapshot
+                    .keeping
+                    .as_ref()
+                    .map(|keeping| super::keeping::title_page(keeping).into_any_element()),
                 self.render_almanacs(cx).map(IntoElement::into_any_element),
                 self.render_chapters(Some(&mut *cx))
                     .map(IntoElement::into_any_element),
             ],
-            Leaf::Built => vec![self
-                .render_builds(Some(&mut *cx))
-                .map(IntoElement::into_any_element)],
+            Leaf::Built => vec![
+                self.snapshot
+                    .keeping
+                    .as_ref()
+                    .and_then(super::keeping::aims)
+                    .map(IntoElement::into_any_element),
+                self.render_builds(Some(&mut *cx))
+                    .map(IntoElement::into_any_element),
+            ],
             Leaf::Kept => vec![
                 self.render_letters().map(IntoElement::into_any_element),
                 self.render_keepsakes().map(IntoElement::into_any_element),
@@ -1172,7 +1192,7 @@ impl ProjectionView {
 }
 
 /// A leaf's section heading, small and quiet in the paper's ink.
-fn leaf_heading(text: impl Into<SharedString>) -> Div {
+pub(crate) fn leaf_heading(text: impl Into<SharedString>) -> Div {
     div()
         .px_3()
         .text_xs()

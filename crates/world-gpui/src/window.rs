@@ -17,6 +17,7 @@ mod arrival;
 mod drawer;
 mod farewell;
 mod glide;
+mod keeping;
 mod marking;
 #[cfg(test)]
 mod scene_film_tests;

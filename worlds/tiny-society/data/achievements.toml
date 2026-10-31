@@ -1,0 +1,210 @@
+# Tiny Society's Steam achievements, mapped onto what the harbour records.
+#
+# Each achievement has a Steam API id, its name in English, Simplified
+# Chinese and Japanese, the kinds of recorded Event whose arrival can unlock
+# it (`events`), and the condition over the World's history that must hold
+# (`unlock`):
+#
+#   page:<season>          that season's page of the Book has been filled
+#   years:<n>              the Book has closed n years
+#   project:<id>[:<step>]  a town project has reached that step (or its last)
+#   finds:<n|all>          that many entries of the book of finds are found
+#   almanac:all            every day of the almanac has been lived
+#   heart:<name>           every beat of that resident's heart is reached
+#   hearts:<n>             that many residents' hearts are complete
+#
+# `tiny_society::achievements::unlocked` computes which are unlocked from a
+# World alone, so the same World always unlocks the same ones, on any
+# machine and on any replay. Talking to Steam is P6's.
+
+[[achievement]]
+id = "BOOK_FIRST_PAGE"
+en = "The First Page"
+zh = "第一页"
+ja = "最初のページ"
+events = "page_filled"
+unlock = "page:spring"
+
+[[achievement]]
+id = "BOOK_SUMMER_FAIR"
+en = "Fair Weather"
+zh = "晴好的集市"
+ja = "晴れの日の市"
+events = "page_filled"
+unlock = "page:summer"
+
+[[achievement]]
+id = "BOOK_AUTUMN_GALE"
+en = "Weathered It"
+zh = "挺过了大风"
+ja = "嵐を越えて"
+events = "page_filled"
+unlock = "page:autumn"
+
+[[achievement]]
+id = "BOOK_WINTER_LIGHTS"
+en = "Lights in the Dark"
+zh = "黑夜里的灯火"
+ja = "闇に灯る明かり"
+events = "page_filled"
+unlock = "page:winter"
+
+[[achievement]]
+id = "BOOK_YEAR_ONE"
+en = "A Year in the Book"
+zh = "书里的一年"
+ja = "一年分のページ"
+events = "year_closed"
+unlock = "years:1"
+
+[[achievement]]
+id = "BOOK_YEAR_TWO"
+en = "Turning the Page"
+zh = "翻开新的一页"
+ja = "ページをめくって"
+events = "year_closed"
+unlock = "years:2"
+
+[[achievement]]
+id = "BOOK_YEAR_FIVE"
+en = "An Old Hand"
+zh = "老手"
+ja = "すっかり古株"
+events = "year_closed"
+unlock = "years:5"
+
+[[achievement]]
+id = "PROJECT_LIGHTHOUSE_BEGUN"
+en = "A Path to the Point"
+zh = "通往岬角的小路"
+ja = "岬への道"
+events = "built_by_hand, decorated_by_hand, planted_by_hand"
+unlock = "project:lighthouse:1"
+
+[[achievement]]
+id = "PROJECT_LIGHTHOUSE"
+en = "The Lamp Lit Again"
+zh = "灯塔重新亮起"
+ja = "ふたたび灯る灯台"
+events = "built_by_hand, decorated_by_hand, planted_by_hand"
+unlock = "project:lighthouse"
+
+[[achievement]]
+id = "PROJECT_SCHOOL_ROOF_BEGUN"
+en = "Slates from the Beach"
+zh = "海滩上的石板"
+ja = "浜辺のスレート"
+events = "situation_answered, favour_done"
+unlock = "project:school_roof:1"
+
+[[achievement]]
+id = "PROJECT_SCHOOL_ROOF"
+en = "A Dry Schoolroom"
+zh = "不再漏雨的教室"
+ja = "雨もりしない教室"
+events = "situation_answered, favour_done"
+unlock = "project:school_roof"
+
+[[achievement]]
+id = "FINDS_THIRTY"
+en = "A Full Shelf"
+zh = "满满一架"
+ja = "棚いっぱい"
+events = "built_by_hand, keepsake_left, letter_written, festival_held, greeted, found_in_the_morning"
+unlock = "finds:30"
+
+[[achievement]]
+id = "FINDS_ALL"
+en = "Nothing Left to Find"
+zh = "再无可寻"
+ja = "もう探すものはない"
+events = "built_by_hand, keepsake_left, letter_written, festival_held, greeted, found_in_the_morning"
+unlock = "finds:all"
+
+[[achievement]]
+id = "ALMANAC_ALL"
+en = "Every Day of the Year"
+zh = "一年中的每一天"
+ja = "一年のすべての日"
+events = "festival_held"
+unlock = "almanac:all"
+
+[[achievement]]
+id = "HEART_FIRST"
+en = "A Friend for Life"
+zh = "一生的朋友"
+ja = "一生の友だち"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "hearts:1"
+
+[[achievement]]
+id = "HEART_ALL"
+en = "Everyone's Friend"
+zh = "大家的朋友"
+ja = "みんなの友だち"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "hearts:8"
+
+[[achievement]]
+id = "HEART_MARA"
+en = "Mara's Story"
+zh = "玛拉的故事"
+ja = "マーラの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Mara"
+
+[[achievement]]
+id = "HEART_JONAS"
+en = "Jonas's Story"
+zh = "乔纳斯的故事"
+ja = "ジョナスの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Jonas"
+
+[[achievement]]
+id = "HEART_LEO"
+en = "Leo's Story"
+zh = "利奥的故事"
+ja = "レオの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Leo"
+
+[[achievement]]
+id = "HEART_EMMA"
+en = "Emma's Story"
+zh = "艾玛的故事"
+ja = "エマの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Emma"
+
+[[achievement]]
+id = "HEART_SOFIA"
+en = "Sofia's Story"
+zh = "索菲亚的故事"
+ja = "ソフィアの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Sofia"
+
+[[achievement]]
+id = "HEART_MIA"
+en = "Mia's Story"
+zh = "米娅的故事"
+ja = "ミアの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Mia"
+
+[[achievement]]
+id = "HEART_NOAH"
+en = "Noah's Story"
+zh = "诺亚的故事"
+ja = "ノアの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Noah"
+
+[[achievement]]
+id = "HEART_EVAN"
+en = "Evan's Story"
+zh = "埃文的故事"
+ja = "エヴァンの物語"
+events = "greeted, favour_done, letter_written, keepsake_left, situation_answered"
+unlock = "heart:Evan"

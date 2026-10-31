@@ -158,7 +158,32 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     if let Some(almanac) = &mut snapshot.almanac {
         put_almanac(almanac);
     }
+    if let Some(keeping) = &mut snapshot.keeping {
+        put_keeping(keeping);
+    }
     snapshot
+}
+
+/// The player's own Book (P3b): every word of it.
+fn put_keeping(keeping: &mut world_projection::Keeping) {
+    put(&mut keeping.title);
+    put(&mut keeping.role);
+    for page in &mut keeping.pages {
+        put(&mut page.title);
+        put(&mut page.line);
+    }
+    for year in &mut keeping.closed {
+        put(&mut year.title);
+        for credit in &mut year.credits {
+            put(&mut credit.name);
+            put(&mut credit.deed);
+        }
+    }
+    for aim in &mut keeping.aims {
+        put(&mut aim.group);
+        put(&mut aim.label);
+        put(&mut aim.next);
+    }
 }
 
 fn put_moment(moment: &mut Moment) {
