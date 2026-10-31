@@ -7144,7 +7144,10 @@ name = "world-builtins"
 version = "0.1.0"
 dependencies = [
  "conversation",
+ "hands",
+ "lives",
  "pocket-universe",
+ "ritual",
  "tiny-society",
  "world-host",
  "world-i18n",

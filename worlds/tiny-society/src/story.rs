@@ -3106,10 +3106,8 @@ fn chapter_ending(world: &World) -> (String, String) {
         .into_iter()
         .max_by_key(|(who, count)| (*count, std::cmp::Reverse(*who)))
         .map(|(who, _)| who);
-    // What the player made this chapter is part of how it is told.
-    if let Some(made) = hands::latest_made_since(world, started) {
-        summary.push(format!("{made}."));
-    }
+    // What the player made, and, in a short chapter, the rest it held.
+    crate::chapters::fill_out(world, started, &lived, &mut summary);
     let mut summary = summary.join(" ");
     if let Some(who) = sore {
         summary.push_str(&format!(

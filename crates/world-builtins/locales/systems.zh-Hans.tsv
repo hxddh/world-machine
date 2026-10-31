@@ -2294,3 +2294,162 @@ It's been a quiet day or two in {place}.	{place}这一两天都挺平静的。
 It's been a quiet week or two in {place}.	{place}这一两周都挺平静的。
 It's been a quiet sol or two in {place}.	{place}这一两个火星日都挺平静的。
 It's been a quiet moon or two in {place}.	{place}这一两个月都挺平静的。
+# Mornings by season, letters in turn and about the player, uses told in turn (1.0 P4).
+Overnight, {who} pulled the spring weeds from round your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}周围的春草拔干净了。
+Overnight, {who} pulled the spring weeds from round your {thing}.	夜里，{who}把你的{thing}周围的春草拔干净了。
+Overnight, {who} pinched out the first buds of your {thing} by {place}.	夜里，{who}给你在{place}旁的{thing}掐掉了头一茬花苞。
+Overnight, {who} pinched out the first buds of your {thing}.	夜里，{who}给你的{thing}掐掉了头一茬花苞。
+Overnight, {who} covered your {thing} by {place} against a late frost.	夜里，{who}给你在{place}旁的{thing}盖上了东西，防着晚霜。
+Overnight, {who} covered your {thing} against a late frost.	夜里，{who}给你的{thing}盖上了东西，防着晚霜。
+Overnight, {who} carried water out to your {thing} by {place}.	夜里，{who}提水去浇了你在{place}旁的{thing}。
+Overnight, {who} carried water out to your {thing}.	夜里，{who}提水去浇了你的{thing}。
+Overnight, {who} shaded your {thing} by {place} from the heat.	夜里，{who}给你在{place}旁的{thing}搭了遮阴，挡住暑气。
+Overnight, {who} shaded your {thing} from the heat.	夜里，{who}给你的{thing}搭了遮阴，挡住暑气。
+Overnight, {who} deadheaded your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}上的残花摘掉了。
+Overnight, {who} deadheaded your {thing}.	夜里，{who}把你的{thing}上的残花摘掉了。
+Overnight, {who} raked the fallen leaves off your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}上的落叶耙干净了。
+Overnight, {who} raked the fallen leaves off your {thing}.	夜里，{who}把你的{thing}上的落叶耙干净了。
+Overnight, {who} saved seed from your {thing} by {place}.	夜里，{who}从你在{place}旁的{thing}上收了种子。
+Overnight, {who} saved seed from your {thing}.	夜里，{who}从你的{thing}上收了种子。
+Overnight, {who} mulched round your {thing} by {place}.	夜里，{who}在你{place}旁的{thing}周围铺了一层覆土。
+Overnight, {who} mulched round your {thing}.	夜里，{who}在你的{thing}周围铺了一层覆土。
+Overnight, {who} wrapped your {thing} by {place} in sacking against the frost.	夜里，{who}用麻袋把你在{place}旁的{thing}裹了起来，防着霜冻。
+Overnight, {who} wrapped your {thing} in sacking against the frost.	夜里，{who}用麻袋把你的{thing}裹了起来，防着霜冻。
+Overnight, {who} shook the snow off your {thing} by {place}.	夜里，{who}抖掉了你在{place}旁的{thing}上的雪。
+Overnight, {who} shook the snow off your {thing}.	夜里，{who}抖掉了你的{thing}上的雪。
+Overnight, {who} banked straw round your {thing} by {place}.	夜里，{who}在你{place}旁的{thing}周围堆了稻草。
+Overnight, {who} banked straw round your {thing}.	夜里，{who}在你的{thing}周围堆了稻草。
+Overnight, {who} scrubbed the winter grime off your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}上积了一冬的污垢刷掉了。
+Overnight, {who} scrubbed the winter grime off your {thing}.	夜里，{who}把你的{thing}上积了一冬的污垢刷掉了。
+Overnight, {who} gave your {thing} by {place} a fresh coat of oil.	夜里，{who}给你在{place}旁的{thing}新上了一层油。
+Overnight, {who} gave your {thing} a fresh coat of oil.	夜里，{who}给你的{thing}新上了一层油。
+Overnight, {who} tightened the loose joints of your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}松了的接口都拧紧了。
+Overnight, {who} tightened the loose joints of your {thing}.	夜里，{who}把你的{thing}松了的接口都拧紧了。
+Overnight, {who} wiped the dust off your {thing} by {place}.	夜里，{who}擦掉了你在{place}旁的{thing}上的灰。
+Overnight, {who} wiped the dust off your {thing}.	夜里，{who}擦掉了你的{thing}上的灰。
+Overnight, {who} touched up the paint on your {thing} by {place}.	夜里，{who}给你在{place}旁的{thing}补了补漆。
+Overnight, {who} touched up the paint on your {thing}.	夜里，{who}给你的{thing}补了补漆。
+Overnight, {who} cleared the cobwebs from your {thing} by {place}.	夜里，{who}扫掉了你在{place}旁的{thing}上的蜘蛛网。
+Overnight, {who} cleared the cobwebs from your {thing}.	夜里，{who}扫掉了你的{thing}上的蜘蛛网。
+Overnight, {who} swept the leaves off your {thing} by {place}.	夜里，{who}扫掉了你在{place}旁的{thing}上的落叶。
+Overnight, {who} swept the leaves off your {thing}.	夜里，{who}扫掉了你的{thing}上的落叶。
+Overnight, {who} dried off your {thing} by {place} after the rain.	雨停后的夜里，{who}把你在{place}旁的{thing}擦干了。
+Overnight, {who} dried off your {thing} after the rain.	雨停后的夜里，{who}把你的{thing}擦干了。
+Overnight, {who} tarred the feet of your {thing} by {place} against the wet.	夜里，{who}给你在{place}旁的{thing}的脚涂了柏油防潮。
+Overnight, {who} tarred the feet of your {thing} against the wet.	夜里，{who}给你的{thing}的脚涂了柏油防潮。
+Overnight, {who} cleared the snow off your {thing} by {place}.	夜里，{who}清掉了你在{place}旁的{thing}上的雪。
+Overnight, {who} cleared the snow off your {thing}.	夜里，{who}清掉了你的{thing}上的雪。
+Overnight, {who} knocked the ice off your {thing} by {place}.	夜里，{who}敲掉了你在{place}旁的{thing}上的冰。
+Overnight, {who} knocked the ice off your {thing}.	夜里，{who}敲掉了你的{thing}上的冰。
+Overnight, {who} scattered grit round your {thing} by {place}.	夜里，{who}在你{place}旁的{thing}周围撒了防滑砂。
+Overnight, {who} scattered grit round your {thing}.	夜里，{who}在你的{thing}周围撒了防滑砂。
+Overnight, {who} tucked a sprig of blossom into your {thing} at {place}.	夜里，{who}往你在{place}的{thing}上插了一枝花。
+Overnight, {who} tucked a sprig of blossom into your {thing}.	夜里，{who}往你的{thing}上插了一枝花。
+Overnight, {who} rehung your {thing} at {place} after the spring winds.	春风过后的夜里，{who}把你在{place}的{thing}重新挂好了。
+Overnight, {who} rehung your {thing} after the spring winds.	春风过后的夜里，{who}把你的{thing}重新挂好了。
+Overnight, {who} brushed the pollen off your {thing} at {place}.	夜里，{who}掸掉了你在{place}的{thing}上的花粉。
+Overnight, {who} brushed the pollen off your {thing}.	夜里，{who}掸掉了你的{thing}上的花粉。
+Overnight, {who} turned your {thing} at {place} out of the sun.	夜里，{who}把你在{place}的{thing}转到了晒不着的一面。
+Overnight, {who} turned your {thing} out of the sun.	夜里，{who}把你的{thing}转到了晒不着的一面。
+Overnight, {who} wound fresh ribbon round your {thing} at {place}.	夜里，{who}给你在{place}的{thing}缠上了新丝带。
+Overnight, {who} wound fresh ribbon round your {thing}.	夜里，{who}给你的{thing}缠上了新丝带。
+Overnight, {who} shooed the wasps away from your {thing} at {place}.	夜里，{who}把你在{place}的{thing}旁的黄蜂赶走了。
+Overnight, {who} shooed the wasps away from your {thing}.	夜里，{who}把你的{thing}旁的黄蜂赶走了。
+Overnight, {who} picked the leaves out of your {thing} at {place}.	夜里，{who}把落进你在{place}的{thing}里的叶子拣干净了。
+Overnight, {who} picked the leaves out of your {thing}.	夜里，{who}把落进你的{thing}里的叶子拣干净了。
+Overnight, {who} weighted your {thing} at {place} against the gales.	夜里，{who}给你在{place}的{thing}压上了重物，防着大风。
+Overnight, {who} weighted your {thing} against the gales.	夜里，{who}给你的{thing}压上了重物，防着大风。
+Overnight, {who} hung a lantern by your {thing} at {place}.	夜里，{who}在你{place}的{thing}旁挂了一盏灯笼。
+Overnight, {who} hung a lantern by your {thing}.	夜里，{who}在你的{thing}旁挂了一盏灯笼。
+Overnight, {who} brushed the frost off your {thing} at {place}.	夜里，{who}掸掉了你在{place}的{thing}上的霜。
+Overnight, {who} brushed the frost off your {thing}.	夜里，{who}掸掉了你的{thing}上的霜。
+Overnight, {who} put a sprig of holly on your {thing} at {place}.	夜里，{who}在你{place}的{thing}上放了一枝冬青。
+Overnight, {who} put a sprig of holly on your {thing}.	夜里，{who}在你的{thing}上放了一枝冬青。
+Overnight, {who} shook the snow off your {thing} at {place}.	夜里，{who}抖掉了你在{place}的{thing}上的雪。
+Overnight, {who} carried timber over for your {thing} by {place}.	夜里，{who}为你在{place}旁的{thing}搬来了木料。
+Overnight, {who} carried timber over for your {thing}.	夜里，{who}为你的{thing}搬来了木料。
+Overnight, {who} put up another beam of your {thing} by {place}.	夜里，{who}给你在{place}旁的{thing}又架起了一根梁。
+Overnight, {who} put up another beam of your {thing}.	夜里，{who}给你的{thing}又架起了一根梁。
+Overnight, {who} checked every joint of your {thing} by {place}.	夜里，{who}把你在{place}旁的{thing}每个接口都检查了一遍。
+Overnight, {who} checked every joint of your {thing}.	夜里，{who}把你的{thing}每个接口都检查了一遍。
+Overnight, {who} oiled the hinges at {place}.	夜里，{who}给{place}的合页上了油。
+Overnight, {who} wiped down the tables at {place}.	夜里，{who}把{place}的桌子擦了一遍。
+Overnight, {who} washed the windows of {place}.	夜里，{who}把{place}的窗户擦得亮亮的。
+Overnight, {who} planted up a window box at {place}.	夜里，{who}在{place}的窗台花箱里种上了花。
+Overnight, {who} swept the blossom from the step of {place}.	夜里，{who}扫掉了{place}台阶上的落花。
+Overnight, {who} propped the door of {place} open to let the spring in.	夜里，{who}把{place}的门撑开，让春天进来。
+Overnight, {who} watered the tubs outside {place}.	夜里，{who}给{place}外面的花盆浇了水。
+Overnight, {who} put chairs out in the shade at {place}.	夜里，{who}在{place}的树荫下摆好了椅子。
+Overnight, {who} left a jug of cold water out at {place}.	夜里，{who}在{place}放了一壶凉水。
+Overnight, {who} hung the rugs of {place} out to air.	夜里，{who}把{place}的地毯拿出去晾了。
+Overnight, {who} raked the leaves from the step of {place}.	夜里，{who}把{place}台阶上的落叶耙干净了。
+Overnight, {who} stacked firewood by {place}.	夜里，{who}在{place}旁码好了柴火。
+Overnight, {who} cleared the gutters of {place}.	夜里，{who}清理了{place}的檐沟。
+Overnight, {who} hung a lantern at {place} for the dark evenings.	夜里，{who}在{place}挂了一盏灯笼，好照亮漫长的夜晚。
+Overnight, {who} cleared the snow from the step of {place}.	夜里，{who}扫掉了{place}台阶上的雪。
+Overnight, {who} gritted the path to {place}.	夜里，{who}在通往{place}的路上撒了防滑砂。
+Overnight, {who} kept the stove going at {place}.	夜里，{who}一直让{place}的炉子烧着。
+Overnight, {who} hung a wreath on the door of {place}.	夜里，{who}在{place}的门上挂了一个花环。
+Down by {place}, you found {what}.	在{place}那边，你找到了{what}。
+You came across {what} near {place}.	你在{place}附近碰巧发现了{what}。
+By {place}, {what} turned up for your book.	在{place}旁，{what}出现了，正好收进你的本子。
+It's been a while since I wrote.	好久没给你写信了。
+I've a minute, so here's a note.	我有一会儿空，就写几句。
+Pen in hand at last.	终于提起笔来了。
+The kettle's on, so I'm writing.	水壶在烧着，我就趁空写信。
+A short one, I promise.	就写几句，保证不长。
+I meant to write sooner.	早就想给你写信了。
+Here's a little news.	有点小消息。
+Hello again.	又是我。
+Sitting by the window, thinking of you.	坐在窗边，想起了你。
+A note before the day gets going.	趁一天还没忙起来，写几句。
+Warmly, {name}.	{name}，致以温暖的问候。
+Look after yourself.	照顾好自己。
+Until next time.	下回再聊。
+Fondly, {name}.	惦记你的{name}。
+Keep well.	保重。
+With love from the {settlement}.	来自{settlement}的问候。
+Don't be a stranger.	常联系啊。
+All the best, {name}.	祝一切都好，{name}。
+Did you hear that {told}?	你听说了吗？{told}。
+Guess what: {told}.	你猜怎么着：{told}。
+Word is that {told}.	听说{told}。
+Here's a thing: {told}.	跟你说件事：{told}。
+Nothing much to report, except that {told}.	没什么可说的，除了{told}。
+As for me, {told}.	至于我嘛，{told}。
+The days roll on: {told}.	日子照样过：{told}。
+My news is small: {told}.	我的消息不大：{told}。
+Same as ever here, except that {told}.	这边还是老样子，只是{told}。
+I was remembering the time {told}.	我想起了那一回：{told}。
+Out of nowhere I thought of when {told}.	不知怎么，我忽然想起{told}的时候。
+Do you know what I keep coming back to?	你知道我老想起什么吗？
+The day {told}.	就是{told}的那天。
+It made me smile to think of when {told}.	想起{told}的时候，我笑了。
+I keep thinking about the day {act}.	我总想起{act}的那天。
+People are still talking about how {act}.	大家到现在还在说{act}的事。
+I walked past this morning and thought of the day {act}.	今早路过时，我想起了{act}的那天。
+I never thanked you properly for the day {act}.	{act}的那天，我一直没好好谢谢你。
+It's the little things, like the day {act}.	暖人心的都是小事，比如{act}的那天。
+A visitor asked me about the day {act}, and I told them all of it.	有位客人问起{act}的那天，我把来龙去脉都讲了。
+It still warms me to think of the day {act}.	一想到{act}的那天，我心里还是暖暖的。
+Not everyone would have bothered, but {act}.	不是谁都愿意费这个心，可是{act}。
+I keep coming back to what you said: “{words}”.	我总想起你说的那句：“{words}”。
+You said “{words}”, and you were right.	你说“{words}”，你说得对。
+What you said has stayed with me: “{words}”.	你的话一直留在我心里：“{words}”。
+Whenever things get muddled, I think of you saying “{words}”.	每当事情乱成一团，我就想起你说的“{words}”。
+I'm glad you said “{words}” when you did.	真高兴你当时说了“{words}”。
+People still bring up the time you said “{words}”.	大家现在还会提起你说“{words}”的那回。
+you did {name} a favour	你帮了{name}一个忙
+you did me a favour	你帮了我一个忙
+{first} sat a while on the {what} by {place}	{first}在{place}旁的{what}上坐了一会儿
+{first} watched the world go by from the {what} by {place}	{first}坐在{place}旁的{what}上看人来人往
+{first} ate lunch on the {what} by {place}	{first}在{place}旁的{what}上吃了午饭
+{first} took the weight off on the {what} by {place}	{first}在{place}旁的{what}上歇了歇脚
+{first} read the paper on the {what} by {place}	{first}在{place}旁的{what}上看报纸
+{first} and {other} lingered by the {what} after dark	天黑后{first}和{other}在{what}旁流连了好一阵
+{first} and {other} shared a flask under the {what}	{first}和{other}在{what}下分着喝了一壶热饮
+{first} and {other} put the world to rights under the {what}	{first}和{other}在{what}下天南海北地聊
+{first} read by the light of the {what}	{first}借着{what}的光看书
+{first} waited for the stars by the {what}	{first}在{what}旁等着星星出来
+{first} picked {gift} for you from the {what} you planted	{first}从你种的{what}里给你摘了{gift}
+{first} left {gift} from the {what} you planted on your step	{first}把你种的{what}结的{gift}放在了你门前

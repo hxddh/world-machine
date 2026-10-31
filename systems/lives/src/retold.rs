@@ -170,15 +170,24 @@ pub fn told_enough(world: &World, event: &Event, year: u64) -> bool {
 }
 
 /// The hands' deeds: something the player made, put up, planted, moved,
-/// gave or asked someone out to.
-const DEEDS: [&str; 6] = [
+/// named, gave or asked someone out to.
+pub(crate) const DEEDS: [&str; 7] = [
     "built_by_hand",
     "decorated_by_hand",
     "planted_by_hand",
     "moved_by_hand",
+    "named",
     "gift_given",
     "invited_out",
 ];
+
+/// A favour the player did someone who asked one.
+pub(crate) const FAVOUR_DONE: &str = "favour_done";
+
+/// How a letter tells of a favour the player did: for someone else, and
+/// for its writer.
+pub(crate) const DID_A_FAVOUR: &str = "you did {name} a favour";
+pub(crate) const DID_ME_A_FAVOUR: &str = "you did me a favour";
 
 /// What the player did, as a letter cites it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -191,7 +200,11 @@ pub enum Act {
 }
 
 /// What the player did, if `event` is a thing they did.
-fn act_of(state: &WorldState, event: &Event) -> Option<Act> {
+pub(crate) fn act_of(state: &WorldState, event: &Event) -> Option<Act> {
+    if event.kind == FAVOUR_DONE {
+        let asker = first_name(state, event.actor?);
+        return Some(Act::Deed(fill(DID_A_FAVOUR, &[("name", &asker)])));
+    }
     if DEEDS.contains(&event.kind.as_str()) {
         let told = match event.payload.get("told") {
             Some(Value::Text(told)) => told,

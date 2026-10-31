@@ -14,4 +14,8 @@ pocket-universe = { path = "../../worlds/pocket-universe" }
 [dev-dependencies]
 world-projection = { path = "../world-projection" }
 conversation = { path = "../../systems/conversation" }
+# The lines the mornings, letters and uses are told in, for the catalogs.
+ritual = { path = "../../systems/ritual" }
+lives = { path = "../../systems/lives" }
+hands = { path = "../../systems/hands" }
 world-persistence = { path = "../world-persistence" }

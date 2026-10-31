@@ -2294,3 +2294,162 @@ It's been a quiet day or two in {place}.	ここ一日二日、{place}は静か�
 It's been a quiet week or two in {place}.	ここ一、二週間、{place}は静かだったよ。
 It's been a quiet sol or two in {place}.	ここ一、二ソル、{place}は静かだったよ。
 It's been a quiet moon or two in {place}.	ここ一、二か月、{place}は静かだったよ。
+# Mornings by season, letters in turn and about the player, uses told in turn (1.0 P4).
+Overnight, {who} pulled the spring weeds from round your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のまわりから春の雑草を抜いてくれた。
+Overnight, {who} pulled the spring weeds from round your {thing}.	夜のうちに、{who}があなたの{thing}のまわりから春の雑草を抜いてくれた。
+Overnight, {who} pinched out the first buds of your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の最初のつぼみを摘んでくれた。
+Overnight, {who} pinched out the first buds of your {thing}.	夜のうちに、{who}があなたの{thing}の最初のつぼみを摘んでくれた。
+Overnight, {who} covered your {thing} by {place} against a late frost.	夜のうちに、{who}が遅霜にそなえて{place}のそばのあなたの{thing}を覆ってくれた。
+Overnight, {who} covered your {thing} against a late frost.	夜のうちに、{who}が遅霜にそなえてあなたの{thing}を覆ってくれた。
+Overnight, {who} carried water out to your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}まで水を運んでくれた。
+Overnight, {who} carried water out to your {thing}.	夜のうちに、{who}があなたの{thing}まで水を運んでくれた。
+Overnight, {who} shaded your {thing} by {place} from the heat.	夜のうちに、{who}が暑さよけに{place}のそばのあなたの{thing}に日よけをしてくれた。
+Overnight, {who} shaded your {thing} from the heat.	夜のうちに、{who}が暑さよけにあなたの{thing}に日よけをしてくれた。
+Overnight, {who} deadheaded your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の花がらを摘んでくれた。
+Overnight, {who} deadheaded your {thing}.	夜のうちに、{who}があなたの{thing}の花がらを摘んでくれた。
+Overnight, {who} raked the fallen leaves off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}から落ち葉をかき集めてくれた。
+Overnight, {who} raked the fallen leaves off your {thing}.	夜のうちに、{who}があなたの{thing}から落ち葉をかき集めてくれた。
+Overnight, {who} saved seed from your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}から種をとっておいてくれた。
+Overnight, {who} saved seed from your {thing}.	夜のうちに、{who}があなたの{thing}から種をとっておいてくれた。
+Overnight, {who} mulched round your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のまわりに敷きわらをしてくれた。
+Overnight, {who} mulched round your {thing}.	夜のうちに、{who}があなたの{thing}のまわりに敷きわらをしてくれた。
+Overnight, {who} wrapped your {thing} by {place} in sacking against the frost.	夜のうちに、{who}が霜よけに{place}のそばのあなたの{thing}を麻袋でくるんでくれた。
+Overnight, {who} wrapped your {thing} in sacking against the frost.	夜のうちに、{who}が霜よけにあなたの{thing}を麻袋でくるんでくれた。
+Overnight, {who} shook the snow off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の雪を払ってくれた。
+Overnight, {who} shook the snow off your {thing}.	夜のうちに、{who}があなたの{thing}の雪を払ってくれた。
+Overnight, {who} banked straw round your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のまわりにわらを積んでくれた。
+Overnight, {who} banked straw round your {thing}.	夜のうちに、{who}があなたの{thing}のまわりにわらを積んでくれた。
+Overnight, {who} scrubbed the winter grime off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}から冬のあいだの汚れを洗い落としてくれた。
+Overnight, {who} scrubbed the winter grime off your {thing}.	夜のうちに、{who}があなたの{thing}から冬のあいだの汚れを洗い落としてくれた。
+Overnight, {who} gave your {thing} by {place} a fresh coat of oil.	夜のうちに、{who}が{place}のそばのあなたの{thing}に油を塗りなおしてくれた。
+Overnight, {who} gave your {thing} a fresh coat of oil.	夜のうちに、{who}があなたの{thing}に油を塗りなおしてくれた。
+Overnight, {who} tightened the loose joints of your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のゆるんだ継ぎ目を締めなおしてくれた。
+Overnight, {who} tightened the loose joints of your {thing}.	夜のうちに、{who}があなたの{thing}のゆるんだ継ぎ目を締めなおしてくれた。
+Overnight, {who} wiped the dust off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のほこりをふいてくれた。
+Overnight, {who} wiped the dust off your {thing}.	夜のうちに、{who}があなたの{thing}のほこりをふいてくれた。
+Overnight, {who} touched up the paint on your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のペンキを塗りなおしてくれた。
+Overnight, {who} touched up the paint on your {thing}.	夜のうちに、{who}があなたの{thing}のペンキを塗りなおしてくれた。
+Overnight, {who} cleared the cobwebs from your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のクモの巣を払ってくれた。
+Overnight, {who} cleared the cobwebs from your {thing}.	夜のうちに、{who}があなたの{thing}のクモの巣を払ってくれた。
+Overnight, {who} swept the leaves off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の落ち葉を掃いてくれた。
+Overnight, {who} swept the leaves off your {thing}.	夜のうちに、{who}があなたの{thing}の落ち葉を掃いてくれた。
+Overnight, {who} dried off your {thing} by {place} after the rain.	夜のうちに、{who}が雨にぬれた{place}のそばのあなたの{thing}をふいて乾かしてくれた。
+Overnight, {who} dried off your {thing} after the rain.	夜のうちに、{who}が雨にぬれたあなたの{thing}をふいて乾かしてくれた。
+Overnight, {who} tarred the feet of your {thing} by {place} against the wet.	夜のうちに、{who}が湿気よけに{place}のそばのあなたの{thing}の脚にタールを塗ってくれた。
+Overnight, {who} tarred the feet of your {thing} against the wet.	夜のうちに、{who}が湿気よけにあなたの{thing}の脚にタールを塗ってくれた。
+Overnight, {who} cleared the snow off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の雪を下ろしてくれた。
+Overnight, {who} cleared the snow off your {thing}.	夜のうちに、{who}があなたの{thing}の雪を下ろしてくれた。
+Overnight, {who} knocked the ice off your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の氷をたたき落としてくれた。
+Overnight, {who} knocked the ice off your {thing}.	夜のうちに、{who}があなたの{thing}の氷をたたき落としてくれた。
+Overnight, {who} scattered grit round your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のまわりに滑り止めの砂をまいてくれた。
+Overnight, {who} scattered grit round your {thing}.	夜のうちに、{who}があなたの{thing}のまわりに滑り止めの砂をまいてくれた。
+Overnight, {who} tucked a sprig of blossom into your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}に花の小枝をさしてくれた。
+Overnight, {who} tucked a sprig of blossom into your {thing}.	夜のうちに、{who}があなたの{thing}に花の小枝をさしてくれた。
+Overnight, {who} rehung your {thing} at {place} after the spring winds.	夜のうちに、{who}が春風のあとで{place}のあなたの{thing}をかけなおしてくれた。
+Overnight, {who} rehung your {thing} after the spring winds.	夜のうちに、{who}が春風のあとであなたの{thing}をかけなおしてくれた。
+Overnight, {who} brushed the pollen off your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}の花粉を払ってくれた。
+Overnight, {who} brushed the pollen off your {thing}.	夜のうちに、{who}があなたの{thing}の花粉を払ってくれた。
+Overnight, {who} turned your {thing} at {place} out of the sun.	夜のうちに、{who}が{place}のあなたの{thing}を日に当たらない向きに変えてくれた。
+Overnight, {who} turned your {thing} out of the sun.	夜のうちに、{who}があなたの{thing}を日に当たらない向きに変えてくれた。
+Overnight, {who} wound fresh ribbon round your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}に新しいリボンを巻いてくれた。
+Overnight, {who} wound fresh ribbon round your {thing}.	夜のうちに、{who}があなたの{thing}に新しいリボンを巻いてくれた。
+Overnight, {who} shooed the wasps away from your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}からハチを追い払ってくれた。
+Overnight, {who} shooed the wasps away from your {thing}.	夜のうちに、{who}があなたの{thing}からハチを追い払ってくれた。
+Overnight, {who} picked the leaves out of your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}にからまった葉っぱを取ってくれた。
+Overnight, {who} picked the leaves out of your {thing}.	夜のうちに、{who}があなたの{thing}にからまった葉っぱを取ってくれた。
+Overnight, {who} weighted your {thing} at {place} against the gales.	夜のうちに、{who}が強風にそなえて{place}のあなたの{thing}に重しをしてくれた。
+Overnight, {who} weighted your {thing} against the gales.	夜のうちに、{who}が強風にそなえてあなたの{thing}に重しをしてくれた。
+Overnight, {who} hung a lantern by your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}のそばにランタンをつるしてくれた。
+Overnight, {who} hung a lantern by your {thing}.	夜のうちに、{who}があなたの{thing}のそばにランタンをつるしてくれた。
+Overnight, {who} brushed the frost off your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}の霜を払ってくれた。
+Overnight, {who} brushed the frost off your {thing}.	夜のうちに、{who}があなたの{thing}の霜を払ってくれた。
+Overnight, {who} put a sprig of holly on your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}にヒイラギの小枝を飾ってくれた。
+Overnight, {who} put a sprig of holly on your {thing}.	夜のうちに、{who}があなたの{thing}にヒイラギの小枝を飾ってくれた。
+Overnight, {who} shook the snow off your {thing} at {place}.	夜のうちに、{who}が{place}のあなたの{thing}の雪を払ってくれた。
+Overnight, {who} carried timber over for your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}のために材木を運んでくれた。
+Overnight, {who} carried timber over for your {thing}.	夜のうちに、{who}があなたの{thing}のために材木を運んでくれた。
+Overnight, {who} put up another beam of your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の梁をもう一本上げてくれた。
+Overnight, {who} put up another beam of your {thing}.	夜のうちに、{who}があなたの{thing}の梁をもう一本上げてくれた。
+Overnight, {who} checked every joint of your {thing} by {place}.	夜のうちに、{who}が{place}のそばのあなたの{thing}の継ぎ目をひとつ残らず確かめてくれた。
+Overnight, {who} checked every joint of your {thing}.	夜のうちに、{who}があなたの{thing}の継ぎ目をひとつ残らず確かめてくれた。
+Overnight, {who} oiled the hinges at {place}.	夜のうちに、{who}が{place}のちょうつがいに油をさしてくれた。
+Overnight, {who} wiped down the tables at {place}.	夜のうちに、{who}が{place}のテーブルをふいてくれた。
+Overnight, {who} washed the windows of {place}.	夜のうちに、{who}が{place}の窓をみがいてくれた。
+Overnight, {who} planted up a window box at {place}.	夜のうちに、{who}が{place}のプランターに花を植えてくれた。
+Overnight, {who} swept the blossom from the step of {place}.	夜のうちに、{who}が{place}の石段から花びらを掃いてくれた。
+Overnight, {who} propped the door of {place} open to let the spring in.	夜のうちに、{who}が春の空気が入るように{place}の扉を開けておいてくれた。
+Overnight, {who} watered the tubs outside {place}.	夜のうちに、{who}が{place}の外の鉢植えに水をやってくれた。
+Overnight, {who} put chairs out in the shade at {place}.	夜のうちに、{who}が{place}の日陰に椅子を出しておいてくれた。
+Overnight, {who} left a jug of cold water out at {place}.	夜のうちに、{who}が{place}に冷たい水の入った水差しを置いておいてくれた。
+Overnight, {who} hung the rugs of {place} out to air.	夜のうちに、{who}が{place}の敷物を外に干してくれた。
+Overnight, {who} raked the leaves from the step of {place}.	夜のうちに、{who}が{place}の石段の落ち葉をかき集めてくれた。
+Overnight, {who} stacked firewood by {place}.	夜のうちに、{who}が{place}のそばに薪を積んでくれた。
+Overnight, {who} cleared the gutters of {place}.	夜のうちに、{who}が{place}の雨どいを掃除してくれた。
+Overnight, {who} hung a lantern at {place} for the dark evenings.	夜のうちに、{who}が暗い夕暮れのために{place}にランタンをつるしてくれた。
+Overnight, {who} cleared the snow from the step of {place}.	夜のうちに、{who}が{place}の石段の雪をかいてくれた。
+Overnight, {who} gritted the path to {place}.	夜のうちに、{who}が{place}へ続く道に滑り止めの砂をまいてくれた。
+Overnight, {who} kept the stove going at {place}.	夜のうちに、{who}が{place}のストーブの火を絶やさずにいてくれた。
+Overnight, {who} hung a wreath on the door of {place}.	夜のうちに、{who}が{place}の扉にリースを飾ってくれた。
+Down by {place}, you found {what}.	{place}のあたりで、{what}を見つけた。
+You came across {what} near {place}.	{place}の近くで、ふと{what}に出会った。
+By {place}, {what} turned up for your book.	{place}のそばで{what}が見つかった。本に加えよう。
+It's been a while since I wrote.	しばらく手紙を書いてなかったね。
+I've a minute, so here's a note.	ちょっと時間ができたから、ひとこと書くね。
+Pen in hand at last.	やっとペンを取ったよ。
+The kettle's on, so I'm writing.	お湯をわかしてる間に書いてるよ。
+A short one, I promise.	短い手紙だよ、約束する。
+I meant to write sooner.	もっと早く書くつもりだったんだ。
+Here's a little news.	ちょっとした知らせだよ。
+Hello again.	また私だよ。
+Sitting by the window, thinking of you.	窓辺に座って、あなたのことを考えてたよ。
+A note before the day gets going.	一日が始まる前に、ひとこと。
+Warmly, {name}.	心をこめて、{name}より。
+Look after yourself.	体に気をつけてね。
+Until next time.	じゃあ、また今度。
+Fondly, {name}.	親愛をこめて、{name}より。
+Keep well.	元気でね。
+With love from the {settlement}.	{settlement}から愛をこめて。
+Don't be a stranger.	たまには顔を見せてね。
+All the best, {name}.	ではまた、{name}より。
+Did you hear that {told}?	聞いた？{told}んだって。
+Guess what: {told}.	ねえ聞いて、{told}んだよ。
+Word is that {told}.	うわさでは、{told}らしいよ。
+Here's a thing: {told}.	ひとつ知らせがあるの。{told}。
+Nothing much to report, except that {told}.	特に知らせはないけど、{told}くらいかな。
+As for me, {told}.	私はというと、{told}。
+The days roll on: {told}.	毎日はいつもどおり。{told}。
+My news is small: {told}.	ささやかな知らせだけど、{told}。
+Same as ever here, except that {told}.	こっちは相変わらずだよ。ただ、{told}。
+I was remembering the time {told}.	{told}ときのことを思い出してたんだ。
+Out of nowhere I thought of when {told}.	ふと、{told}ときのことを思い出したよ。
+Do you know what I keep coming back to?	何度も思い出すことがあるんだ。
+The day {told}.	{told}日のこと。
+It made me smile to think of when {told}.	{told}ときのことを思い出して、笑っちゃった。
+I keep thinking about the day {act}.	{act}日のことを、よく思い出すんだ。
+People are still talking about how {act}.	{act}こと、みんな今でも話してるよ。
+I walked past this morning and thought of the day {act}.	今朝そばを通って、{act}日のことを思い出したよ。
+I never thanked you properly for the day {act}.	{act}日のこと、ちゃんとお礼を言えてなかったね。
+It's the little things, like the day {act}.	うれしいのは小さなことなんだ。{act}日みたいなね。
+A visitor asked me about the day {act}, and I told them all of it.	{act}日のことをお客さんに聞かれて、全部話してあげたよ。
+It still warms me to think of the day {act}.	{act}日のことを思うと、今でも心があたたかくなるよ。
+Not everyone would have bothered, but {act}.	誰もがそこまでしてくれるわけじゃないのに、{act}よね。
+I keep coming back to what you said: “{words}”.	あなたが言った「{words}」って言葉、何度も思い返してるんだ。
+You said “{words}”, and you were right.	「{words}」ってあなたは言ったよね。その通りだった。
+What you said has stayed with me: “{words}”.	あなたの言葉がずっと心に残ってる。「{words}」って。
+Whenever things get muddled, I think of you saying “{words}”.	ややこしくなるたびに、あなたの「{words}」を思い出すの。
+I'm glad you said “{words}” when you did.	あのとき「{words}」と言ってくれて、よかった。
+People still bring up the time you said “{words}”.	あなたが「{words}」と言ったときのこと、みんな今でも話題にするよ。
+you did {name} a favour	{name}の頼みを聞いてくれた
+you did me a favour	私の頼みを聞いてくれた
+{first} sat a while on the {what} by {place}	{first}は{place}のそばの{what}にしばらく腰かけていた
+{first} watched the world go by from the {what} by {place}	{first}は{place}のそばの{what}から行き交う人をながめていた
+{first} ate lunch on the {what} by {place}	{first}は{place}のそばの{what}でお昼を食べた
+{first} took the weight off on the {what} by {place}	{first}は{place}のそばの{what}で足を休めた
+{first} read the paper on the {what} by {place}	{first}は{place}のそばの{what}で新聞を読んだ
+{first} and {other} lingered by the {what} after dark	{first}と{other}は日が暮れてからも{what}のそばにいた
+{first} and {other} shared a flask under the {what}	{first}と{other}は{what}の下で水筒の飲み物を分けあった
+{first} and {other} put the world to rights under the {what}	{first}と{other}は{what}の下で世の中のことを語りあった
+{first} read by the light of the {what}	{first}は{what}の明かりで本を読んだ
+{first} waited for the stars by the {what}	{first}は{what}のそばで星が出るのを待った
+{first} picked {gift} for you from the {what} you planted	{first}は、あなたが植えた{what}から{gift}を摘んでくれた
+{first} left {gift} from the {what} you planted on your step	{first}は、あなたが植えた{what}の{gift}を玄関先に置いていってくれた

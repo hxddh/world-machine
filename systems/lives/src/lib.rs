@@ -29,6 +29,7 @@ pub use generations::{
     looks_at, looks_of, memorial_request, parents, Kin, KinWords, Memorial, Stage,
 };
 
+mod about;
 mod answers;
 pub use answers::answer_label;
 mod drawn;
@@ -48,11 +49,14 @@ mod quiet;
 pub mod scanned;
 pub mod shown;
 mod suggest;
+pub use about::about_you_lines;
 pub use host::{
     guests_staying, host_guest, host_guest_with, GuestWords, Staying, GUEST_STAY_PERIODS,
     MOST_GUEST_TEXT,
 };
-pub use quiet::{firsts, firsts_count, morning_letter, welcome_back, Corner, QuietDays, Subject};
+pub use quiet::{
+    firsts, firsts_count, letter_leads, morning_letter, welcome_back, Corner, QuietDays, Subject,
+};
 mod bonds;
 mod days;
 mod letters;
