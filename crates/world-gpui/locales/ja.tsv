@@ -184,7 +184,6 @@ Choose another saved World to compare · {count} available	比べる保存済み
 Could not compare saved Worlds: {error}	保存したワールドを比べられませんでした：{error}
 Opened Branches · {count} Worlds	分岐を開きました · ワールド{count}件
 Could not open Branches: {error}	分岐を開けませんでした：{error}
-The World Analyst needs Node and the Pi runtime installed on this Mac.	ワールドアナリストを使うには、このMacにNodeとPiの実行環境が必要です。
 Opened the World Analyst	ワールドアナリストを開きました
 Could not open the Analyst: {error}	アナリストを開けませんでした：{error}
 A new World	新しいワールド
@@ -237,8 +236,6 @@ Use Install Pack… to add that exact version.	「パックをインストール
 Could not read World Library: {error}	ワールドライブラリを読み込めませんでした：{error}
 Could not show this World's branches: {error}	このワールドの分岐を表示できませんでした：{error}
 My Worlds · {count} World(s)	マイワールド · {count}件
-{title} lived {} while you were away	留守の間に、{title}では{}が過ぎました
-Opened {title}, but the time you were away could not be caught up: {error}	{title}を開きましたが、留守の間の時間を進められませんでした：{error}
 Could not open {title}: {error}	{title}を開けませんでした：{error}
 Could not create {title}: {error}	{title}を作れませんでした：{error}
 Could not open {}: choose a {} document or {} Pack	{}を開けませんでした：{}の書類か{}のパックを選んでください
@@ -376,21 +373,21 @@ Strategy · {choice_title} · {horizon} periods	方針 · {choice_title} · {hor
 Branch · {label}	分岐 · {label}
 Paste an API key…	APIキーを貼り付け…
 Off.	オフ。
-Worlds read from the app's own copy, and nothing leaves this Mac.	ワールドはアプリ内蔵の言葉で語り、このMacの外には何も送られません。
+Worlds read from the app's own copy, and nothing leaves this computer.	ワールドはアプリ内蔵の言葉で語り、このコンピュータの外には何も送られません。
 On, through {}.	オン（{}を使用）。
 On, but no program is chosen, so Worlds still read from the app's copy.	オンですが、プログラムが選ばれていないため、ワールドはアプリ内蔵の言葉で語ります。
 On, through your API key.	オン（あなたのAPIキーを使用）。
 On, but no key is stored, so Worlds still read from the app's copy.	オンですが、キーが保存されていないため、ワールドはアプリ内蔵の言葉で語ります。
 World Machine Settings	World Machineの設定
-Let Worlds speak for themselves	ワールドに自分の言葉で語らせる
-Coming back, a World tells you what happened in its own words.	戻ってきたとき、何があったかをワールドが自分の言葉で話してくれます。
+Let an AI write residents' answers	住人の返事をAIに書かせる
+Experimental, and off unless you turn it on.	試験的な機能で、オンにしない限りオフのままです。
 World voice	ワールドの声
-Stays on this Mac · {}	このMacの中だけ · {}
-Stays on this Mac · choose one in Analyst settings	このMacの中だけ · アナリスト設定で選んでください
-Each return is sent to your provider · key stored	戻るたびにプロバイダへ送信されます · キー保存済み
-Each return is sent to your provider	戻るたびにプロバイダへ送信されます
+Stays on this computer · {}	このコンピュータの中だけ · {}
+Stays on this computer · choose the program below	このコンピュータの中だけ · 下でプログラムを選んでください
+What you say to someone is sent to your provider · key stored	住人に話しかけた言葉がプロバイダへ送信されます · キー保存済み
+What you say to someone is sent to your provider	住人に話しかけた言葉がプロバイダへ送信されます
 Where the voice comes from	声の出どころ
-A program on this Mac	このMac上のプログラム
+A program on this computer	このコンピュータ上のプログラム
 An API key	APIキー
 Save key	キーを保存
 Forget key	キーを削除
@@ -416,7 +413,7 @@ Voices	声
 Everyone's own babble as they speak	話すときの、ひとりひとりのおしゃべり
 Ticks and bells	効果音と鐘
 Cards turning, turns passing, things built	カードをめくる音、時が進む音、何かができあがる音
-Only an API key sends anything off this Mac: what a World has recorded, once per return.	このMacの外に何かを送るのはAPIキーを使うときだけです。送るのはワールドが記録した内容で、戻るたびに一度だけです。
+Only an API key sends anything off this computer: what you say to someone, and the facts of the World their answer needs.	このコンピュータの外に何かを送るのはAPIキーを使うときだけです。送るのは住人に話しかけた言葉と、答えに必要なワールドの事実です。
 Worlds already open keep the voice they opened with.	すでに開いているワールドは、開いたときの声のままです。
 Sound	サウンド
 The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.	手前のワールドでは、その土地の音楽と風景の音が流れ、人々はそれぞれの声で話し、カードや時の進みや建設にもささやかな音がつきます。
@@ -756,7 +753,7 @@ Peat	泥炭色
 Display	表示
 Language	言語
 Text size	文字の大きさ
-Follow the Mac	Macの設定に従う
+Follow the system	システムの設定に従う
 The app and the Worlds that come with it.	アプリと、同梱のワールド。
 Everything written, from cards to speech.	カードからせりふまで、すべての文字。
 Increase contrast	コントラストを上げる
@@ -827,7 +824,7 @@ Postcard saved to Pictures	絵はがきを「ピクチャ」に保存しまし�
 Couldn't save the postcard	絵はがきを保存できませんでした
 Keeping the postcard…	絵はがきを残しています…
 Add to your wishlist	ウィッシュリストに追加
-The town lived on without you. The demo skips the wait; the full game lives a day for every six hours you're away.	あなたがいない間も、町はいつもどおり暮らしていました。デモでは待ち時間を省いています。製品版では、離れている6時間ごとに町で1日が過ぎます。
+The demo skips a few days ahead. In the full game nothing passes while you're away: each day you come back brings one new day.	デモでは数日先へ飛ばしています。製品版では、離れている間は何も進みません。戻ってくる日ごとに、新しい一日がひとつ来ます。
 World voice is on: an AI model is writing this answer. The World decides what happens.	ワールドの声がオン：この答えは AI モデルが書いています。何が起きるかはワールドが決めます。
 Written by AI	AI が書いた言葉
 Reported	報告済み
@@ -883,3 +880,8 @@ Couldn't save the World code.	ワールドコードを保存できませんで�
 Couldn't save this World.	このワールドを保存できませんでした。
 Couldn't export this World.	このワールドを書き出せませんでした。
 Couldn't open that World file.	そのワールドファイルを開けませんでした。
+When it is on, an AI model writes what residents answer to what you say; the World still decides what happens.	オンにすると、あなたの言葉への住人の返事をAIモデルが書きます。何が起きるかは、これまでどおりワールドが決めます。
+The key goes into Windows Credential Manager, never into a file.	キーはファイルではなく、Windowsの資格情報マネージャーに保存されます。
+This system has no key store, so a key cannot be kept here.	このシステムにはキーの保存場所がないため、ここではキーを保存できません。
+Who from {world} will visit?	{world}から誰が訪ねてくる？
+{name} (visit) — World Machine	{name}（訪問）— World Machine

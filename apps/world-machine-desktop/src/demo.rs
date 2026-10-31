@@ -452,8 +452,9 @@ pub const WISHLIST_URL: &str = match option_env!("WORLD_MACHINE_WISHLIST_URL") {
 };
 
 /// What the window says when the demo lets the World live days away: it
-/// says the demo skipped the wait, and what the full game does instead.
-pub const AWAY_NOTE: &str = "The town lived on without you. The demo skips the wait; the full game lives a day for every six hours you're away.";
+/// says the demo skipped ahead, and that the full game never passes time
+/// while the player is away.
+pub const AWAY_NOTE: &str = "The demo skips a few days ahead. In the full game nothing passes while you're away: each day you come back brings one new day.";
 
 #[cfg(test)]
 mod tests {

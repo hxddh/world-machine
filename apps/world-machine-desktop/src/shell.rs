@@ -272,6 +272,16 @@ pub fn privacy_line(os: Os) -> &'static str {
     }
 }
 
+/// What Settings says of where an API key is kept: each system's own
+/// store by name, and plainly that there is none where there is none.
+pub fn key_store_line(os: Os) -> &'static str {
+    match os {
+        Os::Mac => "The key goes into your login keychain, never into a file.",
+        Os::Windows => "The key goes into Windows Credential Manager, never into a file.",
+        Os::Other => "This system has no key store, so a key cannot be kept here.",
+    }
+}
+
 /// The short in-app Help page: how a World is played, a line each.
 pub const HELP_LINES: &[&str] = &[
     "Each day you come back, your World lives one more day. It is saved as you play.",
@@ -292,6 +302,7 @@ pub fn every_line(os: Os) -> Vec<&'static str> {
         "More help",
         show_log_label(os),
         privacy_line(os),
+        key_store_line(os),
     ];
     for choice in title_choices(true) {
         lines.push(choice.label());

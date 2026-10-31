@@ -358,7 +358,8 @@ impl SettingsView {
         if !self.voice_on {
             return (
                 "off",
-                "Off. Worlds read from the app's own copy, and nothing leaves this Mac.".into(),
+                "Off. Worlds read from the app's own copy, and nothing leaves this computer."
+                    .into(),
             );
         }
         match self.source {
@@ -511,7 +512,7 @@ impl Render for SettingsView {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
-        window.set_window_title("World Machine Settings");
+        window.set_window_title(&ui::t("World Machine Settings"));
 
         let on = self.voice_on;
         let source = self.source;
@@ -527,14 +528,14 @@ impl Render for SettingsView {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .child(ui::row_title("Let Worlds speak for themselves"))
+                        .child(ui::row_title("Let an AI write residents' answers"))
                         .child(ui::caption(
-                            "Coming back, a World tells you what happened in its own words.",
+                            "Experimental, and off unless you turn it on. When it is on, an AI model writes what residents answer to what you say; the World still decides what happens.",
                         )),
                 )
                 .child(
                     switch("world-voice-switch", on)
-                        .aria_label(ui::t("Let Worlds speak for themselves"))
+                        .aria_label(ui::t("Let an AI write residents' answers"))
                         .on_click(cx.listener(move |this, _, _, cx| this.set_voice(!on, cx))),
                 ),
         );
@@ -554,13 +555,13 @@ impl Render for SettingsView {
 
         if on {
             let program_fact = match self.program.as_deref() {
-                Some(program) => format!("Stays on this Mac · {}", program_name(program)),
-                None => "Stays on this Mac · choose the program below".into(),
+                Some(program) => format!("Stays on this computer · {}", program_name(program)),
+                None => "Stays on this computer · choose the program below".into(),
             };
             let key_fact = if self.key_stored {
-                "Each return is sent to your provider · key stored".to_string()
+                "What you say to someone is sent to your provider · key stored".to_string()
             } else {
-                "Each return is sent to your provider".to_string()
+                "What you say to someone is sent to your provider".to_string()
             };
             let mut sources = group()
                 .child(ui::section_label("Where the voice comes from"))
@@ -572,7 +573,7 @@ impl Render for SettingsView {
                             source_tile(
                                 "world-voice-program",
                                 "⌂",
-                                "A program on this Mac",
+                                "A program on this computer",
                                 program_fact,
                                 matches!(source, VoiceSource::Program),
                             )
@@ -650,9 +651,9 @@ impl Render for SettingsView {
                 sources = sources
                     .child(div().w_full().child(self.key_input.clone()))
                     .child(actions)
-                    .child(ui::caption(
-                        "The key goes into your login keychain, never into a file.",
-                    ))
+                    .child(ui::caption(world_machine_desktop::shell::key_store_line(
+                        world_machine_desktop::shell::Os::current(),
+                    )))
                     .child(ui::section_label("Claude model"))
                     .child(
                         div()
@@ -822,7 +823,7 @@ impl Render for SettingsView {
             );
         }
         page.child(ui::caption(
-            "Only an API key sends anything off this Mac: what a World has recorded, once per return. Worlds already open keep the voice they opened with.",
+            "Only an API key sends anything off this computer: what you say to someone, and the facts of the World their answer needs. Worlds already open keep the voice they opened with.",
         ))
         .child(div().pt_4().child(ui::page_title("Sound")))
         .child(
@@ -895,7 +896,7 @@ impl SettingsView {
         };
         let mut languages = div().flex().flex_wrap().gap_2();
         for (index, (id, label)) in [
-            (None, ui::t("Follow the Mac").to_string()),
+            (None, ui::t("Follow the system").to_string()),
             (Some("en"), "English".to_string()),
             (Some("zh-Hans"), "简体中文".to_string()),
             (Some("ja"), "日本語".to_string()),

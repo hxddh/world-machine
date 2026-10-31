@@ -285,7 +285,7 @@ impl Render for AboutView {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
-        window.set_window_title("About World Machine");
+        window.set_window_title(&ui::t("About World Machine"));
         if window.focused(cx).is_none() {
             window.focus(&self.focus, cx);
         }
@@ -323,7 +323,7 @@ impl Render for AboutView {
                 div()
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("Small worlds that grow a day at a time."),
+                    .child(ui::t("Small worlds that grow a day at a time.")),
             )
             .child(div().text_sm().child(build_info::display_label()))
             // Only a Mac asks Apple about the app.
@@ -350,8 +350,11 @@ impl Render for AboutView {
                     .gap_1()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child(format!("Worlds: {library}"))
-                    .child(format!("Log: {log}")),
+                    .child(world_gpui::i18n::fill(
+                        "Worlds: {library}",
+                        &[("library", &library)],
+                    ))
+                    .child(world_gpui::i18n::fill("Log: {log}", &[("log", &log)])),
             )
             .child(
                 div()

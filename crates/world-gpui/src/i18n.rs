@@ -578,19 +578,6 @@ pub fn count_of(count: u64, unit: &str) -> String {
     }
 }
 
-/// "3 days have passed": how long a World lived while the player was
-/// away.
-pub fn time_passed(periods: u64, unit: &str) -> String {
-    if chinese() {
-        return format!("已过去 {}", count_of(periods, unit));
-    }
-    if japanese() {
-        return format!("{}が過ぎました", count_of(periods, unit));
-    }
-    let verb = if periods == 1 { "has" } else { "have" };
-    format!("{} {verb} passed", count_of(periods, unit))
-}
-
 /// What a World is doing, as its window's title bar says it (v0.30 S4).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Rest {
@@ -733,7 +720,6 @@ mod tests {
         set_thread_language(Some(Language::English));
         assert_eq!(moment_label(&calendar("Day"), 10820), "Day 1082");
         assert_eq!(moment_label(&calendar("Sol"), 50), "Sol 5");
-        assert_eq!(time_passed(3, "night"), "3 nights have passed");
         assert_eq!(
             keeps_going(5 * 3600 + 10, "sol", Rest::Waits),
             "Waits for you · a new sol in 6 h"
@@ -757,7 +743,6 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 1560), "第156个火星日");
         assert_eq!(moment_label(&calendar("Night"), 1200), "第120夜");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
-        assert_eq!(time_passed(5, "day"), "已过去 5 天");
         let line = keeps_going(6 * 3600, "day", Rest::Waits);
         assert_eq!(line, "在等你 · 6 小时后便是新的一天");
         assert_eq!(
@@ -779,7 +764,6 @@ mod tests {
         assert_eq!(moment_label(&calendar("Day"), 10820), "1082日目");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
-        assert_eq!(time_passed(5, "day"), "5日が過ぎました");
         let line = keeps_going(6 * 3600, "day", Rest::Waits);
         assert_eq!(line, "あなたを待っています · あと6時間で新しい一日");
         assert!(!keeps_going(6 * 3600, "day", Rest::HeadingHome)

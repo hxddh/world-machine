@@ -282,7 +282,10 @@ impl WorldDocumentView {
             },
             move |window, cx| {
                 watch_appearance(window);
-                window.set_window_title(&format!("Who from {world} will visit?"));
+                window.set_window_title(&world_gpui::i18n::fill(
+                    "Who from {world} will visit?",
+                    &[("world", &world)],
+                ));
                 cx.new(|_| FriendPicker {
                     document,
                     world,
@@ -705,7 +708,10 @@ impl Render for WorldVisitView {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
         window.set_rem_size(gpui::px(world_gpui::rem_size()));
-        window.set_window_title(&format!("{} (visit) — World Machine", self.name));
+        window.set_window_title(&world_gpui::i18n::fill(
+            "{name} (visit) — World Machine",
+            &[("name", &self.name)],
+        ));
         let identity = div()
             .flex_1()
             .min_w(px(0.0))
