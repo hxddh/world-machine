@@ -23,14 +23,15 @@
 #   scripts/release-shots.sh [out-dir] [scenario...]
 #
 # Scenarios (all of them when none is named). A World moves one of its
-# days a sitting (three on its first), on the sitting ledger its file
+# days a sitting (six on its first), on the sitting ledger its file
 # carries; each scenario starts on a library of its own, so a harbour the
 # harness wrote opens on its first sitting, with its morning card:
 #   first     a new World from an empty library: the title screen, New
 #             chosen with Enter, the first ten seconds,
 #             second by second, the welcome (no morning on the harbour's
 #             first day), the free wildflowers, then the first sitting's
-#             three days played card by card to its Goodnight, and the
+#             six days played card by card (each later day opening on its
+#             morning, begun with Enter) to its Goodnight, and the
 #             World asleep (Enter passes no more days);
 #   find      a harbour on the day of a favour: the morning put away, Find,
 #             and the camera's landing 0.3, 1.0 and 2.5 s after it began
