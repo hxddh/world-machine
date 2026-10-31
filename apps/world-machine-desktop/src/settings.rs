@@ -502,13 +502,8 @@ impl SettingsView {
             (_, None) => {}
         }
         // The controls can change under the focus (sound or the voice
-        // turned off): it stays on the same control where it can.
-        if let Some(control) = focused.copied() {
-            if let Some(at) = self.controls().iter().position(|each| *each == control) {
-                self.focused = at;
-            }
-        }
-        self.focused = self.focused.min(self.controls().len().saturating_sub(1));
+        // turned off): a change stays on its control; a move goes on.
+        self.focused = settings_plan::refocus(does, focused, self.focused, &self.controls());
         cx.stop_propagation();
         cx.notify();
     }

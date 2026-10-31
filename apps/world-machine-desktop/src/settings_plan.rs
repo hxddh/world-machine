@@ -208,6 +208,18 @@ pub fn key_does(key: &str, shift: bool) -> Option<KeyDoes> {
     }
 }
 
+/// Where the focus stands after a key: a move goes where it went; a change
+/// that may have changed the controls (sound or the voice turned off)
+/// stays on the control it was on wherever that now stands, and on the
+/// nearest one if it is gone.
+pub fn refocus<T: PartialEq>(does: KeyDoes, was: Option<&T>, at: usize, after: &[T]) -> usize {
+    let at = match (does, was) {
+        (KeyDoes::Move(_), _) | (_, None) => at,
+        (_, Some(was)) => after.iter().position(|each| each == was).unwrap_or(at),
+    };
+    at.min(after.len().saturating_sub(1))
+}
+
 /// How far one step moves a level.
 pub const LEVEL_STEP: u8 = 10;
 
@@ -276,6 +288,29 @@ pub fn every_line() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Up, Down and Tab leave the control they were on (P6a review: the
+    /// focus was put back on it, and never left Sound); a change keeps the
+    /// focus on its control as the list changes under it.
+    #[test]
+    fn the_keys_walk_the_controls_and_a_change_keeps_its_place() {
+        let all = controls(true, true);
+        let first = all[0];
+        let moved = crate::shell::step(all.len(), 0, Step::Forward);
+        assert_eq!(moved, 1);
+        assert_eq!(
+            refocus(KeyDoes::Move(Step::Forward), Some(&first), moved, &all),
+            1
+        );
+        // Sound turned off: the controls after the levels move up, and the
+        // focus stays on the same control.
+        let fewer = controls(false, true);
+        let language = all.iter().position(|c| *c == Control::Language).unwrap();
+        let now = refocus(KeyDoes::Toggle, Some(&Control::Language), language, &fewer);
+        assert_eq!(fewer[now], Control::Language);
+        // A control that is gone: the nearest that is left.
+        assert!(refocus(KeyDoes::Toggle, Some(&first), all.len() - 1, &fewer) < fewer.len());
+    }
 
     #[test]
     fn the_controls_follow_the_sections_in_order() {
