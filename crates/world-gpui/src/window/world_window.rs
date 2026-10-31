@@ -313,8 +313,8 @@ pub(crate) struct Looking {
     /// for it.
     pub(crate) painted: bool,
     /// Whoever the window opened on to welcome the player, and where it
-    /// put the camera for them.
-    pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// put the camera for them: its pan and its zoom.
+    pub(crate) welcome_pan: Option<(SelectionId, f32, f32)>,
     /// Whose line the window opened on, which is said first: the window
     /// opens where the most people are round whoever speaks
     /// ([`super::arrival::opening_voice`]).

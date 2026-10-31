@@ -318,13 +318,14 @@ impl ProjectionView {
             self.looking.opening = Some(Instant::now());
         }
         // Kept on the welcome while the window settles its size, until the
-        // player pans away.
-        if let Some((_, at)) = self.looking.welcome_pan {
-            if self.looking.pan != Some(at) {
+        // player pans or zooms away (a zoom round the middle leaves the pan
+        // where it was).
+        if let Some((_, at, zoom)) = self.looking.welcome_pan {
+            if self.looking.pan != Some(at) || self.looking.zoom != zoom {
                 self.looking.welcome_pan = None;
             } else if let Some((who, x)) = self.rest_opening(stage) {
                 let x = self.open_on(stage, who, x);
-                self.looking.welcome_pan = Some((who, x));
+                self.looking.welcome_pan = Some((who, x, self.looking.zoom));
             }
             return;
         }
@@ -338,7 +339,7 @@ impl ProjectionView {
         // the most people anywhere: never on an empty road.
         if let Some((who, x)) = self.rest_opening(stage) {
             let x = self.open_on(stage, who, x);
-            self.looking.welcome_pan = Some((who, x));
+            self.looking.welcome_pan = Some((who, x, self.looking.zoom));
             self.looking.opener = Some(who);
         }
     }

@@ -799,9 +799,9 @@ impl ProjectionView {
             root = root.child(night);
         }
         // The handles, the gauges and the zoom quieten at rest (1.0 P5).
-        let chrome = self.chrome_now(pointing.is_some(), still);
-        if chrome < 1.0 && !still {
-            window.request_animation_frame();
+        let (chrome, fading) = self.chrome_now(pointing.is_some(), still);
+        if fading {
+            self.request_frame(window, cx);
         }
         root = root.child(self.render_hud(pointing, cx).opacity(chrome));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {

@@ -36,6 +36,13 @@ pub(crate) fn chrome_opacity(idle: f32, held: bool, still: bool) -> f32 {
     1.0 - (1.0 - QUIET_OPACITY) * eased
 }
 
+/// Whether the interface is still on its way to quiet `idle` seconds after
+/// the player last touched anything: a frame is wanted only then, never
+/// once it has settled (whole or quiet).
+pub(crate) fn chrome_fading(idle: f32, held: bool, still: bool) -> bool {
+    !held && !still && (QUIET_AFTER..QUIET_AFTER + QUIET_FADE).contains(&idle)
+}
+
 impl ProjectionView {
     /// The player touched the mouse or the keys: the interface is back.
     /// Asks for a frame only when it was quiet, so a moving mouse draws
@@ -73,15 +80,37 @@ impl ProjectionView {
             || self.retelling.is_some()
     }
 
-    /// How much of the interface shows this frame.
-    pub(super) fn chrome_now(&self, pointing: bool, still: bool) -> f32 {
-        chrome_opacity(self.idle_seconds(), self.chrome_held(pointing), still)
+    /// How much of the interface shows this frame, and whether it is
+    /// still fading (and wants another frame).
+    pub(super) fn chrome_now(&self, pointing: bool, still: bool) -> (f32, bool) {
+        let (idle, held) = (self.idle_seconds(), self.chrome_held(pointing));
+        (
+            chrome_opacity(idle, held, still),
+            chrome_fading(idle, held, still),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_is_wanted_only_while_the_interface_fades() {
+        // Whole, held or settled at quiet: no frame is asked for, so an
+        // idle window keeps its frame cap and rests when inactive.
+        for idle in [0.0, QUIET_AFTER - 0.01, QUIET_AFTER + QUIET_FADE, 600.0] {
+            assert!(!chrome_fading(idle, false, false), "{idle}");
+        }
+        for idle in [QUIET_AFTER, QUIET_AFTER + QUIET_FADE / 2.0] {
+            assert!(chrome_fading(idle, false, false), "{idle}");
+            assert!(!chrome_fading(idle, true, false), "{idle} held");
+            assert!(!chrome_fading(idle, false, true), "{idle} still");
+        }
+        // Settled at quiet, the opacity is below whole: that alone is no
+        // reason for another frame.
+        assert!(chrome_opacity(600.0, false, false) < 1.0);
+    }
 
     #[test]
     fn the_interface_is_whole_until_left_alone() {

@@ -1392,3 +1392,37 @@ fn chips_stand_under_the_talk_and_a_click_asks_one(cx: &mut gpui::TestAppContext
         settle(cx);
     }
 }
+
+/// A first day that opens pulled back (the ice place) keeps the welcome
+/// framing only until the player moves the camera: a press of the zoom,
+/// round the middle of the view, leaves the pan where it was, and the
+/// window must not take the zoom back to the welcome on its next frame.
+#[test]
+fn a_zoom_from_the_first_frame_is_kept() {
+    let wire: world_pack_protocol::ProjectionSnapshotWire =
+        serde_json::from_str(include_str!("../../../tests/fixtures/first-ice.json"))
+            .expect("a wire snapshot");
+    let snapshot = ProjectionSnapshot::try_from(wire).expect("a snapshot");
+    let stage = diorama::stage_at(&snapshot, 1100.0, 848.0, diorama::Clock::at(10));
+    let mut view = ProjectionView::new(snapshot);
+    view.notice_paint(&stage, false);
+    let opened = view.looking.zoom;
+    assert!(
+        view.looking.welcome_pan.is_some(),
+        "the window opens on the welcome"
+    );
+    assert!(opened > 0.0, "the ice place's first frame is pulled back");
+    let camera = view.free_target(&stage);
+    let middle = (stage.view_w / 2.0, stage.height / 2.0);
+    for factor in [ZOOM_STEP, 1.0 / ZOOM_STEP] {
+        let before = view.looking.zoom;
+        assert!(view.zoom_at(&stage, camera, factor, middle), "{factor}");
+        let zoomed = view.looking.zoom;
+        assert_ne!(zoomed, before, "{factor}");
+        view.notice_paint(&stage, true);
+        assert_eq!(view.looking.zoom, zoomed, "the zoom by {factor} is kept");
+        assert!(view.looking.welcome_pan.is_none());
+        view.notice_paint(&stage, true);
+        assert_eq!(view.looking.zoom, zoomed, "and stays");
+    }
+}
