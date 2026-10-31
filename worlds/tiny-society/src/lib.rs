@@ -11,12 +11,14 @@ mod arrival;
 mod art_tests;
 mod behaviors;
 mod book;
+mod chapters;
 mod drawings;
 mod drift;
 #[cfg(test)]
 mod exploit_tests;
 #[cfg(test)]
 mod favours_tests;
+mod finds;
 #[cfg(test)]
 mod first_minutes;
 mod firsts;
@@ -1062,5 +1064,7 @@ mod friendship;
 mod long_run;
 #[cfg(test)]
 mod stories_tests;
+#[cfg(test)]
+mod summaries_tests;
 #[cfg(test)]
 mod tests;

@@ -909,37 +909,41 @@ const MARS_NAMES: &[&str] = &[
 
 /// What a sitting's morning can turn up for the book (v0.30 S4), in the
 /// order it turns up, each once: small things any of the places keeps.
-pub(crate) const FINDS: &[&str] = &[
-    "a smooth grey pebble",
-    "a lost button",
-    "a folded paper star",
-    "a tiny brass bell",
-    "a glass marble",
-    "a key on a ribbon",
-    "a pressed flower",
-    "a wind-up toy",
-    "a postcard with no stamp",
-    "a blue glass bead",
-    "a pencil stub",
-    "a hair ribbon",
-    "a bent spoon",
-    "a little tin box",
-    "a lucky coin",
-    "a seed packet",
-    "a crayon drawing",
-    "a whistle on a cord",
-    "a thimble",
-    "a spinning top",
-    "a striped sock",
-    "a paper crown",
-    "a cracked compass",
-    "a jar of buttons",
-    "a hand-drawn map",
+pub(crate) const FINDS: &[ritual::Find] = &[
+    ritual::Find::any("a smooth grey pebble"),
+    ritual::Find::any("a lost button"),
+    ritual::Find::any("a folded paper star"),
+    ritual::Find::any("a tiny brass bell"),
+    ritual::Find::any("a glass marble"),
+    ritual::Find::any("a key on a ribbon"),
+    ritual::Find::any("a pressed flower"),
+    ritual::Find::any("a wind-up toy"),
+    ritual::Find::any("a postcard with no stamp"),
+    ritual::Find::any("a blue glass bead"),
+    ritual::Find::any("a pencil stub"),
+    ritual::Find::any("a hair ribbon"),
+    ritual::Find::any("a bent spoon"),
+    ritual::Find::any("a little tin box"),
+    ritual::Find::any("a lucky coin"),
+    ritual::Find::any("a seed packet"),
+    ritual::Find::any("a crayon drawing"),
+    ritual::Find::any("a whistle on a cord"),
+    ritual::Find::any("a thimble"),
+    ritual::Find::any("a spinning top"),
+    ritual::Find::any("a striped sock"),
+    ritual::Find::any("a paper crown"),
+    ritual::Find::any("a cracked compass"),
+    ritual::Find::any("a jar of buttons"),
+    ritual::Find::any("a hand-drawn map"),
 ];
 
 /// The morning as this World keeps it: its people, and its finds.
 pub(crate) fn rite() -> ritual::Rite {
-    ritual::Rite { cast, finds: FINDS }
+    ritual::Rite {
+        cast,
+        finds: FINDS,
+        season: ritual::no_seasons,
+    }
 }
 
 /// The cast as the World stands, worked out once for each way it stands:

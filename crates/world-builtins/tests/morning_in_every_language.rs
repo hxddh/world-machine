@@ -117,3 +117,99 @@ fn a_colony_morning_reads_whole_in_chinese_and_japanese() {
     let wrong = untranslated(&mornings);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+/// A harbour's first month of mornings, played as a player plays it: each
+/// day they answer what they are asked, every third day make something,
+/// and the day passes. Every letter (a good share of them about what the
+/// player did), everything looked after in the season's way, and every
+/// find of the book reads whole in Chinese and in Japanese.
+#[test]
+fn a_month_of_harbour_mornings_reads_whole_in_chinese_and_japanese() {
+    let mut branch = TinySocietyBranch::new_world().unwrap();
+    let mut mornings = Vec::new();
+    for day in 1..=35_u64 {
+        let snapshot = branch.projection_snapshot();
+        if let Some(answer) = snapshot.commands.iter().find(|command| {
+            command.question.is_some()
+                && command.unavailable.is_none()
+                && command.role != Some(CommandRole::PassesTime)
+        }) {
+            let _ = branch.invoke_projection_command(&answer.id.clone());
+        }
+        if day.is_multiple_of(3) {
+            let snapshot = branch.projection_snapshot();
+            let deed = snapshot
+                .commands
+                .iter()
+                .filter(|command| {
+                    command.unavailable.is_none()
+                        && command
+                            .hand
+                            .as_ref()
+                            .is_some_and(|hand| hand.verb != "Undo" && hand.verb != "Suggest")
+                })
+                .nth(day as usize / 3 % 3)
+                .map(|command| command.id.clone());
+            if let Some(deed) = deed {
+                let _ = branch.invoke_projection_command(&deed);
+            }
+        }
+        let pass = pass_day(&branch.projection_snapshot());
+        branch.invoke_projection_command(&pass).unwrap();
+        let _ = branch.invoke_projection_command(SITTING_BEGINS_COMMAND);
+        mornings.extend(branch.projection_snapshot().morning);
+    }
+    assert!(mornings.len() >= 34, "{} mornings", mornings.len());
+    let citing = mornings
+        .iter()
+        .filter_map(|morning| morning.letter.as_ref())
+        .filter(|letter| letter.note.contains(" you "))
+        .count();
+    assert!(citing >= 5, "{citing} letters about the player");
+    let wrong = untranslated(&mornings);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Every line a morning, a letter or a use of something the player made is
+/// told in, as the Systems write it, is in both languages' catalogs:
+/// whole, or a sentence at a time, as lines are shown.
+#[test]
+fn every_line_of_mornings_letters_and_uses_is_in_both_catalogs() {
+    let lines = ritual::lines()
+        .into_iter()
+        .chain(lives::letter_leads().into_iter().map(str::to_string))
+        .chain(lives::about_you_lines().into_iter().map(str::to_string))
+        .chain(hands::told_lines().into_iter().map(str::to_string))
+        .collect::<Vec<_>>();
+    let sentences = |line: &str| {
+        let mut sentences = Vec::new();
+        let mut start = 0;
+        for (at, _) in line.match_indices(['.', '!', '?']) {
+            if line[at + 1..].starts_with(' ') {
+                sentences.push(line[start..=at].to_string());
+                start = at + 2;
+            }
+        }
+        sentences.push(line[start..].to_string());
+        sentences
+    };
+    assert!(lines.len() > 150, "{}", lines.len());
+    for (language, catalogs) in [("zh", world_builtins::ZH_HANS), ("ja", world_builtins::JA)] {
+        let keys = catalogs
+            .iter()
+            .flat_map(|catalog| catalog.lines())
+            .filter_map(|line| line.split_once('\t'))
+            .map(|(english, _)| english)
+            .collect::<BTreeSet<_>>();
+        let missing = lines
+            .iter()
+            .filter(|line| {
+                !keys.contains(line.as_str())
+                    && !sentences(line)
+                        .iter()
+                        .all(|sentence| keys.contains(sentence.as_str()))
+            })
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "{language}: {missing:#?}");
+    }
+}

@@ -122,26 +122,52 @@ fn happening_key(told: &str) -> String {
     )
 }
 
-const NEWS_LEADS: [&str; 4] = [
+const NEWS_LEADS: [&str; 8] = [
     "The news here is that {told}.",
     "In case nobody told you, {told}.",
     "Big news round here: {told}.",
     "You'll have heard, but {told}.",
+    "Did you hear that {told}?",
+    "Guess what: {told}.",
+    "Word is that {told}.",
+    "Here's a thing: {told}.",
 ];
 
 /// How a letter with no news tells of the writer's own day.
-const EVERYDAY_LEADS: [&str; 3] = [
+const EVERYDAY_LEADS: [&str; 8] = [
     "Not much news, only this: {told}.",
     "Life goes on here: {told}.",
     "All quiet this week. Only that {told}.",
+    "Nothing much to report, except that {told}.",
+    "As for me, {told}.",
+    "The days roll on: {told}.",
+    "My news is small: {told}.",
+    "Same as ever here, except that {told}.",
 ];
 
-const MEMORY_LEADS: [&str; 4] = [
+const MEMORY_LEADS: [&str; 8] = [
     "I was thinking today about when {told}.",
     "I still smile about the time {told}.",
     "Do you remember when {told}? I do.",
     "Funny what stays with you. The day {told}, for one.",
+    "I was remembering the time {told}.",
+    "Out of nowhere I thought of when {told}.",
+    "Do you know what I keep coming back to? The day {told}.",
+    "It made me smile to think of when {told}.",
 ];
+
+/// Every lead a letter's news, memory or day is told with, for the
+/// catalogs.
+pub fn letter_leads() -> Vec<&'static str> {
+    NEWS_LEADS
+        .iter()
+        .chain(&EVERYDAY_LEADS)
+        .chain(&MEMORY_LEADS)
+        .chain(&LETTER_OPENINGS)
+        .chain(&LETTER_CLOSINGS)
+        .copied()
+        .collect()
+}
 
 /// What someone says of something with no words of its own.
 const REACTIONS: [&str; 6] = [
@@ -777,6 +803,8 @@ pub(crate) fn letter_body(
     let now = period(state, cast);
     let span = cast.period.max(1);
     let seed = mix(&[writer.0, now, 101]);
+    // Each letter is told the next way in turn.
+    let turn = crate::about::letters_so_far(world);
     let told_news = texts(component(state, cast.notes, LETTER_NEWS));
     let news = news_events_since(
         world,
@@ -789,6 +817,12 @@ pub(crate) fn letter_body(
         .actor(writer)
         .arg("who", Value::Entity(writer))
         .arg("letter", "yes");
+    // On its turn, a letter about what the player did lately.
+    if crate::about::about_you_turn(turn) {
+        if let Some(about) = crate::about::about_you(world, cast, writer, request.clone()) {
+            return Some(about);
+        }
+    }
     // What the player did, if they brought it about, after the line;
     // unless the line already tells it ("came because of the bench you
     // built"). Either way the letter names it as its cause.
@@ -807,7 +841,7 @@ pub(crate) fn letter_body(
         }
     };
     if let Some((news, about)) = news {
-        let lead = pick(&NEWS_LEADS, seed)?;
+        let lead = crate::about::nth(&NEWS_LEADS, turn, 3, 0);
         let body = fill_owned(lead, &[("told", own(&inside(&news)))]);
         return Some(citing(body, request.arg("news", news), about));
     }
@@ -818,7 +852,7 @@ pub(crate) fn letter_body(
         world.events_of_kind(&MEMORABLE).into_iter(),
     );
     if let Some((memory, about)) = memory {
-        let lead = pick(&MEMORY_LEADS, seed)?;
+        let lead = crate::about::nth(&MEMORY_LEADS, turn, 3, 1);
         let body = fill_owned(lead, &[("told", own(&inside(&memory)))]);
         return Some(citing(body, request.arg("recalled", memory), about));
     }
@@ -836,7 +870,7 @@ pub(crate) fn letter_body(
         .filter_map(|event| Some((crate::told(event)?, event)))
         .filter(|(told, _)| !told_news.contains(told))
         .find(|(_, event)| !told_enough(world, event, year))?;
-    let lead = pick(&EVERYDAY_LEADS, seed / 3)?;
+    let lead = crate::about::nth(&EVERYDAY_LEADS, turn, 5, 2);
     let body = fill_owned(lead, &[("told", own(&inside(&everyday)))]);
     Some(citing(body, request.arg("news", everyday), about))
 }
@@ -849,6 +883,7 @@ pub(crate) fn letter_notes(
     request: &ActionRequest,
 ) -> Vec<StateChange> {
     let mut changes = Vec::new();
+    changes.extend(crate::about::about_you_notes(state, cast, request));
     if let Ok(news) = arg_text(request, "news") {
         changes.push(StateChange::SetComponent {
             entity: cast.notes,
@@ -910,11 +945,10 @@ fn letter(world: &World, cast: &Cast, people: &[EntityId], morning: bool) -> Opt
             ("gathering", name(state, cast.gathering)),
             ("unit", cast.unit.to_string()),
         ];
-        let seed = mix(&[writer.0, now, 59]);
-        let opening = pick(&LETTER_OPENINGS, seed).copied().unwrap_or_default();
-        let closing = pick(&LETTER_CLOSINGS, seed >> 8)
-            .map(|line| fill_owned(line, &words))
-            .unwrap_or_default();
+        // Every opening and closing comes round before any comes again.
+        let turn = crate::about::letters_so_far(world);
+        let opening = crate::about::nth(&LETTER_OPENINGS, turn, 7, 0);
+        let closing = fill_owned(crate::about::nth(&LETTER_CLOSINGS, turn, 5, 3), &words);
         let (opening, closing) = if morning {
             (
                 in_the_morning(opening),

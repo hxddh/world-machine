@@ -972,6 +972,48 @@ impl Action for Undoes {
 /// At most this many things the player made are used a day.
 const USED_A_DAY: usize = 2;
 
+/// How someone's use of something the player made is told, each in turn,
+/// so the same use is not told the same way twice running: resting on it
+/// (`{first}`, `{what}`, `{place}`), gathering by it with someone
+/// (`{other}` too) or alone, and bringing the player what it grew
+/// (`{gift}`).
+const REST_TOLD: [&str; 6] = [
+    "{first} rested on the {what} by {place}",
+    "{first} sat a while on the {what} by {place}",
+    "{first} watched the world go by from the {what} by {place}",
+    "{first} ate lunch on the {what} by {place}",
+    "{first} took the weight off on the {what} by {place}",
+    "{first} read the paper on the {what} by {place}",
+];
+const GATHER_TOLD: [&str; 4] = [
+    "{first} and {other} talked under the {what} till late",
+    "{first} and {other} lingered by the {what} after dark",
+    "{first} and {other} shared a flask under the {what}",
+    "{first} and {other} put the world to rights under the {what}",
+];
+const ALONE_TOLD: [&str; 3] = [
+    "{first} sat a while by the {what} after dark",
+    "{first} read by the light of the {what}",
+    "{first} waited for the stars by the {what}",
+];
+const HARVEST_TOLD: [&str; 3] = [
+    "{first} brought you {gift} from the {what} you planted",
+    "{first} picked {gift} for you from the {what} you planted",
+    "{first} left {gift} from the {what} you planted on your step",
+];
+
+/// Every way a use of something the player made is told, slots and all,
+/// for the catalogs.
+pub fn told_lines() -> Vec<&'static str> {
+    REST_TOLD
+        .iter()
+        .chain(&GATHER_TOLD)
+        .chain(&ALONE_TOLD)
+        .chain(&HARVEST_TOLD)
+        .copied()
+        .collect()
+}
+
 /// What someone says resting on something the player made.
 const REST_LINES: [&str; 20] = [
     "The {what} by {place}: just what my legs needed.",
@@ -1136,15 +1178,25 @@ impl Action for Enjoys {
                 .unwrap_or_default()
         };
         let mut draft = EventDraft::new("enjoyed");
+        let told = |lines: &[&str], gift: &str| {
+            let at = used_alike as usize % lines.len().max(1);
+            lines
+                .get(at)
+                .map(|line| {
+                    line.replace("{first}", &first)
+                        .replace("{other}", other_name.as_deref().unwrap_or(""))
+                        .replace("{what}", &what)
+                        .replace("{place}", &place)
+                        .replace("{gift}", gift)
+                })
+                .unwrap_or_default()
+        };
         let (told, said) = match effect {
-            Effect::Rest => (
-                format!("{first} rested on the {what} by {place}"),
-                line(&REST_LINES),
-            ),
+            Effect::Rest => (told(&REST_TOLD, ""), line(&REST_LINES)),
             Effect::Gather => (
                 match &other_name {
-                    Some(other) => format!("{first} and {other} talked under the {what} till late"),
-                    None => format!("{first} sat a while by the {what} after dark"),
+                    Some(_) => told(&GATHER_TOLD, ""),
+                    None => told(&ALONE_TOLD, ""),
                 },
                 line(&GATHER_LINES),
             ),
@@ -1152,10 +1204,7 @@ impl Action for Enjoys {
                 let gift = PRODUCE[(seed % PRODUCE.len() as u64) as usize];
                 draft.payload.insert("keepsake".into(), gift.into());
                 draft.payload.insert("kept".into(), true.into());
-                (
-                    format!("{first} brought you {gift} from the {what} you planted"),
-                    line(&HARVEST_LINES),
-                )
+                (told(&HARVEST_TOLD, gift), line(&HARVEST_LINES))
             }
             Effect::None => return Err(ActionError::Invalid("nothing to use".into())),
         };

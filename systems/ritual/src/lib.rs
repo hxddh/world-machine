@@ -59,6 +59,11 @@ const TENDED_DAY: &str = "ritual.tended_day";
 const FOUND_DAY: &str = "ritual.found_day";
 /// On something tended: the World day it was last tended.
 const TENDED_ON: &str = "ritual.tended_on";
+/// On the notes: the names of what the latest mornings saw to, so neither
+/// that nor another of the same name is seen to again straight after.
+const TENDED_WHAT: &str = "ritual.tended_what";
+/// How many of those names are kept.
+const KEPT_WHAT: usize = 2;
 
 /// How many put questions and tended lines the notes keep: far more than
 /// there are mornings in which one could come round again.
@@ -70,7 +75,8 @@ const TEND_ACTION: &str = "ritual_tends";
 const FIND_ACTION: &str = "ritual_finds";
 
 /// How someone tends something the player made overnight, by the kind of
-/// deed that made it. Each line keeps `{who}`, `{thing}` and `{place}`.
+/// deed that made it, whatever the season. Each line keeps `{who}`,
+/// `{thing}` and `{place}`.
 const TENDING_PLANTED: [&str; 3] = [
     "Overnight, {who} watered your {thing} by {place}.",
     "Overnight, {who} weeded round your {thing} by {place}.",
@@ -93,24 +99,173 @@ const TENDING_DECORATED: [&str; 3] = [
     "Overnight, {who} dusted off your {thing} at {place}.",
     "Overnight, {who} tied your {thing} back up at {place}.",
 ];
-/// How someone tends the place itself, when the player has made nothing
-/// that still stands: `{who}` and `{place}`.
-const TENDING_PLACE: [&str; 4] = [
+/// The same, as each season has it (spring, summer, autumn, winter), in a
+/// World with seasons.
+const PLANTED_IN: [[&str; 3]; 4] = [
+    [
+        "Overnight, {who} pulled the spring weeds from round your {thing} by {place}.",
+        "Overnight, {who} pinched out the first buds of your {thing} by {place}.",
+        "Overnight, {who} covered your {thing} by {place} against a late frost.",
+    ],
+    [
+        "Overnight, {who} carried water out to your {thing} by {place}.",
+        "Overnight, {who} shaded your {thing} by {place} from the heat.",
+        "Overnight, {who} deadheaded your {thing} by {place}.",
+    ],
+    [
+        "Overnight, {who} raked the fallen leaves off your {thing} by {place}.",
+        "Overnight, {who} saved seed from your {thing} by {place}.",
+        "Overnight, {who} mulched round your {thing} by {place}.",
+    ],
+    [
+        "Overnight, {who} wrapped your {thing} by {place} in sacking against the frost.",
+        "Overnight, {who} shook the snow off your {thing} by {place}.",
+        "Overnight, {who} banked straw round your {thing} by {place}.",
+    ],
+];
+const BUILT_IN: [[&str; 3]; 4] = [
+    [
+        "Overnight, {who} scrubbed the winter grime off your {thing} by {place}.",
+        "Overnight, {who} gave your {thing} by {place} a fresh coat of oil.",
+        "Overnight, {who} tightened the loose joints of your {thing} by {place}.",
+    ],
+    [
+        "Overnight, {who} wiped the dust off your {thing} by {place}.",
+        "Overnight, {who} touched up the paint on your {thing} by {place}.",
+        "Overnight, {who} cleared the cobwebs from your {thing} by {place}.",
+    ],
+    [
+        "Overnight, {who} swept the leaves off your {thing} by {place}.",
+        "Overnight, {who} dried off your {thing} by {place} after the rain.",
+        "Overnight, {who} tarred the feet of your {thing} by {place} against the wet.",
+    ],
+    [
+        "Overnight, {who} cleared the snow off your {thing} by {place}.",
+        "Overnight, {who} knocked the ice off your {thing} by {place}.",
+        "Overnight, {who} scattered grit round your {thing} by {place}.",
+    ],
+];
+const DECORATED_IN: [[&str; 3]; 4] = [
+    [
+        "Overnight, {who} tucked a sprig of blossom into your {thing} at {place}.",
+        "Overnight, {who} rehung your {thing} at {place} after the spring winds.",
+        "Overnight, {who} brushed the pollen off your {thing} at {place}.",
+    ],
+    [
+        "Overnight, {who} turned your {thing} at {place} out of the sun.",
+        "Overnight, {who} wound fresh ribbon round your {thing} at {place}.",
+        "Overnight, {who} shooed the wasps away from your {thing} at {place}.",
+    ],
+    [
+        "Overnight, {who} picked the leaves out of your {thing} at {place}.",
+        "Overnight, {who} weighted your {thing} at {place} against the gales.",
+        "Overnight, {who} hung a lantern by your {thing} at {place}.",
+    ],
+    [
+        "Overnight, {who} brushed the frost off your {thing} at {place}.",
+        "Overnight, {who} put a sprig of holly on your {thing} at {place}.",
+        "Overnight, {who} shook the snow off your {thing} at {place}.",
+    ],
+];
+/// How someone tends the place itself, when there is nothing of the
+/// player's to see to: `{who}` and `{place}`.
+const TENDING_PLACE: [&str; 6] = [
     "Overnight, {who} swept the step of {place}.",
     "Overnight, {who} left a lamp lit at {place}.",
     "Overnight, {who} mended the gate at {place}.",
     "Overnight, {who} set fresh flowers at {place}.",
+    "Overnight, {who} oiled the hinges at {place}.",
+    "Overnight, {who} wiped down the tables at {place}.",
 ];
-/// What a find says: `{what}` and `{place}`.
-const FIND_LINE: &str = "You found {what} by {place}.";
+/// The same, as each season has it.
+const PLACE_IN: [[&str; 4]; 4] = [
+    [
+        "Overnight, {who} washed the windows of {place}.",
+        "Overnight, {who} planted up a window box at {place}.",
+        "Overnight, {who} swept the blossom from the step of {place}.",
+        "Overnight, {who} propped the door of {place} open to let the spring in.",
+    ],
+    [
+        "Overnight, {who} watered the tubs outside {place}.",
+        "Overnight, {who} put chairs out in the shade at {place}.",
+        "Overnight, {who} left a jug of cold water out at {place}.",
+        "Overnight, {who} hung the rugs of {place} out to air.",
+    ],
+    [
+        "Overnight, {who} raked the leaves from the step of {place}.",
+        "Overnight, {who} stacked firewood by {place}.",
+        "Overnight, {who} cleared the gutters of {place}.",
+        "Overnight, {who} hung a lantern at {place} for the dark evenings.",
+    ],
+    [
+        "Overnight, {who} cleared the snow from the step of {place}.",
+        "Overnight, {who} gritted the path to {place}.",
+        "Overnight, {who} kept the stove going at {place}.",
+        "Overnight, {who} hung a wreath on the door of {place}.",
+    ],
+];
+/// What a find says, each in turn: `{what}` and `{place}`.
+const FIND_LINES: [&str; 4] = [
+    "You found {what} by {place}.",
+    "Down by {place}, you found {what}.",
+    "You came across {what} near {place}.",
+    "By {place}, {what} turned up for your book.",
+];
+
+/// The fewest World days before a morning sees to the same thing the
+/// player made again, so what is looked after moves round the place;
+/// what is still going up is seen to every other day.
+const REST_MADE: i64 = 3;
+const REST_RISING: i64 = 2;
+/// The fewest World days before a place is seen to again.
+const REST_PLACE: i64 = 2;
+
+/// Something a morning can turn up for the book: what it is, in the
+/// Pack's words ("a gull's feather"); the season it turns up in, from 0
+/// (spring) to 3 (winter), or any; and the place it turns up by, by the
+/// name the World gives it, or anywhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Find {
+    pub what: &'static str,
+    pub season: Option<usize>,
+    pub near: Option<&'static str>,
+}
+
+impl Find {
+    /// Something that can turn up anywhere, in any season.
+    pub const fn any(what: &'static str) -> Self {
+        Self {
+            what,
+            season: None,
+            near: None,
+        }
+    }
+
+    /// Something that turns up in `season`, by the place named `near`.
+    pub const fn at(what: &'static str, season: usize, near: &'static str) -> Self {
+        Self {
+            what,
+            season: Some(season),
+            near: Some(near),
+        }
+    }
+}
 
 /// What a Pack gives the morning beyond its lives System's cast.
 #[derive(Clone, Copy)]
 pub struct Rite {
     pub cast: fn(&WorldState) -> Cast,
-    /// What can turn up for the book, in the Pack's words ("a gull's
-    /// feather"), in the order it turns up. Each turns up once.
-    pub finds: &'static [&'static str],
+    /// What can turn up for the book, in the order it turns up as its
+    /// season and place come round. Each turns up once.
+    pub finds: &'static [Find],
+    /// The season it is, from 0 (spring) to 3 (winter), in a World with
+    /// seasons: what is tended and found follows it.
+    pub season: fn(&WorldState) -> Option<usize>,
+}
+
+/// The season of a World without seasons: none.
+pub fn no_seasons(_: &WorldState) -> Option<usize> {
+    None
 }
 
 pub fn register_actions(registry: &mut ActionRegistry, rite: Rite) -> Result<(), ActionError> {
@@ -323,6 +478,15 @@ impl Action for Tends {
                 key: TENDED_ON.into(),
                 value: today.into(),
             });
+            draft.changes.push(StateChange::SetComponent {
+                entity: cast.notes,
+                key: TENDED_WHAT.into(),
+                value: pushed(
+                    texts(state, cast.notes, TENDED_WHAT),
+                    &name(state, thing).to_lowercase(),
+                    KEPT_WHAT,
+                ),
+            });
         }
         Ok(draft)
     }
@@ -344,7 +508,7 @@ impl Action for Finds {
         let cast = (self.0.cast)(state);
         let today = this_morning(state, &cast, FOUND_DAY)?;
         let what = arg_text(request, "what")?;
-        if !self.0.finds.contains(&what) {
+        if !self.0.finds.iter().any(|find| find.what == what) {
             return Err(ActionError::Invalid("nothing like that to find".into()));
         }
         let found = texts(state, cast.notes, FOUND_THINGS);
@@ -354,7 +518,9 @@ impl Action for Finds {
         let at = arg_entity(request, "at")
             .filter(|at| state.entity(*at).is_some())
             .ok_or_else(|| ActionError::Invalid("found nowhere".into()))?;
-        let line = fill(FIND_LINE, &[("what", what), ("place", &name(state, at))]);
+        // Each find is told the next way in turn.
+        let line = FIND_LINES[found.len() % FIND_LINES.len()];
+        let line = fill(line, &[("what", what), ("place", &name(state, at))]);
         let mut draft = EventDraft::new(FOUND);
         draft.targets = vec![at];
         draft.payload.insert("find".into(), what.into());
@@ -384,9 +550,9 @@ fn tenders(world: &World, cast: &Cast) -> Vec<EntityId> {
         .collect()
 }
 
-/// What the player made that still stands, with how it is tended: by the
-/// kind of deed that made it.
-fn made_things(world: &World) -> Vec<(EntityId, &'static [&'static str])> {
+/// What the player made that still stands, with how it is tended, by the
+/// kind of deed that made it: the lines for any season, then this one's.
+fn made_things(world: &World, season: Option<usize>) -> Vec<(EntityId, Vec<&'static str>)> {
     let state = world.state();
     let deeds = world.events_of_kind(&["planted_by_hand", "built_by_hand", "decorated_by_hand"]);
     hands::made(state)
@@ -396,13 +562,19 @@ fn made_things(world: &World) -> Vec<(EntityId, &'static [&'static str])> {
                 .iter()
                 .rev()
                 .find(|event| event.targets.first() == Some(&thing))?;
-            let lines: &'static [&'static str] = match deed.kind.as_str() {
-                _ if hands::rising(state, thing).is_some() => &TENDING_RISING,
-                "planted_by_hand" => &TENDING_PLANTED,
-                "decorated_by_hand" => &TENDING_DECORATED,
-                _ => &TENDING_BUILT,
+            let (lines, seasonal): (&[&str], &[[&str; 3]; 4]) = match deed.kind.as_str() {
+                _ if hands::rising(state, thing).is_some() => (&TENDING_RISING, &[[""; 3]; 4]),
+                "planted_by_hand" => (&TENDING_PLANTED, &PLANTED_IN),
+                "decorated_by_hand" => (&TENDING_DECORATED, &DECORATED_IN),
+                _ => (&TENDING_BUILT, &BUILT_IN),
             };
-            Some((thing, lines))
+            let in_season = season
+                .and_then(|season| seasonal.get(season))
+                .into_iter()
+                .flatten()
+                .filter(|line| !line.is_empty());
+            // The season's own lines first, then the year's.
+            Some((thing, in_season.chain(lines).copied().collect()))
         })
         .collect()
 }
@@ -444,21 +616,76 @@ fn places(world: &World, cast: &Cast) -> Vec<EntityId> {
     places
 }
 
+/// Whether `entity` was seen to by a morning fewer than `rest` World days
+/// before `today`.
+fn seen_to_lately(state: &WorldState, entity: EntityId, today: u64, rest: i64) -> bool {
+    integer(state, entity, TENDED_ON).is_some_and(|on| on + rest > today as i64)
+}
+
+/// The first line of `lines`, tried from the `start`th round, and of
+/// `people` from `first`, that no morning has told before.
+fn untold(
+    state: &WorldState,
+    told: &[String],
+    lines: &[String],
+    people: &[EntityId],
+    start: usize,
+    first: usize,
+    words: &[(&str, &str)],
+) -> Option<(EntityId, String)> {
+    for n in 0..people.len() * lines.len() {
+        let who = people[(first + n / lines.len()) % people.len()];
+        let line = &lines[(start + n) % lines.len()];
+        let mut filled = vec![("who", first_name(state, who))];
+        filled.extend(words.iter().map(|(slot, word)| (*slot, word.to_string())));
+        let line = filled.iter().fold(line.clone(), |line, (slot, word)| {
+            line.replace(&format!("{{{slot}}}"), word)
+        });
+        if !told.contains(&line) {
+            return Some((who, line));
+        }
+    }
+    None
+}
+
 /// What a morning tends: a line never told before, by someone of the
-/// place, about something the player made if anything still stands, else
-/// about the place itself. The fewest-tended first, so each thing has its
-/// turn.
-fn tending(world: &World, cast: &Cast, today: u64) -> Option<ActionRequest> {
+/// place, about something the player made if anything of theirs is due a
+/// visit, else about one of the places of the town, in the season's way.
+/// What was seen to lately rests, and never the same thing (nor another of
+/// the same name) within three mornings, so what is looked after moves
+/// round the place.
+fn tending(world: &World, cast: &Cast, rite: &Rite, today: u64) -> Option<ActionRequest> {
     let state = world.state();
     let told = texts(state, cast.notes, TENDED_LINES);
     let people = tenders(world, cast);
     if people.is_empty() {
         return None;
     }
-    let seed = mix(&[today, 211]);
-    let who_at = |n: usize| people[(seed as usize + n) % people.len()];
-    let mut things = made_things(world);
-    // What is going up is seen to first.
+    let season = (rite.season)(state).filter(|season| *season < 4);
+    let lately = texts(state, cast.notes, TENDED_WHAT);
+    let seed = mix(&[today, 211]) as usize;
+    // Each morning begins on the next of its lines.
+    let start = told.len();
+    let request = |who: EntityId, thing: EntityId, line: String| {
+        ActionRequest::new(TEND_ACTION)
+            .actor(who)
+            .arg("who", Value::Entity(who))
+            .arg("thing", Value::Entity(thing))
+            .arg("line", line)
+    };
+    let mut things = made_things(world, season)
+        .into_iter()
+        .filter(|(thing, _)| {
+            let rest = if hands::rising(state, *thing).is_some() {
+                REST_RISING
+            } else {
+                REST_MADE
+            };
+            !seen_to_lately(state, *thing, today, rest)
+                && !lately.contains(&name(state, *thing).to_lowercase())
+        })
+        .collect::<Vec<_>>();
+    // What is going up is seen to first, then whatever waited longest.
     things.sort_by_key(|(thing, _)| {
         (
             hands::rising(state, *thing).is_none(),
@@ -470,77 +697,94 @@ fn tending(world: &World, cast: &Cast, today: u64) -> Option<ActionRequest> {
         let what = name(state, *thing).to_lowercase();
         let place = place_of(state, *thing).unwrap_or(cast.gathering);
         let place = name(state, place);
-        let named = names_its_place(&what, &place);
-        for n in 0..people.len() * lines.len() {
-            let who = who_at(n / lines.len());
-            let line = lines[(seed as usize + n) % lines.len()];
-            // "your green flag by the green" says the place once.
-            let line = if named {
-                placeless(line)
-            } else {
-                line.to_string()
-            };
-            let line = fill(
-                &line,
-                &[
-                    ("who", &first_name(state, who)),
-                    ("thing", &what),
-                    ("place", &place),
-                ],
-            );
-            if !told.contains(&line) {
-                return Some(
-                    ActionRequest::new(TEND_ACTION)
-                        .actor(who)
-                        .arg("who", Value::Entity(who))
-                        .arg("thing", Value::Entity(*thing))
-                        .arg("line", line),
-                );
-            }
+        // "your green flag by the green" says the place once.
+        let lines = lines
+            .iter()
+            .map(|line| {
+                if names_its_place(&what, &place) {
+                    placeless(line)
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>();
+        let words = [("thing", what.as_str()), ("place", place.as_str())];
+        if let Some((who, line)) = untold(state, &told, &lines, &people, start, seed, &words) {
+            return Some(request(who, *thing, line));
         }
     }
-    // Nothing of the player's to tend: someone looks after the place.
-    let places = places(world, cast);
-    for n in 0..people.len() * TENDING_PLACE.len() * places.len().max(1) {
-        let who = who_at(n % people.len());
-        let line = TENDING_PLACE[(seed as usize + n / people.len()) % TENDING_PLACE.len()];
-        let place = places.get(
-            (seed as usize + n / (people.len() * TENDING_PLACE.len())) % places.len().max(1),
-        )?;
-        let line = fill(
-            line,
-            &[
-                ("who", &first_name(state, who)),
-                ("place", &name(state, *place)),
-            ],
-        );
-        if !told.contains(&line) {
-            return Some(
-                ActionRequest::new(TEND_ACTION)
-                    .actor(who)
-                    .arg("who", Value::Entity(who))
-                    .arg("thing", Value::Entity(*place))
-                    .arg("line", line),
-            );
+    // Nothing of the player's due a visit: someone looks after one of the
+    // places, whichever waited longest, by preference someone who works
+    // there.
+    let mut places = places(world, cast);
+    places.sort_by_key(|place| {
+        (
+            seen_to_lately(state, *place, today, REST_PLACE)
+                || lately.contains(&name(state, *place).to_lowercase()),
+            integer(state, *place, TENDED_ON).unwrap_or(-1),
+            mix(&[place.0, today, 229]),
+        )
+    });
+    let lines = season
+        .map(|season| PLACE_IN[season].as_slice())
+        .unwrap_or_default()
+        .iter()
+        .chain(&TENDING_PLACE)
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    for place in places {
+        let mut here = people.clone();
+        here.sort_by_key(|person| {
+            (
+                (cast.work)(state, *person) != Some(place),
+                mix(&[person.0, today, 233]),
+            )
+        });
+        let named = name(state, place);
+        let words = [("place", named.as_str())];
+        if let Some((who, line)) = untold(state, &told, &lines, &here, start, 0, &words) {
+            return Some(request(who, place, line));
         }
     }
     None
 }
 
-/// What turns up for the book this morning: the next of the Pack's finds
-/// not yet found, somewhere in the place.
+/// What turns up for the book this morning: of the Pack's finds not yet
+/// found, the first of this season by today's place, else by any place of
+/// the town; else the first that belongs to no season; else one of
+/// another season, so the book never stalls while anything is left.
 fn find(world: &World, cast: &Cast, rite: &Rite, today: u64) -> Option<ActionRequest> {
     let state = world.state();
     let found = texts(state, cast.notes, FOUND_THINGS);
-    let what = rite
+    let places = places(world, cast);
+    let today_at = *places.get((mix(&[today, 227]) % places.len().max(1) as u64) as usize)?;
+    let season = (rite.season)(state);
+    let by_name = |near: &str| {
+        places
+            .iter()
+            .copied()
+            .find(|place| name(state, *place) == near)
+    };
+    let unfound = rite
         .finds
         .iter()
-        .find(|what| !found.iter().any(|thing| thing == **what))?;
-    let places = places(world, cast);
-    let at = *places.get((mix(&[today, 227]) % places.len().max(1) as u64) as usize)?;
+        .filter(|find| !found.iter().any(|thing| thing == find.what))
+        .collect::<Vec<_>>();
+    let in_season = |find: &&&Find| find.season.is_some() && find.season == season;
+    let any_season = |find: &&&Find| find.season.is_none();
+    let here = |find: &&&Find| find.near.is_none_or(|near| by_name(near) == Some(today_at));
+    let anywhere = |find: &&&Find| find.near.is_none_or(|near| by_name(near).is_some());
+    let find = unfound
+        .iter()
+        .filter(in_season)
+        .find(here)
+        .or_else(|| unfound.iter().filter(in_season).find(anywhere))
+        .or_else(|| unfound.iter().filter(any_season).find(anywhere))
+        .or_else(|| unfound.iter().find(anywhere))?;
+    let at = find.near.and_then(by_name).unwrap_or(today_at);
     Some(
         ActionRequest::new(FIND_ACTION)
-            .arg("what", *what)
+            .arg("what", find.what)
             .arg("at", Value::Entity(at)),
     )
 }
@@ -603,7 +847,7 @@ pub fn morning(
         let parts = [
             lives::morning_letter(world, &cast),
             question(world.state(), &cast, questions),
-            tending(world, &cast, today),
+            tending(world, &cast, rite, today),
             find(world, &cast, rite, today),
         ];
         for request in parts.into_iter().flatten() {
@@ -732,11 +976,17 @@ pub fn lines() -> Vec<String> {
             .iter()
             .chain(&TENDING_BUILT)
             .chain(&TENDING_DECORATED)
+            .chain(&TENDING_RISING)
+            .chain(PLANTED_IN.iter().flatten())
+            .chain(BUILT_IN.iter().flatten())
+            .chain(DECORATED_IN.iter().flatten())
     };
     made()
         .map(|line| line.to_string())
         .chain(made().map(|line| placeless(line)))
         .chain(TENDING_PLACE.iter().map(|line| line.to_string()))
-        .chain([FIND_LINE.to_string(), FINDS_SHELF.to_string()])
+        .chain(PLACE_IN.iter().flatten().map(|line| line.to_string()))
+        .chain(FIND_LINES.iter().map(|line| line.to_string()))
+        .chain([FINDS_SHELF.to_string()])
         .collect()
 }

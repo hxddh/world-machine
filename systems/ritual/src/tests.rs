@@ -52,7 +52,11 @@ const ACTIVITIES: &[Activity] = &[
     },
 ];
 
-const FINDS: &[&str] = &["a blue button", "a smooth stone", "a brass bell"];
+const FINDS: &[Find] = &[
+    Find::any("a blue button"),
+    Find::any("a smooth stone"),
+    Find::any("a brass bell"),
+];
 
 fn people(_: &World) -> Vec<EntityId> {
     PEOPLE.map(EntityId::new).to_vec()
@@ -100,10 +104,11 @@ fn cast() -> Cast {
     }
 }
 
-fn rite(finds: &'static [&'static str]) -> Rite {
+fn rite(finds: &'static [Find]) -> Rite {
     Rite {
         cast: |_| cast(),
         finds,
+        season: no_seasons,
     }
 }
 
@@ -132,7 +137,11 @@ impl Action for Plants {
     }
 }
 
-fn world(finds: &'static [&'static str]) -> (World, ActionRegistry) {
+fn world(finds: &'static [Find]) -> (World, ActionRegistry) {
+    world_in(rite(finds))
+}
+
+fn world_in(rite: Rite) -> (World, ActionRegistry) {
     let mut state = WorldState::default();
     for (id, name, works) in [
         (1, "Ann", MILL),
@@ -155,7 +164,7 @@ fn world(finds: &'static [&'static str]) -> (World, ActionRegistry) {
     }
     let mut actions = ActionRegistry::new();
     lives::register_actions(&mut actions, |_| cast()).unwrap();
-    register_actions(&mut actions, rite(finds)).unwrap();
+    register_actions(&mut actions, rite).unwrap();
     actions.register(Plants).unwrap();
     actions.register(DayBegins).unwrap();
     (World::new(state), actions)
@@ -477,4 +486,154 @@ fn every_line_of_the_morning_has_its_slots() {
 #[test]
 fn looking_after_the_players_things_crosses_their_path() {
     assert!(lives::CROSSED_KINDS.contains(&TENDED));
+}
+
+/// What is looked after moves round the place: never the same thing two
+/// mornings running, the player's herbs given a rest between visits, and
+/// the places of the town seen to in between.
+#[test]
+fn what_is_looked_after_moves_round_the_place() {
+    let (mut world, actions) = world(FINDS);
+    let rite = rite(FINDS);
+    for _ in 0..3 {
+        pass(&mut world, &actions);
+    }
+    world
+        .execute(&actions, &ActionRequest::new("test_plants"))
+        .unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..24 {
+        let day = pass(&mut world, &actions);
+        let came = morning(&mut world, &actions, &rite, Some(day), &[])
+            .unwrap()
+            .unwrap();
+        let tended = parts_of(&world, came)
+            .into_iter()
+            .find(|part| part.kind == TENDED)
+            .expect("something looked after");
+        seen.push((tended.targets[1], told(tended).unwrap()));
+    }
+    for two in seen.windows(2) {
+        assert_ne!(two[0].0, two[1].0, "{seen:#?}");
+    }
+    let herbs = seen
+        .iter()
+        .enumerate()
+        .filter(|(_, (thing, _))| *thing == HERBS)
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    assert!(herbs.len() >= 6, "the herbs had their turn: {seen:#?}");
+    assert!(
+        herbs
+            .windows(2)
+            .all(|two| two[1] - two[0] >= REST_MADE as usize),
+        "{herbs:?}"
+    );
+    let places = seen
+        .iter()
+        .map(|(thing, _)| *thing)
+        .filter(|thing| *thing != HERBS)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(places, BTreeSet::from([BELL, GREEN, MILL]), "{seen:#?}");
+}
+
+const WINTER_FINDS: &[Find] = &[
+    Find::at("a daisy", 0, "the mill"),
+    Find::at("a snowball", 3, "the mill"),
+    Find::at("an icicle", 3, "the green"),
+    Find::at("a lost glove", 3, "the old forge"),
+    Find::any("a smooth stone"),
+];
+
+/// In a World with seasons, a winter's morning looks after things the
+/// winter's way, and turns up the winter's finds at their own places,
+/// never a spring one while a winter one is left; one by a place the
+/// World does not have waits for it.
+#[test]
+fn a_season_brings_its_own_tending_and_finds() {
+    let rite = Rite {
+        cast: |_| cast(),
+        finds: WINTER_FINDS,
+        season: |_| Some(3),
+    };
+    let (mut world, actions) = world_in(rite);
+    for _ in 0..3 {
+        pass(&mut world, &actions);
+    }
+    world
+        .execute(&actions, &ActionRequest::new("test_plants"))
+        .unwrap();
+    let mut found = Vec::new();
+    let mut lines = Vec::new();
+    for _ in 0..5 {
+        let day = pass(&mut world, &actions);
+        let came = morning(&mut world, &actions, &rite, Some(day), &[])
+            .unwrap()
+            .unwrap();
+        for part in parts_of(&world, came) {
+            match part.kind.as_str() {
+                FOUND => found.push((
+                    part.payload.get("find").cloned(),
+                    part.targets.first().copied(),
+                )),
+                TENDED => lines.push(told(part).unwrap()),
+                _ => {}
+            }
+        }
+    }
+    let text = |what: &str| Some(Value::Text(what.into()));
+    let mut winter = found[..2].to_vec();
+    winter.sort_by_key(|(what, _)| format!("{what:?}"));
+    assert_eq!(
+        winter,
+        vec![
+            (text("a snowball"), Some(MILL)),
+            (text("an icicle"), Some(GREEN))
+        ]
+    );
+    // Then what any season brings, and only then the spring's; the glove
+    // by a forge the World has not got never turns up.
+    assert_eq!(found[2].0, text("a smooth stone"));
+    assert_eq!(found[3], (text("a daisy"), Some(MILL)));
+    assert_eq!(found.len(), 4, "{found:?}");
+    // The herbs are looked after the winter's way.
+    let herbs = lines
+        .iter()
+        .find(|line| line.contains("your herb bed"))
+        .expect("the herbs looked after");
+    let winter_ways = PLANTED_IN[3]
+        .iter()
+        .map(|line| {
+            line.split("{who} ")
+                .nth(1)
+                .unwrap()
+                .split(" your")
+                .next()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(winter_ways.iter().any(|way| herbs.contains(way)), "{herbs}");
+}
+
+/// Each find is told the next way in turn.
+#[test]
+fn finds_are_told_each_way_in_turn() {
+    let (mut world, actions) = world(FINDS);
+    let rite = rite(FINDS);
+    pass(&mut world, &actions);
+    let mut told_as = Vec::new();
+    for _ in 0..3 {
+        let day = pass(&mut world, &actions);
+        let came = morning(&mut world, &actions, &rite, Some(day), &[])
+            .unwrap()
+            .unwrap();
+        let found = parts_of(&world, came)
+            .into_iter()
+            .find(|part| part.kind == FOUND)
+            .unwrap();
+        told_as.push(told(found).unwrap());
+    }
+    assert!(told_as[0].starts_with("You found a blue button by "));
+    assert!(told_as[1].starts_with("Down by "), "{told_as:?}");
+    assert!(told_as[2].starts_with("You came across a brass bell near "));
 }

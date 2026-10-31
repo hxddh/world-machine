@@ -757,9 +757,16 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
             None => "The bakery couldn't find this week's wages".to_string(),
         });
     }
+    // What happens day after day is told a different way each time.
+    if event.kind == "fish_sold" {
+        let index = world.history_index();
+        let nth = index
+            .of_kind(&event.kind)
+            .partition_point(|id| *id < event.id);
+        return Some(CATCH_SOLD[nth % CATCH_SOLD.len()].to_string());
+    }
     Some(String::from(match event.kind.as_str() {
         "support_repaid" => "Jonas repaid Leo after returning to sea",
-        "fish_sold" => "Jonas's catch reached the mainland",
         "boat_repaired" => "Sea Finch returned to the water",
         "bakery_reopened_lean" => "Mara reopened Harbour Bakery as an owner-run counter",
         "bakery_reopened" => "Mara reopened Harbour Bakery",
@@ -804,6 +811,19 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
         _ => return None,
     }))
 }
+
+/// How a catch sold to the mainland is told, the first time and each time
+/// after, in turn.
+pub(crate) const CATCH_SOLD: [&str; 8] = [
+    "Jonas's catch reached the mainland",
+    "Jonas's fish went over on the ferry",
+    "The mainland market took Jonas's catch",
+    "Jonas sold his catch on the mainland",
+    "Jonas's boxes of fish made the morning ferry",
+    "The fish market bought all Jonas landed",
+    "Jonas's catch fetched a fair price on the mainland",
+    "Jonas sent his catch across the water",
+];
 
 /// History in the town's words: every headline the briefing would use, a
 /// few more things that happened to somebody, and the everyday round (shifts,

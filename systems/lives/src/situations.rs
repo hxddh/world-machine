@@ -665,7 +665,7 @@ pub(crate) const CROSSED_PATHS: [&str; 3] = [
 ];
 
 /// How a letter to the player begins and ends.
-pub(crate) const LETTER_OPENINGS: [&str; 10] = [
+pub(crate) const LETTER_OPENINGS: [&str; 20] = [
     "A few lines, since I didn't see you today.",
     "Thought you'd like to know how things are.",
     "Writing because it's quiet here.",
@@ -676,8 +676,18 @@ pub(crate) const LETTER_OPENINGS: [&str; 10] = [
     "News, of a sort.",
     "Couldn't find you, so here's a letter.",
     "A quiet day. I thought of you.",
+    "It's been a while since I wrote.",
+    "I've a minute, so here's a note.",
+    "Pen in hand at last.",
+    "The kettle's on, so I'm writing.",
+    "A short one, I promise.",
+    "I meant to write sooner.",
+    "Here's a little news.",
+    "Hello again.",
+    "Sitting by the window, thinking of you.",
+    "A note before the day gets going.",
 ];
-pub(crate) const LETTER_CLOSINGS: [&str; 8] = [
+pub(crate) const LETTER_CLOSINGS: [&str; 16] = [
     "Come by soon.",
     "Yours, {name}.",
     "See you around the {settlement}.",
@@ -686,6 +696,14 @@ pub(crate) const LETTER_CLOSINGS: [&str; 8] = [
     "More when I see you.",
     "Best, {name}.",
     "Mind how you go.",
+    "Warmly, {name}.",
+    "Look after yourself.",
+    "Until next time.",
+    "Fondly, {name}.",
+    "Keep well.",
+    "With love from the {settlement}.",
+    "Don't be a stranger.",
+    "All the best, {name}.",
 ];
 
 /// What a letter is, as something to keep.
