@@ -5,7 +5,9 @@ pub mod derived;
 mod drawing;
 mod guest;
 mod influence;
+mod keeping;
 mod mark;
+mod morning;
 mod seams;
 mod stories;
 
@@ -27,11 +29,13 @@ pub use guest::{
     MOST_GUEST_POINTS,
 };
 pub use influence::effect_headline;
+pub use keeping::{Aim, Credit, Keeping, Page, YearClosed};
 pub use mark::{
     clean_name, command_argument, command_with, Design, Designable, MarkError, MarkShape, Naming,
     Pattern, Plot, PlotOffer, Variant, Wears, MOST_PATTERN_COLOURS, PATTERN_CELLS, PATTERN_PALETTE,
     PATTERN_SIDE,
 };
+pub use morning::{Morning, MorningLine};
 pub use seams::{seams_in, speaks_of_self, Seam};
 pub use stories::{
     cause_in_words, day_of, go_to_what_was_answered, latest_before, latest_moments, life_events,
@@ -39,8 +43,6 @@ pub use stories::{
     Named, Panel, PanelBeat, Prop, SceneScript, StoryPage, StoryRequest, MOST_MOMENTS_IN_SNAPSHOT,
     MOST_SCENE_SECONDS,
 };
-/// Text from outside a World, cleaned of characters that change how it
-/// reads without being seen (see [`world_core::text`]).
 pub use world_art::{Ground, Rung};
 pub use world_core::text::clean_text;
 
@@ -631,6 +633,8 @@ pub struct ProjectionSnapshot {
     /// what turned up for the book. `None` on any other day, or from a Pack
     /// that keeps no morning.
     pub morning: Option<Morning>,
+    /// The player's book: their part, this year's pages and what is aimed at.
+    pub keeping: Option<Keeping>,
 }
 
 /// What a host invokes, as a command, when the player sits down with a
@@ -639,31 +643,6 @@ pub struct ProjectionSnapshot {
 /// clock: when a sitting begins is the host's to know, never the World's.
 /// A World that keeps no morning refuses it, and the host goes on.
 pub const SITTING_BEGINS_COMMAND: &str = "world-machine.sitting-begins";
-
-/// The morning a sitting opens on, in the World's words. Presentation
-/// only: each part is an Event in the World's record.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Morning {
-    /// The moment the morning came, by its Event.
-    pub moment: SelectionId,
-    /// A letter written to the player overnight.
-    pub letter: Option<Letter>,
-    /// The day's main question: one the commands put (by its id), which a
-    /// screen shows first and weighted.
-    pub question: Option<Question>,
-    /// Something tended overnight.
-    pub tended: Option<MorningLine>,
-    /// Something that turned up for the book.
-    pub find: Option<MorningLine>,
-}
-
-/// A line of the morning, and who or what it is about, if anyone on the
-/// scene.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MorningLine {
-    pub line: String,
-    pub about: Option<SelectionId>,
-}
 
 /// A favour someone asked of the player, in the World's words: who asked,
 /// whom it is for, the drawer's note ("Jonas asked you to look in on

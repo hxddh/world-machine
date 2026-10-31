@@ -157,6 +157,7 @@ fn snapshot_on<'scope>(
         almanac_years: crate::almanac_page::years(world),
         favour: conversation::favour::shown(world, &crate::speech::kit_of(world)),
         morning: None,
+        keeping: None,
     };
     // The morning this period opened on, if a sitting began on it (v0.30
     // S4), and what the mornings turned up, in the book.

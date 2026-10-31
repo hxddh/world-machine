@@ -111,6 +111,7 @@ pub(crate) fn snapshot_since(
         almanac_years: crate::almanac_page::years(world),
         favour: conversation::favour::shown(world, &crate::speech::kit(world.state())),
         morning: None,
+        keeping: None,
     };
     // The morning this day opened on, if a sitting began on it (v0.30 S4),
     // and what the mornings turned up, in the book.

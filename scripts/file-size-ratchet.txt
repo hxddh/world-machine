@@ -7,8 +7,8 @@
 crates/world-gpui/src/diorama/people.rs 3818
 crates/world-gpui/src/diorama/stage_view.rs 3003
 crates/world-library/src/lib.rs 3350
-crates/world-pack-protocol/src/lib.rs 4594
-crates/world-projection/src/lib.rs 3144
+crates/world-pack-protocol/src/lib.rs 4523
+crates/world-projection/src/lib.rs 3123
 crates/world-voice-prompt/src/bounds/lexicon.rs 3777
 systems/storylets/src/lib.rs 3130
 worlds/pocket-universe/src/eras.rs 3032
