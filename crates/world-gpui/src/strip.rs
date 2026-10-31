@@ -425,11 +425,45 @@ pub fn letter_drop(since: f32) -> Option<f32> {
 
 /// Lays a World out along a strip `width` by `height`: the diorama's
 /// stage, with its people drawn a little larger so they can be seen
-/// walking in so short a band.
+/// walking in so short a band, and everything standing on the ladder
+/// beside them as wide as it is tall for them: a house drawn as tall as
+/// its rung beside the larger people is as wide again, never squeezed
+/// into a spire (the v0.30 review: "the strip squashes houses into
+/// spires"). Each widens only as far as leaves a gap to its neighbours.
 pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
     let mut stage = diorama::stage(snapshot, width, height);
+    let laid = stage.figure_h;
     stage.figure_h = stage.figure_h.max(height * 0.24);
+    let grown = stage.figure_h / laid.max(1.0);
+    if grown > 1.0 {
+        widen(&mut stage, grown);
+    }
     stage
+}
+
+/// Widens the buildings and things of `stage` laid out for people
+/// `grown` times smaller, each by as much of that as keeps a gap of a
+/// tenth between it and its nearest neighbour.
+fn widen(stage: &mut Stage, grown: f32) {
+    let all = stage
+        .buildings
+        .iter()
+        .chain(&stage.things)
+        .map(|spot| (spot.index, spot.x))
+        .collect::<Vec<_>>();
+    let room = |index: usize, x: f32| {
+        all.iter()
+            .filter(|(other, _)| *other != index)
+            .map(|(_, at)| (at - x).abs())
+            .fold(f32::MAX, f32::min)
+            * 0.9
+    };
+    for spot in stage.buildings.iter_mut().chain(stage.things.iter_mut()) {
+        let wide = (spot.w * grown).min(room(spot.index, spot.x)).max(spot.w);
+        spot.w = wide;
+    }
+    stage.building_w *= grown;
+    stage.thing_w *= grown;
 }
 
 /// Works out one frame of a strip `seconds` in: the landscape standing
@@ -1306,6 +1340,29 @@ mod tests {
                 moment: entity(1),
             }],
             ..ProjectionSnapshot::default()
+        }
+    }
+
+    /// A strip draws houses as houses (1.0 P5; the v0.30 review: "the
+    /// strip squashes houses into spires"): each building on a strip a
+    /// hand tall is at least nine tenths as wide as it is tall, as the
+    /// same house is in the window, and none runs into its neighbour.
+    #[test]
+    fn a_strip_draws_houses_not_spires() {
+        let snapshot = town(5);
+        for width in [720.0, 1440.0] {
+            let stage = stage(&snapshot, width, HEIGHT);
+            let setting = crate::art::Setting::from_key(snapshot.canvas.setting.as_deref());
+            let mut spans = Vec::new();
+            for spot in &stage.buildings {
+                let (w, h) = diorama::building_size(&stage, &snapshot, spot, setting);
+                assert!(w >= h * 0.9, "{width}: a house {w:.0} wide and {h:.0} tall");
+                spans.push((spot.x - w / 2.0, spot.x + w / 2.0));
+            }
+            spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for pair in spans.windows(2) {
+                assert!(pair[0].1 <= pair[1].0, "{width}: {pair:?} overlap");
+            }
         }
     }
 
