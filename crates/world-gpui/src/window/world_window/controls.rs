@@ -323,7 +323,7 @@ impl ProjectionView {
             if self.looking.pan != Some(at) {
                 self.looking.welcome_pan = None;
             } else if let Some((who, x)) = self.rest_opening(stage) {
-                self.looking.pan = Some(x);
+                let x = self.open_on(stage, who, x);
                 self.looking.welcome_pan = Some((who, x));
             }
             return;
@@ -337,9 +337,32 @@ impl ProjectionView {
         // away from somewhere else. With nobody speaking (the night), on
         // the most people anywhere: never on an empty road.
         if let Some((who, x)) = self.rest_opening(stage) {
-            self.looking.pan = Some(x);
+            let x = self.open_on(stage, who, x);
             self.looking.welcome_pan = Some((who, x));
             self.looking.opener = Some(who);
+        }
+    }
+
+    /// Opens the camera on `who`, centred on stage `x` at rest; or, on a
+    /// World's first day where the place's landmarks cannot be met at rest,
+    /// pulled back to hold them ([`super::super::first_frame`]). Where it
+    /// is centred.
+    fn open_on(&mut self, stage: &Stage, who: SelectionId, x: f32) -> f32 {
+        let first = super::super::arrival::first_day(&self.snapshot)
+            .then(|| self.stage_x(stage, who))
+            .flatten()
+            .and_then(|speaker| super::super::first_frame::first_frame(stage, speaker));
+        match first {
+            Some((zoom, centre)) => {
+                self.looking.zoom = zoom;
+                self.looking.zoom_on = (centre, Camera::rest_y(stage, zoom));
+                self.looking.pan = Some(centre);
+                centre
+            }
+            None => {
+                self.looking.pan = Some(x);
+                x
+            }
         }
     }
 

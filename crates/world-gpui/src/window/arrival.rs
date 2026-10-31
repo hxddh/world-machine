@@ -191,11 +191,7 @@ pub(crate) fn opening_voice<'a>(
         .into_iter()
         .filter_map(|voice| Some((voice, x_of(voice.speaker)?)))
         .collect::<Vec<_>>();
-    let first_day = snapshot
-        .calendar
-        .as_ref()
-        .is_none_or(|calendar| snapshot.world_time <= calendar.length.max(1));
-    if first_day {
+    if first_day(snapshot) {
         return voices.into_iter().next();
     }
     let mut best: Option<((&'a world_projection::Voice, f32), usize)> = None;
@@ -206,6 +202,14 @@ pub(crate) fn opening_voice<'a>(
         }
     }
     best.map(|(opener, _)| opener)
+}
+
+/// Whether `snapshot` is a World's first day.
+pub(crate) fn first_day(snapshot: &ProjectionSnapshot) -> bool {
+    snapshot
+        .calendar
+        .as_ref()
+        .is_none_or(|calendar| snapshot.world_time <= calendar.length.max(1))
 }
 
 /// The first screen of `snapshot` in a window `view` large at `hour` (well
@@ -1549,6 +1553,80 @@ mod tests {
                     "{at}: framed as at noon ({centre:.0} against {at_noon:.0})"
                 );
             }
+        }
+    }
+
+    /// Where whoever welcomes the player on `snapshot` stands on `stage`.
+    fn welcomer_x(snapshot: &ProjectionSnapshot, stage: &crate::diorama::Stage) -> f32 {
+        let who = super::super::world_window::voices_now(snapshot)[0].speaker;
+        let index = snapshot
+            .canvas
+            .items
+            .iter()
+            .position(|item| item.id == who)
+            .expect("the welcomer");
+        let (x, _, w, _) = stage.frame_of(index).expect("out");
+        x + w / 2.0
+    }
+
+    /// The place on ice opens on its nests and its bridge again (1.0 P5;
+    /// the v0.30 review: its first frame at rest showed the welcomer by
+    /// two empty plots), the welcomer well in view, as close as that
+    /// allows and never further out than the overview.
+    #[test]
+    fn the_ice_place_s_first_frame_holds_its_nests_and_bridge() {
+        use super::super::first_frame::{first_frame, whole_at};
+        use crate::diorama::{keep_on, stage_at, Camera, Clock};
+        let wire: world_pack_protocol::ProjectionSnapshotWire =
+            serde_json::from_str(include_str!("../../tests/fixtures/first-ice.json"))
+                .expect("a wire snapshot");
+        let snapshot = ProjectionSnapshot::try_from(wire).expect("a snapshot");
+        for hour in [10, 15, 19] {
+            let stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(hour));
+            let speaker = welcomer_x(&snapshot, &stage);
+            let (zoom, centre) = first_frame(&stage, speaker).expect("pulled back");
+            let rest = Camera::rest_zoom(&stage);
+            assert!(
+                (1.0..rest).contains(&zoom),
+                "{hour}: zoom {zoom} between 1 and {rest}"
+            );
+            let whole = whole_at(&stage, zoom, centre);
+            let count = |want: &dyn Fn(&world_projection::CanvasItem) -> bool| {
+                whole
+                    .iter()
+                    .filter(|index| want(&snapshot.canvas.items[**index]))
+                    .count()
+            };
+            let nests = count(&|item| item.art.as_deref() == Some("snow-nest"));
+            let bridge = count(&|item| item.shape == Some(world_projection::MarkShape::Bridge));
+            assert!(
+                nests >= 2 && bridge == 1,
+                "{hour}: {nests} nests and {bridge} bridge whole"
+            );
+            let half = stage.view_w / (2.0 * zoom);
+            let shown = keep_on(centre, half, stage.width);
+            assert!(
+                (speaker - shown).abs() <= half * 0.9,
+                "{hour}: the welcomer in view"
+            );
+        }
+    }
+
+    /// The first day by the water keeps the close camera (the review's
+    /// "must protect"): its view at rest already holds its homes, so the
+    /// first frame is the camera at rest.
+    #[test]
+    fn the_first_day_by_the_water_opens_at_rest() {
+        use crate::diorama::{stage_at, Clock};
+        let snapshot = first_day();
+        for hour in [10, 15, 19] {
+            let stage = stage_at(&snapshot, 1100.0, 848.0, Clock::at(hour));
+            let speaker = welcomer_x(&snapshot, &stage);
+            assert_eq!(
+                super::super::first_frame::first_frame(&stage, speaker),
+                None,
+                "{hour}"
+            );
         }
     }
 }
