@@ -158,6 +158,21 @@ pub(super) fn paint_plan(
         }
         paint_patch(canvas, frame, patch, field, k);
     }
+    // Ground that joins the buildings: yards, their paths, the lanes.
+    let ink = path_ink(frame, field);
+    super::yards::paint_worn_ground(canvas, frame, (from, to), ink, spine);
+}
+
+/// The ink worn ground is in: gravel by the water, concrete on a street,
+/// packed snow on the ice, a paler dust on a rust plain.
+fn path_ink(frame: &Frame, field: Hsla) -> Hsla {
+    let ink = match frame.setting {
+        art::Setting::Ice => art::hex(0xf2f7fa),
+        art::Setting::Street => art::hex(0xcac7c0),
+        art::Setting::Mars => art::shade(field, 0.1),
+        art::Setting::Harbour => mix(art::hex(0xd6c9a8), field, 0.4),
+    };
+    under_sky(&frame.scenery, ink, GROUND_UNDER_SKY)
 }
 
 /// The ground running back from the clusters to the hills, meant rather
@@ -617,13 +632,7 @@ fn paint_path(
     if patch.bottom >= spine - 2.0 {
         return;
     }
-    let ink = match frame.setting {
-        art::Setting::Ice => art::hex(0xf2f7fa),
-        art::Setting::Street => art::hex(0xcac7c0),
-        art::Setting::Mars => art::shade(field, 0.1),
-        art::Setting::Harbour => mix(art::hex(0xd6c9a8), field, 0.4),
-    };
-    let ink = under_sky(&frame.scenery, ink, GROUND_UNDER_SKY);
+    let ink = path_ink(frame, field);
     let lean = ((patch.seed % 100) as f32 / 100.0 - 0.5) * frame.figure_h * 1.2;
     let mid = path_mid(patch);
     let (top, bottom) = (patch.bottom - 6.0 * k, spine + 2.0);

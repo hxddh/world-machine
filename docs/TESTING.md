@@ -78,10 +78,12 @@ under Xvfb with the software renderer) reached 11 sittings (day 16); RSS
 was 542 MB when warm-up ended, 486 MB at the end (peak 571 MB, slope
 negative); the frame time's p95 of the 2 s means went from 0.67 ms to
 2.11 ms (bound 3.0 ms), longest frame 81 ms; no panic. It **failed** on 8
-unpainted frames, about 100 to 300 ms after zooming out and back in (the
-camera bound to a new zoom whose look had not baked, with no stand-in and no
-wash): a real finding of the living stage, which this bar keeps visible
-until it is fixed (`docs/KNOWN_ISSUES.md`).
+unpainted frames, about 100 to 300 ms after zooming out and back in: after
+a day passed, the old whole-place look was let go once its successor had
+baked but before it reached the display. Since 1.0 P5 a whole look is kept
+until its successor is ready, and a six-minute run finds none. A short run
+still fails the RSS slope, on `main` before P5 too: two minutes of warm-up
+are too few to judge memory, which is what the two hours are for.
 
 ## The release shots (`.github/workflows/release-shots.yml`)
 

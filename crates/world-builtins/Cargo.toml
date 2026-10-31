@@ -19,3 +19,5 @@ ritual = { path = "../../systems/ritual" }
 lives = { path = "../../systems/lives" }
 hands = { path = "../../systems/hands" }
 world-persistence = { path = "../world-persistence" }
+# The places' hero palettes, as the scene lights them.
+world-gpui = { path = "../world-gpui" }

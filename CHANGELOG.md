@@ -14,7 +14,7 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 This release is the plan from the [v0.30 review](docs/REVIEW_v0.30.md), "A finished harbour", in seven slices. Tiny Society is the product; Pocket Universe stays in the build, unmarketed. In short:
 - **Shipped:** a clean base (P0), the first hour (P1), time that respects the player (P2), verbs with feel and a role (P3), talk and words without AI (P4), the product shell and the demo (P6), and the nightly soak (P7).
-- **P5, the look:** see its entry below.
+- **The look (P5),** code side: lit dusk, a palette per place, joined ground, passers-by, a quiet interface, no unpainted frame. Art sign-off on a real screen is still to come.
 - **Not yet:** see the end of this entry. Nothing is signed or on Steam, and nothing has been measured on a real device or with a real person.
 
 - **P0. A clean base.**
@@ -91,7 +91,18 @@ This release is the plan from the [v0.30 review](docs/REVIEW_v0.30.md), "A finis
 
     `thirty_sittings.rs` plays the first sitting and 29 more and fails on any repeated letter, looked-after line or find. A three-year World code is 43,340 characters.
   - **New lines:** 158 in each Systems catalog and 124 in each Tiny Society catalog, in Chinese and Japanese.
-- **P5. The look.** _[Placeholder: the maintainer fills this in when the P5 PR merges. Nothing from P5 had merged when this entry was written.]_
+- **P5. The look** (code side; nobody has signed it off on a real Mac or Windows screen).
+  - **Dusk is lit, not tinted:** a lower warm key, and every lit building throws a pool of its window light on the ground from dusk through the night. The ground before a lit building measures 1.17x the ground between buildings (v0.30: 0.88); dusk still passes v0.29's gold bar.
+  - **A palette per place:** a honey harbour, sodium-orange Maple Street, teal Ares and lantern-gold Icebridge, each at least 60 steps from every other over seven lit colours at noon, dusk and night (closest pair: 75).
+  - **The ground joins the buildings:** dooryards, worn paths down to the spine, and lanes between neighbours.
+  - **Passers-by** stroll along the spine now and then, 7:00–21:00. They are presentation only: never residents, never counted or clickable, never World state, and none under Reduce Motion.
+  - **Props at their own scale:** a thing's picture is never under 85% of its scale rung (a pillar box was drawn at 0.48, the ice lantern at 0.33), and every prop on the stage is audited against it.
+  - **The interface quietens at rest:** handles, gauges and zoom fade to 18% after 4 s without input and come back on any input. They never fade while a card, the hands, the drawer, a talk, a page or a moment is up; under Reduce Motion they go quiet at once.
+  - **First frames:** a new place whose landmark is too wide to show beside the welcomer at rest opens pulled back to hold it, so Icebridge's nests, fish vault and bridge are back in its first frame. The harbour's first day keeps its close camera.
+  - **Loading:** a window's first look is the soft whole level baked round the camera and shown at once. Under Xvfb it shows in 0.04–0.18 s and the wash is gone in 0.04–0.45 s (was 0.5–1.3 s). The release shots bar the wash at 0.5 s (was 2 s, 3 s for a new World).
+  - **No unpainted frame after a zoom:** a look of the whole place is now kept until its successor is ready. The soak found 8–11 unpainted frames in five minutes before; it finds none now.
+  - **The desktop strip** draws houses as houses rather than spires.
+- **Nightly bars:** the pier's new section and the stages of a work begun on a plot are told in Chinese and Japanese. The Warm player's works bar from a new player's start is 62, by the owner's decision: the designed first session moves every ladder work a few days, and v0.30's 63rd had finished on the last day measured. The old start still makes v0.23's 64.
 - **P6. Platforms and the product shell.**
   - **Settings,** walked by the keyboard, in sections:
     - **Sound:** a master volume over music, effects, ambient sound and voices.

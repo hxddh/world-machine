@@ -25,15 +25,18 @@
 
 mod ground;
 mod interface;
+mod keeping;
 mod light;
 mod lived;
 pub mod living_stage;
+pub mod passers;
 mod people;
 mod scene;
 pub mod stage_view;
 pub mod staging;
 pub mod turn;
 mod works;
+mod yards;
 
 pub use interface::*;
 pub use light::*;
@@ -106,6 +109,8 @@ pub struct Frame {
     buildings: Vec<BuildingPaint>,
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
+    /// Passers-by (`passers`): nobody's resident, never in `people`.
+    pub(crate) passers: Vec<PersonPaint>,
     bonds: Vec<(f32, f32, f32, CanvasLinkTone)>,
     /// Plots staked out on the ground, in stage pixels, and which one is
     /// pointed at or chosen with the keys.
@@ -574,7 +579,7 @@ pub fn frame(
                 0.0
             };
             let drawing = snapshot.drawing_of(item).cloned();
-            let w = thing_width(stage, snapshot, spot, setting);
+            let w = drawn_thing_width(stage, snapshot, spot, setting);
             ThingPaint {
                 index: spot.index,
                 x: spot.x,
@@ -762,6 +767,7 @@ pub fn frame(
         blend_top: false,
         buildings,
         things,
+        passers: passers::passers(snapshot, stage, camera, seconds),
         people,
         bonds,
         plots: stage.plots.clone(),
@@ -850,6 +856,44 @@ pub(crate) fn thing_width(
     .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3))
 }
 
+/// How wide the thing on `spot` is drawn: [`thing_width`], but never under
+/// [`LEAST_OF_RUNG`] of its rung however narrow its room. The layout keeps
+/// to the room (who stands where is unchanged); only the picture is not
+/// squeezed to a toy.
+pub(crate) fn drawn_thing_width(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> f32 {
+    drawn_thing_size(stage, snapshot, spot, setting).0
+}
+
+/// How wide and tall the thing on `spot` is drawn ([`drawn_thing_width`]).
+pub(crate) fn drawn_thing_size(
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    spot: &Spot,
+    setting: art::Setting,
+) -> (f32, f32) {
+    let (w, h) = thing_size(stage, snapshot, spot, setting);
+    let item = &snapshot.canvas.items[spot.index];
+    let p = stage.figure_h * spot.scale;
+    let sized = match snapshot.drawing_of(item) {
+        Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
+        None => ladder::Subject::Thing(
+            item.shape.unwrap_or(MarkShape::Parcel),
+            setting,
+            art_of(item),
+        )
+        .sized(p, spot.w),
+    };
+    match sized {
+        Some((lw, lh)) if w < lw * LEAST_OF_RUNG => (lw * LEAST_OF_RUNG, lh * LEAST_OF_RUNG),
+        _ => (w, h),
+    }
+}
+
 /// How wide and tall the thing on `spot` is drawn, in stage pixels (the
 /// width as [`thing_width`], the height to the same scale).
 pub(crate) fn thing_size(
@@ -887,7 +931,7 @@ pub(crate) fn seat_height(
     setting: art::Setting,
 ) -> f32 {
     let item = &snapshot.canvas.items[spot.index];
-    let w = thing_width(stage, snapshot, spot, setting);
+    let w = drawn_thing_width(stage, snapshot, spot, setting);
     match snapshot.drawing_of(item) {
         Some(drawing) => w / drawing.aspect.max(0.1) * 0.5,
         None => match art_of(item).or_else(|| crate::works::kit(setting, MarkShape::Bench)) {
@@ -902,6 +946,11 @@ pub(crate) fn seat_height(
 /// reach: a building, and a thing a little more (its spot is narrower
 /// than what it is drawn as).
 const ROOM: f32 = 1.15;
+
+/// However narrow the room a thing was given, it is drawn at no less than
+/// this share of its rung (1.0 P5: a postbox squeezed to half its height,
+/// a lantern to a quarter, read as toys beside the people).
+const LEAST_OF_RUNG: f32 = 0.85;
 
 /// The library drawing a Pack names for an item, if the app has it.
 fn art_of(item: &CanvasItem) -> Option<crate::works::Art> {
@@ -932,3 +981,6 @@ pub(crate) mod doing_tests;
 
 #[cfg(test)]
 mod staging_tests;
+
+#[cfg(test)]
+mod scale_tests;

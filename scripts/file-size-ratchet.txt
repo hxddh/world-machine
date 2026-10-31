@@ -5,7 +5,6 @@
 # line once the file is split under the limit.
 # Recorded at f33ce8c2 (v0.30 review, P0).
 crates/world-gpui/src/diorama/people.rs 3818
-crates/world-gpui/src/diorama/stage_view.rs 3003
 crates/world-library/src/lib.rs 3350
 crates/world-pack-protocol/src/lib.rs 4523
 crates/world-projection/src/lib.rs 3123

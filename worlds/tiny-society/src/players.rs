@@ -16,8 +16,8 @@
 //! - plots opening in each of the three years;
 //! - letters averaging at most 1.5 a week, with some quiet days (and at
 //!   most four in any 120, as `long_run` asks);
-//! - the Warm player's v0.23 numbers kept: 64 works, four births and two
-//!   deaths.
+//! - the Warm player's v0.23 numbers kept: 64 works (62 from a new
+//!   player's start), four births and two deaths.
 //!
 //! The players and bars are `world_pack_testkit::players`'. It takes a
 //! few minutes in release:
@@ -188,12 +188,17 @@ fn five_players_three_years() {
     for (played, numbers) in played.iter().zip(&numbers) {
         failed.extend(players::failed(played, numbers));
         // v0.23's 64 works, 4 born and 2 died were measured from the old
-        // start (the storm prologue first). A new player's harbour now
-        // begins on Day 1 without it (D's v0.24 start) and lives slightly
-        // differently: there the bar is the births and deaths, and works
-        // within one of v0.23's.
+        // start (the storm prologue first), and that start still keeps
+        // all three. A new player's harbour begins on Day 1 without it
+        // (D's v0.24 start), and since 1.0 with a designed first session
+        // of six days and kind days after it (P1c): the deck's draws fall
+        // in another order, every work on the ladder lands within a few
+        // days of where it did, and the last one in hand may finish just
+        // past the third year (v0.30's 63rd finished on day 1,080 itself).
+        // There the bar is the births and deaths, and works within two of
+        // v0.23's.
         let prologue = std::env::var("PLAYERS_START").as_deref() == Ok("prologue");
-        let works_bar = if prologue { 64 } else { 63 };
+        let works_bar = if prologue { 64 } else { 62 };
         if played.player == Player::Warm
             && (numbers.works < works_bar || numbers.born < 4 || numbers.died < 2)
         {

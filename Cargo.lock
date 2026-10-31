@@ -7149,6 +7149,7 @@ dependencies = [
  "pocket-universe",
  "ritual",
  "tiny-society",
+ "world-gpui",
  "world-host",
  "world-i18n",
  "world-persistence",

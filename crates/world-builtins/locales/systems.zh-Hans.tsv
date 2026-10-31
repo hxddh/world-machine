@@ -2064,6 +2064,10 @@ The {} you began by {at} was finished	你在{at}旁开始建的{}完工了
 You began a {}	你开始建一座{}
 You began an {}	你开始建一座{}
 The {} you began was finished	你开始建的{}完工了
+The frame of the {} you began by {at} went up	你在{at}旁开始建的{}搭起了框架
+The frame of the {} you began went up	你开始建的{}搭起了框架
+The {} you began by {at} was nearly done	你在{at}旁开始建的{}快完工了
+The {} you began was nearly done	你开始建的{}快完工了
 You painted a design on the flag	你在旗子上画了一个图案
 You painted a design on the sail	你在帆上画了一个图案
 You painted a design on the sign	你在招牌上画了一个图案

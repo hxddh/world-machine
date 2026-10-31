@@ -10,7 +10,9 @@ pub fn grade(daylight: Daylight) -> ((u32, f32), (u32, f32)) {
     match daylight {
         Daylight::Dawn => ((0xffc79a, 0.16), (0x5a6aa8, 0.10)),
         Daylight::Day => ((0xfff0c8, 0.10), (0x4a6a9a, 0.08)),
-        Daylight::Dusk => ((0xffa04c, 0.25), (0x4a3070, 0.16)),
+        // Dusk is lit, not tinted (1.0 P5): a lower warm key, and the
+        // lamps and the windows' pools doing the rest.
+        Daylight::Dusk => ((0xffb066, 0.13), (0x4a3070, 0.16)),
         Daylight::Night => ((0x9ab0ff, 0.06), (0x0a1030, 0.22)),
     }
 }
@@ -91,7 +93,9 @@ pub fn light_at(hour: f32, weather: Weather) -> [f32; 3] {
     let of = |daylight: Daylight| match daylight {
         Daylight::Dawn => [1.0, 0.9, 0.86],
         Daylight::Day => [1.0, 0.995, 0.97],
-        Daylight::Dusk => [1.0, 0.76, 0.48],
+        // Dimmer and less orange than v0.30's flat gold, so what is lit
+        // stands out of it (still gold: `golden::dusk_is_gold`).
+        Daylight::Dusk => [0.88, 0.73, 0.58],
         Daylight::Night => [0.34, 0.4, 0.6],
     };
     // `between` has already eased `t`: ease(t).

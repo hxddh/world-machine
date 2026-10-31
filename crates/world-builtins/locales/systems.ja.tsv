@@ -2064,6 +2064,10 @@ The {} you began by {at} was finished	{at}のそばで造りはじめた{}が完
 You began a {}	{}を造りはじめた
 You began an {}	{}を造りはじめた
 The {} you began was finished	造りはじめた{}が完成した
+The frame of the {} you began by {at} went up	{at}のそばで造りはじめた{}の骨組みが立った
+The frame of the {} you began went up	造りはじめた{}の骨組みが立った
+The {} you began by {at} was nearly done	{at}のそばで造りはじめた{}がもうすぐ完成する
+The {} you began was nearly done	造りはじめた{}がもうすぐ完成する
 You painted a design on the flag	旗に絵柄を描いた
 You painted a design on the sail	帆に絵柄を描いた
 You painted a design on the sign	看板に絵柄を描いた

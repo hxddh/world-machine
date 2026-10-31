@@ -16,6 +16,7 @@ use crate::scene;
 mod arrival;
 mod drawer;
 mod farewell;
+mod first_frame;
 mod glide;
 mod keeping;
 mod marking;

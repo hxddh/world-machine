@@ -22,6 +22,7 @@ mod camera;
 mod controls;
 mod dock;
 mod hud;
+mod quiet;
 mod render_world;
 #[cfg(test)]
 mod tests;
@@ -312,8 +313,8 @@ pub(crate) struct Looking {
     /// for it.
     pub(crate) painted: bool,
     /// Whoever the window opened on to welcome the player, and where it
-    /// put the camera for them.
-    pub(crate) welcome_pan: Option<(SelectionId, f32)>,
+    /// put the camera for them: its pan and its zoom.
+    pub(crate) welcome_pan: Option<(SelectionId, f32, f32)>,
     /// Whose line the window opened on, which is said first: the window
     /// opens where the most people are round whoever speaks
     /// ([`super::arrival::opening_voice`]).
@@ -328,6 +329,9 @@ pub(crate) struct Looking {
     /// to whoever says goodbye.
     pub(crate) farewell: Option<super::farewell::Farewell>,
     pub(crate) farewell_panned: bool,
+    /// When the player last moved the mouse or pressed a key: the
+    /// interface quietens after a while without them (`quiet`).
+    pub(crate) touched: Option<Instant>,
     pub(crate) farewell_speaker: Option<SelectionId>,
     /// Whether the first day's free thing has been offered in this window,
     /// and whether the offer is up now: the hands open on it, the card

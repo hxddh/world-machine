@@ -507,6 +507,164 @@ fn the_living_stage_is_never_blank_and_lets_go_of_what_it_no_longer_needs() {
     assert_eq!(hand.slots.len(), 1);
 }
 
+/// The window's very first look is quick (1.0 P5, a loading wash under
+/// 300 ms): with nothing held, the soft whole level is baked only round
+/// what the camera sees, a fraction of a long place, and stands in at
+/// once; the whole level is still baked after the camera's own, and the
+/// quick look let go, so a zoom right out finds the whole place.
+#[test]
+fn the_first_look_is_baked_round_the_camera_and_the_whole_after() {
+    let snapshot = fixtures()
+        .into_iter()
+        .find(|(name, _)| name.ends_with("-day-1082"))
+        .map(|(_, snapshot)| snapshot)
+        .expect("the day-1082 fixture");
+    let view = (1100.0, 848.0);
+    let stage = super::stage(&snapshot, view.0, view.1);
+    let rest = Camera::rest_zoom(&stage);
+    let x = stage.width / 2.0;
+    let mut hand = Stagehand::new(1.0);
+    let mut first_span = None;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(240);
+    let mut frames = 0;
+    loop {
+        let frame = Arc::new(frame_of(&snapshot, view, Some((rest, x)), 12.0, 0.0));
+        let (_, _, _, report) = hand.frame(&frame, &snapshot, false);
+        frames += 1;
+        if first_span.is_none() {
+            first_span = hand.slots.first().map(|slot| slot.held.span);
+        }
+        if report.settled && hand.slots.iter().any(|slot| slot.held.span.is_none()) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never settled");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let (from, to) = first_span
+        .flatten()
+        .expect("the first look round the camera");
+    assert!(
+        to - from < stage.width * 0.5,
+        "the first look is {:.0} of {:.0} wide",
+        to - from,
+        stage.width
+    );
+    assert!(
+        hand.slots
+            .iter()
+            .all(|slot| slot.held.level >= sv::SPANNED_FROM || slot.held.span.is_none()),
+        "the quick look is let go after {frames} frames"
+    );
+}
+
+/// A day passes (the World changes) with the camera at rest: its new close
+/// look is shown, and its new whole look is baked but still on its way to
+/// the display. The old whole look is kept until it is, so a zoom right out
+/// (or the camera sent far along the place) on the next frame still has a
+/// look of the whole place to stand in: never an unpainted frame (1.0 P5:
+/// the soak showed nothing for 100-450 ms there, two to five frames, the old
+/// whole look let go a frame too soon).
+#[test]
+fn a_look_of_the_whole_place_is_kept_until_its_successor_is_ready() {
+    use ls::Light::Noon;
+    let (seen, whole) = ((4000.0, 4500.0), (0.0, 9000.0));
+    let wants = [
+        want(2, Noon, seen),
+        Want {
+            shown: false,
+            ..want(0, Noon, seen)
+        },
+    ];
+    let held_now = [
+        held(2, 0, Noon, None, true),                   // the old World, whole
+        held(1, 2, Noon, Some((3800.0, 4700.0)), true), // the new, close
+        held(1, 0, Noon, None, false),                  // the new, whole, on its way
+    ];
+    let kept = sv::keep(&held_now, &wants);
+    assert_eq!(kept, vec![true, true, true]);
+    // The camera then zooms right out: the old whole look stands in.
+    let out = want(1, Noon, whole);
+    let standing = held_now
+        .iter()
+        .zip(&kept)
+        .filter(|(_, kept)| **kept)
+        .map(|(held, _)| *held)
+        .collect::<Vec<_>>();
+    assert_eq!(sv::choose(&standing, &out), Some(0));
+    // Once the new whole look is ready, the old one goes.
+    let held_now = [held_now[0], held_now[1], held(1, 0, Noon, None, true)];
+    assert_eq!(sv::keep(&held_now, &wants), vec![false, true, true]);
+}
+
+/// Zooming out a step at a time and back in, as the release harness and
+/// the nightly soak do, each step a glide of a third of a second begun
+/// before the last look has baked: once the first look is shown, no frame
+/// is unpainted (1.0 P5; the soak found frames 100-300 ms after a zoom out
+/// and back in with nothing shown: a look neither baked nor stood in for).
+#[test]
+fn zooming_out_and_back_in_never_shows_an_unpainted_frame() {
+    let snapshot = day_163();
+    let view = (1100.0, 848.0);
+    let stage = super::stage(&snapshot, view.0, view.1);
+    let rest = Camera::rest_zoom(&stage);
+    let x = stage.width / 2.0;
+    let mut hand = Stagehand::new(2.0);
+    let mut seconds = 0.0_f32;
+    let mut zoom = rest;
+    let mut opened = false;
+    let mut unpainted = Vec::new();
+    let mut step = |hand: &mut Stagehand, to: f32, hold: f32, seconds: &mut f32, zoom: &mut f32| {
+        let from = *zoom;
+        let began = *seconds;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            let t = ((*seconds - began) / 0.35).min(1.0);
+            let now = from + (to - from) * (t * t * (3.0 - 2.0 * t));
+            let frame = Arc::new(frame_of(&snapshot, view, Some((now, x)), 12.0, *seconds));
+            let frame = if t < 1.0 {
+                let bound = Camera::around(&stage, to, x, view.1 / 2.0);
+                Arc::new((*frame).clone().heading_to(bound))
+            } else {
+                frame
+            };
+            let (_, _, _, report) = hand.frame(&frame, &snapshot, false);
+            if report.shown {
+                opened = true;
+            } else if opened {
+                unpainted.push((*seconds, now));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+            *seconds += 0.016;
+            if *seconds - began >= hold {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        *zoom = to;
+    };
+    // Opened at rest and let settle.
+    step(&mut hand, rest, 3.0, &mut seconds, &mut zoom);
+    // Out a step at a time to the whole place, then in to the closest.
+    let mut to = rest;
+    for _ in 0..4 {
+        to = (to / 1.25).max(Camera::least(&stage));
+        step(&mut hand, to, 0.5, &mut seconds, &mut zoom);
+    }
+    for _ in 0..6 {
+        to = (to * 1.25).min(super::ZOOM_MOST);
+        step(&mut hand, to, 0.25, &mut seconds, &mut zoom);
+    }
+    // Straight out and straight back in.
+    step(&mut hand, 1.0, 0.2, &mut seconds, &mut zoom);
+    step(&mut hand, rest, 0.6, &mut seconds, &mut zoom);
+    assert!(
+        unpainted.is_empty(),
+        "{} unpainted frames after the first: {:?}",
+        unpainted.len(),
+        &unpainted[..unpainted.len().min(8)]
+    );
+}
+
 /// Nobody's feet are ever inside a building's footprint: wherever their
 /// routine takes them at any hour of the day, in every fixture, the
 /// residents walk beside and in front of the buildings, never through

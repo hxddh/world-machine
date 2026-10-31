@@ -41,9 +41,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// The zoom levels baked, in device pixels a stage pixel for each of the
-/// display's own (v0.30 S1c): all of the place soft, at half (only ever a
-/// stand-in, while a closer look bakes: no camera is that far out), the
+/// The zoom levels baked, in device pixels a stage pixel (v0.30 S1c): all
+/// of the place soft, at half (only a stand-in: no camera is that far), the
 /// overview (one window of the place), the camera at rest (people 140 px:
 /// 2.2 to 2.4 times closer in a window 848 or more high, drawn from 2.45),
 /// and close up (to [`ZOOM_MOST`], 3.4).
@@ -113,10 +112,10 @@ impl Held {
             .is_none_or(|(from, to)| view.0 >= from - 0.5 && view.1 <= to + 0.5)
     }
 
-    /// Whether it is exactly the look `want` asks for.
+    /// Whether it is exactly the look `want` asks for (an opening look never).
     pub fn answers(&self, want: &Want) -> bool {
         self.key == want.key
-            && self.level == want.level
+            && (self.level == want.level && (self.level >= SPANNED_FROM || self.span.is_none()))
             && self.light == want.light
             && self.variant == want.variant
             && self.covers(want.view)
@@ -152,32 +151,7 @@ pub fn choose(held: &[Held], want: &Want) -> Option<usize> {
         .map(|(at, _)| at)
 }
 
-/// Which of `held` a window keeps: each look a want asks for (ready or on
-/// its way to the display), and while one the frame shows is not ready,
-/// the look standing in for it: for the camera's own (the first), and for
-/// any other of a level baked whole. (v0.30 S1c: a close level's light
-/// fading in stands in with whatever stands in for the first, rather than
-/// keeping a close look of its own; a look baked ahead stands in for
-/// nothing. Four close looks at once were more pixels than the budget.)
-/// Everything else is let go.
-pub fn keep(held: &[Held], wants: &[Want]) -> Vec<bool> {
-    let mut keep = vec![false; held.len()];
-    for (nth, want) in wants.iter().enumerate() {
-        if let Some(at) = held.iter().position(|held| held.answers(want)) {
-            keep[at] = true;
-            if held[at].ready {
-                continue;
-            }
-        }
-        if !want.shown || (nth > 0 && want.level >= SPANNED_FROM) {
-            continue;
-        }
-        if let Some(at) = choose(held, want) {
-            keep[at] = true;
-        }
-    }
-    keep
-}
+pub use super::keeping::keep;
 
 /// The next look to bake, if none is baking: the first wanted that is
 /// not held. With nothing at all to show yet for the first want, its
@@ -1019,7 +993,8 @@ impl Stagehand {
             let Some(snapshot) = self.snapshot.clone() else {
                 return;
             };
-            let span = span_for(&want, self.width, self.view.0, self.lead);
+            let span =
+                super::interface::span_of(&want, &self.slots, self.width, self.view.0, self.lead);
             let held = Held {
                 key: want.key,
                 level: want.level,
@@ -1197,8 +1172,8 @@ impl Stagehand {
     /// whose pictures the display has is ready.
     ///
     /// A look all of whose pictures were handed over on earlier frames is
-    /// shown on a frame that hands nothing over (see [`chores`]); right
-    /// here (`now`), everything is handed over and shown at once.
+    /// shown on a frame that hands nothing over (see [`chores`]); `now` (a
+    /// test, or the very first look, under the wash) all of it at once.
     fn hand_over(&mut self, now: bool, chores: Chores) -> Vec<Arc<RenderImage>> {
         let mut out = Vec::new();
         if now {
@@ -1501,7 +1476,7 @@ impl Stagehand {
         };
         self.schedule(&wants, now);
         let chores = chores(self.complete(), self.uploads_waiting(), self.freeing.len());
-        let ahead = self.hand_over(now, chores);
+        let ahead = self.hand_over(now || !self.slots.iter().any(|s| s.held.ready), chores);
         let gone = self.evict(&wants);
         self.freeing.extend(gone);
         let take = if now {
@@ -1610,13 +1585,13 @@ fn bake_one(
 }
 
 /// Something drawn live within `rect`, clipped to `clip` if given.
-fn live(rect: Rect, clip: Option<Rect>, paint: impl Fn(&mut Window, Rect) + 'static) -> Draw {
+pub fn live(rect: Rect, clip: Option<Rect>, f: impl Fn(&mut Window, Rect) + 'static) -> Draw {
     let rect = clip.map_or(rect, |clip| ls::intersection(rect, clip));
     Draw::Live {
         rect,
         paint: Rc::new(move |window: &mut Window, scene: Rect| {
             let Some(clip) = clip else {
-                paint(window, scene);
+                f(window, scene);
                 return;
             };
             let bounds = Bounds::new(
@@ -1624,7 +1599,7 @@ fn live(rect: Rect, clip: Option<Rect>, paint: impl Fn(&mut Window, Rect) + 'sta
                 size(px(clip.2.max(0.0)), px(clip.3.max(0.0))),
             );
             window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
-                paint(window, scene)
+                f(window, scene)
             });
         }),
     }
@@ -2192,8 +2167,8 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 items,
             });
         }
-        // A scene's props, live, in depth with everyone: what is held just
-        // in front of whoever holds it, bunting over everyone's heads.
+        deep.extend(super::passers::deeps(&part, light));
+        // A scene's props, live, in depth with everyone: held in front.
         for (n, prop) in part.scene_props().iter().enumerate() {
             let z = part.camera.zoom;
             let (x, foot) = lens_first.at(prop.x, prop.y);
@@ -2475,7 +2450,7 @@ pub fn living_scene(frame: Frame, snapshot: &ProjectionSnapshot, window: &mut Wi
     let wash = if sync {
         0.0
     } else {
-        wash_over(window, report.shown, frame.still)
+        wash_over(window, report.shown)
     };
     note_stage(window, &frame, report.shown, report.settled);
     if !sync {
