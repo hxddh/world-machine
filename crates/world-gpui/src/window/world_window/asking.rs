@@ -544,11 +544,12 @@ impl ProjectionView {
         )
     }
 
-    /// What the player might open with to `who`, from what the World knows
-    /// of them, until they have said something today: each sent as if
-    /// typed.
+    /// What the player might say to `who`, from what the World knows of
+    /// them, as chips under the talk: fresh after every answer (when they
+    /// could not answer, the three things they offered to be asked), so
+    /// typing is never needed. A click says one exactly as typing it would.
     pub(super) fn render_openers(&self, who: SelectionId, cx: &mut Context<Self>) -> Option<Div> {
-        if self.snapshot.exchanges_with(who).next().is_some() || self.looking.listening.is_some() {
+        if self.looking.listening.is_some() {
             return None;
         }
         let openers = self
@@ -562,6 +563,7 @@ impl ProjectionView {
             row = row.child(
                 div()
                     .id(SharedString::from(format!("opener-{index}")))
+                    .debug_selector(move || format!("opener-{index}"))
                     .role(Role::Button)
                     .aria_label(words.clone())
                     .px_2()
@@ -573,16 +575,21 @@ impl ProjectionView {
                     .text_color(color(tokens::TEXT_SECONDARY))
                     .hover(|style| style.bg(color(tokens::ACCENT_SOFT)))
                     .child(crate::wrap::text(words.clone()))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Some(input) = this.looking.say.clone() {
-                            input.update(cx, |input, cx| input.set_text(words.clone(), cx));
-                            let _ = window;
-                            this.say(cx);
-                        }
-                    })),
+                    .on_click(cx.listener(move |this, _, _, cx| this.ask_chip(&words, cx))),
             );
         }
         Some(row)
+    }
+}
+
+impl ProjectionView {
+    /// Says a chip's words to whoever is being talked to, by the same way
+    /// as words typed: put in the box, and said.
+    pub(super) fn ask_chip(&mut self, words: &str, cx: &mut Context<Self>) {
+        if let Some(input) = self.looking.say.clone() {
+            input.update(cx, |input, cx| input.set_text(words.to_string(), cx));
+            self.say(cx);
+        }
     }
 }
 

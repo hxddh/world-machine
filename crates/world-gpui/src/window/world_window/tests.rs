@@ -1222,3 +1222,122 @@ fn report_is_offered_only_under_a_line_the_ai_voice_wrote() {
     );
     assert_eq!(asking::report_command(&exchange(true, true)), None);
 }
+
+/// A World that answers whatever is said to someone with fresh things to
+/// ask them, and keeps what it was asked.
+struct Answering {
+    now: ProjectionSnapshot,
+    heard: std::rc::Rc<std::cell::RefCell<Vec<ProjectionIntent>>>,
+}
+
+/// What is offered to be asked of `who`, the `round`th time.
+fn chips_for(who: SelectionId, round: usize) -> world_projection::Openers {
+    world_projection::Openers {
+        who,
+        lines: (0..3)
+            .map(|chip| format!("Question {chip} of round {round}?"))
+            .collect(),
+    }
+}
+
+impl crate::ProjectionController for Answering {
+    fn snapshot(&self) -> ProjectionSnapshot {
+        self.now.clone()
+    }
+
+    fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, String> {
+        if let ProjectionIntent::Say { to, words, .. } = &intent {
+            let round = self.now.exchanges.len() + 1;
+            self.now.exchanges.push(world_projection::Exchange {
+                who: *to,
+                words: words.clone(),
+                answer: format!("An answer to {words}"),
+                moment: SelectionId::from_stable_key(&format!("event-{round}"))
+                    .expect("an event key"),
+                asks_for: None,
+                voiced: false,
+                reported: false,
+            });
+            self.now.openers = vec![chips_for(*to, round)];
+        }
+        self.heard.borrow_mut().push(intent);
+        Ok(self.now.clone())
+    }
+}
+
+/// Through GPUI's test window (1.0 P4a): someone's card shows three
+/// things to ask them as chips, so typing is never needed; a click asks
+/// one exactly as typing it would (said with the World's own ears); and
+/// after the answer the chips are fresh, still there to click.
+#[gpui::test]
+fn chips_stand_under_the_talk_and_a_click_asks_one(cx: &mut gpui::TestAppContext) {
+    use gpui::{Modifiers, VisualTestContext};
+    let mut snapshot = day_1082();
+    let someone = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .nth(3)
+        .map(|item| item.id)
+        .expect("someone");
+    snapshot.capabilities.talk = true;
+    snapshot.exchanges.clear();
+    snapshot.briefing = None;
+    snapshot.openers = vec![chips_for(someone, 0)];
+    let heard = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let answering = Answering {
+        now: snapshot,
+        heard: heard.clone(),
+    };
+    let window = cx.add_window(move |_, _| {
+        let mut view = ProjectionView::controlled(answering);
+        view.looking.opening = None;
+        view
+    });
+    let view = window.root(cx).expect("the World");
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_resize(gpui::size(px(1100.0), px(900.0)));
+    cx.run_until_parked();
+    view.update(cx, |view, cx| view.ask(someone, cx));
+    let settle = |cx: &mut VisualTestContext| {
+        std::thread::sleep(Duration::from_secs_f32(CAMERA_SECONDS + 0.2));
+        for _ in 0..4 {
+            view.update(cx, |_, cx| cx.notify());
+            cx.executor().advance_clock(Duration::from_millis(500));
+            cx.run_until_parked();
+        }
+    };
+    settle(cx);
+    const CHIPS: [&str; 3] = ["opener-0", "opener-1", "opener-2"];
+    for round in 0..2 {
+        let chips = CHIPS
+            .iter()
+            .map(|chip| cx.debug_bounds(chip))
+            .collect::<Vec<_>>();
+        assert!(
+            chips.iter().all(Option::is_some),
+            "round {round}: three chips under the talk"
+        );
+        let asked = chips_for(someone, round).lines[1].clone();
+        cx.simulate_click(chips[1].expect("a chip").center(), Modifiers::none());
+        cx.run_until_parked();
+        let said = heard.borrow().iter().any(|intent| {
+            matches!(intent, ProjectionIntent::Say { to, words, ears }
+                if *to == someone && *words == asked && *ears == world_projection::Ears::World)
+        });
+        assert!(
+            said,
+            "round {round}: the chip is said: {:?}",
+            heard.borrow()
+        );
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.snapshot.openers,
+                vec![chips_for(someone, round + 1)],
+                "fresh chips after the answer"
+            );
+        });
+        settle(cx);
+    }
+}
