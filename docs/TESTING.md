@@ -85,6 +85,29 @@ until its successor is ready, and a six-minute run finds none. A short run
 still fails the RSS slope, on `main` before P5 too: two minutes of warm-up
 are too few to judge memory, which is what the two hours are for.
 
+The first two-hour run (the nightly on `79083de`, 490 sittings) failed on
+memory alone: RSS 589 MB when warm-up ended, 1,044 MB at the end, 253 MB
+an hour. Nothing the app holds was growing: counting every picture the
+window paints showed them bounded (under 200 live, about 25 MB), and the
+growth was all in anonymous memory outside glibc's main heap, that is in
+malloc's per-thread arenas. glibc maps a block of at least its mmap
+threshold for itself and unmaps it on free, but every such block freed
+raises the threshold to its size (up to 32 MiB); once the first look was
+let go, the window's pictures and looks, painted on the painter's and the
+bakers' threads, came out of a dozen arenas that kept their freed pixels.
+With `MALLOC_MMAP_THRESHOLD_=131072` a 20-minute run held flat (slope
+31 MB an hour against 219), and `MALLOC_ARENA_MAX=2` nearly so (64). The
+app now fixes the threshold at glibc's default first thing in `main`
+(`world_machine_desktop::allocator`, the one `unsafe` in the package;
+`tests/allocator.rs` fails without it, keeping 24 MB of freed pictures).
+Side by side, one hour each on the same machine (10 minutes of warm-up,
+219 sittings): before, 618 MB warm, 934 MB at the end, 420 MB an hour
+(anonymous memory 245 to 506 MB), failed; after, 433 MB warm, 499 MB at
+the end, 44 MB an hour (anonymous 65 to 97 MB), passed. A local run of
+20 or 30 minutes still judges the slope on too little: the fixed app
+settles near 470 MB within about fifteen minutes, but its short-run slope
+(130 to 250 MB an hour) is the settling, not a leak.
+
 ## The release shots (`.github/workflows/release-shots.yml`)
 
 `scripts/release-shots.sh` plays the first ten minutes and the key moments
