@@ -382,8 +382,9 @@ pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
             // Its site, then scaffolding, stands until it is finished: in
             // place of the drawing it will wear finished, which the app
             // would otherwise paint over the stage.
-            item.art = shown_rising(state, id, item.kind).map(Into::into);
-            if item.art.is_some() {
+            // Nearly done, a thing (not a building) stands as itself.
+            if let Some(art) = shown_rising(state, id, item.kind) {
+                item.art = Some(art.into());
                 item.drawing = None;
             }
         } else if let Some(finished) = crate::finished_at(state, &kit, id) {

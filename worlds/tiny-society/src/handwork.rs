@@ -316,6 +316,17 @@ pub(crate) fn rises(
     ]
 }
 
+/// A work the story puts up at the harbour whole, at once: the point's
+/// lamp, whose own thread asks the next day whether to light it, so it
+/// never rises in stages behind that question.
+pub(crate) fn stands(
+    entity: EntityId,
+    name: &'static str,
+    shape: &'static str,
+) -> Vec<storylets::Effect> {
+    vec![storylets::build(entity, name, shape, crate::HARBOR, None)]
+}
+
 const HAND_COMMAND: &str = "tiny-society.hand.";
 
 /// The command that does a deed.
