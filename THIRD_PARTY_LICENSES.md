@@ -12,3 +12,5 @@ Current dependencies / integrations:
 | gpui_platform | Apache-2.0 | macOS application bootstrap only; pinned to the same Zed revision as GPUI |
 
 This file records World Machine's dependency boundary. Packaged distributions must include the complete notices required for every dependency or external runtime they actually redistribute.
+
+The complete list of third-party crates the desktop app is built with (every crate in `Cargo.lock`, with its version, declared licence and source) is generated into [`apps/world-machine-desktop/acknowledgements.tsv`](apps/world-machine-desktop/acknowledgements.tsv) by `scripts/generate-acknowledgements.py`, and shown in the app under **Help → Acknowledgements**. The desktop test `tests/acknowledgements.rs` fails when `Cargo.lock` changes without regenerating it. The list names each licence; bundling each crate's full licence text with a packaged build is still to do.

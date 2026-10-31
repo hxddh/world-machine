@@ -8,12 +8,15 @@
 pub mod ambience;
 pub mod app_settings;
 pub mod channel;
+pub mod crash_reports;
 pub mod demo;
 pub mod display;
 pub mod key_store;
+pub mod notices;
 pub mod plain_errors;
 pub mod platform;
 pub mod restore;
+pub mod settings_plan;
 pub mod shell;
 pub mod steam;
 pub mod window_state;

@@ -10,9 +10,13 @@ mod app_menu;
 #[cfg(gui)]
 mod build_info;
 #[cfg(gui)]
+mod crash_window;
+#[cfg(gui)]
 mod diagnostics;
 #[cfg(gui)]
 mod included_packs;
+#[cfg(gui)]
+mod notes_window;
 #[cfg(gui)]
 mod observer;
 #[cfg(gui)]
@@ -178,7 +182,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for channel in ambience::Channel::ALL {
             ambience::set_level(channel, settings.sound_level(channel));
         }
+        ambience::set_master(settings.master_level());
     }
+    let reduce_motion = world_machine_desktop::display::reduce_motion(saved.as_ref());
+    // A crash report the last run left, offered once unless the player
+    // chose never to be asked. Nothing is sent from here.
+    let crash_reports = crash_window::pending_offer(saved.as_ref());
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
     diagnostics::info(format!(
@@ -305,6 +314,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         about::install_home_actions(&home, cx);
         cx.set_global(HomeEntity(home.clone()));
         open_home_window(home, cx);
+        cx.set_reduce_motion(reduce_motion);
+        crash_window::offer(crash_reports, cx);
         cx.activate(true);
     });
 

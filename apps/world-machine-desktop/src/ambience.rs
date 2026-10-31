@@ -107,13 +107,46 @@ pub fn set_level(channel: Channel, percent: u8) {
     player::levels_changed();
 }
 
+static MASTER: AtomicU8 = AtomicU8::new(100);
+
+/// The player's master level, from 0 to 100: every channel plays under it.
+pub fn master() -> u8 {
+    MASTER.load(Ordering::Relaxed)
+}
+
+/// Record the player's master level; what plays follows at once.
+pub fn set_master(percent: u8) {
+    MASTER.store(percent.min(100), Ordering::Relaxed);
+    #[cfg(gui)]
+    player::levels_changed();
+}
+
 /// How loud to play a channel now: its full volume times the player's
-/// level, or nothing with sound off.
+/// level and the master level, or nothing with sound off.
 pub fn volume(channel: Channel) -> f32 {
-    if !enabled() {
+    gain(enabled(), master(), channel, level(channel))
+}
+
+/// A channel's gain with sound `on`, the master at `master` percent and the
+/// channel's own level at `percent`.
+pub fn gain(on: bool, master: u8, channel: Channel, percent: u8) -> f32 {
+    if !on {
         return 0.0;
     }
-    channel.full() * f32::from(level(channel)) / 100.0
+    channel.full() * f32::from(percent.min(100)) / 100.0 * f32::from(master.min(100)) / 100.0
+}
+
+/// The mixer's gains with sound `on`, the master at `master` and each
+/// channel's level (in [`Channel::ALL`] order): each channel only ever
+/// sets its own gain.
+pub fn mix(on: bool, master: u8, percents: [u8; 4]) -> Levels {
+    let [music, ambience, voices, interface] = percents;
+    Levels {
+        music: gain(on, master, Channel::Music, music),
+        ambience: gain(on, master, Channel::Ambience, ambience),
+        voices: gain(on, master, Channel::Voices, voices),
+        interface: gain(on, master, Channel::Interface, interface),
+    }
 }
 
 /// The mixer's gains for the player's levels. The graph's channels are
@@ -121,12 +154,7 @@ pub fn volume(channel: Channel) -> f32 {
 /// was a file played at that volume, so the levels players chose before
 /// sound the same now.
 pub fn levels() -> Levels {
-    Levels {
-        music: volume(Channel::Music),
-        ambience: volume(Channel::Ambience),
-        voices: volume(Channel::Voices),
-        interface: volume(Channel::Interface),
-    }
+    mix(enabled(), master(), Channel::ALL.map(level))
 }
 
 /// What kind of place a World is, for its landscape: Tiny Society's
@@ -686,6 +714,85 @@ mod tests {
 
         set_enabled(false);
         assert_eq!(levels(), Levels::default(), "sound off silences all");
+    }
+
+    /// Under this a sound is not heard (−120 dB): what a smoothed gain
+    /// leaves of a sound it is fading to nothing.
+    const SILENT: f32 = 1e-6;
+
+    /// How loud `command` sounds through the graph with `levels`.
+    fn peak(levels: Levels, command: world_sound::Command) -> f32 {
+        let mut graph = world_sound::Engine::new(48_000.0, 7);
+        graph.apply(world_sound::Command::Levels(levels));
+        graph.apply(command);
+        graph
+            .render_seconds(0.6)
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+    }
+
+    /// Each volume reaches its own sounds and no other's: the effects
+    /// level (cards, turns, building) its cues, the voices level everyone's
+    /// babble, and the master all of them.
+    #[test]
+    fn each_volume_is_applied_to_its_own_cues() {
+        let act = || world_sound::Command::Act(heard_act(world_gpui::Cue::Turn));
+        let babble = || world_sound::Command::Say {
+            samples: world_sound::babble(3, 4, false, 0, 48_000.0),
+            place: 0.0,
+        };
+        let full = [100, 100, 100, 100];
+        // Everything up: each is heard.
+        assert!(peak(mix(true, 100, full), act()) > 0.01);
+        assert!(peak(mix(true, 100, full), babble()) > 0.01);
+        // Effects down, the rest up: no cue, the babble still.
+        let no_effects = mix(true, 100, [100, 100, 100, 0]);
+        assert_eq!(no_effects.interface, 0.0);
+        assert!(no_effects.music > 0.0 && no_effects.ambience > 0.0 && no_effects.voices > 0.0);
+        assert!(peak(no_effects, act()) < SILENT, "a cue under effects at 0");
+        assert!(peak(no_effects, babble()) > 0.01);
+        // Voices down: the cue still, no babble.
+        let no_voices = mix(true, 100, [100, 100, 0, 100]);
+        assert!(peak(no_voices, act()) > 0.01);
+        assert!(
+            peak(no_voices, babble()) < SILENT,
+            "babble under voices at 0"
+        );
+        // Music and landscape down change neither.
+        let quiet_scene = mix(true, 100, [0, 0, 100, 100]);
+        assert_eq!(quiet_scene.music, 0.0);
+        assert_eq!(quiet_scene.ambience, 0.0);
+        assert_eq!(quiet_scene.interface, mix(true, 100, full).interface);
+        // Each channel's gain moves with its own level alone.
+        for (index, channel) in Channel::ALL.into_iter().enumerate() {
+            let mut percents = full;
+            percents[index] = 50;
+            let half = mix(true, 100, percents);
+            let gains = [half.music, half.ambience, half.voices, half.interface];
+            for (other, gain) in gains.into_iter().enumerate() {
+                let expected = if other == index {
+                    channel.full() / 2.0
+                } else {
+                    Channel::ALL[other].full()
+                };
+                assert!((gain - expected).abs() < 1e-6, "{channel:?} moved {other}");
+            }
+        }
+        // The master scales all four, and 0 silences everything.
+        let halved = mix(true, 50, full);
+        let whole = mix(true, 100, full);
+        assert!((halved.music - whole.music / 2.0).abs() < 1e-6);
+        assert!((halved.interface - whole.interface / 2.0).abs() < 1e-6);
+        assert_eq!(mix(true, 0, full), Levels::default());
+        assert!(peak(mix(true, 0, full), act()) < SILENT);
+        assert_eq!(mix(false, 100, full), Levels::default(), "sound off");
+    }
+
+    fn heard_act(cue: world_gpui::Cue) -> Act {
+        match heard(cue) {
+            Heard::Act(act) => act,
+            Heard::Babble { .. } => panic!("not an act"),
+        }
     }
 
     #[test]

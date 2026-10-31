@@ -898,3 +898,62 @@ The year closes in the Book	这一年在书中合上了
 Begin the new year	开始新的一年
 Working toward	努力的方向
 You are the new keeper of its Book.	你是它新来的执笔人，为它书写港湾之书。
+Performance	性能
+Playing	游玩
+Controls	操作
+Crash reports and support	崩溃报告与支持
+AI voice (experimental)	AI 声音（实验性）
+Master volume	总音量
+Every sound, together	所有声音，一起调整
+Effects	音效
+Ambient sound	环境声
+Reduce motion	减少动态效果
+The scene holds still: nobody strolls, the sea and the clouds stay put, and nothing glides.	画面保持静止：没有人走动，海和云停在原处，镜头也不滑动。
+30 fps	每秒 30 帧
+60 fps	每秒 60 帧
+Display rate	跟随显示器刷新率
+Frame rate	帧率
+How often a World's window draws while things move. Fewer frames use less power.	世界窗口在画面活动时每秒绘制的次数。帧数越少，越省电。
+Battery saver	省电模式
+At most 30 frames a second, whatever the frame rate says, so a battery lasts longer.	无论帧率如何设置，每秒最多 30 帧，让电池更持久。
+Offer it to me	向我提供
+Don't ask	不要询问
+After a crash	崩溃之后
+A crash report is kept on this computer. Offered, it is shown to you once on the next launch; nothing is ever sent unless you send it.	崩溃报告保存在这台电脑上。选择“向我提供”时，下次启动会给你看一次；除非你亲自发送，否则什么都不会发出。
+The keyboard, wherever a World is open. Keys cannot be changed yet.	打开世界时可用的按键。目前还不能更改按键。
+Choose a card	选择卡片
+Take the card	选定卡片
+Turn the card over	翻转卡片
+Look along the place	沿着这里看过去
+Look closer or further	拉近或拉远
+Open the drawer	打开抽屉
+Take a photo	拍照
+Make a postcard	做一张明信片
+Put away what is open	收起打开的东西
+Show as strip	显示为长条
+Close the window	关闭窗口
+Quit	退出
+Crash Report	崩溃报告
+Copy Report	复制报告
+Send Report…	发送报告…
+Show Report File	显示报告文件
+Not Now	以后再说
+Don't Ask Again	不再询问
+World Machine closed unexpectedly	World Machine 意外关闭了
+A crash report was saved on this computer. Nothing has been sent.	一份崩溃报告已保存在这台电脑上。什么都没有发送。
+If you like, send it to us: Send Report opens a new e-mail in your own mail program, and nothing goes until you send it.	如果愿意，可以把它发给我们：“发送报告”会在你自己的邮件程序里新建一封邮件，在你按下发送之前，什么都不会发出。
+You won't be asked again. Reports are still saved; Settings can turn asking back on.	以后不会再询问。报告仍会保存；可以在设置里重新打开询问。
+What's New	新功能
+Known Issues	已知问题
+Acknowledgements	致谢
+These notes are in English.	这些说明为英文。
+Help → Report a Problem… tells us about anything else.	其他问题请通过“帮助 → 报告问题…”告诉我们。
+World Machine is built with the work of many others. Each piece of software below is used under the licence named over it.	World Machine 建立在许多人的工作之上。下面每一款软件都按其上方注明的许可证使用。
+Fonts: none are bundled; the app draws with the system's own fonts.	字体：未附带任何字体；应用使用系统自带的字体。
+Sounds: none are bundled; every sound is synthesised by world-sound.	声音：未附带任何音频文件；所有声音都由 world-sound 合成。
+Pictures: the app's art is World Machine's own (Apache-2.0).	图像：应用中的美术均为 World Machine 自有（Apache-2.0）。
+Write to Support…	联系支持…
+About this version	关于此版本
+↑ ↓ choose a setting, ← → change it, Enter turns it on or off, and Esc closes Settings.	↑ ↓ 选择一项设置，← → 调整它，按回车打开或关闭，按 Esc 关闭设置。
+Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.	有问题或遇到故障？请发邮件给我们。除非你亲自发送，否则什么都不会发出。
+Every crate in Cargo.lock when the app was built, for every platform.	构建应用时依赖清单里的每一个软件包，涵盖所有平台。

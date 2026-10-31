@@ -131,6 +131,8 @@ fn every_window_speaks_japanese_in_japanese() {
         "host_controller.rs",
         "settings.rs",
         "about.rs",
+        "crash_window.rs",
+        "notes_window.rs",
         "sharing.rs",
         "strip_window.rs",
         "updates.rs",
