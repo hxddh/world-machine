@@ -950,6 +950,60 @@ mod tests {
         crate::scene::set_clock(None);
     }
 
+    /// A chapter that ended overnight never takes the morning's Enter
+    /// (v0.31 release shots: on the first sitting's festival morning Enter
+    /// marked the chapter read under the paper, and the morning stayed):
+    /// Enter begins the day, and the chapter's card is there to read after.
+    #[gpui::test]
+    fn enter_begins_the_day_with_a_chapter_just_ended(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let mut snapshot = morning_town();
+        let moment = SelectionId::from_stable_key("event-900").unwrap();
+        snapshot
+            .timeline
+            .items
+            .push(world_projection::TimelineItem {
+                id: moment,
+                world_time: snapshot.world_time,
+                title: "Spring Clean".into(),
+                subtitle: String::new(),
+                caused_by: Vec::new(),
+                routine: false,
+            });
+        snapshot.chapters.push(world_projection::Chapter {
+            number: 1,
+            title: "The first spring".into(),
+            summary: "The harbour came together.".into(),
+            moment: Some(moment),
+        });
+        let Opened {
+            view,
+            mut cx,
+            chosen,
+            ..
+        } = open(app, snapshot, Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        assert!(cx.debug_bounds("morning").is_some(), "the morning is up");
+        press_enter(&view, cx);
+        assert!(cx.debug_bounds("morning").is_none(), "Enter began the day");
+        assert_eq!(chosen.get(), 0, "nothing chosen under the morning");
+        view.read_with(cx, |view, _| {
+            assert!(
+                super::super::world_window::chapter_just_ended(
+                    &view.snapshot,
+                    view.looking.chapter_read
+                )
+                .is_some(),
+                "the chapter is still there to read"
+            )
+        });
+        press_enter(&view, cx);
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.looking.chapter_read, Some(1), "then read with Enter")
+        });
+        crate::scene::set_clock(None);
+    }
+
     /// With text at 200% in an 800-high window, the morning's paper is
     /// never taller than the stage: "Begin the day" stays on screen to
     /// click, and what does not fit scrolls.
