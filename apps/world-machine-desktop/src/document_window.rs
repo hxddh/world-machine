@@ -812,12 +812,22 @@ impl WorldDocumentView {
             ))
     }
 
-    /// The demo's ending: the farewell over the World, at dusk, recapping
-    /// the player's own moments from what the World recorded, with a
-    /// resident's goodbye and a postcard to keep. It asks for nothing;
-    /// "Stay a while" puts it away, and it comes back only when the next
-    /// day is asked for again.
+    /// The demo's ending: the wishlist card over the World, at dusk,
+    /// recapping the player's own moments from what the World recorded,
+    /// with a resident's goodbye, a postcard to keep and "Wishlist ... on
+    /// Steam" (the game named by its Pack). "Stay a while" puts it away,
+    /// and it comes back only when the next day is asked for again.
     pub(crate) fn show_demo_farewell(&mut self, cx: &mut Context<Self>) {
+        let game = {
+            let document = self.document.borrow();
+            let pack = document.session.pack();
+            document
+                .registry
+                .descriptor_for(&pack)
+                .or_else(|| document.registry.descriptor(&pack.id))
+                .map(|descriptor| descriptor.title.clone())
+                .unwrap_or_else(|| document.session.snapshot().title)
+        };
         self.projection.update(cx, |view, cx| {
             let snapshot = view.snapshot().clone();
             let goodbye = demo::goodbye_from(&snapshot).map(|who| (who, demo::GOODBYE.to_string()));
@@ -832,7 +842,7 @@ impl WorldDocumentView {
                 body: demo::ENDING_BODY.into(),
                 kept: demo::ENDING_KEPT.into(),
                 postcard: demo::KEEP_POSTCARD.into(),
-                more: Some((demo::ENDING_WISHLIST.into(), wishlist())),
+                more: Some((demo::wishlist_label(&game), wishlist())),
                 stay: demo::ENDING_STAY.into(),
                 hour: demo::FAREWELL_HOUR,
             });
@@ -841,8 +851,9 @@ impl WorldDocumentView {
     }
 }
 
-/// What "Add to your wishlist" does from the demo's farewell: opens the
-/// store page given at build time (see `demo::WISHLIST_URL`).
+/// What "Wishlist ... on Steam" does from the demo's closing card: opens
+/// the store page in the player's browser (`demo::WISHLIST_URL`, a
+/// placeholder until the owner gives the game's page). Nothing is sent.
 pub(crate) fn wishlist() -> world_gpui::FarewellAction {
     std::rc::Rc::new(|_: &mut Window, cx: &mut gpui::App| cx.open_url(demo::WISHLIST_URL))
 }
@@ -1031,12 +1042,6 @@ impl Render for WorldDocumentView {
             Some(DemoTurn::Ending) => {
                 self.status = None;
                 self.show_demo_farewell(cx);
-            }
-            // The World lived days away: a page opened anew on it plays the
-            // return film, as a World opened after time away does.
-            Some(DemoTurn::Returned) => {
-                self.rebuild_projection(cx);
-                self.status = Some(DocumentStatus::success(ui::t(demo::AWAY_NOTE).to_string()));
             }
             None => {}
         }

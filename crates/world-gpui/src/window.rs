@@ -184,7 +184,9 @@ impl ProjectionView {
 
         match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
             Ok(snapshot) => {
-                if passes_day {
+                // Only a day the World lived spends the sitting: a host that
+                // held the day back (the demo's last) leaves it as it was.
+                if passes_day && snapshot.world_time != self.snapshot.world_time {
                     self.day_passed();
                 }
                 let previous = self.selected;

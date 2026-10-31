@@ -32,7 +32,8 @@ pub struct Farewell {
     pub kept: String,
     /// "Keep a postcard": a postcard of the place at dusk, saved.
     pub postcard: String,
-    /// The way on, if the host offers one: "About the full app".
+    /// The way on, if the host offers one (the demo's "Wishlist … on
+    /// Steam"): the farewell's primary button, opened by the host.
     pub more: Option<(String, FarewellAction)>,
     /// "Stay a while": the farewell is put away and the clock let go.
     pub stay: String,
@@ -136,7 +137,10 @@ impl ProjectionView {
         };
         let more = farewell.more.as_ref().map(|(label, action)| {
             let action = action.clone();
-            ui::button("farewell-more", label.clone(), ButtonKind::Secondary)
+            // The way on is what the farewell is for (the demo's
+            // wishlist): the one primary button.
+            ui::button("farewell-more", label.clone(), ButtonKind::Primary)
+                .debug_selector(|| "farewell-more".into())
                 .on_click(move |_, window, cx| action(window, cx))
         });
         let paper = div()
@@ -198,7 +202,11 @@ impl ProjectionView {
                         ui::button(
                             "farewell-postcard",
                             farewell.postcard.clone(),
-                            ButtonKind::Primary,
+                            if farewell.more.is_some() {
+                                ButtonKind::Secondary
+                            } else {
+                                ButtonKind::Primary
+                            },
                         )
                         .on_click(
                             cx.listener(|this, _, window, cx| this.take_postcard(window, cx)),
@@ -229,7 +237,7 @@ mod tests {
 
     fn farewell(goodbye: Option<(SelectionId, String)>) -> Farewell {
         Farewell {
-            title: "This is where the demo ends".into(),
+            title: "Thanks for playing the demo".into(),
             recap_title: "What you did here".into(),
             recap: vec![
                 "Rosa came because of the pottery you built.".into(),
@@ -245,6 +253,13 @@ mod tests {
             stay: "Stay a while".into(),
             hour: 18,
         }
+    }
+
+    /// The place the farewell is shown over, with no briefing in front.
+    fn place() -> world_projection::ProjectionSnapshot {
+        let mut snapshot = crate::diorama::tests::harbour_1082();
+        snapshot.briefing = None;
+        snapshot
     }
 
     /// Through GPUI's test window, the v0.27 bar for the demo's ending: a
@@ -285,8 +300,7 @@ mod tests {
     fn farewell_at_dusk_then_stay(cx: &mut gpui::TestAppContext, clock: u32) {
         use gpui::{Modifiers, VisualTestContext};
         crate::scene::set_clock(Some(clock));
-        let mut snapshot = crate::diorama::tests::harbour_1082();
-        snapshot.briefing = None;
+        let mut snapshot = place();
         snapshot.commands = vec![world_projection::ProjectionCommand {
             id: "tiny-society.let-day-pass".into(),
             title: "Let the day pass".into(),
@@ -377,5 +391,44 @@ mod tests {
             cx.debug_bounds("bottom-card").is_some(),
             "and the day's card is back ({clock}:30)"
         );
+    }
+
+    /// The demo's closing card: its wishlist is the farewell's one
+    /// primary button, and choosing it asks the host (which opens the
+    /// store page in the browser) and leaves the card up.
+    #[gpui::test]
+    fn the_wishlist_is_asked_of_the_host_and_the_card_stays(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, VisualTestContext};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        crate::scene::set_clock(Some(12));
+        let snapshot = place();
+        let window = cx.add_window(move |_, _| {
+            let mut view = ProjectionView::controlled(Still(snapshot));
+            view.looking.opening = None;
+            view
+        });
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+        cx.run_until_parked();
+        let asked = Rc::new(Cell::new(0));
+        let asks = asked.clone();
+        view.update(cx, |view, cx| {
+            let mut card = farewell(None);
+            card.more = Some((
+                "Wishlist the game on Steam".into(),
+                Rc::new(move |_: &mut Window, _: &mut gpui::App| asks.set(asks.get() + 1)),
+            ));
+            view.show_farewell(card);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let wishlist = cx.debug_bounds("farewell-more").expect("the wishlist");
+        cx.simulate_click(wishlist.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(asked.get(), 1, "the host was asked once");
+        view.read_with(cx, |view, _| assert!(view.farewell_shown()));
+        crate::scene::set_clock(None);
     }
 }
