@@ -880,6 +880,8 @@ library! {
     "wellhead", 0.8, shared::wellhead;
     "garden-swing", 0.85, shared::garden_swing;
     "scaffold", 1.0, shared::scaffold;
+    "site", 0.4, shared::site;
+    "nearly-built", 1.0, shared::nearly_built;
     // ---- The harbour --------------------------------------------------
     "lighthouse", 2.4, harbour::lighthouse;
     "harbour-clock", 1.9, harbour::harbour_clock;

@@ -206,3 +206,37 @@ fn a_packs_drawing_stands_on_its_declared_rung() {
         );
     }
 }
+
+/// Something going up stands at its own scale: a site marked out is lower
+/// than a grown-up; scaffolding round a bench stands a little over a head,
+/// round a lamp post a little over the lamp, and round a building as high
+/// as a cottage (v0.30 review P3: a bench going up stood in a cottage-high
+/// frame).
+#[test]
+fn what_goes_up_stands_at_its_own_scale() {
+    let thing = |shape: MarkShape, key: &str| {
+        height_in_p(&Subject::Thing(
+            shape,
+            Setting::from_key(None),
+            Some(Art::from_key(key).unwrap()),
+        ))
+    };
+    let site = thing(MarkShape::Bench, "site");
+    assert!(site < 0.6, "a site is {site:.2} P");
+    let bench = thing(MarkShape::Bench, "scaffold");
+    assert!((1.3..=1.6).contains(&bench), "round a bench: {bench:.2} P");
+    let lamp = thing(MarkShape::Lantern, "scaffold");
+    assert!(
+        (2.2..=2.6).contains(&lamp),
+        "round a lamp post: {lamp:.2} P"
+    );
+    let building = height_in_p(&Subject::Building(
+        MarkShape::House,
+        Setting::from_key(None),
+        Some(Art::from_key("scaffold").unwrap()),
+    ));
+    assert!(
+        (building - 2.75).abs() < 0.3,
+        "round a building: {building:.2} P"
+    );
+}

@@ -962,3 +962,58 @@ pub fn scaffold(p: &mut Pen) {
     p.line((-0.24, 0.88), (-0.24, 0.66), 0.006, p.k.dark);
     p.rect(-0.28, 0.6, -0.2, 0.67, p.k.metal);
 }
+
+/// A site marked out for something to go up on: pegs at its corners and a
+/// line strung between them, a stack of timber and a sawhorse, the ground
+/// inside scraped bare.
+pub fn site(p: &mut Pen) {
+    p.shadow(0.48);
+    let wood = p.k.wood;
+    p.rect(-0.44, 0.0, 0.3, 0.05, p.k.ground.opacity(0.7));
+    for u in [-0.44, -0.06, 0.3] {
+        p.rect(u - 0.012, 0.0, u + 0.012, 0.3, shade(wood, 0.15));
+    }
+    p.line((-0.44, 0.27), (0.3, 0.27), 0.006, p.k.pale);
+    for (step, v) in [0.04, 0.12, 0.2].into_iter().enumerate() {
+        let inset = step as f32 * 0.03;
+        p.rr(
+            0.08 + inset,
+            v - 0.04,
+            0.48 - inset,
+            v + 0.035,
+            0.01,
+            shade(wood, -0.05 * step as f32),
+        );
+    }
+    p.line((-0.34, 0.0), (-0.26, 0.24), 0.014, wood);
+    p.line((-0.14, 0.0), (-0.22, 0.24), 0.014, wood);
+    p.rect(-0.36, 0.22, -0.12, 0.26, shade(wood, 0.1));
+}
+
+/// Something nearly done: its walls up and its roof on, a last few poles
+/// of scaffolding and the ladder still against one side.
+pub fn nearly_built(p: &mut Pen) {
+    p.shadow(0.46);
+    let wood = p.k.wood;
+    p.rect(-0.36, 0.0, 0.3, 0.6, p.wall);
+    p.gable(-0.4, 0.34, 0.6, 0.84, p.roof);
+    p.rect(-0.06, 0.0, 0.06, 0.28, shade(p.wall, -0.35));
+    p.window(-0.28, 0.32, -0.14, 0.46);
+    p.window(0.14, 0.32, 0.26, 0.46);
+    for u in [0.22, 0.38] {
+        p.rect(u - 0.014, 0.0, u + 0.014, 0.66, shade(wood, 0.1));
+    }
+    p.rect(0.18, 0.3, 0.42, 0.335, wood);
+    for u in [0.42, 0.5] {
+        p.line((u - 0.02, 0.0), (u - 0.1, 0.66), 0.012, shade(wood, 0.2));
+    }
+    for step in 0..6 {
+        let t = step as f32 / 6.0;
+        p.line(
+            (0.4 - 0.08 * t, 0.06 + t * 0.6),
+            (0.48 - 0.08 * t, 0.06 + t * 0.6),
+            0.01,
+            shade(wood, 0.2),
+        );
+    }
+}

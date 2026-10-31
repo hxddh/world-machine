@@ -59,6 +59,8 @@ wall-fountain	any	tall 1.1	green	-
 wellhead	any	tall 1.0	green	-
 garden-swing	any	tall 1.7	-	-
 scaffold	any	tall 2.75	-	-
+site	any	tall 0.45	-	-
+nearly-built	any	tall 2.75	-	-
 lighthouse	harbour	tall 6.0	water	-
 harbour-clock	harbour	tall 2.8	quay	-
 sea-wall	harbour	wide 4.0	water	-
