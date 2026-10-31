@@ -852,7 +852,9 @@ pub(crate) fn thing_width(
         Some(drawing) => ladder::Subject::Drawing(drawing).sized(p, spot.w),
         None => ladder::Subject::Thing(shape, setting, art_of(item)).sized(p, spot.w),
     }
-    .map_or(spot.w, |(w, _)| w.min(spot.w * ROOM * 1.3))
+    .map_or(spot.w, |(w, _)| {
+        w.min((spot.w * ROOM * 1.3).max(w * LEAST_OF_RUNG))
+    })
 }
 
 /// How wide and tall the thing on `spot` is drawn, in stage pixels (the
@@ -872,7 +874,7 @@ pub(crate) fn thing_size(
     };
     match sized {
         Some((w, h)) => {
-            let most = spot.w * ROOM * 1.3;
+            let most = (spot.w * ROOM * 1.3).max(w * LEAST_OF_RUNG);
             if w > most {
                 (most, h * most / w.max(1e-3))
             } else {
@@ -908,6 +910,11 @@ pub(crate) fn seat_height(
 /// than what it is drawn as).
 const ROOM: f32 = 1.15;
 
+/// However narrow the room a thing was given, it is drawn at no less than
+/// this share of its rung (1.0 P5: a postbox squeezed to half its height,
+/// a lantern to a quarter, read as toys beside the people).
+const LEAST_OF_RUNG: f32 = 0.85;
+
 /// The library drawing a Pack names for an item, if the app has it.
 fn art_of(item: &CanvasItem) -> Option<crate::works::Art> {
     item.art.as_deref().and_then(crate::works::Art::from_key)
@@ -937,3 +944,6 @@ pub(crate) mod doing_tests;
 
 #[cfg(test)]
 mod staging_tests;
+
+#[cfg(test)]
+mod scale_tests;
