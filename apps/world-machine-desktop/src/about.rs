@@ -250,35 +250,43 @@ fn show_log_label() -> &'static str {
     shell::show_log_label(shell::Os::current())
 }
 
-/// A new e-mail to support in the player's own mail program; nothing is
-/// sent until they send it.
+/// Writes to support: a new e-mail in the player's own mail program, or,
+/// while there is no support address (`shell::SUPPORT_EMAIL`), a new issue
+/// on GitHub in the browser. Nothing is sent until they send it.
 fn write_to_support(cx: &mut App) {
-    diagnostics::info("opening an e-mail to support");
-    cx.open_url(&format!(
-        "mailto:{}?subject={}",
-        shell::SUPPORT_EMAIL,
-        world_machine_desktop::crash_reports::encode(&format!(
-            "World Machine {}",
-            build_info::display_label()
-        ))
-    ));
+    match shell::Support::current().email() {
+        Some(address) => {
+            diagnostics::info("opening an e-mail to support");
+            cx.open_url(&format!(
+                "mailto:{address}?subject={}",
+                world_machine_desktop::crash_reports::encode(&format!(
+                    "World Machine {}",
+                    build_info::display_label()
+                ))
+            ));
+        }
+        None => {
+            diagnostics::info("opening a new issue for support");
+            cx.open_url(&diagnostics::issue_url());
+        }
+    }
 }
 
 /// Where to write for help, said the same way in About, Help and Settings:
-/// the line, and the address under it.
+/// the line, and the address (or the issues page) under it.
 pub(crate) fn support_line() -> gpui::Div {
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .child(ui::caption(shell::SUPPORT_LINE))
+        .child(ui::caption(shell::Support::current().line()))
         .child(
             div()
                 .id("support-address")
                 .text_sm()
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(ui::color(tokens::ACCENT_TEXT))
-                .child(shell::SUPPORT_EMAIL),
+                .child(shell::Support::current().shown()),
         )
 }
 

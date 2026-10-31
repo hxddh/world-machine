@@ -4,8 +4,11 @@
 //! next launch, unless the player chose never to be asked, opens this small
 //! window once: what happened, that nothing was sent, and what they can do
 //! with the report if they want to. "Send Report…" only opens a new e-mail
-//! in their own mail program; "Copy Report" puts it on the clipboard; "Show
-//! Report File" shows the file. Nothing leaves the computer from here.
+//! in their own mail program, or, while there is no support address
+//! (`shell::SUPPORT_EMAIL`), copies the report and opens a new issue on
+//! GitHub for them to paste it into; "Copy Report" puts it on the
+//! clipboard; "Show Report File" shows the file. Nothing leaves the
+//! computer from here.
 
 use gpui::{
     div, prelude::*, px, size, App, AppContext, Bounds, ClipboardItem, Context, IntoElement,
@@ -13,8 +16,8 @@ use gpui::{
 };
 use world_gpui::ui;
 use world_machine_desktop::app_settings::{self, AppSettings, CrashReports};
-use world_machine_desktop::crash_reports::{self, CrashReport};
-use world_machine_desktop::shell;
+use world_machine_desktop::crash_reports::{self, CrashReport, Sending};
+use world_machine_desktop::shell::{self, Support};
 use world_theme::tokens;
 
 use crate::diagnostics;
@@ -53,6 +56,7 @@ pub(crate) fn offer(reports: Vec<CrashReport>, cx: &mut App) {
             cx.new(|cx| CrashView {
                 reports,
                 copied: false,
+                copied_for_issue: false,
                 never: false,
                 focus: cx.focus_handle(),
             })
@@ -66,6 +70,8 @@ pub(crate) fn offer(reports: Vec<CrashReport>, cx: &mut App) {
 struct CrashView {
     reports: Vec<CrashReport>,
     copied: bool,
+    /// Send Report copied the report for a new GitHub issue.
+    copied_for_issue: bool,
     /// The player chose never to be asked again.
     never: bool,
     focus: gpui::FocusHandle,
@@ -78,9 +84,21 @@ impl CrashView {
     }
 
     fn send(&mut self, cx: &mut Context<Self>) {
-        if let Some(report) = self.newest() {
-            diagnostics::info("opening a crash report e-mail in the mail program");
-            cx.open_url(&crash_reports::mailto(shell::SUPPORT_EMAIL, report));
+        let Some(report) = self.newest() else {
+            return;
+        };
+        match crash_reports::sending(Support::current(), report) {
+            Sending::Mail(link) => {
+                diagnostics::info("opening a crash report e-mail in the mail program");
+                cx.open_url(&link);
+            }
+            Sending::Issue(text) => {
+                diagnostics::info("copying the crash report and opening a new issue");
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                cx.open_url(&diagnostics::issue_url());
+                self.copied_for_issue = true;
+                cx.notify();
+            }
         }
     }
 
@@ -175,11 +193,12 @@ impl Render for CrashView {
             .child(ui::body(
                 "A crash report was saved on this computer. Nothing has been sent.",
             ))
-            .child(ui::body(
-                "If you like, send it to us: Send Report opens a new e-mail in your own mail program, and nothing goes until you send it.",
-            ))
+            .child(ui::body(Support::current().crash_send_line()))
             .child(ui::caption(file))
             .child(actions)
+            .when(self.copied_for_issue, |page| {
+                page.child(ui::caption(shell::CRASH_COPIED_FOR_ISSUE))
+            })
             .when(self.never, |page| {
                 page.child(ui::caption(
                     "You won't be asked again. Reports are still saved; Settings can turn asking back on.",

@@ -3,10 +3,11 @@
 //! A panic writes a report file into the crash folder (`diagnostics.rs`
 //! installs [`hook`]). The next launch finds the reports not yet offered
 //! ([`pending`]) and, unless the player chose never to be asked, offers
-//! them once: the player may open a new e-mail to support with the report
-//! in it ([`mailto`], which only opens their mail program), copy it, or show
-//! the file. Nothing here touches the network, and nothing is sent without
-//! the player pressing Send in their own mail program.
+//! them once: the player may send it ([`sending`]: a new e-mail to support
+//! with the report in it, which only opens their mail program, or, while
+//! there is no support address, the report copied for a new issue on
+//! GitHub), copy it, or show the file. Nothing here touches the network,
+//! and nothing is sent without the player sending it themselves.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -155,6 +156,37 @@ pub fn mark_offered(dir: &Path, reports: &[CrashReport]) -> io::Result<()> {
         writeln!(file, "{}", report.name())?;
     }
     Ok(())
+}
+
+/// What "Send Report…" does with a report, by how support is reached
+/// (`shell::Support`). Neither sends anything: the player does.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Sending {
+    /// Open this `mailto:` link in the player's own mail program.
+    Mail(String),
+    /// Put this text on the clipboard and open a new issue on GitHub
+    /// (`shell::ISSUES_URL`) for the player to paste it into.
+    Issue(String),
+}
+
+/// How "Send Report…" sends `report` when support is `support`: a new
+/// e-mail to the support address, or, with no address, the report copied
+/// for a new GitHub issue.
+pub fn sending(support: crate::shell::Support, report: &CrashReport) -> Sending {
+    match support.email() {
+        Some(address) => Sending::Mail(mailto(address, report)),
+        None => Sending::Issue(issue_text(report)),
+    }
+}
+
+/// The report as it is pasted into a new issue: whole, with where its
+/// file is.
+pub fn issue_text(report: &CrashReport) -> String {
+    format!(
+        "World Machine crashed. The report it saved is below.\n\n```\n{}\n```\n\nFile: {}\n",
+        report.text.trim(),
+        report.path.display()
+    )
 }
 
 /// A `mailto:` link to `address` with the report in its body (cut short

@@ -5,7 +5,8 @@
 use std::fs;
 use std::path::PathBuf;
 use world_machine_desktop::app_settings::{AppSettings, CrashReports};
-use world_machine_desktop::crash_reports;
+use world_machine_desktop::crash_reports::{self, Sending};
+use world_machine_desktop::shell::{self, Support};
 
 fn temp_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -68,15 +69,37 @@ fn a_panic_leaves_a_report_that_is_offered_once_and_never_sent() {
         "where it panicked"
     );
 
-    // Sending is a link for the player's own mail program, made only when
-    // they ask for it: to support, with the report, and nothing else
-    // happens until they send it there.
-    let link = crash_reports::mailto(world_machine_desktop::shell::SUPPORT_EMAIL, &offered[0]);
-    assert!(link.starts_with(&format!(
-        "mailto:{}?",
-        world_machine_desktop::shell::SUPPORT_EMAIL
-    )));
-    assert!(link.contains("harbour%20fell"));
+    // Sending is made only when the player asks for it, and nothing goes
+    // until they send it themselves. With a support address it is a link
+    // for their own mail program: to support, with the report.
+    let address = "support@example.org";
+    match crash_reports::sending(Support::from_address(Some(address)), &offered[0]) {
+        Sending::Mail(link) => {
+            assert!(link.starts_with(&format!("mailto:{address}?")), "{link}");
+            assert!(link.contains("harbour%20fell"));
+        }
+        other => panic!("with an address, Send Report writes an e-mail: {other:?}"),
+    }
+    // With none, the report is copied whole for a new issue on GitHub,
+    // which the window opens (shell::ISSUES_URL); no mail link is made.
+    match crash_reports::sending(Support::from_address(None), &offered[0]) {
+        Sending::Issue(text) => {
+            assert!(text.contains("Message: the harbour fell into the sea"));
+            assert!(text.contains(&offered[0].path.display().to_string()));
+            assert!(!text.contains("mailto:"));
+        }
+        other => panic!("with no address, Send Report copies for an issue: {other:?}"),
+    }
+    assert!(shell::ISSUES_URL.starts_with("https://github.com/"));
+    // The build as it ships takes one of the two, never a placeholder.
+    let shipped = crash_reports::sending(Support::current(), &offered[0]);
+    match shell::SUPPORT_EMAIL {
+        Some(address) => {
+            assert!(!address.ends_with(".invalid"), "{address}");
+            assert!(matches!(shipped, Sending::Mail(_)));
+        }
+        None => assert!(matches!(shipped, Sending::Issue(_))),
+    }
 
     // Offered once: the launch after does not offer it again.
     crash_reports::mark_offered(&dir, &offered).unwrap();

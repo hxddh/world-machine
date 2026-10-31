@@ -32,8 +32,7 @@ pub const ROTATED_LOG_FILE_NAME: &str = "world-machine.log.1";
 pub const ROTATE_AT_BYTES: u64 = 1024 * 1024;
 const REPORT_TAIL_LINES: usize = 60;
 
-pub const ISSUE_URL: &str =
-    "https://github.com/hxddh/world-machine/issues/new?template=bug_report.yml";
+pub const ISSUE_URL: &str = world_machine_desktop::shell::ISSUES_URL;
 
 /// The issue template with its build and macOS fields already filled in, so
 /// a report never arrives without the two facts needed to reproduce it.

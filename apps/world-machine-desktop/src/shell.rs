@@ -6,14 +6,103 @@
 //! (`home/title.rs`, `app_menu.rs`) draw it and do what is chosen through
 //! the app's existing actions.
 
-/// Where a player writes for help, and where a crash report goes when they
-/// choose to send one. A placeholder until the owner names the real
-/// address: `.invalid` never delivers anywhere.
-pub const SUPPORT_EMAIL: &str = "support@world-machine.invalid";
+/// The support e-mail address: where a player writes for help, and where a
+/// crash report goes when they choose to send one.
+///
+/// There is no real address yet, so this is `None` and support goes through
+/// the project's GitHub Issues ([`ISSUES_URL`]). **This is the one place to
+/// set it**: once the owner has a real address, write it here as
+/// `Some("support@…")`, and Help, About, Settings, "Write to Support…" and
+/// the crash report's "Send Report…" all switch to e-mail (a `mailto:` link
+/// in the player's own mail program) with no other change.
+pub const SUPPORT_EMAIL: Option<&str> = None;
 
-/// The line Help, About and Settings show over [`SUPPORT_EMAIL`].
-pub const SUPPORT_LINE: &str =
+/// A new issue on the project's GitHub, from its bug-report template: where
+/// support goes while [`SUPPORT_EMAIL`] is `None`, and where Help → Report a
+/// Problem… always goes.
+pub const ISSUES_URL: &str =
+    "https://github.com/hxddh/world-machine/issues/new?template=bug_report.yml";
+
+/// The issues page as the support line shows it, under the line.
+pub const ISSUES_ADDRESS: &str = "github.com/hxddh/world-machine/issues";
+
+/// The line Help, About and Settings show when support is by e-mail.
+pub const SUPPORT_LINE_EMAIL: &str =
     "Questions or problems? Write to us by e-mail. Nothing is sent unless you send it.";
+
+/// The line Help, About and Settings show when support is on GitHub.
+pub const SUPPORT_LINE_ISSUES: &str =
+    "Questions or problems? Report them on GitHub. Nothing is sent unless you send it.";
+
+/// What the crash report window says "Send Report…" does, by e-mail.
+pub const CRASH_SEND_LINE_EMAIL: &str = "If you like, send it to us: Send Report opens a new e-mail in your own mail program, and nothing goes until you send it.";
+
+/// What the crash report window says "Send Report…" does, on GitHub.
+pub const CRASH_SEND_LINE_ISSUES: &str = "If you like, send it to us: Send Report copies it and opens a new issue on GitHub in your browser. Paste it there; nothing goes until you post it.";
+
+/// What the crash report window says once the report is copied for a new
+/// issue.
+pub const CRASH_COPIED_FOR_ISSUE: &str =
+    "The report is copied. Paste it into the new issue on GitHub.";
+
+/// How the player reaches support: by e-mail once there is an address, and
+/// on GitHub until then.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Support {
+    /// A new e-mail to this address, in the player's own mail program.
+    Email(&'static str),
+    /// A new issue on the project's GitHub, in the browser.
+    Issues,
+}
+
+impl Support {
+    /// Support as this build is set up: by [`SUPPORT_EMAIL`].
+    pub fn current() -> Self {
+        Self::from_address(SUPPORT_EMAIL)
+    }
+
+    /// Support by `address`, or on GitHub when there is none (or it is
+    /// blank).
+    pub fn from_address(address: Option<&'static str>) -> Self {
+        match address.map(str::trim) {
+            Some(address) if !address.is_empty() => Self::Email(address),
+            _ => Self::Issues,
+        }
+    }
+
+    /// The e-mail address, when support is by e-mail.
+    pub fn email(self) -> Option<&'static str> {
+        match self {
+            Self::Email(address) => Some(address),
+            Self::Issues => None,
+        }
+    }
+
+    /// The line Help, About and Settings show, in English.
+    pub fn line(self) -> &'static str {
+        match self {
+            Self::Email(_) => SUPPORT_LINE_EMAIL,
+            Self::Issues => SUPPORT_LINE_ISSUES,
+        }
+    }
+
+    /// Where support is, as shown under the line: the address, or the
+    /// issues page.
+    pub fn shown(self) -> &'static str {
+        match self {
+            Self::Email(address) => address,
+            Self::Issues => ISSUES_ADDRESS,
+        }
+    }
+
+    /// What the crash report window says "Send Report…" does, in English.
+    pub fn crash_send_line(self) -> &'static str {
+        match self {
+            Self::Email(_) => CRASH_SEND_LINE_EMAIL,
+            Self::Issues => CRASH_SEND_LINE_ISSUES,
+        }
+    }
+}
 
 /// The one line under the title: what the game promises.
 pub const PROMISE: &str = "A small harbour that grows a day at a time";
@@ -321,7 +410,12 @@ pub fn every_line(os: Os) -> Vec<&'static str> {
         show_log_label(os),
         privacy_line(os),
         key_store_line(os),
-        SUPPORT_LINE,
+        // Both ways to reach support, whichever this build uses.
+        SUPPORT_LINE_EMAIL,
+        SUPPORT_LINE_ISSUES,
+        CRASH_SEND_LINE_EMAIL,
+        CRASH_SEND_LINE_ISSUES,
+        CRASH_COPIED_FOR_ISSUE,
     ];
     for choice in title_choices(true) {
         lines.push(choice.label());
@@ -478,6 +572,34 @@ mod tests {
         );
         assert_eq!(MenuItem::Quit.shortcut(true).as_deref(), Some("⌘Q"));
         assert_eq!(MenuItem::Help.shortcut(false), None);
+    }
+
+    #[test]
+    fn support_is_on_github_until_there_is_an_address() {
+        let issues = Support::from_address(None);
+        assert_eq!(issues, Support::Issues);
+        assert_eq!(Support::from_address(Some("  ")), Support::Issues);
+        assert_eq!(issues.email(), None);
+        assert_eq!(issues.shown(), ISSUES_ADDRESS);
+        assert!(issues.line().contains("GitHub"));
+        assert!(!issues.line().contains("e-mail"));
+        assert!(issues.crash_send_line().contains("GitHub"));
+        assert!(ISSUES_URL.starts_with(&format!("https://{ISSUES_ADDRESS}/new")));
+
+        let email = Support::from_address(Some("help@example.org"));
+        assert_eq!(email, Support::Email("help@example.org"));
+        assert_eq!(email.email(), Some("help@example.org"));
+        assert_eq!(email.shown(), "help@example.org");
+        assert!(email.line().contains("e-mail"));
+        assert!(email.crash_send_line().contains("e-mail"));
+
+        // No placeholder address ever ships: support is a real address or
+        // GitHub.
+        assert_eq!(Support::current(), Support::from_address(SUPPORT_EMAIL));
+        if let Some(address) = SUPPORT_EMAIL {
+            assert!(address.contains('@'), "{address}");
+            assert!(!address.ends_with(".invalid"), "{address}");
+        }
     }
 
     /// Every word the shell shows is in the app's Chinese and Japanese.
