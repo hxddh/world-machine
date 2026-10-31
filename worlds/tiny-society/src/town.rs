@@ -908,8 +908,22 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         crate::plots::canvas_plots(world),
         "harbour",
     );
+    canvas.look = Some(look());
     canvas.built_plots = crate::plots::built_plots(world);
     canvas
+}
+
+/// The harbour's own palette (1.0 P5, a hero palette per place): the sun's
+/// own light and the app's lamps along the quay, its windows and lamps a
+/// deep honey gold, and a cool sea mist over the field toward the hills.
+fn look() -> world_projection::PlaceLook {
+    world_projection::PlaceLook {
+        lamps: Vec::new(),
+        key: None,
+        glow: Some(0xffc45c),
+        spine: None,
+        haze: Some(0xd3e4e6),
+    }
 }
 
 /// What the player's hands give the grown-ups of the harbour to do today

@@ -1120,11 +1120,12 @@ pub(crate) fn look(place: Place) -> world_projection::PlaceLook {
         },
         // A street, not a lawn: streetlamps at the kerb, never quite
         // evenly; front yards, then a walk of warm concrete, then the
-        // asphalt; air clear of any lilac haze.
+        // asphalt; air clear of any lilac haze. Its lamps are the
+        // eighties' sodium orange, never the harbour's honey (1.0 P5).
         Place::Maple => world_projection::PlaceLook {
             lamps: vec![0.08, 0.3, 0.78, 1.14, 1.55, 1.9, 2.21, 2.6, 2.9],
             key: None,
-            glow: None,
+            glow: Some(0xffa64a),
             spine: Some(0xb5aea4),
             haze: Some(0xdfe4e2),
         },

@@ -914,6 +914,39 @@ pub(super) fn paint_wash(window: &mut dyn Brush, frame: &Frame, (x, y, w, h): Re
     }
 }
 
+impl Frame {
+    /// The place's hero palette as this frame lights it (1.0 P5), each as
+    /// red, green and blue from 0 to 1: the sky's top and its horizon, the
+    /// far hills, the field, the near ground, the spine people walk along,
+    /// and the glow its lamps and windows throw. What a Pack's `PlaceLook`
+    /// and scenery make of the place, worked out as the painter works it
+    /// out, so a test can hold places apart without drawing them.
+    pub fn hero_colours(&self) -> [[f32; 3]; 7] {
+        let light = self.light();
+        let rgb = |colour: Hsla| {
+            let rgba: gpui::Rgba = colour.into();
+            [rgba.r, rgba.g, rgba.b]
+        };
+        let lit = |colour: Hsla| {
+            let [r, g, b] = rgb(colour);
+            [r * light[0], g * light[1], b * light[2]]
+        };
+        let (top, bottom) = sky_colours(self);
+        let (field, near) = land_colours(self);
+        let far = mix(art::hex(self.scenery.far), self.haze(), 0.35);
+        let spine = self.spine().unwrap_or(near);
+        [
+            rgb(top),
+            rgb(bottom),
+            lit(far),
+            lit(field),
+            lit(near),
+            lit(spine),
+            rgb(self.glow()),
+        ]
+    }
+}
+
 /// The two still layers on the ground: the land itself, soft enough to
 /// paint at half the display's resolution, and the buildings over it at
 /// the full.
