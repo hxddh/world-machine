@@ -24,10 +24,14 @@ use world_core::{
 pub mod commands;
 mod mark;
 pub mod plots;
+mod rise;
 pub use mark::{
     building, design_parts, design_request, finished_at, name_request, named, offers, on_plots,
     open_plots, pattern_of, plot_key, plot_of, plot_work, plots_open_now, stage_plots, tidy_name,
     was_called, Plot, BUILDING, NAMED, PATTERN, PLOT, WAS,
+};
+pub use rise::{
+    errands, going_up, rising, rising_art, Errand, NEARLY, RISING, ROSE, SCAFFOLD, SITE,
 };
 
 /// What the player can do.
@@ -862,6 +866,7 @@ pub fn register_actions(
     registry.register(mark::Names(kit))?;
     registry.register(mark::StagesPlots(kit))?;
     registry.register(mark::ClearsPlot(kit))?;
+    rise::register(registry, kit)?;
     Ok(())
 }
 
@@ -1190,6 +1195,7 @@ pub fn tick(
     kit: &Kit,
 ) -> Result<Vec<EventId>, WorldError> {
     let mut events = mark::finish(world, actions, kit)?;
+    events.extend(rise::rise(world, actions, kit)?);
     events.extend(mark::clear_plot(world, actions, kit)?);
     for plant in made(world.state()) {
         if due_stage(world.state(), kit, plant).is_some() {
@@ -1347,6 +1353,7 @@ pub fn is_hands(event: &Event) -> bool {
             | "undone_by_hand"
             | "enjoyed"
             | "plot_finished"
+            | "work_rose"
             | "plot_cleared"
             | "designed"
             | "named"

@@ -289,6 +289,7 @@ pub fn built_plots(pack: &impl PlotPack, world: &World) -> Vec<world_projection:
 /// thing on the scene can wear, be named, and how the place built it.
 pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
     let state = world.state();
+    dress_rising(state, items);
     if !pack.ready(state) {
         return;
     }
@@ -378,12 +379,41 @@ pub fn dress(pack: &impl PlotPack, world: &World, items: &mut [CanvasItem]) {
         if crate::building(state, id) {
             item.detail = "Being built".into();
             item.built = None;
-            // Scaffolding stands round it until it is finished.
-            item.art = Some("scaffold".into());
+            // Its site, then scaffolding, stands until it is finished.
+            item.art = shown_rising(state, id, item.kind).map(Into::into);
         } else if let Some(finished) = crate::finished_at(state, &kit, id) {
             item.built = Some(finished as u32 + 1);
         }
     }
+}
+
+/// Draws whatever is going up off the plots (a pier's new section) at its
+/// stage: a site marked out, a frame in scaffolding, or nearly done.
+pub fn dress_rising(state: &WorldState, items: &mut [CanvasItem]) {
+    for item in items.iter_mut() {
+        let SelectionId::Entity(id) = item.id else {
+            continue;
+        };
+        if crate::plot_of(state, id).is_some() {
+            continue;
+        }
+        if crate::rising(state, id).is_none() {
+            continue;
+        }
+        if let Some(art) = shown_rising(state, id, item.kind) {
+            item.art = Some(art.into());
+        }
+        item.detail = "Being built".into();
+        item.built = None;
+    }
+}
+
+/// How something going up is drawn on the scene: a site marked out, then
+/// a frame in scaffolding; nearly done, a building stands nearly done, and
+/// a thing (a bench, a pier) stands as itself, its last touches to come.
+fn shown_rising(state: &WorldState, id: EntityId, kind: CanvasItemKind) -> Option<&'static str> {
+    crate::rising_art(state, id)
+        .filter(|art| *art != crate::NEARLY || kind == CanvasItemKind::Place)
 }
 
 /// The name cards: the parents of a newborn of these last days ask the

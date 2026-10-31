@@ -49,7 +49,7 @@ pub(crate) const FIRST_BUILT: &str = "hands.first_built";
 
 /// How many periods a work on a plot takes to build: what was kept on it
 /// when it was begun, or the Kit's own.
-fn growing_of(state: &WorldState, kit: &Kit, fixture: EntityId) -> u64 {
+pub(crate) fn growing_of(state: &WorldState, kit: &Kit, fixture: EntityId) -> u64 {
     integer(state, fixture, GROWING).map_or(kit.growing, |periods| periods.max(0) as u64)
 }
 
@@ -218,16 +218,14 @@ impl Action for Finishes {
         if let Some(plot) = plot_of(state, fixture) {
             draft.payload.insert("plot".into(), plot.into());
         }
-        draft.changes = vec![StateChange::RemoveComponent {
-            entity: fixture,
-            key: BUILDING.into(),
-        }];
+        draft.changes = crate::rise::finished_changes(state, fixture);
         Ok(draft)
     }
 }
 
 /// One period of the place building what the player began: whatever has
-/// been going up long enough is finished.
+/// been going up long enough is finished, following from the last stage it
+/// rose to (or the deed that began it).
 pub(crate) fn finish(
     world: &mut World,
     actions: &world_core::ActionRegistry,
@@ -236,8 +234,8 @@ pub(crate) fn finish(
     let mut events = Vec::new();
     for work in due_finish(world.state(), kit) {
         let mut request = ActionRequest::new("hands_finish").arg("work", Value::Entity(work));
-        if let Some(began) = world.history_index().changes_of(work).first().copied() {
-            request = request.caused_by(began);
+        if let Some(cause) = crate::rise::raised_by(world, work) {
+            request = request.caused_by(cause);
         }
         events.push(world.execute(actions, &request)?.id);
     }

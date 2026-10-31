@@ -264,6 +264,12 @@ pub enum Doing {
     Stroll,
     /// Dancing.
     Dance,
+    /// Tending something growing for an hour first thing: watering a
+    /// planter, weeding a bed.
+    Tend,
+    /// Carrying a load over to a work going up for an hour first thing:
+    /// timber, a sack of nails.
+    Haul,
 }
 
 impl Doing {
@@ -273,10 +279,10 @@ impl Doing {
         use world_projection::Stance;
         match self {
             Doing::Rest | Doing::Stroll => None,
-            Doing::Work => Some(Stance::Working),
+            Doing::Work | Doing::Tend => Some(Stance::Working),
             Doing::Keep | Doing::Gather => Some(Stance::Talking),
             Doing::Sit => Some(Stance::Sitting),
-            Doing::Carry => Some(Stance::Carrying),
+            Doing::Carry | Doing::Haul => Some(Stance::Carrying),
             Doing::Dance => Some(Stance::Dancing),
         }
     }
@@ -342,6 +348,9 @@ pub const FESTIVAL_FROM: u8 = 17;
 /// The hour a festival ends and everyone goes home.
 pub const FESTIVAL_UNTIL: u8 = 23;
 
+/// The hour a planting is watered, or a load carried over to a work going
+/// up, on the way to work.
+pub const FIRST_THING: u8 = 8;
 /// The hour (or the one after) a load is carried over of a morning.
 pub const CARRY_FROM: u8 = 10;
 /// The hour (or the one after) someone sits down of an afternoon.
@@ -444,7 +453,24 @@ pub fn day<K: Copy>(plan: &Plan<K>) -> Vec<Stop<K>> {
         None => working,
     };
     let busy = working.doing != Doing::Stroll;
-    stops.push(working);
+    // A planting watered, or a load carried over to a work going up, first
+    // thing, on the way to work.
+    match last.filter(|last| matches!(last.doing, Doing::Tend | Doing::Haul)) {
+        Some(first) => {
+            if working.from_hour < FIRST_THING {
+                stops.push(working);
+            }
+            stops.push(Stop {
+                from_hour: FIRST_THING,
+                ..first
+            });
+            stops.push(Stop {
+                from_hour: working.from_hour.max(FIRST_THING + 1),
+                ..working
+            });
+        }
+        None => stops.push(working),
+    }
 
     // A load carried over of a morning, and back to work after.
     if let Some(carry) = last.filter(|last| last.doing == Doing::Carry) {

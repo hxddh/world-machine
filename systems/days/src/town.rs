@@ -758,7 +758,10 @@ impl Town {
     /// plot, never on the field.
     pub fn plotted(&mut self, items: &mut [CanvasItem], workplaces: &mut [Vec<SelectionId>; 3]) {
         for item in items.iter_mut().filter(|item| item.variant.is_some()) {
-            let art = item.art.as_deref().filter(|art| *art != "scaffold");
+            let art = item
+                .art
+                .as_deref()
+                .filter(|art| !CanvasItem::art_going_up(Some(art)));
             if zone_of(art, item.shape.unwrap_or_default()) == Zone::Water {
                 item.y = self.row_y[WATER];
             }
@@ -826,6 +829,31 @@ impl Town {
         }
     }
 
+    /// Someone's work and what they last did, given an errand (where, and
+    /// what they do there) if it is somewhere on the scene: working there
+    /// all day in place of their work (a hand at a work going up), or doing
+    /// it for an hour in place of what the record last says they did
+    /// (carrying a load over, sitting on a new bench, watering a planter).
+    #[allow(clippy::type_complexity)]
+    pub fn with_errand(
+        &self,
+        errand: Option<(EntityId, crate::Doing)>,
+        work: Option<SelectionId>,
+        last: Option<(SelectionId, crate::Doing, Option<SelectionId>)>,
+    ) -> (
+        Option<SelectionId>,
+        Option<(SelectionId, crate::Doing, Option<SelectionId>)>,
+    ) {
+        let errand = errand
+            .map(|(at, doing)| (SelectionId::Entity(at), doing))
+            .filter(|(at, _)| self.placed.contains_key(at));
+        match errand {
+            Some((at, crate::Doing::Work)) => (Some(at), None),
+            Some((at, doing)) => (work, Some((at, doing, None))),
+            None => (work, last),
+        }
+    }
+
     /// Gives someone at `home` the day `plan` makes, and stands them where
     /// they are now, or at home. What they would use, or did last, counts
     /// only where it stands on the panorama: nobody walks off it to sit on
@@ -874,7 +902,7 @@ impl Town {
         let mut uses = items
             .iter()
             .filter(|item| item.kind != CanvasItemKind::Actor)
-            .filter(|item| item.art.as_deref() != Some("scaffold"))
+            .filter(|item| !item.going_up())
             .filter_map(|item| {
                 let used = use_of(item.shape?)?;
                 let px = item.px.or_else(|| self.placed.get(&item.id).copied())?;
@@ -995,7 +1023,10 @@ pub fn water_works_astray(
         .enumerate()
         .filter(|(_, item)| item.kind != CanvasItemKind::Actor && item.px.is_some())
         .filter(|(_, item)| {
-            let art = item.art.as_deref().filter(|art| *art != "scaffold");
+            let art = item
+                .art
+                .as_deref()
+                .filter(|art| !CanvasItem::art_going_up(Some(art)));
             let zone = match art {
                 Some(_) => zone_of(art, item.shape.unwrap_or_default()),
                 None => catalog_zone(item)
