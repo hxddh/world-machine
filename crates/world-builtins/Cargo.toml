@@ -13,4 +13,5 @@ pocket-universe = { path = "../../worlds/pocket-universe" }
 
 [dev-dependencies]
 world-projection = { path = "../world-projection" }
+conversation = { path = "../../systems/conversation" }
 world-persistence = { path = "../world-persistence" }
