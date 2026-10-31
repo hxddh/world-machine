@@ -424,3 +424,20 @@ pub enum MarkShape {
     /// A pillar box for letters.
     Postbox,
 }
+
+impl crate::CanvasItem {
+    /// The drawings of a work going up, from its site marked out to nearly
+    /// done: what stands there is not yet what it will be.
+    pub const GOING_UP: [&'static str; 3] = ["site", "scaffold", "nearly-built"];
+
+    /// Whether something drawn as `art` is a work going up.
+    pub fn art_going_up(art: Option<&str>) -> bool {
+        art.is_some_and(|art| Self::GOING_UP.contains(&art))
+    }
+
+    /// Whether it is a work going up: a site, a frame in scaffolding, or
+    /// nearly done.
+    pub fn going_up(&self) -> bool {
+        Self::art_going_up(self.art.as_deref())
+    }
+}

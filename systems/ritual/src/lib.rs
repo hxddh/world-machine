@@ -81,6 +81,13 @@ const TENDING_BUILT: [&str; 3] = [
     "Overnight, {who} wiped down your {thing} by {place}.",
     "Overnight, {who} checked every peg of your {thing} by {place}.",
 ];
+/// How someone lends a hand overnight with something the player began that
+/// is still going up.
+const TENDING_RISING: [&str; 3] = [
+    "Overnight, {who} carried timber over for your {thing} by {place}.",
+    "Overnight, {who} put up another beam of your {thing} by {place}.",
+    "Overnight, {who} checked every joint of your {thing} by {place}.",
+];
 const TENDING_DECORATED: [&str; 3] = [
     "Overnight, {who} straightened your {thing} at {place}.",
     "Overnight, {who} dusted off your {thing} at {place}.",
@@ -390,6 +397,7 @@ fn made_things(world: &World) -> Vec<(EntityId, &'static [&'static str])> {
                 .rev()
                 .find(|event| event.targets.first() == Some(&thing))?;
             let lines: &'static [&'static str] = match deed.kind.as_str() {
+                _ if hands::rising(state, thing).is_some() => &TENDING_RISING,
                 "planted_by_hand" => &TENDING_PLANTED,
                 "decorated_by_hand" => &TENDING_DECORATED,
                 _ => &TENDING_BUILT,
@@ -450,8 +458,10 @@ fn tending(world: &World, cast: &Cast, today: u64) -> Option<ActionRequest> {
     let seed = mix(&[today, 211]);
     let who_at = |n: usize| people[(seed as usize + n) % people.len()];
     let mut things = made_things(world);
+    // What is going up is seen to first.
     things.sort_by_key(|(thing, _)| {
         (
+            hands::rising(state, *thing).is_none(),
             integer(state, *thing, TENDED_ON).unwrap_or(-1),
             mix(&[thing.0, today, 223]),
         )

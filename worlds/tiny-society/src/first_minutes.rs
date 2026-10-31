@@ -1,11 +1,11 @@
 //! A new player's first minutes in the harbour: Day 1 in fair weather, a
 //! hello before any question, an answer that is seen on the scene, a first
-//! build that goes up in scaffolding and is finished in the first session,
+//! build that rises a stage a day and is finished in the first session,
 //! and nothing sad or unkind said in the first days. A harbour made before
 //! keeps its own story and pace.
 
 use crate::{TinySociety, TinySocietyBranch, LEO};
-use world_projection::{CanvasItem, ProjectionSnapshot, SelectionId, Weather};
+use world_projection::{CanvasItem, ProjectionSnapshot, SelectionId, Stance, Weather};
 
 /// Words a new player should not read in their first days: sorrow,
 /// hardship, quarrels and being turned away.
@@ -181,40 +181,58 @@ fn the_first_answer_is_seen_on_the_scene() {
     }
 }
 
-/// The first build goes up in scaffolding and is finished the next day;
-/// the next one takes the harbour's usual time.
+/// The first build rises a stage a day: its site is marked out the day it
+/// is begun, its frame is up in scaffolding the next, and it is finished on
+/// the third day, each stage a recorded Event told in the harbour's
+/// history. The next takes the harbour's usual time, and is nearly done
+/// before it is finished.
 #[test]
-fn the_first_build_shows_scaffolding_and_is_finished_the_next_day() {
+fn the_first_build_rises_a_stage_a_day_and_is_finished_on_the_third() {
     let mut branch = TinySocietyBranch::new_world().unwrap();
     let (build, plot) = first_offer(&branch.projection_snapshot());
     branch.invoke_projection_command(&build).unwrap();
     let work = work_on(&branch, &plot);
-    let going_up = branch.projection_snapshot();
-    let shown = item(&going_up, work).expect("on the scene");
-    assert_eq!(shown.art.as_deref(), Some("scaffold"));
-    assert_eq!(shown.built, None);
-    pass(&mut branch);
-    let finished = branch.projection_snapshot();
-    let shown = item(&finished, work).expect("on the scene");
-    assert_ne!(shown.art.as_deref(), Some("scaffold"));
-    assert!(shown.built.is_some(), "finished on day 2");
-    assert!(branch
+    let mut arts = Vec::new();
+    for day in 0..3 {
+        if day > 0 {
+            pass(&mut branch);
+        }
+        let snapshot = branch.projection_snapshot();
+        let shown = item(&snapshot, work).expect("on the scene");
+        assert_eq!(shown.built.is_some(), day == 2, "day {day}: {shown:?}");
+        arts.push(shown.going_up().then(|| shown.art.clone()).flatten());
+    }
+    assert_eq!(arts[0].as_deref(), Some("site"));
+    assert_eq!(arts[1].as_deref(), Some("scaffold"));
+    assert_eq!(arts[2], None, "finished, it is drawn as itself");
+    let told = branch
         .world()
         .events()
         .iter()
-        .any(|event| event.kind == "plot_finished"));
+        .filter(|event| matches!(event.kind.as_str(), "work_rose" | "plot_finished"))
+        .map(|event| (event.kind.as_str(), hands::told(event).unwrap_or_default()))
+        .collect::<Vec<_>>();
+    assert_eq!(told.len(), 2, "{told:?}");
+    assert!(told[0].1.starts_with("The frame of"), "{told:?}");
+    assert_eq!(told[1].0, "plot_finished");
 
-    let (build, plot) = first_offer(&finished);
+    let (build, plot) = first_offer(&branch.projection_snapshot());
     branch.invoke_projection_command(&build).unwrap();
     let next = work_on(&branch, &plot);
-    pass(&mut branch);
-    assert_eq!(
-        item(&branch.projection_snapshot(), next)
-            .unwrap()
-            .art
-            .as_deref(),
-        Some("scaffold"),
-        "the next takes longer"
+    for _ in 0..4 {
+        pass(&mut branch);
+    }
+    let shown = item(&branch.projection_snapshot(), next).cloned().unwrap();
+    assert!(shown.built.is_none(), "the next takes longer: {shown:?}");
+    assert!(
+        hands::rising(
+            branch.world().state(),
+            hands::made(branch.world().state())
+                .into_iter()
+                .max()
+                .unwrap()
+        ) == Some(2),
+        "and is nearly done first"
     );
 }
 
@@ -303,13 +321,90 @@ fn a_harbour_from_before_keeps_its_story_and_pace() {
     let (build, plot) = first_offer(&branch.projection_snapshot());
     branch.invoke_projection_command(&build).unwrap();
     let work = work_on(&branch, &plot);
+    for _ in 0..3 {
+        pass(&mut branch);
+    }
+    let shown = item(&branch.projection_snapshot(), work).cloned().unwrap();
+    assert!(
+        shown.going_up() && shown.built.is_none(),
+        "an old harbour's first build takes the usual time: {shown:?}"
+    );
+}
+
+/// Whether someone's day takes them to `at`, standing as `stance` there.
+fn someone_at(snapshot: &ProjectionSnapshot, at: SelectionId, stance: Stance) -> bool {
+    snapshot.canvas.items.iter().any(|person| {
+        person
+            .day
+            .iter()
+            .any(|stop| stop.at == at && stop.stance == Some(stance))
+    })
+}
+
+/// The hand command that does `deed` (`build.bench`, `decorate.flowerboxes`)
+/// somewhere it can be done now.
+fn hand_command(snapshot: &ProjectionSnapshot, deed: &str) -> String {
+    snapshot
+        .commands
+        .iter()
+        .find(|command| {
+            command.unavailable.is_none()
+                && crate::handwork::parse_command(&command.id)
+                    .is_some_and(|key| key.starts_with(&format!("{deed}.")))
+        })
+        .map(|command| command.id.clone())
+        .unwrap_or_else(|| panic!("no {deed} to do"))
+}
+
+/// What the player has just made by hand, the newest.
+fn newest_made(branch: &TinySocietyBranch) -> SelectionId {
+    let made = hands::made(branch.world().state());
+    SelectionId::Entity(*made.iter().max().expect("something made"))
+}
+
+/// Residents are seen at what the player does: while a build goes up one
+/// works at its site and another carries a load over to it; a bench put
+/// down is sat on, and flower boxes watered, the same day or the next.
+/// It is all in their day plans, the same every time, and nothing of it is
+/// recorded.
+#[test]
+fn residents_lend_a_hand_and_use_what_the_player_puts_down() {
+    let mut branch = TinySocietyBranch::new_world().unwrap();
+    let (build, plot) = first_offer(&branch.projection_snapshot());
+    branch.invoke_projection_command(&build).unwrap();
+    let site = work_on(&branch, &plot);
+    let bench = hand_command(&branch.projection_snapshot(), "build.bench");
+    branch.invoke_projection_command(&bench).unwrap();
+    let bench = newest_made(&branch);
+    let events = branch.world().events().len();
+    let today = branch.projection_snapshot();
+    assert_eq!(branch.world().events().len(), events, "nothing recorded");
+    assert_eq!(today, branch.projection_snapshot(), "the same every time");
+    assert!(
+        someone_at(&today, site, Stance::Working),
+        "nobody works at the site"
+    );
+    assert!(
+        someone_at(&today, site, Stance::Carrying),
+        "nobody carries to the site"
+    );
     pass(&mut branch);
-    assert_eq!(
-        item(&branch.projection_snapshot(), work)
-            .unwrap()
-            .art
-            .as_deref(),
-        Some("scaffold"),
-        "an old harbour's first build takes the usual time"
+    let boxes = hand_command(&branch.projection_snapshot(), "decorate.flowerboxes");
+    branch.invoke_projection_command(&boxes).unwrap();
+    let boxes = newest_made(&branch);
+    let next = branch.projection_snapshot();
+    assert!(
+        someone_at(&next, site, Stance::Working),
+        "the site the next day"
+    );
+    assert!(
+        someone_at(&today, bench, Stance::Sitting) || someone_at(&next, bench, Stance::Sitting),
+        "nobody sits on the new bench"
+    );
+    pass(&mut branch);
+    let after = branch.projection_snapshot();
+    assert!(
+        someone_at(&next, boxes, Stance::Working) || someone_at(&after, boxes, Stance::Working),
+        "nobody waters the new flower boxes"
     );
 }

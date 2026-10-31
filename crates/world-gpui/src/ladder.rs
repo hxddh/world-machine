@@ -32,6 +32,10 @@ use world_projection::{Drawing, MarkShape, Mood, Stance};
 /// thing how wide it lies, in P.
 pub use world_art::Rung;
 
+/// The least scaffolding round anything going up stands: a little over a
+/// grown-up, so whoever works at it stands inside it.
+pub const SCAFFOLD_LEAST: f32 = 1.4;
+
 /// The rung of a drawing from the library, from its row in the art
 /// catalog. Every drawing has one: the test `every_drawing_has_a_rung`
 /// keeps it so.
@@ -178,9 +182,24 @@ impl Subject<'_> {
         match self {
             Subject::Drawing(drawing) => drawing.rung,
             _ => Some(match self.drawn()? {
-                Drawn::Art(art) => of_art(art.key())?,
+                Drawn::Art(art) => self.round_a_thing(art.key(), of_art(art.key())?),
                 Drawn::Plain(shape) => of_plain(shape, self.boxed()),
             }),
+        }
+    }
+
+    /// Scaffolding round a small thing going up (a bench, a lamp post)
+    /// stands a little over a head above it, never as tall as the cottage
+    /// it stands round when a building goes up.
+    fn round_a_thing(&self, key: &str, rung: Rung) -> Rung {
+        match (self, rung) {
+            (Subject::Thing(shape, ..), Rung::Tall(tall)) if key == "scaffold" => {
+                match of_plain(*shape, false) {
+                    Rung::Tall(own) => Rung::Tall((own + 0.6).clamp(SCAFFOLD_LEAST, tall)),
+                    Rung::Wide(_) => rung,
+                }
+            }
+            _ => rung,
         }
     }
 

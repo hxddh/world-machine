@@ -418,3 +418,26 @@ fn scenes_replay_identically() {
         None
     );
 }
+
+/// The pier's new section rises over the days after the timber is bought;
+/// the point's lamp stands whole once its last part is in, since its own
+/// thread asks the next day whether to light it.
+#[test]
+fn the_pier_rises_and_the_lamp_stands_whole() {
+    let rises = |event: &str| {
+        story::leaves_behind(event).iter().any(
+            |effect| matches!(effect, storylets::Effect::Put { key, .. } if *key == hands::RISING),
+        )
+    };
+    assert!(rises("pier_section_built"));
+    assert!(!rises("lamp_work_done"));
+    assert!(!rises("lamp_glass_fetched"));
+    // Opened, the pier is finished with it: it never stands opened and
+    // still going up.
+    for opened in ["pier_opened", "pier_in_use", "pier_opened_quietly"] {
+        assert!(story::leaves_behind(opened).iter().any(|effect| matches!(
+            effect,
+            storylets::Effect::Unset { entity, key } if *entity == story::PIER && *key == hands::RISING
+        )));
+    }
+}

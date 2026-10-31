@@ -290,9 +290,54 @@ pub(crate) fn kit(state: &WorldState) -> Kit {
         wears: crate::plots::wears,
         naming: crate::plots::naming,
         plot_stages: Some(crate::plots::STAGES),
-        // A new player's first build is finished the next day.
-        first_growing: crate::arrival::arrived(state).map(|_| 1),
+        // A new player's first build rises a stage a day: marked out the
+        // day it is begun, its frame up the next, and finished the day
+        // after that.
+        first_growing: crate::arrival::arrived(state).map(|_| 2),
     }
+}
+
+/// A work the story puts up at the harbour that rises over the days after
+/// (the `hands` System raises it): a site marked out today, its frame up
+/// tomorrow, nearly done the day after, and finished the next, rather than
+/// standing whole at once.
+pub(crate) fn rises(
+    entity: EntityId,
+    name: &'static str,
+    shape: &'static str,
+) -> Vec<storylets::Effect> {
+    vec![
+        storylets::build(entity, name, shape, crate::HARBOR, None),
+        storylets::Effect::Put {
+            entity,
+            key: hands::RISING,
+            to: 0,
+        },
+    ]
+}
+
+/// The point's lamp, put up whole once its last part is in: its own
+/// thread asks the next day whether to light it, so it never rises in
+/// stages behind that question.
+pub(crate) fn the_lamp_stands() -> Vec<storylets::Effect> {
+    let name = "The lamp post on the point, unlit";
+    vec![storylets::build(
+        crate::story::LAMP,
+        name,
+        "lantern",
+        HARBOR,
+        None,
+    )]
+}
+
+/// A work the story declares done (the pier, opened): whatever of it was
+/// still going up is finished with it, so it never stands opened and
+/// "Being built".
+pub(crate) fn finished(entity: EntityId) -> Vec<storylets::Effect> {
+    [hands::RISING, hands::ROSE]
+        .into_iter()
+        .map(|key| storylets::Effect::Unset { entity, key })
+        .collect()
 }
 
 const HAND_COMMAND: &str = "tiny-society.hand.";

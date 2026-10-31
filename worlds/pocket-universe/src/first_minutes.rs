@@ -75,10 +75,10 @@ fn every_place_opens_fair_with_a_hello_first() {
     }
 }
 
-/// The first build in each place goes up in scaffolding and is finished
-/// the next period.
+/// The first build in each place is begun on a site marked out, and is
+/// finished the next period.
 #[test]
-fn every_first_build_shows_scaffolding_and_is_finished_the_next_period() {
+fn every_first_build_shows_its_site_and_is_finished_the_next_period() {
     for seed in SEEDS {
         let mut universe = seeded(seed);
         let (build, plot) = universe
@@ -108,10 +108,10 @@ fn every_first_build_shows_scaffolding_and_is_finished_the_next_period() {
                 .find(|item| item.id == work)
                 .expect("on the scene")
         };
-        assert_eq!(shown(&universe).art.as_deref(), Some("scaffold"), "{seed}");
+        assert_eq!(shown(&universe).art.as_deref(), Some("site"), "{seed}");
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
         let finished = shown(&universe);
-        assert_ne!(finished.art.as_deref(), Some("scaffold"), "{seed}");
+        assert!(!finished.going_up(), "{seed}");
         assert!(finished.built.is_some(), "{seed}");
     }
 }

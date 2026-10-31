@@ -953,7 +953,7 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     KINDS.get_or_init(|| {
         // hands::is_hands, and the calendar's one day told.
-        const HANDS: [&str; 13] = [
+        const HANDS: [&str; 14] = [
             "plot_cleared",
             "built_by_hand",
             "decorated_by_hand",
@@ -965,6 +965,7 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
             "undone_by_hand",
             "enjoyed",
             "plot_finished",
+            "work_rose",
             "designed",
             "named",
         ];

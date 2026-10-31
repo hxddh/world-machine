@@ -701,7 +701,7 @@ pub(super) fn lay_out(
             // the land, never out over the water (v0.29 round 3).
             let place = (item.kind == CanvasItemKind::Place
                 && item.shape != Some(MarkShape::Tower))
-                || item.art.as_deref() == Some("scaffold");
+                || item.going_up();
             return Spot {
                 index,
                 x,
@@ -1437,9 +1437,8 @@ pub(super) fn compose(
     // v0.29 round 2's scaffolding over the net store and over a stall).
     // It is sited last, where there is room, and stands as a building for
     // whatever comes after.
-    let going_up = |building: bool, index: usize| {
-        !building && rank(index) != 0 && items[index].art.as_deref() == Some("scaffold")
-    };
+    let going_up =
+        |building: bool, index: usize| !building && rank(index) != 0 && items[index].going_up();
     let site_clear = |placed: &[Placed], x: f32, w: f32, top: f32, foot: f32| {
         !placed.iter().any(|other| {
             (x - other.x).abs() < (w + other.w) / 2.0 + gap && top < other.foot && other.top < foot

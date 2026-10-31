@@ -468,7 +468,17 @@ fn a_plot_takes_one_work_the_place_finishes() {
         .iter()
         .find(|event| event.kind == "plot_finished")
         .expect("the place finished it");
-    assert_eq!(finished.caused_by, vec![began.id]);
+    // It rose a stage at a time, each following from the one before, and
+    // was finished following from the last.
+    let rose = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "work_rose")
+        .collect::<Vec<_>>();
+    assert_eq!(rose.len(), 2);
+    assert_eq!(rose[0].caused_by, vec![began.id]);
+    assert_eq!(rose[1].caused_by, vec![rose[0].id]);
+    assert_eq!(finished.caused_by, vec![rose[1].id]);
     assert!(!building(world.state(), work));
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
@@ -733,4 +743,215 @@ fn one_thing_planted_is_told_with_its_article() {
     ] {
         assert_eq!(told(&event(recorded)).as_deref(), Some(told_as));
     }
+}
+
+/// A work begun on a plot rises a stage at a time: a site marked out, its
+/// frame up a third of the way through, nearly done at two thirds, and
+/// finished; each stage drawn as itself and told.
+#[test]
+fn a_work_on_a_plot_rises_in_stages_each_told() {
+    let (mut world, registry) = world(100);
+    world
+        .execute(&registry, &do_request(&plot_key("bandstand", "p2")))
+        .unwrap();
+    let work = made(world.state())[0];
+    let stage = |world: &World| (rising(world.state(), work), rising_art(world.state(), work));
+    let mut seen = vec![stage(&world)];
+    for _ in 0..3 {
+        pass(&mut world, &registry);
+        seen.push(stage(&world));
+    }
+    assert_eq!(
+        seen,
+        [
+            (Some(0), Some(SITE)),
+            (Some(1), Some(SCAFFOLD)),
+            (Some(2), Some(NEARLY)),
+            (None, None),
+        ]
+    );
+    let told = world
+        .events()
+        .iter()
+        .filter(|event| matches!(event.kind.as_str(), "work_rose" | "plot_finished"))
+        .filter_map(told)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        told,
+        [
+            "The frame of the bandstand you began by the square went up",
+            "The bandstand you began by the square was nearly done",
+            "The bandstand you began by the square was finished",
+        ]
+    );
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+/// A work that takes five periods rises at the second and the fourth; one
+/// that takes a single period is simply finished the next.
+#[test]
+fn a_works_stages_fall_through_the_time_it_takes() {
+    assert_eq!(rise::stage_due(5, 1), Some(2));
+    assert_eq!(rise::stage_due(5, 2), Some(4));
+    assert_eq!(rise::stage_due(3, 1), Some(1));
+    assert_eq!(rise::stage_due(3, 2), Some(2));
+    assert_eq!(rise::stage_due(1, 1), None);
+}
+
+/// Something a Pack puts up and sets rising (a pier's new section) rises a
+/// stage a period and is finished, each stage following from the last; put
+/// up again once it has stood, it is never a bare site.
+#[test]
+fn what_a_pack_puts_up_rises_a_stage_a_period() {
+    let (world, registry) = world(100);
+    let mut state = world.state().clone();
+    let section = EntityId::new(240);
+    let stood = EntityId::new(241);
+    state
+        .seed_entity(
+            Entity::new(section, FIXTURE)
+                .with_component("name", "The pier's new section")
+                .with_component("at", Value::Entity(SQUARE))
+                .with_component(RISING, 0),
+        )
+        .unwrap();
+    state
+        .seed_entity(
+            Entity::new(stood, FIXTURE)
+                .with_component("name", "The lamp post on the point, unlit")
+                .with_component("at", Value::Entity(SQUARE))
+                .with_component(RISING, 0)
+                .with_component(ROSE, -1),
+        )
+        .unwrap();
+    let mut world = World::new(state);
+    assert_eq!(rising_art(world.state(), section), Some(SITE));
+    assert_eq!(rising_art(world.state(), stood), Some(SCAFFOLD));
+    // Going up, it is drawn as its stage, never as the drawing it wears
+    // finished (the lamp's lantern).
+    use world_projection::{CanvasItem, SelectionId};
+    let mut items = [CanvasItem {
+        id: SelectionId::Entity(stood),
+        drawing: Some("lantern".into()),
+        ..CanvasItem::default()
+    }];
+    crate::plots::dress_rising(world.state(), &mut items);
+    assert_eq!(items[0].art.as_deref(), Some(SCAFFOLD));
+    assert_eq!(items[0].drawing, None);
+    for _ in 0..3 {
+        pass(&mut world, &registry);
+    }
+    assert_eq!(rising(world.state(), section), None);
+    let rose = |target: EntityId| {
+        world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "work_rose" && event.targets == [target])
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let section_rose = rose(section);
+    assert_eq!(
+        section_rose.iter().filter_map(told).collect::<Vec<_>>(),
+        [
+            "The frame of the pier's new section went up",
+            "The pier's new section was nearly done",
+            "The pier's new section was finished",
+        ]
+    );
+    assert_eq!(section_rose[1].caused_by, vec![section_rose[0].id]);
+    assert_eq!(section_rose[2].caused_by, vec![section_rose[1].id]);
+    assert_eq!(
+        told(&rose(stood)[0]).as_deref(),
+        Some("The frame of the lamp post on the point went up")
+    );
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+/// While a work goes up, one person works at it all day and another
+/// carries a load over; a new bench draws someone to sit on it, and a
+/// planting someone to water it. The same every time, and nothing is
+/// recorded.
+#[test]
+fn people_lend_a_hand_and_use_what_is_put_down() {
+    use days::{Doing, Use};
+    let (mut world, registry) = world(200);
+    let people = (1..=6).map(EntityId::new).collect::<Vec<_>>();
+    world
+        .execute(&registry, &do_request(&plot_key("bandstand", "p2")))
+        .unwrap();
+    let site = made(world.state())[0];
+    let bench = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.verb == Verb::Build && deed.at == SQUARE)
+        .unwrap();
+    world.execute(&registry, &do_request(&bench.key)).unwrap();
+    let bench = *made(world.state()).iter().find(|id| **id != site).unwrap();
+    let events = world.events().len();
+    let errands_as = |used: Use| {
+        errands(
+            &world,
+            &kit(world.state()),
+            &people,
+            |thing| (thing == bench).then_some(used),
+            |who, _| Some(who.0 as f32),
+        )
+    };
+    let seats = errands_as(Use::Seat);
+    assert_eq!(world.events().len(), events);
+    let count = |errands: &std::collections::BTreeMap<EntityId, Errand>, doing, at| {
+        errands
+            .values()
+            .filter(|errand| errand.doing == doing && errand.at == at)
+            .count()
+    };
+    assert_eq!(count(&seats, Doing::Work, site), 1, "{seats:?}");
+    assert_eq!(count(&seats, Doing::Haul, site), 1, "{seats:?}");
+    assert_eq!(count(&seats, Doing::Sit, bench), 1, "{seats:?}");
+    assert_eq!(seats, errands_as(Use::Seat));
+    let planting = errands_as(Use::Planting);
+    assert_eq!(count(&planting, Doing::Tend, bench), 1, "{planting:?}");
+    // Whoever spends their day nearest lends a hand.
+    assert_eq!(seats.keys().copied().collect::<Vec<_>>(), people[..3]);
+}
+
+/// What only touches a work on the way (a morning's tending, a design, a
+/// name) is never what its next stage follows from: the building's cause
+/// stays its own chain back to the deed that began it.
+#[test]
+fn only_what_moves_a_work_on_is_its_next_stage_s_cause() {
+    let work = EntityId::new(7);
+    let event = |changes: Vec<StateChange>| Event {
+        id: world_core::EventId::new(1),
+        kind: "any".into(),
+        world_time: 0,
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: Default::default(),
+        changes,
+    };
+    let set = |entity: EntityId, key: &str| StateChange::SetComponent {
+        entity,
+        key: key.into(),
+        value: Value::Integer(1),
+    };
+    use crate::rise::advances_construction;
+    assert!(!advances_construction(
+        &event(vec![set(work, "ritual.tended_on")]),
+        work
+    ));
+    assert!(advances_construction(&event(vec![set(work, RISING)]), work));
+    assert!(advances_construction(&event(vec![set(work, ROSE)]), work));
+    assert!(advances_construction(
+        &event(vec![StateChange::RemoveComponent {
+            entity: work,
+            key: RISING.into()
+        }]),
+        work
+    ));
+    assert!(!advances_construction(
+        &event(vec![set(EntityId::new(8), RISING)]),
+        work
+    ));
 }

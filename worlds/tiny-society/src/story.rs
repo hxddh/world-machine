@@ -4084,7 +4084,7 @@ fn newcomer(entity: EntityId, name: &'static str, job: &'static str, at: EntityI
 
 /// What each answer (or lapse), by the Event it is recorded as, leaves in
 /// the harbour besides what it costs.
-fn leaves_behind(event: &str) -> Vec<Effect> {
+pub(crate) fn leaves_behind(event: &str) -> Vec<Effect> {
     use crate::{HARBOR, PUB, SCHOOL};
     match event {
         "school_roof_mended" | "school_roof_mended_at_last" => vec![
@@ -4171,13 +4171,7 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
                 Some(3),
             ),
         ],
-        "pier_section_built" => vec![build(
-            PIER,
-            "The new pier, a new section on",
-            "pier",
-            HARBOR,
-            None,
-        )],
+        "pier_section_built" => crate::handwork::rises(PIER, "The pier's new section", "pier"),
         "pier_piles_driven" => vec![build(
             PIER,
             "The new pier, on its piles",
@@ -4194,13 +4188,8 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
             mark("books"),
             build(PARCELS, "A box of new books", "parcel", SCHOOL, Some(2)),
         ],
-        "lamp_work_done" | "lamp_glass_fetched" => vec![build(
-            LAMP,
-            "The lamp post on the point, unlit",
-            "lantern",
-            HARBOR,
-            None,
-        )],
+        "lamp_work_done" | "lamp_glass_fetched" => crate::handwork::the_lamp_stands(),
+        "pier_opened" | "pier_in_use" | "pier_opened_quietly" => crate::handwork::finished(PIER),
         "traveller_stayed" => vec![
             mark("traveller"),
             build(PARCELS, "The traveller's bags", "parcel", PUB, Some(2)),
