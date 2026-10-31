@@ -245,6 +245,7 @@ pub(super) fn paint_building_tile(
             paint_building_shadow(&mut canvas, frame, building);
         }
         for building in &near {
+            paint_window_pool(&mut canvas, frame, building);
             paint_building_glow(&mut canvas, building);
         }
     });
@@ -653,6 +654,38 @@ pub(super) fn paint_building_glow(canvas: &mut Canvas, building: &BuildingPaint)
         h * 0.34,
         ground_glow(glow, 0.42),
     );
+}
+
+/// The lamplight a building's lit windows throw on the ground before it
+/// from dusk through the night (1.0 P5: dusk lit, not tinted): a warm
+/// pool in the place's own glow, painted on the land like its shadow and
+/// over it. None by day, nor from a tree or a bridge, which have no
+/// windows.
+pub(super) fn paint_window_pool(canvas: &mut Canvas, frame: &Frame, building: &BuildingPaint) {
+    if matches!(building.shape, MarkShape::Tree | MarkShape::Bridge) {
+        return;
+    }
+    let on = window_light(frame.hour);
+    if on <= 0.0 {
+        return;
+    }
+    let (w, h) = (building.w, building.h);
+    canvas.soft(
+        building.x,
+        building.base + h * 0.1,
+        w * 0.62,
+        h * 0.13,
+        h * 0.2,
+        frame.glow().opacity(on),
+    );
+}
+
+/// How strong the pool of window light is at `hour`: from the lamps'
+/// coming on, strongest at dusk against the last of the day, a little
+/// less through the night, gone with the morning.
+pub(crate) fn window_light(hour: f32) -> f32 {
+    let on = lamps_lit(hour, 0);
+    on * (0.66 + 0.3 * dusk_share(hour))
 }
 
 /// Whether a part of a drawing is a flat foot on the ground: low, and

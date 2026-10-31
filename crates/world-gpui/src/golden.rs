@@ -249,6 +249,75 @@ fn the_diorama_by_day_matches_its_golden_picture() {
     matches_golden("diorama-day", &image);
 }
 
+/// How dusk is lit (1.0 P5, the v0.30 review: "dusk that is lit rather
+/// than tinted"), measured on the diorama at `hour` in `daylight`: how
+/// much brighter the ground before each lit building is (where its windows
+/// throw their light) than the ground halfway between two buildings at
+/// the same depth, and how bright the land is on the whole.
+fn dusk_measure(daylight: Daylight, hour: f32) -> (f32, f32) {
+    let snapshot = town();
+    let (width, height) = (480.0, 300.0);
+    let frame = diorama_frame(&snapshot, width, height, daylight, hour);
+    let image = draw(width, height, move || painted(frame.clone()));
+    let stage = diorama::stage_at(
+        &snapshot,
+        width,
+        height,
+        diorama::Clock::at(hour.floor() as u8),
+    );
+    let camera = Camera::whole(&stage);
+    let k = image.width() as f32 / width;
+    let luma = |x: f32, y: f32, w: f32, h: f32| {
+        let (mut sum, mut n) = (0.0_f32, 0.0_f32);
+        for py in (y * k) as u32..((y + h) * k) as u32 {
+            for px in (x * k) as u32..((x + w) * k) as u32 {
+                if let Some(pixel) = image.get_pixel_checked(px, py) {
+                    let [r, g, b, _] = pixel.0.map(f32::from);
+                    sum += 0.3 * r + 0.59 * g + 0.11 * b;
+                    n += 1.0;
+                }
+            }
+        }
+        sum / n.max(1.0)
+    };
+    let mut spots = stage.buildings.clone();
+    spots.sort_by(|a, b| a.x.total_cmp(&b.x));
+    let (mut pools, mut gaps) = (0.0, 0.0);
+    for pair in spots.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        let (ax, ay) = camera.at(&stage, a.x, a.y);
+        let (bx, _) = camera.at(&stage, b.x, b.y);
+        let w = a.w * camera.zoom * 0.3;
+        pools += luma(ax - w / 2.0, ay + 3.0, w, 6.0);
+        gaps += luma((ax + bx) / 2.0 - w / 2.0, ay + 3.0, w, 6.0);
+    }
+    let land = luma(0.0, height * 0.45, width, height * 0.3);
+    (pools / gaps.max(1.0), land)
+}
+
+/// Dusk is lit, not tinted: the light falls (the land a tenth or more
+/// darker than at noon) and the lights do not, so the ground before a lit
+/// building is brighter than the ground between buildings by 15% or more
+/// (its windows throw a pool of lamplight). v0.30's dusk was one flat gold
+/// laid over everything: the ground before a house was darker (0.88)
+/// than between houses, for its shadow.
+#[test]
+fn dusk_is_lit_not_tinted() {
+    let (_, noon) = dusk_measure(Daylight::Day, 13.0);
+    for hour in [19.5, 20.0] {
+        let (lift, land) = dusk_measure(Daylight::Dusk, hour);
+        eprintln!("dusk at {hour}: pools {lift:.3} of the ground between; land {land:.0} (noon {noon:.0})");
+        assert!(
+            lift >= 1.15,
+            "{hour}: the pools only {lift:.3} of the ground between"
+        );
+        assert!(
+            land <= noon * 0.9,
+            "{hour}: the land {land:.0} against noon's {noon:.0}"
+        );
+    }
+}
+
 #[test]
 fn the_diorama_at_dusk_matches_its_golden_picture() {
     let frame = diorama_frame(&town(), 480.0, 300.0, Daylight::Dusk, 19.5);

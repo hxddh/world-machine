@@ -1058,6 +1058,7 @@ pub(crate) fn bake_look(
                 (left, top),
             ) {
                 paint_building_shadow(&mut canvas, frame, building);
+                paint_window_pool(&mut canvas, frame, building);
                 if let Some(sprite) = Sprite::cropped(canvas.pixmap, (left, top), land_scale) {
                     out.push(Piece::Shadow(item, sprite));
                 }
