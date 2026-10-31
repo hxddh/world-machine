@@ -23,7 +23,11 @@ It fails the run (exit 1) on:
   over, the first third's; or any 2 s window whose mean passes
   --frame-ceiling ms;
 - fewer sittings than --least-sittings-per-hour an hour: a driver that
-  stopped moving the World is not soaking it.
+  stopped moving the World is not soaking it;
+- a run that stopped making progress before its end, alive but frozen: the
+  World window's last frame more than --stale-minutes before the run's end,
+  or no new sitting in the last --stall-minutes (or a quarter of the run,
+  whichever is longer).
 
 It writes summary.json and prints a summary.
 """
@@ -78,6 +82,8 @@ def main() -> int:
     parser.add_argument("--p95-slack", type=float, default=2.0, help="ms")
     parser.add_argument("--frame-ceiling", type=float, default=50.0, help="ms, any 2 s mean")
     parser.add_argument("--least-sittings-per-hour", type=float, default=30.0)
+    parser.add_argument("--stale-minutes", type=float, default=2.0, help="last frame before the end")
+    parser.add_argument("--stall-minutes", type=float, default=10.0, help="last new sitting before the end")
     args = parser.parse_args()
     out: Path = args.out
     warmup = args.warmup_minutes * 60
@@ -156,6 +162,26 @@ def main() -> int:
             f"(at least {args.least_sittings_per_hour:.0f} an hour)"
         )
 
+    # Progress to the end: an app alive but frozen draws no more frames and
+    # moves no more sittings, however steady its memory.
+    run_s = args.minutes * 60.0
+    last_frame_s = max((int(r[0]) / 1000.0 for r in own), default=0.0)
+    if own and last_frame_s < run_s - args.stale_minutes * 60.0:
+        problems.append(
+            f"the World window's last frame was at {last_frame_s / 60:.1f} min of a "
+            f"{args.minutes:.0f} min run (within {args.stale_minutes:.0f} min of its end wanted)"
+        )
+    last_rise_s = 0.0
+    for before, after in zip(sittings, sittings[1:]):
+        if int(after[1]) > int(before[1]):
+            last_rise_s = float(after[0])
+    stall_s = max(args.stall_minutes * 60.0, run_s / 4.0)
+    if sittings and run_s > stall_s and last_rise_s < run_s - stall_s:
+        problems.append(
+            f"no new sitting after {last_rise_s / 60:.1f} min of a {args.minutes:.0f} min run "
+            f"(one within the last {stall_s / 60:.0f} min wanted)"
+        )
+
     summary = {
         "minutes": args.minutes,
         "warmup_minutes": args.warmup_minutes,
@@ -171,6 +197,8 @@ def main() -> int:
         "frame_mean_p95_last_ms": round(p95_last, 2),
         "frame_longest_ms": round(longest, 2),
         "unpainted_frames": len(unpainted),
+        "last_frame_min": round(last_frame_s / 60.0, 2),
+        "last_new_sitting_min": round(last_rise_s / 60.0, 2),
         "panics": len(panics),
         "problems": problems,
     }

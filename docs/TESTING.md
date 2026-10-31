@@ -56,6 +56,7 @@ loads its looks, fonts and sounds, and memory settles. The run fails on:
 | Frame time p95 (of the 2 s means), last third after warm-up against the first third | at most 1.5 x + 2 ms (`--p95-ratio`, `--p95-slack`) |
 | Any 2 s window's mean frame time | 50 ms (`--frame-ceiling`) |
 | Sittings reached | at least 30 an hour (`--least-sittings-per-hour`): a stuck driver is not a soak |
+| Progress to the end: the World window's last frame, and the last new sitting | within 2 min of the end (`--stale-minutes`); within the last 10 min or quarter of the run, whichever is longer (`--stall-minutes`): an app alive but frozen is not a soak |
 
 The World itself grows as it lives (each day's events are its history), so
 memory is allowed a gentle slope; a leak in the window, the looks or the
