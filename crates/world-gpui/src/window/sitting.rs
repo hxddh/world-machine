@@ -973,7 +973,7 @@ mod tests {
         snapshot.chapters.push(world_projection::Chapter {
             number: 1,
             title: "The first spring".into(),
-            summary: "The harbour came together.".into(),
+            summary: "The place came together.".into(),
             moment: Some(moment),
         });
         let Opened {
