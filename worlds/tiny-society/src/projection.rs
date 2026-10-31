@@ -117,6 +117,8 @@ pub(crate) fn snapshot_since(
     // and what the mornings turned up, in the book.
     snapshot.morning = ritual::shown(world, &crate::life::cast(), &snapshot.commands);
     snapshot.book.extend(ritual::book(world));
+    // The player's own Book: the year's pages and what the harbour aims at.
+    snapshot.keeping = Some(crate::keeper::keeping(world, &snapshot.book));
     // Whoever asked what was just answered goes over to what it made.
     world_projection::go_to_what_was_answered(world, &mut snapshot.canvas.items, |event| {
         matches!(crate::story::answer_words(event), Some(Some(_)))

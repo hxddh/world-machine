@@ -3336,8 +3336,7 @@ pub(crate) fn tick(
     };
     let mut events = settled;
     let begins = world.state().entity(STORY).is_none();
-    // What the year brings comes first, so the day's round of lives knows
-    // whether the day has already brought something new.
+    // The year's turn comes first, so the day's round knows if the day brought something new.
     events.extend(crate::years::tick(world, actions)?);
     // Whoever what the player built draws comes before the day's round, so
     // a room come free goes to them before a stranger at the door.
@@ -3355,6 +3354,7 @@ pub(crate) fn tick(
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
+    events.extend(crate::keeper::tick(world, actions)?);
     events.extend(take_up_own_work(world, actions)?);
     let mut told = storylets::tick(world, actions, deck(), &reading)?;
     told.extend(storylets::bring_forward(world, actions, deck(), &reading)?);

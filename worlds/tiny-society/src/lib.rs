@@ -24,6 +24,7 @@ mod handwork;
 mod hardship;
 mod host;
 mod interventions;
+mod keeper;
 mod kin;
 mod legends;
 #[cfg(test)]
@@ -419,7 +420,9 @@ impl TinySocietyBranch {
         following(&mut self.world, arrived, |world| {
             let mut events = story::tick(world, actions, false)?;
             // Someone comes over to say hello, and the first question follows.
-            events.extend(lives::greet(world, actions, &life::cast())?);
+            // The one who says hello names who the player is here.
+            let hello = if arrived.is_some() { keeper::HELLO } else { "" };
+            events.extend(lives::greet_saying(world, actions, &life::cast(), hello)?);
             events.extend(story::first_question(world, actions)?);
             Ok(events)
         })
@@ -1035,6 +1038,7 @@ fn make_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     fishing::register_actions(&mut actions)?;
     drift::register_actions(&mut actions)?;
     hardship::register_actions(&mut actions)?;
+    keeper::register_actions(&mut actions)?;
     livelihood::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     local_economy::register_actions(&mut actions)?;
