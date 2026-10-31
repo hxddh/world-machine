@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -20,7 +21,54 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="The demo's manifest, when the release carries the demo beside the full app.",
     )
+    parser.add_argument(
+        "--changelog",
+        type=Path,
+        help=(
+            "CHANGELOG.md: its entry for the manifest's app version becomes the "
+            "notes' \"What's in\" section. A release with no entry is refused."
+        ),
+    )
     return parser.parse_args()
+
+
+def changelog_entry(changelog: str, version: str, repository: str, tag: str) -> str:
+    """The body of `## v<version> (<date>)` in the changelog, its relative
+    links pointing at the files at the release tag."""
+    heading = re.compile(rf"^## v{re.escape(version)} \([^)]*\)[ \t]*$", re.MULTILINE)
+    found = heading.search(changelog)
+    if found is None:
+        raise SystemExit(f"CHANGELOG.md has no entry for v{version}")
+    rest = changelog[found.end():]
+    following = re.search(r"^## ", rest, re.MULTILINE)
+    body = (rest[: following.start()] if following else rest).strip()
+    if not body:
+        raise SystemExit(f"CHANGELOG.md's entry for v{version} is empty")
+
+    def absolute(link: re.Match[str]) -> str:
+        target = link.group(2)
+        if re.match(r"^(?:[a-z]+:|#|/)", target):
+            return link.group(0)
+        return f"{link.group(1)}(https://github.com/{repository}/blob/{tag}/{target})"
+
+    return re.sub(r"(\[[^\]]*\])\(([^)\s]+)\)", absolute, body)
+
+
+def stable_line(version: str, repository: str, tag: str) -> str:
+    """What the notes promise about saves: before 1.0 nothing; from 1.0 on,
+    the save contract (docs/SAVES.md)."""
+    major = int(version.split(".", 1)[0])
+    if major < 1:
+        return (
+            "The World file format may still change between releases; see the "
+            f"[changelog](https://github.com/{repository}/blob/{tag}/CHANGELOG.md)."
+        )
+    return (
+        "Saves are versioned from 1.0: every later release opens this one's Worlds, "
+        "and a World saved by a newer release is refused, never damaged. Worlds from "
+        "the v0.x previews do not open; see "
+        f"[saves](https://github.com/{repository}/blob/{tag}/docs/SAVES.md)."
+    )
 
 
 def demo_section(demo: dict | None) -> str:
@@ -35,8 +83,20 @@ def demo_section(demo: dict | None) -> str:
 """
 
 
-def render(manifest: dict, repository: str, demo: dict | None = None) -> str:
+def render(
+    manifest: dict,
+    repository: str,
+    demo: dict | None = None,
+    changelog: str | None = None,
+) -> str:
     tag = str(manifest["tag"])
+    version = str(manifest["app_version"])
+    whats_in = ""
+    if changelog is not None:
+        whats_in = (
+            f"\n## What's in {version}\n\n"
+            f"{changelog_entry(changelog, version, repository, tag)}\n"
+        )
     signing = manifest.get("signing")
     notarized = manifest.get("notarized")
     if signing == "ad-hoc" and notarized is False:
@@ -66,7 +126,7 @@ def render(manifest: dict, repository: str, demo: dict | None = None) -> str:
 
 1. Download {download} below and open it.
 2. Drag **World Machine** onto the **Applications** shortcut.
-3. Open World Machine from Applications. Your first World opens by itself.
+3. Open World Machine from Applications. It opens on its title screen; choose **New World** to begin.
 """
         signing_cell = "Developer ID, notarized"
     else:
@@ -78,7 +138,7 @@ def render(manifest: dict, repository: str, demo: dict | None = None) -> str:
 
 1. Download {download} below and open it.
 2. Drag **World Machine** onto the **Applications** shortcut.
-3. Open World Machine from Applications. macOS says it could not verify the app; click **Done**, then open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, and confirm. From then on it opens normally, and your first World opens by itself.
+3. Open World Machine from Applications. macOS says it could not verify the app; click **Done**, then open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, and confirm. From then on it opens normally, on its title screen; choose **New World** to begin.
 
 The [install guide]({install_url}) has the same steps with more detail.
 """
@@ -89,8 +149,8 @@ The [install guide]({install_url}) has the same steps with more detail.
 {status_line}
 
 {install}
-{"Pre-release build." if prerelease else "Early release."} No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on. The World file format may still change between releases; see the [changelog](https://github.com/{repository}/blob/{tag}/CHANGELOG.md).
-
+{"Pre-release build. " if prerelease else ""}No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on. {stable_line(version, repository, tag)}
+{whats_in}
 ## Build
 
 | Field | Value |
@@ -119,7 +179,8 @@ def main() -> None:
     args = parse_args()
     manifest = json.loads(args.manifest.read_text())
     demo = json.loads(args.demo_manifest.read_text()) if args.demo_manifest else None
-    print(render(manifest, args.repository, demo), end="")
+    changelog = args.changelog.read_text() if args.changelog else None
+    print(render(manifest, args.repository, demo, changelog), end="")
 
 
 if __name__ == "__main__":
