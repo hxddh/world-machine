@@ -143,6 +143,9 @@ mod file_type_tests;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui_platform::application;
 
+    // Before any thread starts: the pictures the window paints and lets
+    // go are handed back to the system, not kept by the allocator.
+    world_machine_desktop::allocator::hand_back_large_blocks();
     let application = application();
     system_open::install(&application);
     diagnostics::init();

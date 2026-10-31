@@ -160,13 +160,15 @@ if [[ -d "$DESKTOP" ]]; then
 fi
 
 # Invariant: no `unsafe` code. Every library and binary root in the
-# workspace forbids it, except the two packages that hold their few libc
-# calls in one allowed place: world-pack-process (the unix pipe calls that
-# bound a write, `deadline_stdin.rs`) and world-gpui (CPU-time calls in its
-# tests only). Those two deny it instead, so a new `unsafe` anywhere else in
-# them fails to compile.
+# workspace forbids it, except the packages that hold their few libc calls
+# in one allowed place: world-pack-process (the unix pipe calls that bound
+# a write, `deadline_stdin.rs`), the desktop app's library (the one mallopt
+# that has glibc hand large freed blocks back, `allocator.rs`) and
+# world-gpui (CPU-time calls in its tests only). Those deny it instead, so
+# a new `unsafe` anywhere else in them fails to compile.
 unsafe_exceptions=(
   "crates/world-pack-process/src/lib.rs:#![deny(unsafe_code)]"
+  "apps/world-machine-desktop/src/lib.rs:#![deny(unsafe_code)]"
   "crates/world-gpui/src/lib.rs:#![cfg_attr(not(test), forbid(unsafe_code))]"
 )
 crate_roots=$(cargo metadata --no-deps --format-version 1 --offline \

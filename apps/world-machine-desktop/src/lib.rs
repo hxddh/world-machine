@@ -3,8 +3,12 @@
 //! UI code consumes the persisted settings, sound and window-state APIs here
 //! instead of owning filesystem persistence or audio details directly.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
+// The only `unsafe` in the package: one libc call that tells the
+// allocator to hand large freed blocks back (see the module).
+#[allow(unsafe_code)]
+pub mod allocator;
 pub mod ambience;
 pub mod app_settings;
 pub mod channel;
