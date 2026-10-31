@@ -1610,13 +1610,13 @@ fn bake_one(
 }
 
 /// Something drawn live within `rect`, clipped to `clip` if given.
-fn live(rect: Rect, clip: Option<Rect>, paint: impl Fn(&mut Window, Rect) + 'static) -> Draw {
+pub fn live(rect: Rect, clip: Option<Rect>, f: impl Fn(&mut Window, Rect) + 'static) -> Draw {
     let rect = clip.map_or(rect, |clip| ls::intersection(rect, clip));
     Draw::Live {
         rect,
         paint: Rc::new(move |window: &mut Window, scene: Rect| {
             let Some(clip) = clip else {
-                paint(window, scene);
+                f(window, scene);
                 return;
             };
             let bounds = Bounds::new(
@@ -1624,7 +1624,7 @@ fn live(rect: Rect, clip: Option<Rect>, paint: impl Fn(&mut Window, Rect) + 'sta
                 size(px(clip.2.max(0.0)), px(clip.3.max(0.0))),
             );
             window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
-                paint(window, scene)
+                f(window, scene)
             });
         }),
     }
@@ -2192,8 +2192,8 @@ fn plan_window(hand: &mut Stagehand, frame: &Arc<Frame>, wants: &[Want]) -> (Pla
                 items,
             });
         }
-        // A scene's props, live, in depth with everyone: what is held just
-        // in front of whoever holds it, bunting over everyone's heads.
+        deep.extend(super::passers::deeps(&part, light));
+        // A scene's props, live, in depth with everyone: held in front.
         for (n, prop) in part.scene_props().iter().enumerate() {
             let z = part.camera.zoom;
             let (x, foot) = lens_first.at(prop.x, prop.y);

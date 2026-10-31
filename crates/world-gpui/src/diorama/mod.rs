@@ -28,6 +28,7 @@ mod interface;
 mod light;
 mod lived;
 pub mod living_stage;
+pub mod passers;
 mod people;
 mod scene;
 pub mod stage_view;
@@ -106,6 +107,8 @@ pub struct Frame {
     buildings: Vec<BuildingPaint>,
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
+    /// Passers-by (`passers`): nobody's resident, never in `people`.
+    pub(crate) passers: Vec<PersonPaint>,
     bonds: Vec<(f32, f32, f32, CanvasLinkTone)>,
     /// Plots staked out on the ground, in stage pixels, and which one is
     /// pointed at or chosen with the keys.
@@ -762,6 +765,7 @@ pub fn frame(
         blend_top: false,
         buildings,
         things,
+        passers: passers::passers(snapshot, stage, camera, seconds),
         people,
         bonds,
         plots: stage.plots.clone(),
