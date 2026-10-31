@@ -560,6 +560,57 @@ fn the_drawer_and_esc_never_move_the_camera(cx: &mut gpui::TestAppContext) {
     }
 }
 
+/// With Reduce Motion on, talking to someone puts the camera on them at
+/// once: it never glides there (P6a review).
+#[gpui::test]
+fn with_motion_reduced_the_camera_is_where_it_is_sent_at_once(cx: &mut gpui::TestAppContext) {
+    use gpui::VisualTestContext;
+    let snapshot = day_1082();
+    let someone = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == CanvasItemKind::Actor)
+        .nth(3)
+        .map(|item| item.id)
+        .expect("someone");
+    cx.update(|cx| cx.set_reduce_motion(true));
+    let window = cx.add_window(move |_, _| {
+        let mut view = ProjectionView::controlled(Still(snapshot.clone())).with_strip(|_, _| {});
+        view.looking.opening = None;
+        view
+    });
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_resize(gpui::size(px(1100.0), px(900.0)));
+    cx.run_until_parked();
+    let camera = |cx: &mut VisualTestContext| {
+        window
+            .update(cx, |_, _, cx| cx.notify())
+            .expect("the window");
+        cx.run_until_parked();
+        window
+            .update(cx, |view, _, _| view.looking.camera_now)
+            .expect("the window")
+            .expect("a camera")
+    };
+    let before = camera(cx);
+    window
+        .update(cx, |view, _, cx| view.ask(someone, cx))
+        .expect("the window");
+    let at_once = camera(cx);
+    std::thread::sleep(Duration::from_secs_f32(CAMERA_SECONDS + 0.2));
+    let settled = camera(cx);
+    assert!(
+        (at_once.x - before.x).abs() > 1.0 || (at_once.zoom - before.zoom).abs() > 0.01,
+        "the camera moved in on them: {before:?} to {at_once:?}"
+    );
+    assert!(
+        (at_once.x - settled.x).abs() < 0.5 && (at_once.zoom - settled.zoom).abs() < 0.001,
+        "there at once, not gliding: {at_once:?} then {settled:?}"
+    );
+    cx.update(|_, cx| cx.set_reduce_motion(false));
+}
+
 /// The v0.29 bars for the talk card and speech: on the day-1,082 place
 /// at 1100 by 900 and 1440 by 900, with the drawer shut and open, at
 /// both text sizes, for everyone out on the ground looked at from

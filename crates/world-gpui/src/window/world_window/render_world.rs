@@ -94,7 +94,12 @@ impl ProjectionView {
         if let Some(staged) = &staged {
             stage = diorama::staging::cast_on(&stage, staged);
         }
-        let camera = self.camera(&stage, window, staged.as_ref().and_then(|s| s.camera));
+        let camera = self.camera(
+            &stage,
+            window,
+            staged.as_ref().and_then(|s| s.camera),
+            cx.reduce_motion(),
+        );
         if std::mem::take(&mut self.looking.glide_wants) {
             self.request_frame(window, cx);
         }
