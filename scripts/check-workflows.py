@@ -22,6 +22,11 @@ It also holds the supply-chain rules of the v0.25 release review:
   `--skip NAME`, `--test NAME`) still names a test, so a renamed or deleted
   bar fails here instead of turning its step into one that runs nothing
   and passes (as `a_three_year_world_never_waits_for_painting` did);
+- so is every cargo command in a script a workflow runs (`bash
+  scripts/<name>.sh`), since the script builds what the job tests;
+- the soak (1.0 P7) runs in the nightly alone, for at least two hours,
+  with room in its job's timeout, its logs kept, and a red soak reported;
+  never on a pull request;
 - CI runs on pushes to main and on pull requests, not both for one PR;
 - a release publishes nothing unless the nightly passed on its commit.
 """
@@ -361,6 +366,112 @@ def nightly_gate_problems() -> list[str]:
     return problems
 
 
+def scripts_run(document: dict) -> set[str]:
+    """The repository scripts a workflow's steps run (`bash scripts/x.sh`)."""
+    found = set()
+    for _job, command in run_commands(document):
+        for match in re.finditer(r"(?:^|\s)(?:bash\s+|\./)?(scripts/[\w.-]+\.sh)\b", command):
+            found.add(match.group(1))
+    return found
+
+
+def script_cargo_problems() -> list[str]:
+    """Every cargo build, test, run or lint in a script a workflow runs is
+    `--locked`, as the workflows' own are."""
+    scripts = set()
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        try:
+            document = yaml.safe_load(path.read_text())
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict):
+            scripts |= scripts_run(document)
+    problems = []
+    for script in sorted(scripts):
+        path = ROOT / script
+        if not path.exists():
+            problems.append(f"{script}: a workflow runs it, but it does not exist")
+            continue
+        joined = re.sub(r"\\\n\s*", " ", path.read_text())
+        for number, line in enumerate(joined.splitlines(), start=1):
+            command = line.strip()
+            if command.startswith("#"):
+                continue
+            if CARGO.search(command) and not re.search(r"--(locked|frozen)\b", command):
+                problems.append(f"{script}: not --locked: {command}")
+    return problems
+
+
+SOAK_SCRIPT = "scripts/soak.sh"
+SOAK_LEAST_MINUTES = 120
+
+
+def soak_problems() -> list[str]:
+    """The soak runs in the nightly, and only there: for at least two hours
+    (SOAK_MINUTES), in a job whose timeout leaves an hour for the release
+    build, with its logs uploaded whatever happened, and its result
+    reported by report-red-night. No other workflow (CI's pull requests,
+    or anything CI calls) runs it."""
+    nightly = WORKFLOWS / "nightly.yml"
+    problems = []
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        if path == nightly:
+            continue
+        try:
+            document = yaml.safe_load(path.read_text())
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and SOAK_SCRIPT in scripts_run(document):
+            problems.append(f"{path.relative_to(ROOT)}: runs {SOAK_SCRIPT}; the soak is the nightly's alone")
+    if not nightly.exists():
+        return problems
+    try:
+        night = yaml.safe_load(nightly.read_text()) or {}
+    except yaml.YAMLError:
+        return problems
+    relative = nightly.relative_to(ROOT)
+    jobs = night.get("jobs") or {}
+    soaks = {}
+    for name, job in jobs.items():
+        for step in (job or {}).get("steps") or []:
+            if isinstance(step, dict) and SOAK_SCRIPT in str(step.get("run", "")):
+                soaks[name] = (job, step)
+    if not soaks:
+        return problems + [f"{relative}: no job runs {SOAK_SCRIPT}"]
+    for name, (job, step) in soaks.items():
+        env = {**(night.get("env") or {}), **(job.get("env") or {}), **(step.get("env") or {})}
+        try:
+            minutes = int(str(env.get("SOAK_MINUTES", "")))
+        except ValueError:
+            minutes = 0
+        if minutes < SOAK_LEAST_MINUTES:
+            problems.append(
+                f"{relative}: job {name} soaks for {minutes or 'an unset number of'} minutes, "
+                f"less than {SOAK_LEAST_MINUTES} (set SOAK_MINUTES on its step)"
+            )
+        timeout = job.get("timeout-minutes")
+        if not isinstance(timeout, int) or timeout < minutes + 60:
+            problems.append(
+                f"{relative}: job {name}'s timeout-minutes ({timeout}) leaves no hour "
+                f"beyond its {minutes} minutes for the release build"
+            )
+        uploads = [
+            other
+            for other in job.get("steps") or []
+            if isinstance(other, dict)
+            and str(other.get("uses", "")).startswith("actions/upload-artifact@")
+            and "always()" in str(other.get("if", ""))
+        ]
+        if not uploads:
+            problems.append(f"{relative}: job {name} does not upload its logs if: always()")
+        report = jobs.get("report-red-night") or {}
+        needs = report.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else needs
+        if name not in needs:
+            problems.append(f"{relative}: report-red-night does not wait for the soak ({name})")
+    return problems
+
+
 def main() -> int:
     files = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
     if not files:
@@ -413,6 +524,8 @@ def main() -> int:
     problems.extend(shard_problems())
     problems.extend(trigger_problems())
     problems.extend(nightly_gate_problems())
+    problems.extend(script_cargo_problems())
+    problems.extend(soak_problems())
 
     if problems:
         for problem in problems:
@@ -422,7 +535,8 @@ def main() -> int:
     print(
         f"check-workflows: {len(files)} workflow file(s) parse and can run; "
         "actions are pinned, permissions scoped, cargo --locked, every test "
-        "filter names a test, and a release waits for a green nightly"
+        "filter names a test, a release waits for a green nightly, and the "
+        "nightly soaks for two hours"
     )
     return 0
 

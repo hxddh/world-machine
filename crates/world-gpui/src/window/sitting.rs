@@ -924,6 +924,47 @@ mod tests {
         crate::scene::set_clock(None);
     }
 
+    /// A World whose host holds its day back (the demo's last day): the
+    /// day's card answers with the World as it was.
+    struct Held(ProjectionSnapshot);
+
+    impl crate::ProjectionController for Held {
+        fn snapshot(&self) -> ProjectionSnapshot {
+            self.0.clone()
+        }
+
+        fn handle(&mut self, _: ProjectionIntent) -> Result<ProjectionSnapshot, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// A day the host held back is not one the sitting spent: no
+    /// Goodnight, and nothing written down.
+    #[gpui::test]
+    fn a_day_held_back_spends_nothing(cx: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let spent = Rc::new(Cell::new(0));
+        let host_spent = spent.clone();
+        let window = cx.add_window(move |_, _| {
+            let mut view = ProjectionView::controlled(Held(town()))
+                .with_allowance(Allowance { left: 1, of: 1 }, move || {
+                    host_spent.set(host_spent.get() + 1)
+                });
+            view.looking.opening = None;
+            view
+        });
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        pass_day(&view, cx);
+        assert_eq!(spent.get(), 0, "nothing written down");
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.allowance(), Some(Allowance { left: 1, of: 1 }));
+            assert!(!view.goodnight_shown());
+        });
+        crate::scene::set_clock(None);
+    }
+
     #[gpui::test]
     fn a_sitting_with_nothing_left_opens_asleep(cx: &mut TestAppContext) {
         crate::scene::set_clock(Some(12));

@@ -1,27 +1,36 @@
-//! The free demo: the opening of Tiny Society, 20 to 30 minutes of it,
-//! then a warm ending.
+//! The free demo: a new World's designed first session, the next
+//! sitting's morning, then a wishlist card.
 //!
-//! A demo build (`--features demo`) is the whole app with two turns of its
-//! own, both read from the demo's pacing (`demo/pacing.json`, [`pacing`]):
-//! - **Time away.** On the morning of [`Away::after_day`], letting the day
-//!   pass lets the World live [`Away::days`] days without the player
-//!   instead, through the World's own background time (the same the full
-//!   app lives through while it is closed, a day for every six hours away),
-//!   and the next morning opens on the return film. Nothing is made up:
-//!   every day of it is the World's own events, recorded like any other.
-//! - **The ending.** In a Tiny Society World, the day after
-//!   [`last_day`] does not come. Asking for it shows the farewell instead
-//!   (the town at dusk, a recap of what the player did there from the
-//!   World's own record, a resident's goodbye, a postcard to keep and a
-//!   wishlist link), and time away never carries the World past it.
+//! A demo build (`--features demo`) is the whole app, playing freely, with
+//! one turn of its own:
+//! - **The first session.** A new World opens on its first sitting, as in
+//!   the full app: the sitting ledger (`world_observer`, carried in the
+//!   World's file as host metadata) lets it pass
+//!   [`world_observer::FIRST_SITTING_DAYS`] World days, and then the
+//!   Goodnight card comes up (`tests/first_session.rs` walks it).
+//! - **A second morning.** The demo plays freely ([`crate::display`]):
+//!   Goodnight offers "Sleep now", which begins the next sitting at once
+//!   through the ledger's own `sleep_now`, the same path Settings' "Play
+//!   freely" takes in the full app. The World is told only that a sitting
+//!   began, never when, and opens on the next morning's card. No
+//!   wall-clock time is written into the World.
+//! - **The wishlist card.** The second sitting's one day is the demo's
+//!   [`last_day`]: letting it pass shows the closing card instead (the
+//!   town at dusk, a recap of what the player did there from the World's
+//!   own record, a resident's goodbye, a postcard to keep, and "Wishlist …
+//!   on Steam", which opens [`WISHLIST_URL`] in the browser; nothing is
+//!   sent anywhere). The day is held, not spent: the sitting keeps it.
+//!
+//! Saves carry over: the demo's World is an ordinary World in the ordinary
+//! Library (the same Worlds folder as the full app), with its sittings in
+//! its file, so the full app opens it and carries on from where the demo
+//! left it (`demo/README.md`).
 //!
 //! The demo offers Tiny Society alone ([`offers_pack`]); the gate fails
 //! closed, so a World of any other Pack, or one whose days cannot be
-//! counted, never moves in the demo. Everything else is the full app's: the
-//! World is an ordinary World in the ordinary Library, so the full app
-//! opens it and it carries on from where the demo left it. Nothing is
-//! counted or timed out, and the voice is never needed: the demo is the
-//! World's own words throughout.
+//! counted, never moves in the demo. Nothing is counted or timed out, and
+//! the voice is never needed: the demo is the World's own words
+//! throughout.
 //!
 //! Everything here is plain logic so it can be tested on any platform;
 //! the window only asks it.
@@ -58,25 +67,12 @@ pub fn passes_time(snapshot: &world_projection::ProjectionSnapshot, command_id: 
         .is_none_or(|command| command.role == Some(world_projection::CommandRole::PassesTime))
 }
 
-/// The demo's pacing, as data: when time away comes and how long it
-/// lasts, the last day, the paces it is played at and when each of its
-/// beats must arrive (`tests/demo_walk.rs` walks it).
+/// The demo's pacing, as data: the paces it is played at and when each
+/// of its beats must arrive (`tests/demo_walk.rs` walks it).
 #[derive(Clone, Debug, Deserialize)]
 pub struct Pacing {
-    pub away: Away,
-    /// The last day of the demo: letting it pass shows the ending card.
-    pub last_day: u32,
     pub paces: BTreeMap<String, Pace>,
     pub beats: Vec<BeatBudget>,
-}
-
-/// The demo's time away.
-#[derive(Clone, Copy, Debug, Deserialize)]
-pub struct Away {
-    /// The day whose passing is lived away instead.
-    pub after_day: u32,
-    /// How many days the World lives without the player.
-    pub days: u32,
 }
 
 /// How one player spends their time, for the walk.
@@ -120,9 +116,11 @@ pub enum Beat {
     DayPassed,
     /// Someone asks the player a favour.
     Favour,
-    /// The return film, after the time away.
-    ReturnFilm,
-    /// The ending card, at dusk.
+    /// The first sitting is spent: the Goodnight card, with "Sleep now".
+    Goodnight,
+    /// The second sitting's morning card.
+    SecondMorning,
+    /// The closing wishlist card, at dusk.
     Ending,
 }
 
@@ -146,9 +144,11 @@ pub fn pacing() -> &'static Pacing {
     })
 }
 
-/// The last day of the demo: letting it pass shows the ending card.
+/// The last day of the demo: the second sitting's one day, after the
+/// first sitting's days from day 1. Letting it pass shows the wishlist
+/// card.
 pub fn last_day() -> u32 {
-    pacing().last_day
+    world_observer::FIRST_SITTING_DAYS + world_observer::SITTING_DAYS
 }
 
 /// The day a World is on, counted the way the World counts it: day 1 until
@@ -168,11 +168,9 @@ pub fn offers_pack(pack_id: &str) -> bool {
 pub enum Gate {
     /// The full app's behaviour.
     Open,
-    /// The day's passing is lived away instead: the World lives this many
-    /// days without the player, then the return film plays.
-    Away(u32),
     /// The choice would carry the World past the demo's last day: show the
-    /// farewell instead, and leave the World as it is.
+    /// wishlist card instead, and leave the World (and its sitting) as it
+    /// is.
     Ending,
     /// A World the demo does not offer: nothing it is asked moves it.
     NotOffered,
@@ -187,15 +185,16 @@ pub fn gate(pack_id: &str, day: Option<u32>, passes_time: bool) -> Gate {
     if !offers_pack(pack_id) {
         return Gate::NotOffered;
     }
-    let last = last_day();
-    if passes_time && day.is_none_or(|day| day >= last) {
+    if passes_time && day.is_none_or(|day| day >= last_day()) {
         return Gate::Ending;
     }
-    let away = pacing().away;
-    if passes_time && day == Some(away.after_day) && away.days > 0 {
-        return Gate::Away(away.days.min(last - away.after_day));
-    }
     Gate::Open
+}
+
+/// Whether the player plays freely: always in the demo, whose second
+/// sitting comes at once ("Sleep now" on Goodnight), else as they chose.
+pub fn plays_freely(chosen: bool) -> bool {
+    ENABLED || chosen
 }
 
 /// What Home is called: the demo says it is one.
@@ -432,29 +431,37 @@ pub const GOODBYE: &str = "Come back when you can. We'll keep the lamps lit.";
 pub const RECAP_TITLE: &str = "What you did here";
 pub const KEEP_POSTCARD: &str = "Keep a postcard";
 
-/// The farewell's title and words, in English; the window shows them
-/// through the app's catalogs. The body says "this evening": the farewell
+/// The closing card's title and words, in English; the window shows them
+/// through the app's catalogs. The body says "this evening": the card
 /// holds the sky at dusk ([`FAREWELL_HOUR`]).
-pub const ENDING_TITLE: &str = "This is where the demo ends";
-pub const ENDING_BODY: &str = "The harbour keeps everything you did here. Open it in the full World Machine and it carries on from this evening, with the same people and all they remember.";
+pub const ENDING_TITLE: &str = "Thanks for playing the demo";
+pub const ENDING_BODY: &str = "Your town keeps everything you did here. Open it in the full game and it carries on from this evening, with the same people and all they remember.";
 pub const ENDING_KEPT: &str =
     "Your World is kept in My Worlds, and nothing is deleted. If you'd like to come back to it, a wishlist helps the full game most.";
 pub const ENDING_STAY: &str = "Stay a while";
-/// The one thing the ending asks: a wishlist.
-pub const ENDING_WISHLIST: &str = "Add to your wishlist";
+/// The one thing the closing card asks: a wishlist, on the store, for the
+/// game the demo plays (`{game}`, its Pack's own name: [`wishlist_label`]).
+pub const ENDING_WISHLIST: &str = "Wishlist {game} on Steam";
 
-/// Where "Add to your wishlist" leads: the store page, given at build
-/// time (`WORLD_MACHINE_WISHLIST_URL`), else the project's own page until
-/// there is one.
+/// "Wishlist Tiny Society on Steam", in the player's language: `game` is
+/// the name the demo's Pack gives itself (its descriptor's title), never
+/// written here.
+pub fn wishlist_label(game: &str) -> String {
+    world_gpui::i18n::fill(ENDING_WISHLIST, &[("game", &world_i18n::tr_owned(game))])
+}
+
+/// OWNER: the game's Steam store page. A placeholder (the store's front
+/// page) until the game has one: set `WORLD_MACHINE_WISHLIST_URL` when the
+/// demo is built for release, or replace this constant. It is only opened
+/// in the player's browser when they choose the wishlist; nothing is sent.
+pub const STORE_PAGE_PLACEHOLDER: &str = "https://store.steampowered.com/";
+
+/// Where "Wishlist … on Steam" leads: the store page given at build time
+/// (`WORLD_MACHINE_WISHLIST_URL`), else [`STORE_PAGE_PLACEHOLDER`].
 pub const WISHLIST_URL: &str = match option_env!("WORLD_MACHINE_WISHLIST_URL") {
     Some(url) if !url.is_empty() => url,
-    _ => "https://github.com/hxddh/world-machine",
+    _ => STORE_PAGE_PLACEHOLDER,
 };
-
-/// What the window says when the demo lets the World live days away: it
-/// says the demo skipped ahead, and that the full game never passes time
-/// while the player is away.
-pub const AWAY_NOTE: &str = "The demo skips a few days ahead. In the full game nothing passes while you're away: each day you come back brings one new day.";
 
 #[cfg(test)]
 mod tests {
@@ -471,14 +478,8 @@ mod tests {
     #[test]
     fn only_the_day_after_the_last_is_held() {
         let last = last_day();
-        let away = pacing().away;
         for day in 1..last {
-            let expected = if day == away.after_day {
-                Gate::Away(away.days)
-            } else {
-                Gate::Open
-            };
-            assert_eq!(gate(PACK_ID, Some(day), true), expected, "{day}");
+            assert_eq!(gate(PACK_ID, Some(day), true), Gate::Open, "{day}");
             // Nothing but letting the day pass is turned.
             assert_eq!(gate(PACK_ID, Some(day), false), Gate::Open, "{day}");
         }
@@ -488,14 +489,35 @@ mod tests {
         assert_eq!(gate(PACK_ID, Some(last), false), Gate::Open);
     }
 
-    /// The pacing is whole: time away comes before the last day and lands
-    /// on it at the latest, every beat is budgeted at a pace it names, in
+    /// The demo is the first session and the next sitting's one day: the
+    /// first sitting's days all pass (day 1 to the morning after its
+    /// last), and the day the second sitting opens on is the last.
+    #[test]
+    fn the_last_day_is_the_second_sittings() {
+        use world_observer::{SittingLedger, FIRST_SITTING_DAYS};
+        let mut ledger = SittingLedger::default();
+        let today = 20_000;
+        let mut day = 1;
+        assert_eq!(ledger.sit(today).number, 1);
+        while !ledger.spend_day(today).spent() {
+            assert_eq!(gate(PACK_ID, Some(day), true), Gate::Open, "{day}");
+            day += 1;
+        }
+        assert_eq!(gate(PACK_ID, Some(day), true), Gate::Open, "{day}");
+        day += 1;
+        assert_eq!(day, 1 + FIRST_SITTING_DAYS);
+        // "Sleep now": the second sitting, at once, on the same day.
+        let second = ledger.sleep_now(today);
+        assert_eq!((second.number, second.left), (2, 1));
+        assert_eq!(day, last_day(), "its one day is the last");
+        assert_eq!(gate(PACK_ID, Some(day), true), Gate::Ending);
+    }
+
+    /// The pacing is whole: every beat is budgeted at a pace it names, in
     /// the order the demo plays them.
     #[test]
     fn the_pacing_is_whole() {
         let pacing = pacing();
-        assert!(pacing.away.days > 0);
-        assert!(pacing.away.after_day + pacing.away.days <= pacing.last_day);
         let beats = pacing
             .beats
             .iter()
@@ -505,10 +527,18 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(beats, sorted, "each beat once, in order");
-        assert_eq!(beats.len(), 6);
+        assert_eq!(beats.len(), 7);
         for budget in &pacing.beats {
             assert!(pacing.paces.contains_key(&budget.pace), "{budget:?}");
         }
+    }
+
+    /// The demo plays freely, so Goodnight offers "Sleep now" and the
+    /// second morning comes at once; the full app as the player chose.
+    #[test]
+    fn the_demo_plays_freely() {
+        assert!(plays_freely(true));
+        assert_eq!(plays_freely(false), ENABLED);
     }
 
     /// The v0.27 bar (M7): the gate uses `offers_pack` and fails closed.
@@ -541,7 +571,6 @@ mod tests {
             ENDING_KEPT,
             ENDING_STAY,
             ENDING_WISHLIST,
-            AWAY_NOTE,
             RECAP_TITLE,
             KEEP_POSTCARD,
             GOODBYE,
@@ -558,6 +587,17 @@ mod tests {
         assert!(words.contains("carries on"));
         assert!(words.contains("wishlist"));
         assert!(WISHLIST_URL.starts_with("https://"), "{WISHLIST_URL}");
+        assert!(ENDING_TITLE.starts_with("Thanks for playing"));
+        // The game is named by its Pack, on Steam, and nothing else is asked.
+        assert_eq!(
+            wishlist_label("A Game"),
+            "Wishlist A Game on Steam",
+            "the label in English"
+        );
+        assert!(
+            STORE_PAGE_PLACEHOLDER.starts_with("https://store.steampowered.com/"),
+            "{STORE_PAGE_PLACEHOLDER}"
+        );
     }
 
     /// The words say "this evening", and the farewell holds the sky at

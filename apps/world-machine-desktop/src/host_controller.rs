@@ -11,7 +11,7 @@ pub(crate) struct SharedDocumentState {
     pub(crate) registry: Arc<world_host::WorldRegistry>,
     pub(crate) library: Arc<WorldLibrary>,
     /// This sitting (v0.30 S4): every window onto the World shares it.
-    /// `None` for a World that has no sittings (one opened in the demo).
+    /// `None` for a World kept without sittings.
     pub(crate) sitting: Option<SittingKept>,
 }
 
@@ -32,19 +32,16 @@ pub(crate) struct HostProjectionController {
     /// What the World held when last seen, for the sound to hear a letter
     /// that a turn brought.
     pub(crate) tally: std::cell::Cell<Option<ambience::Tally>>,
-    /// Set when the demo turned a day's passing: the window then shows
-    /// the ending card, or the return film after the time away (see
-    /// `demo`).
+    /// Set when the demo held a day's passing back: the window then
+    /// shows the wishlist card (see `demo`).
     pub(crate) demo_cue: DemoCue,
 }
 
-/// What the demo asks the window to show after a turn it took itself.
+/// What the demo asks the window to show after a turn it held back.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DemoTurn {
-    /// The ending card: the day after the last was asked for.
+    /// The wishlist card: the day after the last was asked for.
     Ending,
-    /// The return film: the World lived days without the player.
-    Returned,
 }
 
 pub(crate) type DemoCue = Rc<std::cell::Cell<Option<DemoTurn>>>;
@@ -60,7 +57,8 @@ impl HostProjectionController {
 }
 
 /// What the demo does with `intent` in this World: the day after its last
-/// is answered with the farewell instead, and a World of a Pack it does
+/// is answered with the wishlist card instead (the World and its sitting
+/// left as they were), and a World of a Pack it does
 /// not offer is not played at all (see `demo::gate`, which fails closed).
 pub(crate) fn demo_holds(
     session: &DurableWorldSession,
@@ -151,22 +149,6 @@ impl world_gpui::ProjectionController for HostProjectionController {
             demo::Gate::Ending => {
                 self.demo_cue.set(Some(DemoTurn::Ending));
                 return Ok(world_gpui::i18n::localize(document.session.snapshot()));
-            }
-            // The day's passing is lived away: the World's own background
-            // time, as the full app lives it while closed, then the window
-            // opens on the return film.
-            demo::Gate::Away(days) => {
-                let registry = Arc::clone(&document.registry);
-                let library = Arc::clone(&document.library);
-                let snapshot = document
-                    .session
-                    .advance_background(u64::from(days), &registry, &library)
-                    .map_err(|error| error.to_string())?;
-                if document.session.document_id().is_some() {
-                    mark_library_changed();
-                }
-                self.demo_cue.set(Some(DemoTurn::Returned));
-                return Ok(world_gpui::i18n::localize(snapshot));
             }
             demo::Gate::NotOffered => return Err(ui::t(demo::NOT_OFFERED).to_string()),
         }

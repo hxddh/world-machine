@@ -61,19 +61,18 @@ impl WorldMachineHome {
         let is_library_world = session.document_id().is_some();
         // One day a day (v0.30 S4): the sitting this opening is, from the
         // device's ledger; a new one brings the World's morning. Time away
-        // no longer moves a World on its own. The demo keeps no sittings:
-        // its own last day ends it.
-        let sat = (!world_machine_desktop::demo::ENABLED)
-            .then(|| observer::sit(&mut session, &self.registry, &self.library));
-        let sync_error = if is_library_world && matches!(&sat, Some(Ok(sat)) if sat.morning) {
+        // no longer moves a World on its own. The demo keeps sittings too:
+        // its first session is the first sitting, and its second morning
+        // the next, begun at once with Sleep now (it plays freely).
+        let sat = observer::sit(&mut session, &self.registry, &self.library);
+        let sync_error = if is_library_world && matches!(&sat, Ok(sat) if sat.morning) {
             self.refresh_documents().err()
         } else {
             None
         };
         let (ledger, sitting_error) = match sat {
-            Some(Ok(sat)) => (Some(SittingKept::Ledger(sat.ledger())), None),
-            Some(Err(error)) => (Some(SittingKept::Unreadable), Some(error)),
-            None => (None, None),
+            Ok(sat) => (Some(SittingKept::Ledger(sat.ledger())), None),
+            Err(error) => (Some(SittingKept::Unreadable), Some(error)),
         };
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);

@@ -169,7 +169,7 @@ impl SettingsView {
         self.battery_saver = settings.battery_saver;
         self.crash_reports = settings.crash_reports;
         self.developer = settings.developer;
-        self.play_freely = settings.play_freely;
+        self.play_freely = world_machine_desktop::demo::plays_freely(settings.play_freely);
         self.source = settings.world_voice_source.unwrap_or_default();
         self.program = settings
             .pi_program
