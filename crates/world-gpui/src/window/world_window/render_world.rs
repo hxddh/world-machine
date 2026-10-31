@@ -777,9 +777,14 @@ impl ProjectionView {
             return root.child(farewell).children(toast).into_any_element();
         }
         if let Some(sitting) = lit(|| self.render_sitting(cx)) {
-            // The morning, the Goodnight card and the World asleep each
-            // have the place to themselves: no card, no handles.
+            // The morning and the Goodnight card each have the place to
+            // themselves: no card, no handles.
             return root.child(sitting).children(toast).into_any_element();
+        }
+        // The World asleep is the town at night, under its handles: the
+        // drawer, a photo and a postcard stay open (1.0 P2).
+        if let Some(night) = lit(|| self.render_night(cx)) {
+            root = root.child(night);
         }
         root = root.child(self.render_hud(pointing, cx));
         if !is_beginning(&self.snapshot) && self.retelling.is_none() {
@@ -837,7 +842,9 @@ impl ProjectionView {
             } else if let Some(chapter) = lit(|| self.render_chapter_end(cx)) {
                 Some(chapter)
             } else {
-                lit(|| self.render_card(cx))
+                // The evening has its own card: the day is done, and
+                // Goodnight is the player's to say.
+                lit(|| self.render_evening(cx)).or_else(|| lit(|| self.render_card(cx)))
             };
             // A pointer at the cards sits just above them, never on them.
             let card = card.map(|card| match pointing {

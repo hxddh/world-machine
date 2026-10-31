@@ -530,8 +530,10 @@ pub fn day_lived(
 /// The moment now, as the window's own clock shows it over the sky: a
 /// World that counts in a part of the day ("Night 5", "Day 5") is
 /// counted in the part the sky shows, so "Night 5" never hangs under a
-/// noon sun. Any other unit ("Sol 3") is as it is.
-pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool) -> String {
+/// noon sun. Any other unit ("Sol 3") is as it is. Asleep (or saying
+/// Goodnight), it is the day just lived, as [`day_lived`] tells it.
+pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool, asleep: bool) -> String {
+    let time = day_lived(snapshot.world_time, snapshot.calendar.as_ref(), asleep);
     let unit = snapshot
         .calendar
         .as_ref()
@@ -542,10 +544,10 @@ pub fn now_label(snapshot: &ProjectionSnapshot, dark: bool) -> String {
         _ => None,
     };
     match (swapped, &snapshot.calendar) {
-        (Some(unit), Some(calendar)) if calendar.length > 0 && snapshot.world_time > 0 => {
-            day_label(unit, snapshot.world_time.div_ceil(calendar.length))
+        (Some(unit), Some(calendar)) if calendar.length > 0 && time > 0 => {
+            day_label(unit, time.div_ceil(calendar.length))
         }
-        _ => moment_label(snapshot, snapshot.world_time),
+        _ => moment_label(snapshot, time),
     }
 }
 
@@ -602,13 +604,24 @@ pub fn new_day_waiting(unit: &str) -> String {
     }
 }
 
-/// "Waits for you · a new sol in 5 h": what the app is about, in one line,
-/// with the one number that makes it true (v0.30 S4: a World moves a day a
+/// What a World's title bar (and its card on Home) says of it, in one
+/// line (1.0 P2): "Play freely" while the player plays freely, when every
+/// day comes as soon as they sleep; otherwise [`keeps_going`].
+pub fn rest_line(remaining_seconds: u64, unit: &str, rest: Rest, play_freely: bool) -> String {
+    if play_freely {
+        return tr_owned("Play freely");
+    }
+    keeps_going(remaining_seconds, unit, rest)
+}
+
+/// "Asleep · a new sol in 5 h": what the app is about, in one line, with
+/// the one number that makes it true (v0.30 S4: a World moves a day a
 /// sitting, and a new sitting comes with the player's next day). `rest`
 /// says first what the World is doing: waiting, heading home under the
-/// Goodnight card, or asleep once it is said. With no
-/// countdown, the new day comes with tomorrow's visit. In Chinese and
-/// Japanese, whole sentences in their own order.
+/// Goodnight card or in the evening, or asleep once Goodnight is said.
+/// Waiting, it is only that (1.0 P2: its day is here, so no countdown to
+/// another). With no countdown, the new day comes with tomorrow's visit.
+/// In Chinese and Japanese, whole sentences in their own order.
 pub fn keeps_going(remaining_seconds: u64, unit: &str, rest: Rest) -> String {
     let unit = unit.to_lowercase();
     let zh = zh_unit(&unit).filter(|_| chinese() || japanese());
@@ -623,6 +636,9 @@ pub fn keeps_going(remaining_seconds: u64, unit: &str, rest: Rest) -> String {
         (Rest::HeadingHome, ..) => "Heading home",
         (Rest::Waits, ..) => "Waits for you",
     };
+    if rest == Rest::Waits {
+        return state.to_string();
+    }
     if remaining_seconds == 0 {
         return match zh {
             Some(zh) if japanese() => format!("{state} · 明日来たときに{}", zh.next),
@@ -720,21 +736,34 @@ mod tests {
         set_thread_language(Some(Language::English));
         assert_eq!(moment_label(&calendar("Day"), 10820), "Day 1082");
         assert_eq!(moment_label(&calendar("Sol"), 50), "Sol 5");
+        // Waiting, the day is here: no countdown to another (1.0 P2).
         assert_eq!(
             keeps_going(5 * 3600 + 10, "sol", Rest::Waits),
-            "Waits for you · a new sol in 6 h"
+            "Waits for you"
         );
         assert_eq!(
             keeps_going(4 * 3600, "day", Rest::Asleep),
             "Asleep · a new day in 4 h"
         );
         assert_eq!(
+            keeps_going(20 * 60, "day", Rest::Asleep),
+            "Asleep · a new day in 20 min"
+        );
+        assert_eq!(
             keeps_going(3 * 3600, "day", Rest::HeadingHome),
             "Heading home · a new day in 3 h"
         );
         assert_eq!(
-            keeps_going(0, "night", Rest::Waits),
-            "Waits for you · a new night comes with tomorrow's visit"
+            keeps_going(0, "night", Rest::Asleep),
+            "Asleep · a new night comes with tomorrow's visit"
+        );
+        assert_eq!(keeps_going(0, "night", Rest::Waits), "Waits for you");
+        for rest in [Rest::Waits, Rest::HeadingHome, Rest::Asleep] {
+            assert_eq!(rest_line(4 * 3600, "day", rest, true), "Play freely");
+        }
+        assert_eq!(
+            rest_line(4 * 3600, "day", Rest::Asleep, false),
+            "Asleep · a new day in 4 h"
         );
         assert_eq!(new_day_waiting("Day"), "A new day is waiting");
         assert_eq!(new_day_waiting("sol"), "A new sol is waiting");
@@ -743,20 +772,21 @@ mod tests {
         assert_eq!(moment_label(&calendar("Sol"), 1560), "第156个火星日");
         assert_eq!(moment_label(&calendar("Night"), 1200), "第120夜");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
-        let line = keeps_going(6 * 3600, "day", Rest::Waits);
-        assert_eq!(line, "在等你 · 6 小时后便是新的一天");
-        assert_eq!(
-            keeps_going(6 * 3600, "day", Rest::HeadingHome),
-            "大家正往家走 · 6 小时后便是新的一天"
-        );
+        let line = keeps_going(6 * 3600, "day", Rest::HeadingHome);
+        assert_eq!(line, "大家正往家走 · 6 小时后便是新的一天");
+        assert_eq!(keeps_going(6 * 3600, "day", Rest::Waits), "在等你");
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
         assert_eq!(
             keeps_going(6 * 3600, "day", Rest::Asleep),
             "已经睡了 · 6 小时后便是新的一天"
         );
         assert_eq!(
-            keeps_going(0, "day", Rest::Waits),
-            "在等你 · 明天来时便是新的一天"
+            keeps_going(30 * 60, "day", Rest::Asleep),
+            "已经睡了 · 30 分钟后便是新的一天"
+        );
+        assert_eq!(
+            keeps_going(0, "day", Rest::Asleep),
+            "已经睡了 · 明天来时便是新的一天"
         );
         assert_eq!(new_day_waiting("day"), "新的一天在等你");
         assert_eq!(here_since("Day", 703), "自第703天起在这里");
@@ -764,8 +794,12 @@ mod tests {
         assert_eq!(moment_label(&calendar("Day"), 10820), "1082日目");
         assert_eq!(moment_label(&calendar("Sol"), 1560), "156ソル目");
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
-        let line = keeps_going(6 * 3600, "day", Rest::Waits);
-        assert_eq!(line, "あなたを待っています · あと6時間で新しい一日");
+        assert_eq!(
+            keeps_going(6 * 3600, "day", Rest::Waits),
+            "あなたを待っています"
+        );
+        let line = keeps_going(6 * 3600, "day", Rest::HeadingHome);
+        assert_eq!(line, "家路の途中 · あと6時間で新しい一日");
         assert!(!keeps_going(6 * 3600, "day", Rest::HeadingHome)
             .chars()
             .any(|c| c.is_ascii_alphabetic()));
@@ -773,6 +807,10 @@ mod tests {
         assert_eq!(
             keeps_going(6 * 3600, "day", Rest::Asleep),
             "おやすみ中 · あと6時間で新しい一日"
+        );
+        assert_eq!(
+            keeps_going(45 * 60, "day", Rest::Asleep),
+            "おやすみ中 · あと45分で新しい一日"
         );
         assert!(!new_day_waiting("day")
             .chars()
@@ -799,9 +837,14 @@ mod tests {
         set_thread_language(None);
         assert_eq!(shown.openers[0].lines[0], "最近有什么新鲜事吗？");
         set_thread_language(Some(Language::English));
-        assert_eq!(now_label(&snapshot, true), "Night 5");
-        assert_eq!(now_label(&snapshot, false), "Day 5");
-        assert_eq!(now_label(&calendar_at("Sol", 50), false), "Sol 5");
+        assert_eq!(now_label(&snapshot, true, false), "Night 5");
+        assert_eq!(now_label(&snapshot, false, false), "Day 5");
+        assert_eq!(now_label(&calendar_at("Sol", 50), false, false), "Sol 5");
+        // Asleep after the sixth day passed, the night over the town is
+        // the sixth's, never the seventh's (v0.31 release shots: "Night 7"
+        // over a World said goodnight to on day 6).
+        assert_eq!(now_label(&calendar_at("Day", 70), true, true), "Night 6");
+        assert_eq!(now_label(&calendar_at("Day", 70), true, false), "Night 7");
         // Asleep after the third day passed, the World still says the
         // third: the fourth is the next sitting's.
         let after_three = calendar_at("Day", 40);

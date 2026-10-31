@@ -157,7 +157,7 @@ impl ProjectionView {
 
     /// Opens something's card, if it has one.
     pub(crate) fn open_mark_card(&mut self, id: SelectionId, cx: &mut Context<Self>) -> bool {
-        if !self.has_mark_card(id) {
+        if !self.has_mark_card(id) || self.asleep() {
             return false;
         }
         self.looking.marking.card = Some(id);

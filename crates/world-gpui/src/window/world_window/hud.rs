@@ -10,6 +10,7 @@ impl ProjectionView {
         self.controller.is_some()
             && self.retelling.is_none()
             && !is_beginning(&self.snapshot)
+            && !self.asleep()
             && self.snapshot.deeds().next().is_some()
     }
 
@@ -182,11 +183,13 @@ impl ProjectionView {
         if self.snapshot.world_time > 0 {
             // Named for the part of the day the sky shows.
             let dark = matches!(scene::daylight_now(), scene::Daylight::Night);
-            right = right.child(
-                pill()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(crate::i18n::now_label(&self.snapshot, dark)),
-            );
+            right = right.child(pill().font_weight(FontWeight::SEMIBOLD).child(
+                crate::i18n::now_label(
+                    &self.snapshot,
+                    dark,
+                    self.looking.sitting.goodnight || self.looking.sitting.asleep.is_some(),
+                ),
+            ));
         }
         // A pointer at one of these handles hangs just under it.
         let hint_under = |handle: Stateful<Div>, pointers: &[Pointer], cx: &mut Context<Self>| {
@@ -231,6 +234,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("photo-handle")
+                    .debug_selector(|| "photo-handle".into())
                     .role(Role::Button)
                     .aria_label(ui::t("Save a photo of the scene (P)"))
                     .cursor_pointer()
@@ -241,6 +245,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("postcard-handle")
+                    .debug_selector(|| "postcard-handle".into())
                     .role(Role::Button)
                     .aria_label(ui::t(
                         "Save a postcard of the moment picked in History, or of now (C)",
@@ -276,7 +281,7 @@ impl ProjectionView {
             .favour
             .as_ref()
             .filter(|favour| !favour.done)
-            .filter(|_| self.controller.is_some() && self.retelling.is_none())
+            .filter(|_| self.controller.is_some() && self.retelling.is_none() && !self.asleep())
         {
             let whom = favour.whom;
             let name = label_of(&self.snapshot, whom)

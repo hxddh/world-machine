@@ -13,21 +13,47 @@ pub(crate) fn unix_now() -> Option<u64> {
         .map(|elapsed| elapsed.as_secs())
 }
 
-/// "Waits for you · a new sol in 5 h", or "Asleep · …" while the World
-/// sleeps: what the app is about, in one line, with the one number that
+/// "Asleep · a new sol in 5 h", "Waits for you" while its day is the
+/// player's, or "Play freely" while they play freely (1.0 P2): what a
+/// World's title bar says of it, in one line, with the one number that
 /// makes it true.
 pub(crate) fn keeps_going_line(
     remaining_seconds: u64,
     unit: &str,
     rest: world_gpui::i18n::Rest,
+    play_freely: bool,
 ) -> String {
-    world_gpui::i18n::keeps_going(remaining_seconds, unit, rest)
+    world_gpui::i18n::rest_line(remaining_seconds, unit, rest, play_freely)
 }
 
 /// "A new day is waiting": a World on Home whose next opening begins a new
 /// sitting.
 pub(crate) fn new_day_waiting_line(unit: &str) -> String {
     world_gpui::i18n::new_day_waiting(unit)
+}
+
+/// What a World's card on Home says of its day, as its title bar would
+/// (1.0 P2): a new day waiting, if opening it begins one; asleep, with
+/// how long until the next ("Asleep · a new day in 9 h", or "Play
+/// freely"); and nothing while its day is still to be played.
+pub(crate) fn world_card_day_line(
+    waiting: bool,
+    asleep: bool,
+    remaining_seconds: u64,
+    unit: &str,
+    play_freely: bool,
+) -> Option<String> {
+    if waiting {
+        return Some(new_day_waiting_line(unit));
+    }
+    asleep.then(|| {
+        keeps_going_line(
+            remaining_seconds,
+            unit,
+            world_gpui::i18n::Rest::Asleep,
+            play_freely,
+        )
+    })
 }
 
 pub(crate) fn new_document_id(

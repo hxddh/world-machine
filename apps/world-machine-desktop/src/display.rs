@@ -33,6 +33,7 @@ pub fn apply(settings: Option<&AppSettings>) {
             .unwrap_or_else(system_increase_contrast),
     );
     world_gpui::ui::set_developer(settings.is_some_and(|settings| settings.developer));
+    world_gpui::ui::set_play_freely(settings.is_some_and(|settings| settings.play_freely));
 }
 
 #[cfg(test)]

@@ -1047,6 +1047,7 @@ impl ProjectionView {
         let leaf = self.open_leaf();
         let mut tabs = div()
             .id("drawer-leaves")
+            .debug_selector(|| "drawer-leaves".into())
             .role(Role::TabList)
             .aria_label(ui::t("The drawer"))
             .px_4()

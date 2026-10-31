@@ -539,6 +539,10 @@ impl ProjectionView {
     }
 
     pub(super) fn toggle_hands(&mut self, cx: &mut Context<Self>) {
+        // A World asleep makes nothing (1.0 P2): its night is for looking.
+        if self.asleep() && self.looking.hands.is_none() {
+            return;
+        }
         self.looking.hands = match self.looking.hands {
             Some(_) => None,
             None => {
@@ -563,6 +567,12 @@ impl ProjectionView {
 
     pub(crate) fn card_command(&self) -> Option<&ProjectionCommand> {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
+            return None;
+        }
+        // A sitting that has passed every day it may has no card of the
+        // World's (1.0 P2): the evening and the night are the player's,
+        // and the next day's cards come with its sitting.
+        if self.looking.sitting.spent() || self.asleep() {
             return None;
         }
         // The first day's free thing comes before any card.

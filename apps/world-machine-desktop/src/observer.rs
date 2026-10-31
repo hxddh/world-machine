@@ -6,7 +6,9 @@
 //! World is only told that a sitting began, never when. A World moved to
 //! another machine, synced, saved as a new file, exported or imported keeps
 //! its sittings, since they travel with the file. Time away does not move a
-//! World on its own.
+//! World on its own. With "Play freely" on (1.0 P2), "Sleep now" begins the
+//! next sitting at once ([`sleep_now`]); the ledger stays host metadata,
+//! and the World is told only that a sitting began.
 
 use world_document::DocumentSittings;
 use world_library::{DurableWorldSession, WorldDocumentSummary, WorldLibrary};
@@ -148,7 +150,43 @@ fn sit_on(
 ) -> Result<Sat, String> {
     let mut ledger = ledger_of(session);
     let sitting = ledger.sit(today);
-    write(session, library, &ledger)?;
+    begin(session, registry, library, &ledger, sitting, today)
+}
+
+/// "Sleep now" (1.0 P2: playing freely): once today's sitting has passed
+/// every day it may, the next begins at once, written down in the World's
+/// file, and the World told a sitting began, so its morning comes. A
+/// sitting with days left goes on as it was.
+pub fn sleep_now(
+    session: &mut DurableWorldSession,
+    registry: &world_host::WorldRegistry,
+    library: &WorldLibrary,
+) -> Result<Sat, String> {
+    sleep_now_on(session, registry, library, today())
+}
+
+fn sleep_now_on(
+    session: &mut DurableWorldSession,
+    registry: &world_host::WorldRegistry,
+    library: &WorldLibrary,
+    today: i64,
+) -> Result<Sat, String> {
+    let mut ledger = ledger_of(session);
+    let sitting = ledger.sleep_now(today);
+    begin(session, registry, library, &ledger, sitting, today)
+}
+
+/// The sitting `ledger` now has, written down, and the World told it began
+/// while it has passed none of its days.
+fn begin(
+    session: &mut DurableWorldSession,
+    registry: &world_host::WorldRegistry,
+    library: &WorldLibrary,
+    ledger: &SittingLedger,
+    sitting: Sitting,
+    today: i64,
+) -> Result<Sat, String> {
+    write(session, library, ledger)?;
     // Told on every opening until the sitting passes its first day: the
     // morning belongs to the sitting's first World day, never to a day the
     // player passed into (whose morning is the next sitting's).
@@ -627,6 +665,66 @@ mod tests {
             SITTING_DAYS,
             "and the 51st is a new sitting"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// "Sleep now", playing freely: the spent sitting's next begins at
+    /// once, the same day, written in the World's file, and the World told
+    /// so its morning comes; never while the sitting has a day left.
+    #[test]
+    fn sleeping_now_begins_the_next_sitting_at_once() {
+        let root = temp_root("sleep-now");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = registry(true);
+        let id = WorldDocumentId::new("freely").unwrap();
+        let mut session =
+            DurableWorldSession::create(id.clone(), PACK, &registry, &library).unwrap();
+        let first = sit_on(&mut session, &registry, &library, 500).unwrap();
+        // A day still to pass: Sleep now changes nothing, tells nothing.
+        let time = session.snapshot().world_time;
+        let early = sleep_now_on(&mut session, &registry, &library, 500).unwrap();
+        assert!(!early.sitting.new && !early.morning);
+        assert_eq!(early.sitting.number, 1);
+        assert_eq!(session.snapshot().world_time, time);
+        for _ in 0..FIRST_SITTING_DAYS {
+            session
+                .handle(
+                    ProjectionIntent::InvokeCommand(DAY.into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+            first.ledger().spend_day(&mut session, &library);
+        }
+        assert_eq!(first.ledger().sitting(&session).left, 0);
+        let days = session.snapshot().world_time;
+        // Spent: the second sitting, now, the same day, with its morning.
+        let slept = sleep_now_on(&mut session, &registry, &library, 500).unwrap();
+        assert!(slept.sitting.new && slept.morning);
+        assert_eq!(
+            (slept.sitting.number, slept.sitting.left),
+            (2, SITTING_DAYS)
+        );
+        assert_eq!(session.snapshot().world_time, days + MORNING + 1);
+        assert!(!slept.ledger().new_day_due_on(500));
+        session.flush().unwrap();
+        let ledger = on_disk(&library.path(&id));
+        assert_eq!(
+            (ledger.sittings, ledger.began_on, ledger.days_passed),
+            (2, Some(500), 0)
+        );
+        // Home sees a World with a day to play, not one asleep.
+        let listed = summary(&library, &id);
+        assert!(!asleep_on(&listed, 500));
+        assert_eq!(new_day_waiting_on(&listed, 500), Some(false));
+        // Wall time stays out of the World: its archive has no day in it.
+        let document = WorldDocument::from_bytes(&fs::read(library.path(&id)).unwrap()).unwrap();
+        let archive = serde_json::to_string(&document.archive).unwrap();
+        assert!(!archive.contains("500"), "{archive}");
+        // Opened again the same day, it goes on with the second sitting.
+        let again = sit_on(&mut session, &registry, &library, 500).unwrap();
+        assert!(!again.sitting.new && !again.morning);
+        assert_eq!((again.sitting.number, again.sitting.left), (2, 1));
         let _ = fs::remove_dir_all(root);
     }
 

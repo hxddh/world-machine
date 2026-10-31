@@ -184,6 +184,10 @@ impl ProjectionView {
     }
 
     pub(crate) fn ask(&mut self, who: SelectionId, cx: &mut Context<Self>) {
+        // Asleep, everyone is home for the night: nobody is asked.
+        if self.asleep() {
+            return;
+        }
         if self.looking.asking != Some(who) {
             if let Some(input) = &self.looking.say {
                 input.update(cx, |input, cx| input.clear(cx));
@@ -609,13 +613,17 @@ impl ProjectionView {
         // "Begin the day" on the morning, "Goodnight" on the Goodnight
         // card. Nothing under it is chosen.
         if self.looking.sitting.goodnight {
-            self.fall_asleep();
-            cx.notify();
+            self.goodnight_said(cx);
             return;
         }
         if self.morning_shown().is_some() && self.looking.asking.is_none() {
             self.begin_the_day();
             cx.notify();
+            return;
+        }
+        // Asleep, Enter passes no day and chooses nothing (1.0 P2: the
+        // night stays open, but only a new sitting brings the next day).
+        if self.asleep() {
             return;
         }
         // A chapter's end is a card under the sitting's paper: read with
@@ -652,6 +660,13 @@ impl ProjectionView {
                 .as_ref()
                 .is_some_and(|focus| focus.is_focused(window)),
         };
+        // The evening's card in front: Enter brings up the Goodnight card,
+        // as its button does, with nothing over it.
+        if self.evening() && !context.asking && !context.covered {
+            self.say_goodnight();
+            cx.notify();
+            return;
+        }
         match enter_does(context) {
             EnterDoes::Choose => self.choose_card(cx),
             EnterDoes::Talk => {

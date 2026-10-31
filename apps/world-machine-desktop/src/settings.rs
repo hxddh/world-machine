@@ -52,6 +52,8 @@ struct SettingsView {
     contrast: Option<bool>,
     /// Whether the drawer shows the World's inner workings.
     developer: bool,
+    /// Whether the player plays freely: Goodnight offers "Sleep now".
+    play_freely: bool,
     source: VoiceSource,
     program: Option<String>,
     /// The Claude model chosen for an API key, if not the default.
@@ -94,6 +96,7 @@ impl SettingsView {
             text_scale: 100,
             contrast: None,
             developer: false,
+            play_freely: false,
             source: VoiceSource::Program,
             program: None,
             voice_model: None,
@@ -122,6 +125,7 @@ impl SettingsView {
                 self.text_scale = settings.text_scale.unwrap_or(100);
                 self.contrast = settings.increase_contrast;
                 self.developer = settings.developer;
+                self.play_freely = settings.play_freely;
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings
                     .pi_program
@@ -138,6 +142,7 @@ impl SettingsView {
                 self.text_scale = 100;
                 self.contrast = None;
                 self.developer = false;
+                self.play_freely = false;
                 self.source = VoiceSource::Program;
                 self.program = None;
                 self.voice_model = None;
@@ -236,6 +241,20 @@ impl SettingsView {
                 let root =
                     app_settings::application_support_root().map_err(|error| error.to_string())?;
                 app_settings::save_developer(&root, on).map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.show_as_chosen(cx);
+    }
+
+    /// Play freely, or a new day with each day the player comes back. Open
+    /// Worlds follow at once: their title bars and Goodnight cards redraw.
+    fn set_play_freely(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_play_freely(&root, on).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -930,6 +949,7 @@ impl SettingsView {
             .contrast
             .unwrap_or_else(world_machine_desktop::display::system_increase_contrast);
         let developer_on = self.developer;
+        let freely_on = self.play_freely;
         group()
             .gap_4()
             .child(
@@ -965,6 +985,23 @@ impl SettingsView {
                             .aria_label(ui::t("Increase contrast"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.set_contrast(Some(!contrast_on), cx)
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(row(
+                        "Play freely",
+                        "Goodnight offers Sleep now, and the next day comes at once. Off, each day you come back brings one new day.",
+                    ))
+                    .child(
+                        switch("play-freely-switch", freely_on)
+                            .aria_label(ui::t("Play freely"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_play_freely(!freely_on, cx)
                             })),
                     ),
             )

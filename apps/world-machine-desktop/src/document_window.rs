@@ -70,7 +70,11 @@ pub(crate) struct WorldDocumentView {
 
 /// A World's own view in its window: the scene with no title bar of its
 /// own (the window has one), and a handle that shows it as a strip.
-pub(crate) fn world_view(controller: HostProjectionController) -> world_gpui::ProjectionView {
+/// "Sleep now", playing freely, asks `host` to begin the next sitting.
+pub(crate) fn world_view(
+    controller: HostProjectionController,
+    host: gpui::WeakEntity<WorldDocumentView>,
+) -> world_gpui::ProjectionView {
     // The sitting's days, as its ledger has them now (v0.30 S4): every
     // window onto the World, its strip's too, shares them. The ledger is
     // the World file's, written through the World's own session.
@@ -114,6 +118,9 @@ pub(crate) fn world_view(controller: HostProjectionController) -> world_gpui::Pr
                 }
                 Err(_) => diagnostics::error("could not write the sitting down: busy"),
             })
+            .with_sleep_now(move |cx| {
+                let _ = host.update(cx, |host, cx| host.sleep_now(cx));
+            })
         }
     }
 }
@@ -131,14 +138,16 @@ pub(crate) fn ask_before_closing(
             .update(cx, |view, cx| view.ready_to_close(window, cx))
             .unwrap_or(true)
     });
-    // A window left open overnight wakes when it is next brought forward
-    // (by Home, its strip, or a click), on a new sitting (v0.30 S4); and
-    // one left active across midnight, at midnight.
+    // A World asleep in a window left open overnight wakes when it is next
+    // brought forward (by Home, its strip, or a click), on a new sitting
+    // (v0.30 S4); and one left active across midnight, at midnight. A
+    // World still awake is never woken (1.0 P2): its day and evening go
+    // on past midnight, and the new day comes once Goodnight is said.
     view.update(cx, |view, cx| {
         view.arm_midnight(cx);
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
-                this.wake_if_new_day(cx);
+                this.wake_if_asleep_on_a_new_day(cx);
             }
         })
         .detach();
@@ -320,10 +329,11 @@ impl WorldDocumentView {
         };
         let demo_cue: DemoCue = Rc::new(std::cell::Cell::new(None));
         let controller = HostProjectionController::new(Rc::clone(&document), Rc::clone(&demo_cue));
-        let projection = cx.new(|_| world_view(controller));
+        let host = cx.weak_entity();
+        let projection = cx.new(|_| world_view(controller, host));
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
-        cx.observe(&projection, |_, _, cx| cx.notify()).detach();
+        Self::follow_projection(&projection, cx);
         // Closing the last World brings Home back, even with Settings or
         // another small window still open, and silences its sound.
         let sound_owner = cx.entity_id().as_u64();
@@ -549,20 +559,68 @@ impl WorldDocumentView {
         self.midnight = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
             let _ = this.update(cx, |this, cx| {
-                this.wake_if_new_day(cx);
+                this.wake_if_asleep_on_a_new_day(cx);
                 this.arm_midnight(cx);
             });
         }));
     }
 
-    pub(crate) fn wake_if_new_day(&mut self, cx: &mut Context<Self>) {
+    /// The title bar follows the page; and a World that falls asleep once
+    /// a new day of the player's has already begun (Goodnight said past
+    /// midnight) wakes to it.
+    pub(crate) fn follow_projection(
+        projection: &Entity<world_gpui::ProjectionView>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.observe(projection, |this, projection, cx| {
+            if projection.read(cx).asleep() {
+                this.wake_if_asleep_on_a_new_day(cx);
+            }
+            cx.notify();
+        })
+        .detach();
+    }
+
+    /// Wakes the window on a new sitting if its World is asleep and a new
+    /// day of the player's has begun. A World still awake (its day being
+    /// played, or its evening) is let be: nothing ends a day on a clock.
+    pub(crate) fn wake_if_asleep_on_a_new_day(&mut self, cx: &mut Context<Self>) {
+        if !self.projection.read(cx).asleep() {
+            return;
+        }
         let due = matches!(
             &self.document.borrow().sitting,
             Some(SittingKept::Ledger(ledger)) if ledger.new_day_due()
         );
-        if !due {
+        if due {
+            self.begin_sitting(observer::sit, cx);
+        }
+    }
+
+    /// "Sleep now" (1.0 P2: playing freely): the next sitting begins at
+    /// once, and the window opens on its morning.
+    pub(crate) fn sleep_now(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            &self.document.borrow().sitting,
+            Some(SittingKept::Ledger(_))
+        ) {
             return;
         }
+        self.begin_sitting(observer::sleep_now, cx);
+    }
+
+    /// Begins a sitting with `sit` (opening's, or Sleep now's): written
+    /// down, the World told, and the page asked anew, so the window wakes
+    /// with the new day's allowance and its morning.
+    fn begin_sitting(
+        &mut self,
+        sit: fn(
+            &mut DurableWorldSession,
+            &world_host::WorldRegistry,
+            &WorldLibrary,
+        ) -> Result<observer::Sat, String>,
+        cx: &mut Context<Self>,
+    ) {
         let sat = {
             let Ok(mut state) = self.document.try_borrow_mut() else {
                 return;
@@ -573,7 +631,7 @@ impl WorldDocumentView {
                 library,
                 sitting,
             } = &mut *state;
-            match observer::sit(session, registry, library) {
+            match sit(session, registry, library) {
                 Ok(sat) => {
                     *sitting = Some(SittingKept::Ledger(sat.ledger()));
                     true
@@ -596,10 +654,10 @@ impl WorldDocumentView {
     pub(crate) fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
         let controller =
             HostProjectionController::new(Rc::clone(&self.document), Rc::clone(&self.demo_cue));
-        self.projection = cx.new(|_| world_view(controller));
+        let host = cx.weak_entity();
+        self.projection = cx.new(|_| world_view(controller, host));
         // The title bar, and the demo's turns, follow the new page too.
-        cx.observe(&self.projection, |_, _, cx| cx.notify())
-            .detach();
+        Self::follow_projection(&self.projection, cx);
     }
 
     /// Share, under the title bar: the World's code, copied or saved, and
@@ -854,11 +912,12 @@ impl Render for WorldDocumentView {
         // Heading home under the Goodnight card, asleep once it is said
         // (v0.30 S4).
         let rest = self.projection.read(cx).rest();
+        let freely = world_gpui::ui::play_freely();
         let keeps_going = self
             .next_move_at
             .filter(|_| moves_alone && !farewell)
             .zip(unix_now())
-            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit, rest));
+            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit, rest, freely));
         // The World is called by its name, and only by its name; which file
         // it lives in is for Export and Show in Finder to say.
         let identity = div()

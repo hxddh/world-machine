@@ -80,6 +80,28 @@ impl SittingLedger {
         sitting_at(self, today)
     }
 
+    /// "Sleep now" (1.0 P2, an opt-in way to play freely): once the
+    /// sitting begun on `today` has passed every day it may, the next
+    /// sitting begins at once, the same day, with its one World day; a day
+    /// of the player's that is not the latest sitting's begins its own
+    /// sitting as opening would. A sitting with days still to pass goes on
+    /// unchanged. Nothing is won or lost by it: the next sitting is the
+    /// same one tomorrow would have brought. Returns the sitting as it now
+    /// stands.
+    pub fn sleep_now(&mut self, today: i64) -> Sitting {
+        let sitting = sitting_at(self, today);
+        if sitting.new {
+            *self = sitting.begun(self, today);
+            return sitting;
+        }
+        if !sitting.spent() {
+            return sitting;
+        }
+        let next = later(self, 0);
+        *self = next.begun(self, today);
+        next
+    }
+
     /// Writes down that the window showed the morning `moment` (its stable
     /// key) in the sitting begun on `today`, so it shows once: nothing for
     /// a sitting that is not today's, nor for a key that is empty or
@@ -379,6 +401,52 @@ mod tests {
         assert!(next.new);
         assert_eq!((next.number, next.left), (2, SITTING_DAYS));
         assert_eq!(ledger.morning_read_on(101), None);
+    }
+
+    #[test]
+    fn sleeping_now_begins_the_next_sitting_at_once() {
+        let mut ledger = SittingLedger::default();
+        ledger.sit(100);
+        // Days still to pass: nothing changes.
+        let before = ledger.clone();
+        let going_on = ledger.sleep_now(100);
+        assert_eq!(ledger, before);
+        assert_eq!((going_on.number, going_on.left), (1, FIRST_SITTING_DAYS));
+        for _ in 0..FIRST_SITTING_DAYS {
+            ledger.spend_day(100);
+        }
+        assert!(sitting_at(&ledger, 100).spent());
+        ledger.read_morning(100, "event-3");
+        // Spent: the second sitting begins now, the same day, with its one
+        // day and its morning unread.
+        let next = ledger.sleep_now(100);
+        assert!(next.new);
+        assert_eq!(
+            (next.number, next.left, next.allowance),
+            (2, 1, SITTING_DAYS)
+        );
+        assert_eq!(ledger.sittings, 2);
+        assert_eq!(ledger.began_on, Some(100));
+        assert_eq!(ledger.days_passed, 0);
+        assert_eq!(ledger.morning_read_on(100), None);
+        // Opened again that day, it goes on with that sitting.
+        let again = sitting_at(&ledger, 100);
+        assert!(!again.new);
+        assert_eq!((again.number, again.left), (2, 1));
+        // And again once that day is spent: the third, never more days.
+        ledger.spend_day(100);
+        assert_eq!(ledger.sleep_now(100).number, 3);
+        assert_eq!(sitting_at(&ledger, 100).left, SITTING_DAYS);
+        // Tomorrow is a sitting of one day, as it would have been.
+        let tomorrow = sitting_at(&ledger, 101);
+        assert!(tomorrow.new);
+        assert_eq!((tomorrow.number, tomorrow.left), (4, SITTING_DAYS));
+        // A sitting that is not today's: today's own begins.
+        let mut old = SittingLedger::default();
+        old.sit(50);
+        let today = old.sleep_now(60);
+        assert!(today.new);
+        assert_eq!((today.number, old.began_on), (2, Some(60)));
     }
 
     #[test]

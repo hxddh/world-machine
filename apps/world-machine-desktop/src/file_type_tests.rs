@@ -162,19 +162,66 @@ fn a_world_nothing_has_happened_in_is_not_listed_yet() {
     assert!(has_begun(&summary));
 }
 
+/// The title bar says what is true (1.0 P2): a World whose day is still
+/// the player's waits, with no countdown to another; asleep, how long
+/// until the next day, in hours or, under an hour, minutes; and "Play
+/// freely" while the player plays freely.
 #[test]
 fn a_world_says_when_it_next_moves_on_its_own() {
+    use world_gpui::i18n::Rest;
     assert_eq!(
-        keeps_going_line(5 * 3600 + 10, "sol", world_gpui::i18n::Rest::Waits),
-        "Waits for you · a new sol in 6 h"
+        keeps_going_line(5 * 3600 + 10, "sol", Rest::Waits, false),
+        "Waits for you"
     );
     assert_eq!(
-        keeps_going_line(20 * 60, "night", world_gpui::i18n::Rest::Asleep),
+        keeps_going_line(9 * 3600, "day", Rest::Asleep, false),
+        "Asleep · a new day in 9 h"
+    );
+    assert_eq!(
+        keeps_going_line(20 * 60, "night", Rest::Asleep, false),
         "Asleep · a new night in 20 min"
     );
     assert_eq!(
-        keeps_going_line(0, "day", world_gpui::i18n::Rest::Waits),
-        "Waits for you · a new day comes with tomorrow's visit"
+        keeps_going_line(3 * 3600, "day", Rest::HeadingHome, false),
+        "Heading home · a new day in 3 h"
+    );
+    assert_eq!(
+        keeps_going_line(0, "day", Rest::Waits, false),
+        "Waits for you"
+    );
+    for rest in [Rest::Waits, Rest::HeadingHome, Rest::Asleep] {
+        assert_eq!(keeps_going_line(9 * 3600, "day", rest, true), "Play freely");
+    }
+}
+
+/// Home's card says of a World's day what its title bar would: a new day
+/// waiting, asleep with how long until the next (or "Play freely"), and
+/// nothing while its day is still to be played.
+#[test]
+fn home_says_of_each_world_what_its_window_would() {
+    assert_eq!(
+        world_card_day_line(true, false, 9 * 3600, "day", false).as_deref(),
+        Some("A new day is waiting")
+    );
+    assert_eq!(
+        world_card_day_line(false, true, 9 * 3600, "day", false).as_deref(),
+        Some("Asleep · a new day in 9 h")
+    );
+    assert_eq!(
+        world_card_day_line(false, true, 40 * 60, "sol", false).as_deref(),
+        Some("Asleep · a new sol in 40 min")
+    );
+    assert_eq!(
+        world_card_day_line(false, true, 9 * 3600, "day", true).as_deref(),
+        Some("Play freely")
+    );
+    assert_eq!(
+        world_card_day_line(false, false, 9 * 3600, "day", false),
+        None
+    );
+    assert_eq!(
+        world_card_day_line(false, false, 9 * 3600, "day", true),
+        None
     );
 }
 
