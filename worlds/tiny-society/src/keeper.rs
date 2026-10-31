@@ -324,9 +324,11 @@ fn made_by_player(event: &Event) -> bool {
 }
 
 /// Whether an answer was the player's, not one the harbour came to by
-/// itself while nobody answered.
+/// itself while nobody answered. A storylet keeps what was chosen as its
+/// `choice`; the lives System keeps it as its `answer` (one nobody gave is
+/// recorded as `situation_lapsed`, never among these).
 fn answered_by_player(event: &Event) -> bool {
-    event.payload.contains_key("choice")
+    (event.payload.contains_key("choice") || event.payload.contains_key("answer"))
         && !event.payload.contains_key("lapsed")
         && !crate::drift::was_drifted(event)
 }

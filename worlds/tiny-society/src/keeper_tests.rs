@@ -250,6 +250,27 @@ fn projects_move_with_the_players_deeds() {
     assert!(roof >= 2, "{roof}");
 }
 
+/// An answer the player gives one of the lives System's situations is a
+/// deed like any other (it keeps the choice as its `answer`): it counts
+/// toward the school roof and the year's answered questions.
+#[test]
+fn an_answered_situation_is_the_players_answer() {
+    let world = year_lived().world();
+    let situations = world.events_of_kind(&["situation_answered"]);
+    assert!(!situations.is_empty(), "a warm year answers situations");
+    assert!(situations.iter().all(|event| answered_by_player(event)));
+    assert!(answer_kinds().contains(&"situation_answered"));
+    assert!(!answer_kinds().contains(&"situation_lapsed"));
+    let storylets = world
+        .events_of_kind(answer_kinds())
+        .into_iter()
+        .filter(|event| event.kind != "situation_answered")
+        .filter(|event| answered_by_player(event))
+        .count() as u32;
+    let done = deeds(world, 0..u64::MAX);
+    assert_eq!(done.answered, storylets + situations.len() as u32);
+}
+
 /// Every word the Book shows reads whole in Chinese and in Japanese.
 #[test]
 fn the_book_and_its_role_read_in_chinese_and_japanese() {
