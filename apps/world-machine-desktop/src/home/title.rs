@@ -420,6 +420,15 @@ impl Render for WorldMachineHome {
             HomeView::Library => self.library_page(cx).into_any_element(),
         };
         let menu_open = self.menu_open;
+        let backdrop = menu_open.then(|| {
+            app_menu::backdrop::<Self>(
+                |this, _, cx| {
+                    this.menu_open = false;
+                    cx.notify();
+                },
+                cx,
+            )
+        });
         let menu = menu_open.then(|| {
             let pick: app_menu::Pick<Self> =
                 Rc::new(|this: &mut Self, item, window, cx| this.pick(item, window, cx));
@@ -453,6 +462,7 @@ impl Render for WorldMachineHome {
                         .on_click(cx.listener(|this, _, window, cx| this.toggle_menu(window, cx))),
                 ),
             )
+            .children(backdrop)
             .children(menu)
     }
 }

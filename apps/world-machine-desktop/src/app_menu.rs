@@ -68,6 +68,37 @@ pub(crate) fn menu_button(id: &'static str, open: bool) -> Stateful<Div> {
         .child(label)
 }
 
+/// What closes the menu in the window that drew it.
+pub(crate) type Close<V> = fn(&mut V, &mut Window, &mut Context<V>);
+
+/// Under the open menu, over everything else in the window: a click
+/// anywhere outside the menu closes it, and goes no further (a click on
+/// the menu button closes it too, rather than closing and opening it
+/// again).
+pub(crate) fn backdrop<V: 'static>(close: Close<V>, cx: &mut Context<V>) -> Stateful<Div> {
+    div()
+        .id("app-menu-backdrop")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .occlude()
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this, _, window, cx| {
+                close(this, window, cx);
+                cx.stop_propagation();
+            }),
+        )
+        .on_mouse_down(
+            gpui::MouseButton::Right,
+            cx.listener(move |this, _, window, cx| {
+                close(this, window, cx);
+                cx.stop_propagation();
+            }),
+        )
+}
+
 /// What a click on an item does in the window that drew the menu.
 pub(crate) type Pick<V> = Rc<dyn Fn(&mut V, MenuItem, &mut Window, &mut Context<V>)>;
 

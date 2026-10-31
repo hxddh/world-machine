@@ -1016,6 +1016,16 @@ impl Render for WorldDocumentView {
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_menu(window, cx))),
         );
         let share = share_open.then(|| self.share_list(cx));
+        let backdrop = menu_open.then(|| {
+            app_menu::backdrop::<Self>(
+                |this, window, cx| {
+                    if this.menu_open {
+                        this.toggle_menu(window, cx);
+                    }
+                },
+                cx,
+            )
+        });
         let menu = menu_open.then(|| self.app_menu(cx));
         match self.demo_cue.take() {
             Some(DemoTurn::Ending) => {
@@ -1066,6 +1076,7 @@ impl Render for WorldDocumentView {
                     .child(self.projection.clone()),
             )
             .children(share)
+            .children(backdrop)
             .children(menu)
     }
 }
