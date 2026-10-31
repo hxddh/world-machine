@@ -1004,6 +1004,37 @@ mod tests {
         crate::scene::set_clock(None);
     }
 
+    /// A moment that came overnight never takes the morning's Enter
+    /// (v0.31 release shots: on the first sitting's fifth morning Enter put
+    /// away the strip waiting under the paper, unseen, and the morning
+    /// stayed): Enter begins the day, and the strip is still up after.
+    #[gpui::test]
+    fn enter_begins_the_day_with_a_moment_waiting_under_it(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let snapshot = morning_town();
+        let moment = world_projection::Moment {
+            id: "moment-1".into(),
+            title: "Spring Clean".into(),
+            ..Default::default()
+        };
+        let Opened { view, mut cx, .. } = open(app, snapshot, Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        view.update(cx, |view, cx| {
+            view.reading.shown = Some((moment, std::time::Instant::now()));
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("morning").is_some(), "the morning is up");
+        // The key as the window gets it, through its key handler.
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("morning").is_none(), "Enter began the day");
+        view.read_with(cx, |view, _| {
+            assert!(view.moment_up(), "the moment is still there to see")
+        });
+        crate::scene::set_clock(None);
+    }
+
     /// With text at 200% in an 800-high window, the morning's paper is
     /// never taller than the stage: "Begin the day" stays on screen to
     /// click, and what does not fit scrolls.

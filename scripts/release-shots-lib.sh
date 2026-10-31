@@ -305,6 +305,7 @@ play_to_goodnight() { # play_to_goodnight <days> [presses] [prefix]
         [ "$(ledger days)" -lt "$days" ] || break
         shot "$prefix-$n-morning"
         key Return 3.5
+        shot "$prefix-$n-morning-begun"
         if [ -n "$(sitting_button)" ]; then
             sitting_failed "the morning of day $(($(ledger days) + 1)) stayed up after Enter"
             return 1
