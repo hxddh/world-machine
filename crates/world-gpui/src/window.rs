@@ -161,7 +161,9 @@ impl ProjectionView {
     }
 
     fn invoke_command(&mut self, command_id: String, cx: &mut Context<Self>) {
-        if self.controller.is_none() {
+        // A World asleep is asked to do nothing (1.0 P2): its night stays
+        // open to look at, and only its next sitting moves it.
+        if self.controller.is_none() || self.asleep() {
             return;
         }
         // A day passes only as the sitting allows (v0.30 S4): once it has

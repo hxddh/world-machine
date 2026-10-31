@@ -38,6 +38,32 @@ pub fn developer() -> bool {
     DEVELOPER.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+static PLAY_FREELY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    /// This thread's own answer, for tests that each want their own.
+    static PLAY_FREELY_HERE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether the player chose to play freely (1.0 P2; off unless they turn
+/// it on in Settings): Goodnight offers "Sleep now", and the next day
+/// comes at once. A preference of the app's, never a World's.
+pub fn set_play_freely(on: bool) {
+    PLAY_FREELY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn play_freely() -> bool {
+    PLAY_FREELY_HERE
+        .get()
+        .unwrap_or_else(|| PLAY_FREELY.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Play freely on this thread only (`None`: as the app says), so tests
+/// running side by side do not see each other's.
+pub fn set_thread_play_freely(on: Option<bool>) {
+    PLAY_FREELY_HERE.set(on);
+}
+
 /// The colour a token stands for with contrast increased: quiet text and
 /// hairlines step up to the next stronger role.
 pub fn contrasted(token: Token) -> Token {

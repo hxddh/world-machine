@@ -10,6 +10,7 @@ impl ProjectionView {
         self.controller.is_some()
             && self.retelling.is_none()
             && !is_beginning(&self.snapshot)
+            && !self.asleep()
             && self.snapshot.deeds().next().is_some()
     }
 
@@ -231,6 +232,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("photo-handle")
+                    .debug_selector(|| "photo-handle".into())
                     .role(Role::Button)
                     .aria_label(ui::t("Save a photo of the scene (P)"))
                     .cursor_pointer()
@@ -241,6 +243,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("postcard-handle")
+                    .debug_selector(|| "postcard-handle".into())
                     .role(Role::Button)
                     .aria_label(ui::t(
                         "Save a postcard of the moment picked in History, or of now (C)",
@@ -276,7 +279,7 @@ impl ProjectionView {
             .favour
             .as_ref()
             .filter(|favour| !favour.done)
-            .filter(|_| self.controller.is_some() && self.retelling.is_none())
+            .filter(|_| self.controller.is_some() && self.retelling.is_none() && !self.asleep())
         {
             let whom = favour.whom;
             let name = label_of(&self.snapshot, whom)

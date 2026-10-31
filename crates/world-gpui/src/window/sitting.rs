@@ -7,9 +7,16 @@
 //!   letter, its main question, what was tended overnight, a find), read
 //!   once and put away with "Begin the day";
 //! - the day's main question weighted, first among the cards;
-//! - once the sitting has passed every day it may, a Goodnight card; and
-//!   then the World asleep: dimmed, the sky held at night with everyone
-//!   home, and no card, until the next sitting opens it again.
+//! - once the sitting has passed every day it may, a Goodnight card; put
+//!   off with "Not yet", the evening is the player's for as long as they
+//!   like (looking around, talking, building), with no card that passes a
+//!   day, until they say Goodnight (1.0 P2: the day is not a timer);
+//! - then the World asleep: dimmed, the sky held at night with everyone
+//!   home, until the next sitting opens it again. Asleep is not locked
+//!   (1.0 P2): the drawer (story, letters, finds, the book), a photo, a
+//!   postcard and the town at night stay open; only passing a day waits;
+//! - with "Play freely" chosen in Settings, Goodnight offers "Sleep now",
+//!   and the host begins the next sitting at once.
 //!
 //! None of it is World truth: the World only ever hears that a day passed,
 //! as it always has, from the day's own card.
@@ -18,8 +25,8 @@ use super::world_window::{first_name, label_of, scene_paper};
 use super::ProjectionView;
 use crate::ui::{self, ButtonKind};
 use gpui::{
-    div, px, Context, Div, FontWeight, InteractiveElement, ParentElement, Role,
-    StatefulInteractiveElement, Styled,
+    div, prelude::FluentBuilder, px, Context, Div, FontWeight, InteractiveElement, ParentElement,
+    Role, StatefulInteractiveElement, Styled,
 };
 use world_projection::{Morning, ProjectionCommand, ProjectionSnapshot, SelectionId};
 use world_theme::tokens;
@@ -35,6 +42,11 @@ pub struct Allowance {
 
 /// What a host does when one of the sitting's days passes: writes it down.
 pub type SpendDay = std::rc::Rc<dyn Fn()>;
+
+/// What a host does when the player chooses "Sleep now" (with "Play
+/// freely" on): begins the next sitting at once, and opens the World on
+/// it. Called once the view has fallen asleep, outside its own update.
+pub type SleepNow = std::rc::Rc<dyn Fn(&mut gpui::App)>;
 
 /// The hour the sky is held at while the World sleeps: everyone is home.
 pub(crate) const ASLEEP_HOUR: u32 = 23;
@@ -64,6 +76,9 @@ pub(crate) struct Sitting {
     /// What the host does once the morning is read: writes it down, so it
     /// shows once however often the World is opened that day.
     pub(crate) on_read: Option<ReadMorning>,
+    /// What the host does for "Sleep now"; `None` where it cannot begin a
+    /// sitting at once, and Goodnight is all there is.
+    pub(crate) sleep_now: Option<SleepNow>,
 }
 
 /// What a host does once a morning (by its moment's stable key) is read.
@@ -126,6 +141,13 @@ impl ProjectionView {
         self
     }
 
+    /// What to do for "Sleep now", offered on Goodnight while the player
+    /// plays freely: the host begins the next sitting at once.
+    pub fn with_sleep_now(mut self, sleep_now: impl Fn(&mut gpui::App) + 'static) -> Self {
+        self.looking.sitting.sleep_now = Some(std::rc::Rc::new(sleep_now));
+        self
+    }
+
     /// How many days the sitting may still pass, if the host said.
     pub fn allowance(&self) -> Option<Allowance> {
         self.looking.sitting.allowance
@@ -137,11 +159,12 @@ impl ProjectionView {
     }
 
     /// What the World is doing, for the title bar: heading home while the
-    /// Goodnight card is up, asleep once it is said (or opened asleep),
-    /// and otherwise waiting for the player.
+    /// Goodnight card is up or the evening is played out, asleep once
+    /// Goodnight is said (or opened asleep), and otherwise waiting for the
+    /// player.
     pub fn rest(&self) -> crate::i18n::Rest {
         use crate::i18n::Rest;
-        if self.looking.sitting.goodnight {
+        if self.looking.sitting.goodnight || self.evening() {
             Rest::HeadingHome
         } else if self.looking.sitting.asleep.is_some() {
             Rest::Asleep
@@ -153,6 +176,49 @@ impl ProjectionView {
     /// Whether the World sleeps until the next sitting.
     pub fn asleep(&self) -> bool {
         self.looking.sitting.asleep.is_some()
+    }
+
+    /// Whether the evening is being played out: the sitting's days all
+    /// passed, the Goodnight card put off, and the World not yet asleep.
+    pub fn evening(&self) -> bool {
+        let sitting = &self.looking.sitting;
+        sitting.spent() && !sitting.goodnight && sitting.asleep.is_none()
+    }
+
+    /// Whether "Sleep now" is offered: the player plays freely, and the
+    /// host can begin the next sitting at once.
+    pub(crate) fn sleep_now_offered(&self) -> bool {
+        crate::ui::play_freely() && self.looking.sitting.sleep_now.is_some()
+    }
+
+    /// "Not yet": the Goodnight card put away, and the evening the
+    /// player's for as long as they like. Nothing in it passes a day.
+    pub(crate) fn stay_up(&mut self) {
+        self.looking.sitting.goodnight = false;
+    }
+
+    /// Goodnight said, from its card (or Enter on it): the World sleeps;
+    /// playing freely, the next sitting begins at once.
+    pub(crate) fn goodnight_said(&mut self, cx: &mut Context<Self>) {
+        if self.sleep_now_offered() {
+            self.sleep_now(cx);
+        } else {
+            self.fall_asleep();
+        }
+        cx.notify();
+    }
+
+    /// "Sleep now": the World falls asleep, and the host begins the next
+    /// sitting at once. Only once the sitting has passed every day it may.
+    pub(crate) fn sleep_now(&mut self, cx: &mut Context<Self>) {
+        if !self.looking.sitting.spent() {
+            return;
+        }
+        self.fall_asleep();
+        if let Some(sleep_now) = self.looking.sitting.sleep_now.clone() {
+            cx.defer(move |cx| sleep_now(cx));
+        }
+        cx.notify();
     }
 
     /// Whether a command that lets a day pass may go ahead: not while the
@@ -187,7 +253,7 @@ impl ProjectionView {
 
     /// The Goodnight card comes up over the place, everything else put
     /// away.
-    fn say_goodnight(&mut self) {
+    pub(crate) fn say_goodnight(&mut self) {
         self.looking.sitting.goodnight = true;
         self.put_away_for_the_night();
     }
@@ -219,12 +285,11 @@ impl ProjectionView {
         }
     }
 
-    /// Whether the sitting covers the place: the morning, the Goodnight
-    /// card or the World asleep. Nothing under it is chosen.
+    /// Whether the sitting covers the place: the morning or the Goodnight
+    /// card. Nothing under it is chosen. A World asleep covers nothing
+    /// (1.0 P2): it is the town at night, its drawer and pictures open.
     pub(crate) fn sitting_covers(&self) -> bool {
-        self.looking.sitting.goodnight
-            || self.looking.sitting.asleep.is_some()
-            || self.morning_shown().is_some()
+        self.looking.sitting.goodnight || self.morning_shown().is_some()
     }
 
     /// The World sleeps until the next sitting: dimmed, the sky held at
@@ -260,19 +325,69 @@ impl ProjectionView {
         self.looking.answer = self.first_available_answer();
     }
 
-    /// What the sitting shows over the place, when it shows anything: the
-    /// Goodnight card, the World asleep, or the morning.
+    /// What the sitting shows over the place, when it has the place to
+    /// itself: the Goodnight card, or the morning.
     pub(crate) fn render_sitting(&self, cx: &mut Context<Self>) -> Option<Div> {
         if self.looking.sitting.goodnight {
             return Some(self.render_goodnight(cx));
         }
-        if self.looking.sitting.asleep.is_some() {
-            return Some(self.render_asleep());
-        }
         self.render_morning(cx)
     }
 
+    /// The World asleep, over the scene and under the handles: the night's
+    /// veil and its note.
+    pub(crate) fn render_night(&self, cx: &mut Context<Self>) -> Option<Div> {
+        self.looking.sitting.asleep.as_ref()?;
+        Some(self.render_asleep(cx))
+    }
+
+    /// The evening's card, where the day's cards stood: the day is done,
+    /// and Goodnight is the player's to say.
+    pub(crate) fn render_evening(&self, cx: &mut Context<Self>) -> Option<Div> {
+        if !self.evening() || self.controller.is_none() {
+            return None;
+        }
+        let card = div()
+            .id("evening")
+            .role(Role::Group)
+            .aria_label(ui::t("Evening"))
+            .debug_selector(|| "evening".into())
+            .px_4()
+            .py_3()
+            .rounded_2xl()
+            .bg(scene_paper())
+            .shadow_lg()
+            .border_1()
+            .border_color(ui::color(tokens::BORDER))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::row_title("Evening"))
+                    .child(ui::caption(
+                        "The day is done. Look around, talk and build as long as you like.",
+                    )),
+            )
+            .child(
+                ui::button("evening-goodnight", "Goodnight", ButtonKind::Primary)
+                    .debug_selector(|| "evening-goodnight".into())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.say_goodnight();
+                        cx.notify();
+                    })),
+            );
+        Some(div().child(card))
+    }
+
     fn render_goodnight(&self, cx: &mut Context<Self>) -> Div {
+        let freely = self.sleep_now_offered();
         let paper = div()
             .id("goodnight")
             .role(Role::Dialog)
@@ -292,26 +407,43 @@ impl ProjectionView {
             .gap_3()
             .child(ui::caption("That's the day"))
             .child(ui::heading("Goodnight"))
-            .child(ui::body(
-                "Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book.",
-            ))
+            .child(ui::body(if freely {
+                "Everyone's heading home. Sleep now and the next morning comes at once: a letter, today's choice, something looked after, and a find for your book."
+            } else {
+                "Everyone's heading home. Come back tomorrow for the morning: a letter, today's choice, something looked after, and a find for your book."
+            }))
             .child(ui::caption(
                 "No hurry. The town will wait for you.",
             ))
             .child(
-                div().pt_2().flex().justify_end().child(
-                    ui::button("goodnight-sleep", "Goodnight", ButtonKind::Primary)
+                div()
+                    .pt_2()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        ui::button("goodnight-not-yet", "Not yet", ButtonKind::Secondary)
+                            .debug_selector(|| "goodnight-not-yet".into())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.stay_up();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        ui::button(
+                            "goodnight-sleep",
+                            if freely { "Sleep now" } else { "Goodnight" },
+                            ButtonKind::Primary,
+                        )
                         .debug_selector(|| "goodnight-sleep".into())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.fall_asleep();
-                            cx.notify();
-                        })),
-                ),
+                        .on_click(cx.listener(|this, _, _, cx| this.goodnight_said(cx))),
+                    ),
             );
         hanging(paper)
     }
 
-    fn render_asleep(&self) -> Div {
+    fn render_asleep(&self, cx: &mut Context<Self>) -> Div {
+        let freely = self.sleep_now_offered();
         let note = div()
             .id("asleep")
             .role(Role::Status)
@@ -326,18 +458,34 @@ impl ProjectionView {
             .flex_col()
             .items_center()
             .gap_1()
-            .child(ui::row_title("Asleep until tomorrow"))
+            .child(ui::row_title(if freely {
+                "Asleep"
+            } else {
+                "Asleep until tomorrow"
+            }))
             .child(
                 div()
                     .text_xs()
                     .text_color(asleep_ink())
-                    .child(crate::wrap::text(ui::t(
-                        "Everyone's home. Come back tomorrow for the morning.",
-                    ))),
-            );
+                    .child(crate::wrap::text(ui::t(if freely {
+                        "Everyone's home. Sleep now and the next morning comes at once."
+                    } else {
+                        "Everyone's home. Come back tomorrow for the morning; the book, letters and pictures are still yours."
+                    }))),
+            )
+            .when(freely, |note| {
+                note.child(
+                    div().pt_2().child(
+                        ui::button("asleep-sleep-now", "Sleep now", ButtonKind::Primary)
+                            .debug_selector(|| "asleep-sleep-now".into())
+                            .on_click(cx.listener(|this, _, _, cx| this.sleep_now(cx))),
+                    ),
+                )
+            });
         // The place dimmed under the night it is held at (lightly, so the
-        // night's own blues still show), and the note hanging from the
-        // top, clear of everyone's doors.
+        // night's own blues still show; and never taking a click, so the
+        // town at night stays open), and the note at the foot of the
+        // place, where the day's card stood, clear of the handles above.
         div()
             .absolute()
             .top_0()
@@ -349,12 +497,12 @@ impl ProjectionView {
                     .absolute()
                     .left_0()
                     .right_0()
-                    .top_0()
+                    .bottom_0()
                     .px_6()
-                    .pt_3()
+                    .pb_4()
                     .flex()
                     .justify_center()
-                    .child(note),
+                    .child(note.occlude()),
             )
     }
 
@@ -1142,6 +1290,189 @@ mod tests {
             "awake, with its card"
         );
         assert!(crate::scene::pinned_hour().is_none());
+        crate::scene::set_clock(None);
+    }
+
+    /// The evening is the player's (1.0 P2): "Not yet" puts the Goodnight
+    /// card away, and the place stays open (the drawer, people, what the
+    /// hands make) with no card that passes a day, until the player says
+    /// Goodnight. Nothing says it for them.
+    #[gpui::test]
+    fn not_yet_plays_the_evening_out_until_goodnight_is_chosen(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(20));
+        let Opened {
+            view,
+            mut cx,
+            passed,
+            spent,
+            chosen,
+        } = open(app, morning_town(), Some(Allowance { left: 1, of: 1 }));
+        let cx = &mut cx;
+        view.update(cx, |view, cx| {
+            view.begin_the_day();
+            cx.notify();
+        });
+        pass_day(&view, cx);
+        assert!(cx.debug_bounds("goodnight").is_some());
+        let not_yet = cx.debug_bounds("goodnight-not-yet").expect("Not yet");
+        cx.simulate_click(not_yet.center(), Modifiers::none());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(view.evening() && !view.goodnight_shown() && !view.asleep());
+            assert_eq!(view.rest(), crate::i18n::Rest::HeadingHome);
+            assert!(view.card_command().is_none(), "no World card at evening");
+        });
+        assert!(cx.debug_bounds("goodnight").is_none());
+        assert!(cx.debug_bounds("evening").is_some(), "the evening's card");
+        assert!(cx.debug_bounds("photo-handle").is_some(), "the handles");
+        // Time goes by, and nothing says Goodnight but the player.
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(3600));
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert!(view.evening()));
+        // Looking around: the drawer opens, and what passes no day is done.
+        view.update(cx, |view, cx| view.toggle_drawer(cx));
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("drawer-leaves").is_some(), "the drawer");
+        view.update(cx, |view, cx| view.toggle_drawer(cx));
+        view.update(cx, |view, cx| view.invoke_command("small.yes".into(), cx));
+        cx.run_until_parked();
+        assert_eq!(chosen.get(), 1, "a deed of the evening");
+        // The day's card passes no day: the Goodnight card comes back.
+        pass_day(&view, cx);
+        assert_eq!((passed.get(), spent.get()), (1, 1));
+        view.read_with(cx, |view, _| assert!(view.goodnight_shown()));
+        view.update(cx, |view, _| view.stay_up());
+        cx.run_until_parked();
+        // Enter on the evening's card brings up the Goodnight card; Enter
+        // on that says it.
+        press_enter(&view, cx);
+        view.read_with(cx, |view, _| assert!(view.goodnight_shown()));
+        press_enter(&view, cx);
+        view.read_with(cx, |view, _| assert!(view.asleep()));
+        assert_eq!((passed.get(), spent.get()), (1, 1));
+        view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        crate::scene::set_clock(None);
+    }
+
+    /// Asleep is not locked (1.0 P2): the drawer (letters, finds, the
+    /// book), a photo, a postcard and the town at night stay open; only
+    /// passing a day waits, and Enter passes none.
+    #[gpui::test]
+    fn asleep_the_drawer_and_pictures_stay_open_and_no_day_passes(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        let Opened {
+            view,
+            mut cx,
+            passed,
+            chosen,
+            ..
+        } = open(app, morning_town(), Some(Allowance { left: 0, of: 1 }));
+        let cx = &mut cx;
+        view.read_with(cx, |view, _| {
+            assert!(view.asleep());
+            assert_eq!(view.held_hour(), Some(ASLEEP_HOUR), "the town at night");
+        });
+        assert!(cx.debug_bounds("asleep").is_some(), "the asleep note");
+        assert!(cx.debug_bounds("morning").is_none());
+        assert!(cx.debug_bounds("bottom-card").is_none(), "no day's card");
+        for handle in ["photo-handle", "postcard-handle"] {
+            assert!(cx.debug_bounds(handle).is_some(), "{handle}");
+        }
+        assert!(
+            cx.debug_bounds("asleep-sleep-now").is_none(),
+            "no Sleep now unless playing freely"
+        );
+        let drawer = cx
+            .debug_bounds(
+                format!(
+                    "named: {}",
+                    ui::t("The drawer: story, letters, keepsakes and the book (⌘I)")
+                )
+                .leak(),
+            )
+            .expect("the drawer's handle");
+        cx.simulate_click(drawer.center(), Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("drawer-leaves").is_some(),
+            "the drawer opens"
+        );
+        view.read_with(cx, |view, _| assert!(view.looking.drawer));
+        view.update(cx, |view, cx| view.toggle_drawer(cx));
+        cx.run_until_parked();
+        // Nobody is asked, nothing is made, and no day passes.
+        let someone = morning_town().morning.unwrap().letter.unwrap().from;
+        view.update(cx, |view, cx| view.ask(someone, cx));
+        cx.simulate_keystrokes("h");
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(view.looking.asking.is_none() && view.looking.hands.is_none())
+        });
+        press_enter(&view, cx);
+        cx.simulate_keystrokes("enter");
+        pass_day(&view, cx);
+        view.update(cx, |view, cx| view.invoke_command("small.yes".into(), cx));
+        cx.run_until_parked();
+        assert_eq!((passed.get(), chosen.get()), (0, 0), "nothing asleep");
+        view.read_with(cx, |view, _| assert!(view.asleep()));
+        view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        crate::scene::set_clock(None);
+    }
+
+    /// Playing freely (1.0 P2): Goodnight offers "Sleep now", which puts
+    /// the World to sleep and asks the host for the next sitting at once;
+    /// asleep, the note offers it too. Not playing freely, Goodnight is as
+    /// it was, and the host is asked for nothing.
+    #[gpui::test]
+    fn playing_freely_goodnight_offers_sleep_now(app: &mut TestAppContext) {
+        crate::scene::set_clock(Some(12));
+        for freely in [true, false] {
+            crate::ui::set_thread_play_freely(Some(freely));
+            let Opened {
+                view,
+                mut cx,
+                passed,
+                ..
+            } = open(app, town(), Some(Allowance { left: 1, of: 1 }));
+            let cx = &mut cx;
+            let slept = Rc::new(Cell::new(0));
+            let asked = slept.clone();
+            view.update(cx, |view, _| {
+                view.looking.sitting.sleep_now = Some(Rc::new(move |_| asked.set(asked.get() + 1)));
+            });
+            // Not before the day is done.
+            view.update(cx, |view, cx| view.sleep_now(cx));
+            cx.run_until_parked();
+            assert_eq!(slept.get(), 0, "a day still to play");
+            view.read_with(cx, |view, _| assert!(!view.asleep()));
+            pass_day(&view, cx);
+            view.read_with(cx, |view, _| {
+                assert!(view.goodnight_shown());
+                assert_eq!(view.sleep_now_offered(), freely);
+            });
+            let sleep = cx.debug_bounds("goodnight-sleep").expect("its button");
+            cx.simulate_click(sleep.center(), Modifiers::none());
+            cx.run_until_parked();
+            view.read_with(cx, |view, _| assert!(view.asleep()));
+            assert_eq!(slept.get(), u32::from(freely), "freely: {freely}");
+            assert_eq!(passed.get(), 1, "no day passed by sleeping");
+            // Asleep, playing freely, the note offers it again; Enter
+            // never asks for it.
+            press_enter(&view, cx);
+            assert_eq!(slept.get(), u32::from(freely));
+            match cx.debug_bounds("asleep-sleep-now") {
+                Some(again) => {
+                    assert!(freely);
+                    cx.simulate_click(again.center(), Modifiers::none());
+                    cx.run_until_parked();
+                    assert_eq!(slept.get(), 2);
+                }
+                None => assert!(!freely),
+            }
+            view.update(cx, |view, _| view.looking.sitting.asleep = None);
+        }
+        crate::ui::set_thread_play_freely(None);
         crate::scene::set_clock(None);
     }
 
