@@ -13,4 +13,4 @@ crates/world-voice-prompt/src/bounds/lexicon.rs 3777
 systems/storylets/src/lib.rs 3130
 worlds/pocket-universe/src/eras.rs 3032
 worlds/pocket-universe/src/story.rs 4171
-worlds/tiny-society/src/story.rs 4798
+worlds/tiny-society/src/story.rs 4788
