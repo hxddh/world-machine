@@ -31,8 +31,11 @@ LABEL="${WORLD_MACHINE_RELEASE_TAG:-v$VERSION}"
 sign() {
     if [[ -n "${WORLD_MACHINE_WINDOWS_SIGN:-}" ]]; then
         echo "signing $1"
+        # Its switches ("/fd", "/tr", ...) go as they are, and the file as a
+        # Windows path: with Git Bash rewriting nothing, a "/d/a/..." path
+        # would reach signtool unconverted.
         # shellcheck disable=SC2086
-        MSYS2_ARG_CONV_EXCL='*' $WORLD_MACHINE_WINDOWS_SIGN "$1"
+        MSYS2_ARG_CONV_EXCL='*' $WORLD_MACHINE_WINDOWS_SIGN "$(cygpath -w "$1")"
     fi
 }
 
