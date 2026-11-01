@@ -51,8 +51,8 @@ loads its looks, fonts and sounds, and memory settles. The run fails on:
 | --- | --- |
 | A panic in the app's output, or the app not running at the end | none allowed |
 | A frame of the World window unpainted, or under the loading wash, after its first painted frame | none allowed |
-| RSS growth after warm-up, least-squares slope | 60 MB an hour (`--rss-slope`) |
-| RSS at the end above RSS when warm-up ended | 200 MB (`--rss-growth`) |
+| The app's own memory (RSS less the renderer's graphics memory) growing after warm-up, least-squares slope | 60 MB an hour (`--rss-slope`) |
+| RSS at the end, graphics memory and all, above RSS when warm-up ended | 200 MB (`--rss-growth`) |
 | Frame time p95 (of the 2 s means), last third after warm-up against the first third | at most 1.5 x + 2 ms (`--p95-ratio`, `--p95-slack`) |
 | Any 2 s window's mean frame time | 50 ms (`--frame-ceiling`) |
 | Sittings reached | at least 30 an hour (`--least-sittings-per-hour`): a stuck driver is not a soak |
@@ -108,8 +108,55 @@ the end, 44 MB an hour (anonymous 65 to 97 MB), passed. A local run of
 settles near 470 MB within about fifteen minutes, but its short-run slope
 (130 to 250 MB an hour) is the settling, not a leak.
 
+The nightly on the fix (`373d2dd`, 490 sittings) held memory far better
+(422 MB warm, 528 MB at the end, peak 576 MB, growth 105 MB within its
+200) but still failed the slope: 71.8 MB an hour against 60. Five local
+one-hour runs of the same code (10 minutes of warm-up, about 217 sittings
+each), with the app's mappings sampled every 20 s, put the rest in three
+places, from warm-up to the end:
+
+- **The GPU's memory, in 32 MB steps** (`/memfd:allocation`, the
+  software renderer's video memory, which is the process's own RAM under
+  Xvfb): +0, +32, +32, +32 and +64 MB. A build of GPUI that reported its
+  atlas and wgpu's allocator (local only, not committed) showed why: the
+  allocator takes video memory in 32 MB blocks and gives one back only
+  when nothing is left in it. The window's pictures live in 1024 x 1024
+  atlas textures (4 MB each), usually 20 to 30 of them; at a moment with
+  more pictures handed over at once (39 textures, 156 MB, 44 minutes into
+  one run) it took two more blocks, and kept all eight (228 MB reserved)
+  when the atlas fell back to 22 textures (109 MB in use). The step is the
+  highest the atlas has been, not a leak; it comes when it comes, so one
+  hour is a coin toss (53 to 129 MB an hour across the five runs).
+- **malloc's arenas** (anonymous memory): +4 to +17 MB. With
+  `MALLOC_ARENA_MAX=2` as well, three runs held anonymous memory about
+  30 MB lower throughout, but grew it just as much (+6 to +14 MB), and their
+  slopes (54, 33, 107 MB an hour) moved with the GPU's steps like the
+  others. Calling `malloc_trim` near the end of one of them gave back
+  13 MB of 495: little is free and kept.
+- **The main heap**: +5 to +6 MB, about 30 KB a World day. The World's own
+  history is there. Lived headless as the app lives it (its file opened as
+  a durable session, a day at a time, the Pack in the same process), a
+  World holds 74 KB more a day (33 MB at day 50, 67 MB at day 500); in the
+  app most of that is in the Pack's own process (17 MB to 41 MB over an
+  hour), which the soak does not measure.
+
+Nothing the app holds was found growing: the painted pictures stay bounded
+(150 to 300 in the atlas), and the frame logs the soak turns on are
+written line by line to their files, never kept.
+
 ## The release shots (`.github/workflows/release-shots.yml`)
 
 `scripts/release-shots.sh` plays the first ten minutes and the key moments
 in the real window, for every release (and the `first` scenario for every
 pull request that touches the window). See the script's header.
+
+Since the owner's decision after that run (1.0, before v1.0.0-pre.1), the
+soak samples, beside RSS, the resident part of the renderer's graphics
+mappings (the GPU driver's `memfd` and `/dev/dri` mappings in
+`/proc/<pid>/smaps`; a third column of `rss.tsv`), and the slope bound
+judges the app's own memory: RSS less that. Under Xvfb the software
+renderer's video memory is resident in the process, taken in 32 MB blocks
+and kept at its highest; on a real GPU it is video memory, not the app's
+RAM. The growth bound still counts the whole RSS, graphics memory and
+all, and `summary.json` reports both slopes and the graphics memory when
+warm-up ended and at the end. No bound's number changed.
