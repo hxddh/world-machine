@@ -31,8 +31,11 @@ LABEL="${WORLD_MACHINE_RELEASE_TAG:-v$VERSION}"
 sign() {
     if [[ -n "${WORLD_MACHINE_WINDOWS_SIGN:-}" ]]; then
         echo "signing $1"
+        # Its switches ("/fd", "/tr", ...) go as they are, and the file as a
+        # Windows path: with Git Bash rewriting nothing, a "/d/a/..." path
+        # would reach signtool unconverted.
         # shellcheck disable=SC2086
-        $WORLD_MACHINE_WINDOWS_SIGN "$1"
+        MSYS2_ARG_CONV_EXCL='*' $WORLD_MACHINE_WINDOWS_SIGN "$(cygpath -w "$1")"
     fi
 }
 
@@ -62,7 +65,11 @@ if [[ -z "$ISCC" ]]; then
     done
 fi
 if [[ -n "$ISCC" ]]; then
-    "$ISCC" /Qp "/DAppVersion=$VERSION" "/DStageDir=$(cygpath -w "$STAGE")" \
+    # Git Bash rewrites an argument that starts with "/" into a Windows
+    # path ("/Qp" -> "C:/Program Files/Git/Qp"), and ISCC then sees more
+    # than one script. The paths below are already Windows paths, so no
+    # argument of this call is rewritten.
+    MSYS2_ARG_CONV_EXCL='*' "$ISCC" /Qp "/DAppVersion=$VERSION" "/DStageDir=$(cygpath -w "$STAGE")" \
         "/DOutputDir=$(cygpath -w "$OUT")" "$(cygpath -w "$HERE/world-machine.iss")"
     sign "$OUT/World-Machine-$VERSION-Windows-x64-Setup.exe"
 else
