@@ -2,7 +2,9 @@
 """Judges a soak run (scripts/soak.sh): memory, frames, no growth.
 
 Reads, from the run's output folder:
-- rss.tsv       seconds since start, the app's resident memory in kB;
+- rss.tsv       seconds since start, the app's resident memory in kB, and
+                (a third column, optional) the kB of it that is the
+                renderer's graphics memory;
 - app.log       the app's output, with its frame log every 2 s
                 ("frame: N frames, mean X ms, longest Y ms; ...") and any
                 panic;
@@ -15,9 +17,15 @@ It fails the run (exit 1) on:
 - a panic in the app's output, or the app no longer running at the end;
 - any frame of the World window with something unpainted (or under the
   loading wash) after its first painted frame;
-- RSS growing after warm-up faster than --rss-slope MB an hour (a least
-  squares line through the samples after warm-up), or ending more than
-  --rss-growth MB above where warm-up left it;
+- the app's own memory (RSS less the renderer's graphics memory) growing
+  after warm-up faster than --rss-slope MB an hour (a least squares line
+  through the samples after warm-up), or the whole RSS, graphics memory
+  and all, ending more than --rss-growth MB above where warm-up left it.
+  Graphics memory is left out of the slope only: under Xvfb the software
+  renderer's video memory is resident in the process and is taken in
+  32 MB blocks that are kept once taken (a high-water mark, at random
+  moments), which on a real GPU is video memory, not the app's RAM; it
+  is still in the growth bound, and is reported;
 - the frame time's 95th percentile (of the 2 s means) in the last third of
   the run after warm-up more than --p95-ratio times, and --p95-slack ms
   over, the first third's; or any 2 s window whose mean passes
@@ -98,17 +106,30 @@ def main() -> int:
         problems.append("the app was not running at the end of the run")
 
     # Memory.
-    rss = [(float(row[0]), float(row[1]) / 1024.0) for row in read_rows(out / "rss.tsv") if len(row) >= 2]
+    # Each sample: seconds, the whole RSS and the graphics memory in it (MB).
+    samples = [
+        (float(row[0]), float(row[1]) / 1024.0, float(row[2]) / 1024.0 if len(row) >= 3 else 0.0)
+        for row in read_rows(out / "rss.tsv")
+        if len(row) >= 2
+    ]
+    rss = [(t, mb) for t, mb, _ in samples]
     warm = [(t, mb) for t, mb in rss if t >= warmup]
+    warm_samples = [sample for sample in samples if sample[0] >= warmup]
+    own_slope = slope([(t / 3600.0, mb - gpu) for t, mb, gpu in warm_samples])
     rss_slope = slope([(t / 3600.0, mb) for t, mb in warm])
+    gpu_start = warm_samples[0][2] if warm_samples else 0.0
+    gpu_end = warm_samples[-1][2] if warm_samples else 0.0
     rss_start = warm[0][1] if warm else 0.0
     rss_end = warm[-1][1] if warm else 0.0
     rss_peak = max((mb for _, mb in rss), default=0.0)
     if len(warm) < 10:
         problems.append(f"only {len(warm)} RSS samples after warm-up")
     else:
-        if rss_slope > args.rss_slope:
-            problems.append(f"RSS grows {rss_slope:.1f} MB/h after warm-up (bound {args.rss_slope:.0f})")
+        if own_slope > args.rss_slope:
+            problems.append(
+                f"the app's own memory grows {own_slope:.1f} MB/h after warm-up "
+                f"(bound {args.rss_slope:.0f}; RSS with graphics memory {rss_slope:.1f})"
+            )
         if rss_end - rss_start > args.rss_growth:
             problems.append(
                 f"RSS ended {rss_end - rss_start:.0f} MB above the warm {rss_start:.0f} MB "
@@ -192,6 +213,9 @@ def main() -> int:
         "rss_end_mb": round(rss_end, 1),
         "rss_peak_mb": round(rss_peak, 1),
         "rss_slope_mb_per_hour": round(rss_slope, 2),
+        "own_slope_mb_per_hour": round(own_slope, 2),
+        "gpu_warm_mb": round(gpu_start, 1),
+        "gpu_end_mb": round(gpu_end, 1),
         "frame_windows": len(windows),
         "frame_mean_p95_first_ms": round(p95_first, 2),
         "frame_mean_p95_last_ms": round(p95_last, 2),

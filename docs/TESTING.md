@@ -51,8 +51,8 @@ loads its looks, fonts and sounds, and memory settles. The run fails on:
 | --- | --- |
 | A panic in the app's output, or the app not running at the end | none allowed |
 | A frame of the World window unpainted, or under the loading wash, after its first painted frame | none allowed |
-| RSS growth after warm-up, least-squares slope | 60 MB an hour (`--rss-slope`) |
-| RSS at the end above RSS when warm-up ended | 200 MB (`--rss-growth`) |
+| The app's own memory (RSS less the renderer's graphics memory) growing after warm-up, least-squares slope | 60 MB an hour (`--rss-slope`) |
+| RSS at the end, graphics memory and all, above RSS when warm-up ended | 200 MB (`--rss-growth`) |
 | Frame time p95 (of the 2 s means), last third after warm-up against the first third | at most 1.5 x + 2 ms (`--p95-ratio`, `--p95-slack`) |
 | Any 2 s window's mean frame time | 50 ms (`--frame-ceiling`) |
 | Sittings reached | at least 30 an hour (`--least-sittings-per-hour`): a stuck driver is not a soak |
@@ -149,3 +149,14 @@ written line by line to their files, never kept.
 `scripts/release-shots.sh` plays the first ten minutes and the key moments
 in the real window, for every release (and the `first` scenario for every
 pull request that touches the window). See the script's header.
+
+Since the owner's decision after that run (1.0, before v1.0.0-pre.1), the
+soak samples, beside RSS, the resident part of the renderer's graphics
+mappings (the GPU driver's `memfd` and `/dev/dri` mappings in
+`/proc/<pid>/smaps`; a third column of `rss.tsv`), and the slope bound
+judges the app's own memory: RSS less that. Under Xvfb the software
+renderer's video memory is resident in the process, taken in 32 MB blocks
+and kept at its highest; on a real GPU it is video memory, not the app's
+RAM. The growth bound still counts the whole RSS, graphics memory and
+all, and `summary.json` reports both slopes and the graphics memory when
+warm-up ended and at the end. No bound's number changed.

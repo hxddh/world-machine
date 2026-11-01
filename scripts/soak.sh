@@ -17,7 +17,8 @@
 # back in, and opens and closes the drawer.
 #
 # What it measures, sampled through the run:
-# - RSS of the app, from /proc every SAMPLE seconds (rss.tsv);
+# - RSS of the app, and the renderer's graphics memory within it, from
+#   /proc every SAMPLE seconds (rss.tsv);
 # - the scene's frame time on the window's thread, from the app's frame log
 #   (WORLD_MACHINE_FRAME_LOG: every 2 s, frames, mean and longest);
 # - every frame the window draws (WORLD_GPUI_FRAME_LOG: unpainted pictures
@@ -100,12 +101,17 @@ STARTED=$(date +%s)
 DEADLINE=$((STARTED + MINUTES * 60))
 
 # RSS, every SAMPLE seconds, until the app is gone: seconds since the
-# start, and kB.
+# start, kB, and the kB of it that is the renderer's graphics memory (the
+# resident part of the GPU driver's memfd and /dev/dri mappings: under
+# Xvfb the software renderer's video memory counts as the process's own).
 : > "$OUT_DIR/rss.tsv"
 (
     while kill -0 "$APP" 2>/dev/null; do
         rss=$(awk '/^VmRSS:/ {print $2}' "/proc/$APP/status" 2>/dev/null)
-        [ -n "$rss" ] && printf '%s\t%s\n' "$(($(date +%s) - STARTED))" "$rss" >> "$OUT_DIR/rss.tsv"
+        gpu=$(awk '/^[0-9a-f]+-[0-9a-f]+ / { graphics = ($6 ~ /^\/memfd:/ || $6 ~ /^\/dev\/dri\//) }
+                   /^Rss:/ && graphics { kb += $2 }
+                   END { print kb + 0 }' "/proc/$APP/smaps" 2>/dev/null)
+        [ -n "$rss" ] && printf '%s\t%s\t%s\n' "$(($(date +%s) - STARTED))" "$rss" "${gpu:-0}" >> "$OUT_DIR/rss.tsv"
         sleep "$SAMPLE"
     done
 ) &
