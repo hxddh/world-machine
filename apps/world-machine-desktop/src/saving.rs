@@ -66,7 +66,8 @@ const QUIT_DETAIL: &str = "Keep World Machine open to use Save As… in that Wor
 
 /// Every fixed line these dialogs show, in English: for the translation
 /// check.
-pub fn every_line() -> Vec<&'static str> {
+#[cfg(test)]
+fn every_line() -> Vec<&'static str> {
     let mut lines = vec![
         "{name}: the latest turns could not be saved",
         "{count} Worlds could not save their latest turns",

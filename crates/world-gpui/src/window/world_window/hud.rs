@@ -543,6 +543,7 @@ impl ProjectionView {
                     );
                     grid = grid.child(if thing.possible {
                         tile.on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
                             this.looking.hands = Some(Hands {
                                 verb: Some(verb.clone()),
                                 thing: Some(key.clone()),
@@ -575,6 +576,11 @@ impl ProjectionView {
                         .id("hands")
                         .role(Role::Group)
                         .aria_label(ui::t("Make something"))
+                        // Nothing behind the panel hears a click on it:
+                        // choosing the bench must not also put it down on
+                        // whatever stood under the tile (the 1.0 play test's
+                        // bench built at once, half off screen).
+                        .occlude()
                         .p_4()
                         .rounded_xl()
                         .bg(scene_paper())
