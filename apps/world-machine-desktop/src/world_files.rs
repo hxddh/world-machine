@@ -129,9 +129,8 @@ pub(crate) fn sanitize_document_base(value: &str) -> String {
     // Never hidden, never ending in a dot, and never a name Windows keeps
     // for a device.
     let base = base.trim_matches('.').to_string();
-    if WorldDocumentId::new(base.clone()).is_ok() {
-        base
-    } else if base.is_empty() {
+    // Empty is left for the caller to name.
+    if base.is_empty() || WorldDocumentId::new(base.clone()).is_ok() {
         base
     } else {
         format!("{base}-world")
