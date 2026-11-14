@@ -971,3 +971,17 @@ Updated {} @ {}, but it could not be loaded: {error}	已更新 {} @ {}，但没�
 Checking that it works…	正在检查能否正常运行…
 {} was updated, but could not be loaded: {error}	{} 已更新，但没能载入：{error}
 {} @ {} was installed, but did not pass its check, so it stays off: {error}	{} @ {} 已安装，但没有通过检查，所以保持关闭：{error}
+Couldn't save the photo	没能保存这张照片
+Couldn't save the picture	没能保存这张图片
+This World's program stopped. Choose Reload from Disk in the menu to go on.	这个世界的程序停止了。请在菜单里选“从磁盘重新加载”继续。
+{name}: the latest turns could not be saved	{name}：最近的回合没能保存
+{count} Worlds could not save their latest turns	{count} 个世界没能保存最近的回合
+Save As… writes the whole World to a new file; Close Without Saving loses the turns since it was last saved.	“另存为…”会把整个世界写进一个新文件；“不保存就关闭”会丢掉上次保存之后的回合。
+Keep World Machine open to use Save As… in that World's window; quitting now loses those turns.	请让 World Machine 保持打开，在那个世界的窗口里用“另存为…”；现在退出会丢掉这些回合。
+Something else changed the World's file while it was open.	世界打开期间，有别的程序改动了它的文件。
+Another World Machine has this World open.	另一个 World Machine 正打开着这个世界。
+The World's file could not be written.	世界的文件没能写入。
+Close Without Saving	不保存就关闭
+Keep Open	保持打开
+Keep World Machine Open	保持 World Machine 打开
+Quit Without Saving	不保存就退出

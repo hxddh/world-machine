@@ -28,8 +28,9 @@ const API_VERSION: &str = "2023-06-01";
 const MAX_TOKENS: u32 = 2048;
 
 /// How long one narration may take before the World gives up and shows its
-/// table copy. A return should not hang on a network.
-const TIMEOUT_SECONDS: u32 = 30;
+/// table copy. A return should not hang on a network, and never longer than
+/// the host waits for a whole turn (5 s), past which it stops this Pack.
+const TIMEOUT_SECONDS: u32 = 3;
 
 /// What a request is made of, kept separate from making it so the shape can be
 /// checked without a network.

@@ -7,6 +7,7 @@
 //! logged (on quit), and the player's last turns were lost without a word.
 //! Now the window stays open, or the app keeps running, and asks.
 
+use world_gpui::i18n::fill;
 use world_library::LibraryError;
 
 /// The choices when a World's window cannot write its last turns.
@@ -26,11 +27,15 @@ pub const QUIT_ANYWAY: usize = 1;
 /// and its last turns could not be written.
 pub fn close_failure(name: &str, error: &LibraryError) -> (String, String) {
     (
-        format!("{name}: the latest turns could not be saved"),
+        fill(
+            "{name}: the latest turns could not be saved",
+            &[("name", name)],
+        ),
         format!(
-            "{}. {} Save As… writes the whole World to a new file; Close Without Saving loses the turns since it was last saved.",
+            "{}. {} {}",
             sentence(&error.to_string()),
-            advice(error)
+            fill(advice(error), &[]),
+            fill(CLOSE_DETAIL, &[])
         ),
     )
 }
@@ -39,10 +44,13 @@ pub fn close_failure(name: &str, error: &LibraryError) -> (String, String) {
 /// (each a World's name and why it could not be written) were not saved.
 pub fn quit_failure(failures: &[(String, String)]) -> (String, String) {
     let message = match failures {
-        [(name, _)] => format!("{name}: the latest turns could not be saved"),
-        _ => format!(
-            "{} Worlds could not save their latest turns",
-            failures.len()
+        [(name, _)] => fill(
+            "{name}: the latest turns could not be saved",
+            &[("name", name)],
+        ),
+        _ => fill(
+            "{count} Worlds could not save their latest turns",
+            &[("count", &failures.len().to_string())],
         ),
     };
     let detail = failures
@@ -50,12 +58,28 @@ pub fn quit_failure(failures: &[(String, String)]) -> (String, String) {
         .map(|(name, why)| format!("{name}: {}.", sentence(why)))
         .collect::<Vec<_>>()
         .join("\n");
-    (
-        message,
-        format!(
-            "{detail}\nKeep World Machine open to use Save As… in that World's window; quitting now loses those turns."
-        ),
-    )
+    (message, format!("{detail}\n{}", fill(QUIT_DETAIL, &[])))
+}
+
+const CLOSE_DETAIL: &str = "Save As… writes the whole World to a new file; Close Without Saving loses the turns since it was last saved.";
+const QUIT_DETAIL: &str = "Keep World Machine open to use Save As… in that World's window; quitting now loses those turns.";
+
+/// Every fixed line these dialogs show, in English: for the translation
+/// check.
+pub fn every_line() -> Vec<&'static str> {
+    let mut lines = vec![
+        "{name}: the latest turns could not be saved",
+        "{count} Worlds could not save their latest turns",
+        CLOSE_DETAIL,
+        QUIT_DETAIL,
+        "Something else changed the World's file while it was open.",
+        "Another World Machine has this World open.",
+        "The disk is full.",
+        "The World's file could not be written.",
+    ];
+    lines.extend(CLOSE_CHOICES);
+    lines.extend(QUIT_CHOICES);
+    lines
 }
 
 /// What the player can do about `error`, in a sentence.
@@ -101,6 +125,33 @@ mod tests {
         assert!(detail.contains("Something else changed"), "{detail}");
         assert_eq!(CLOSE_CHOICES[SAVE_AS], "Save As…");
         assert_eq!(CLOSE_CHOICES[CLOSE_ANYWAY], "Close Without Saving");
+    }
+
+    #[test]
+    fn every_word_of_these_dialogs_is_translated() {
+        for (name, app, packs) in [
+            (
+                "Chinese",
+                world_gpui::i18n::APP_ZH_HANS,
+                &world_builtins::ZH_HANS,
+            ),
+            ("Japanese", world_gpui::i18n::APP_JA, &world_builtins::JA),
+        ] {
+            let mut catalog = world_i18n::Catalog::parse(app);
+            for pack in packs.iter() {
+                catalog.extend(pack);
+            }
+            catalog.extend(app);
+            for line in every_line() {
+                // A line with a slot is translated as it is shown, filled.
+                let line = &line.replace("{name}", "Harbour").replace("{count}", "2");
+                let shown = catalog.translate(line);
+                assert!(
+                    shown.as_deref().is_some_and(|shown| shown != line),
+                    "{name}: {line:?} → {shown:?}"
+                );
+            }
+        }
     }
 
     #[test]

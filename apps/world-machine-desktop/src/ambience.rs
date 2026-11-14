@@ -301,6 +301,9 @@ pub mod player {
         /// Opening the device failed; not tried again until sound is
         /// turned off and on.
         failed: bool,
+        /// The device is being opened, on a thread of its own: nothing
+        /// waits for it, and what is played meanwhile is not heard.
+        opening: bool,
         owner: Option<u64>,
         scene: Option<Scene>,
         levels: Levels,
@@ -311,6 +314,7 @@ pub mod player {
     static STATE: Mutex<State> = Mutex::new(State {
         output: None,
         failed: false,
+        opening: false,
         owner: None,
         scene: None,
         levels: Levels {
@@ -335,22 +339,45 @@ pub mod player {
         if !enabled() {
             return None;
         }
-        if state.output.is_none() && !state.failed {
-            match open() {
-                Ok(output) => {
-                    state.report = Some(format!(
-                        "sound: {} Hz, asking for {BUFFER_FRAMES}-frame buffers ({:.1} ms)",
-                        output.rate,
-                        BUFFER_FRAMES as f32 / output.rate * 1000.0
-                    ));
-                    state.levels = Levels::default();
-                    state.scene = None;
-                    state.output = Some(output);
-                }
-                Err(error) => {
-                    state.failed = true;
-                    state.report = Some(format!("sound: could not open the output: {error}"));
-                }
+        if state.output.is_none() && !state.failed && !state.opening {
+            // A device can take seconds to answer (Bluetooth, a sleeping
+            // USB interface): it is opened away from the window's thread,
+            // and the scene is sent again once it is.
+            state.opening = true;
+            let started = std::thread::Builder::new()
+                .name("world-sound-open".into())
+                .spawn(|| {
+                    let opened = open();
+                    let Ok(mut state) = STATE.lock() else {
+                        return;
+                    };
+                    state.opening = false;
+                    match opened {
+                        // Sound was turned off while the device opened.
+                        Ok(output) if !enabled() => {
+                            let _ = output.stop.send(());
+                        }
+                        Ok(output) => {
+                            state.report = Some(format!(
+                                "sound: {} Hz, asking for {BUFFER_FRAMES}-frame buffers ({:.1} ms)",
+                                output.rate,
+                                BUFFER_FRAMES as f32 / output.rate * 1000.0
+                            ));
+                            state.levels = Levels::default();
+                            state.scene = None;
+                            state.output = Some(output);
+                            keep_levels(&mut state);
+                        }
+                        Err(error) => {
+                            state.failed = true;
+                            state.report =
+                                Some(format!("sound: could not open the output: {error}"));
+                        }
+                    }
+                });
+            if started.is_err() {
+                state.opening = false;
+                state.failed = true;
             }
         }
         state.output.as_ref()
@@ -542,10 +569,15 @@ pub mod player {
             let mut config = supported.config();
             config.buffer_size = buffer_size;
             let (commands, received) = mpsc::channel();
+            let (stop, stopped) = mpsc::channel::<()>();
+            // A device that goes away (headphones unplugged, Bluetooth
+            // switched, the default output changed) stops this stream:
+            // the thread ends, and the next sound opens the output afresh.
+            let broken = stop.clone();
             let stream = match format {
-                cpal::SampleFormat::F32 => build::<f32>(&device, config, received, rate),
-                cpal::SampleFormat::I16 => build::<i16>(&device, config, received, rate),
-                cpal::SampleFormat::I32 => build::<i32>(&device, config, received, rate),
+                cpal::SampleFormat::F32 => build::<f32>(&device, config, received, rate, broken),
+                cpal::SampleFormat::I16 => build::<i16>(&device, config, received, rate, broken),
+                cpal::SampleFormat::I32 => build::<i32>(&device, config, received, rate, broken),
                 other => Err(format!("the device wants {other} samples")),
             };
             let stream = match stream.and_then(|stream| {
@@ -558,7 +590,6 @@ pub mod player {
                     continue;
                 }
             };
-            let (stop, stopped) = mpsc::channel::<()>();
             if ready
                 .send(Ok(Output {
                     commands,
@@ -584,6 +615,7 @@ pub mod player {
         config: cpal::StreamConfig,
         commands: Receiver<Command>,
         rate: f32,
+        broken: Sender<()>,
     ) -> Result<cpal::Stream, String>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
@@ -635,7 +667,9 @@ pub mod player {
                         done += count;
                     }
                 },
-                |_| {},
+                move |_| {
+                    let _ = broken.send(());
+                },
                 None,
             )
             .map_err(|error| error.to_string())

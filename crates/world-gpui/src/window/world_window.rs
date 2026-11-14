@@ -287,6 +287,8 @@ pub(crate) struct Looking {
     /// when the last was saved.
     pub(crate) photographing: bool,
     pub(crate) photo_saved: Option<Instant>,
+    /// When the last photograph could not be saved.
+    pub(crate) photo_failed: Option<Instant>,
     /// A postcard being taken: the paper and caption drawn around the
     /// scene while the photograph is taken, and when the last was saved.
     pub(crate) postcard: Option<crate::postcard::Postcard>,

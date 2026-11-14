@@ -276,7 +276,10 @@ pub(crate) fn quit_after_saving(cx: &mut App) {
             gpui::PromptLevel::Critical,
             &message,
             Some(&detail),
-            &saving::QUIT_CHOICES,
+            &saving::QUIT_CHOICES
+                .map(|choice| ui::t(choice).to_string())
+                .each_ref()
+                .map(String::as_str),
             cx,
         );
         cx.spawn(async move |cx| {
@@ -380,7 +383,10 @@ impl WorldDocumentView {
             gpui::PromptLevel::Critical,
             &message,
             Some(&detail),
-            &saving::CLOSE_CHOICES,
+            &saving::CLOSE_CHOICES
+                .map(|choice| ui::t(choice).to_string())
+                .each_ref()
+                .map(String::as_str),
             cx,
         );
         cx.spawn_in(window, async move |this, cx| {

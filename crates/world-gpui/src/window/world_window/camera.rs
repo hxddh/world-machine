@@ -477,7 +477,11 @@ impl ProjectionView {
                 this.looking.photographing = false;
                 if saved {
                     this.looking.photo_saved = Some(Instant::now());
+                    this.looking.photo_failed = None;
                     this.cue(crate::Cue::Flip);
+                } else {
+                    // Never silently: the player pressed Photo.
+                    this.looking.photo_failed = Some(Instant::now());
                 }
                 cx.notify();
             });

@@ -242,15 +242,10 @@ impl WorldLibrary {
     /// a newer World Machine's) is an error, which the list shows as the
     /// reason it cannot be opened.
     fn load_summary(&self, id: &WorldDocumentId) -> Result<Option<DocumentSummary>, LibraryError> {
-        let bytes = match fs::read(self.path(id)) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(LibraryError::Io(error)),
-        };
-        let summary = WorldDocument::summary_from_bytes(&bytes)?
-            .ok_or_else(|| LibraryError::from(DocumentError::PreviewFile))?;
-        summary.writer.check()?;
-        Ok(Some(summary))
+        // The summary is at the start of the file: Home lists every World
+        // after each turn, so it reads that start, not years of history.
+        // A summary the start does not hold whole is read from the file.
+        summary_of_file(&self.path(id), SUMMARY_HEAD_BYTES)
     }
 
     fn load_file(&self, id: &WorldDocumentId) -> Result<Option<ReadFile>, LibraryError> {
@@ -1576,6 +1571,49 @@ pub fn backup_path(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// The summary at the start of the World file at `path`, read from its
+/// first `head_bytes`, or from the whole file when they do not hold it.
+fn summary_of_file(
+    path: &Path,
+    head_bytes: usize,
+) -> Result<Option<DocumentSummary>, LibraryError> {
+    let head = match read_head(path, head_bytes) {
+        Ok(head) => head,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(LibraryError::Io(error)),
+    };
+    let summary = if head.len() < head_bytes {
+        // The whole file.
+        WorldDocument::summary_from_bytes(&head)?
+    } else {
+        match WorldDocument::summary_from_bytes(&head) {
+            Ok(Some(summary)) => Some(summary),
+            // Cut off before its summary ends: read whole.
+            _ => match fs::read(path) {
+                Ok(bytes) => WorldDocument::summary_from_bytes(&bytes)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err(LibraryError::Io(error)),
+            },
+        }
+    };
+    let summary = summary.ok_or_else(|| LibraryError::from(DocumentError::PreviewFile))?;
+    summary.writer.check()?;
+    Ok(Some(summary))
+}
+
+/// How much of a World file's start Home reads for its summary.
+const SUMMARY_HEAD_BYTES: usize = 256 * 1024;
+
+/// Up to `limit` bytes from the start of the file at `path`.
+fn read_head(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(limit.min(64 * 1024));
+    File::open(path)?
+        .take(limit as u64)
+        .read_to_end(&mut head)?;
+    Ok(head)
+}
+
 /// Where the World file at `path` keeps its day backup:
 /// `<name>.world.day.bak` (see [`DAY_BACKUP_SUFFIX`]).
 pub fn day_backup_path(path: &Path) -> PathBuf {
@@ -2575,6 +2613,24 @@ mod tests {
         assert_eq!(unreadable.age, FormatAge::Current);
         assert!(unreadable.restorable);
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Home reads a World's summary from the start of its file, and from
+    /// the whole file when the start does not hold all of it.
+    #[test]
+    fn a_summary_is_read_from_the_head_or_the_whole_file() {
+        let root = temp_root("summary-head");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("harbour").unwrap();
+        library.save(&id, &mock_archive(7)).unwrap();
+        let path = library.path(&id);
+        let size = fs::metadata(&path).unwrap().len() as usize;
+        let whole = summary_of_file(&path, size + 1).unwrap().unwrap();
+        assert_eq!(whole.world_time, 7);
+        for head in [16, size / 2, size] {
+            assert_eq!(summary_of_file(&path, head).unwrap().unwrap(), whole);
+        }
         let _ = fs::remove_dir_all(root);
     }
 
