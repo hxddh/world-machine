@@ -13,7 +13,7 @@
 //! switched off.
 
 use gpui::{
-    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement,
+    div, prelude::*, px, rems, size, App, AppContext, Bounds, Context, Entity, IntoElement,
     PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use std::path::Path;
@@ -581,9 +581,10 @@ fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
             gpui::Toggled::False
         })
         .flex_shrink_0()
-        .w(px(38.0))
-        .h(px(22.0))
-        .p(px(2.0))
+        // In rems, so a switch grows with the text it sits beside.
+        .w(rems(2.375))
+        .h(rems(1.375))
+        .p(rems(0.125))
         .rounded_full()
         .cursor_pointer()
         .bg(ui::color(if on {
@@ -595,7 +596,7 @@ fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
         .when(on, |track| track.justify_end())
         .child(
             div()
-                .size(px(18.0))
+                .size(rems(1.125))
                 .rounded_full()
                 .bg(ui::color(tokens::SURFACE)),
         )
@@ -723,6 +724,9 @@ fn chip(id: SharedString, label: String, selected: bool) -> gpui::Stateful<gpui:
             tokens::SURFACE
         }))
         .text_sm()
+        // A chip's words never break ("100%" wrapped as "10 / 0%").
+        .whitespace_nowrap()
+        .flex_shrink_0()
         .role(gpui::Role::RadioButton)
         .aria_selected(selected)
         .aria_label(label.clone())
@@ -844,7 +848,7 @@ impl SettingsView {
             div()
                 .id(SharedString::from(format!("{}-{id}", level.id())))
                 .flex_shrink_0()
-                .size(px(22.0))
+                .size(rems(1.375))
                 .rounded_md()
                 .border_1()
                 .border_color(ui::color(tokens::BORDER_STRONG))
@@ -866,19 +870,30 @@ impl SettingsView {
                 .role(gpui::Role::Slider)
                 .aria_label(ui::t(name))
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap_3()
-                .child(row(name, what))
-                .child(nudge("down", "−", false))
-                .child(steps)
-                .child(nudge("up", "+", true))
+                // The words keep a readable width; at large text the
+                // level goes under them rather than squeezing them.
+                .child(row(name, what).min_w(rems(12.0)))
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
                         .flex_shrink_0()
-                        .w(px(40.0))
-                        .text_sm()
-                        .text_color(ui::color(tokens::TEXT_SECONDARY))
-                        .child(format!("{percent}%")),
+                        .child(nudge("down", "−", false))
+                        .child(steps)
+                        .child(nudge("up", "+", true))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .min_w(rems(2.75))
+                                .whitespace_nowrap()
+                                .text_sm()
+                                .text_color(ui::color(tokens::TEXT_SECONDARY))
+                                .child(format!("{percent}%")),
+                        ),
                 ),
         )
     }

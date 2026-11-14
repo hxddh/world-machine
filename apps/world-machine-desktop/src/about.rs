@@ -522,7 +522,8 @@ impl Render for HelpView {
         }
         let mut lines = div().flex().flex_col().gap_2();
         for line in shell::HELP_LINES {
-            lines = lines.child(ui::body(ui::t(*line)));
+            // "⌘I" is "Ctrl+I" off a Mac.
+            lines = lines.child(ui::body(ui::keys_here(&ui::t(*line))));
         }
         let copy_label = if self.copied {
             "Copied"

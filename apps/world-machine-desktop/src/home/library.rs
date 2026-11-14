@@ -434,7 +434,7 @@ impl WorldMachineHome {
         let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
-            let mut without_dialog = false;
+            let without_dialog;
             let destination = match save_dialog.await {
                 Ok(Ok(Some(path))) => {
                     // The dialog asked about replacing the file it named;

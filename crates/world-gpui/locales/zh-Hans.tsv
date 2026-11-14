@@ -212,18 +212,14 @@ Preparing {title} for its first launch…	正在为 {title} 准备首次启动�
 Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…	正在测试受信任的包 {} @ {} · 创建 → 归档 → 全新进程打开…
 Installed Packs catalog is unavailable	已安装的包目录不可用
 {title} is installed and ready.	{title} 已安装并准备就绪。
-Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}	包 {} @ {} 通过了持久性检测，但注册表重建失败：{error}
-Pack {} @ {} passed its durable probe, but could not be enabled: {error}	包 {} @ {} 通过了持久性检测，但无法启用：{error}
 Installed and trusted {} @ {}, but its durable activation probe failed.	已安装并信任 {} @ {}，但其持久性激活检测失败。
 The Pack remains disabled: {error}	该包仍处于禁用状态：{error}
 Start your first World	开启你的第一个世界
 Pack installation cancelled; no external code was installed.	包安装已取消;未安装任何外部代码。
 Activated {} @ {} for new Worlds	已为新世界启用 {} @ {}
-Changed active Pack to {} @ {}, but Registry rebuild failed: {error}	已将当前包切换为 {} @ {}，但注册表重建失败：{error}
 Could not activate {} @ {}: {error}	无法启用 {} @ {}:{error}
 Enabled	已启用
 Disabled	已禁用
-Updated {} @ {}, but Registry rebuild failed: {error}	已更新 {} @ {}，但注册表重建失败：{error}
 Could not {} {} @ {}: {error}	无法{} {} @ {}:{error}
 Could not open World: {} @ {} should be available, but is not registered	无法打开世界：{} @ {} 应该可用，但尚未注册
 Could not open World: {} @ {} is installed but disabled.	无法打开世界：{} @ {} 已安装但已禁用。
@@ -285,7 +281,6 @@ Identity	身份
 Nothing from this Pack has run yet.	这个包中还没有任何内容运行过。
 Trusting it approves exactly these bytes, then your World opens once its self-test passes.	信任它意味着仅批准这些确切的字节内容，自检通过后，你的世界才会打开。
 Trusting it approves exactly these bytes; any other version is refused.	信任它意味着仅批准这些确切的字节内容;其他任何版本都会被拒绝。
-Testing durable round-trip…	正在测试持久性往返…
 Active	已启用
 Historical · available for saved Worlds	历史版本 · 可用于已保存的世界
 Disabled · trusted, not runnable until tested	已禁用 · 已信任，测试通过前无法运行
@@ -960,3 +955,19 @@ Questions or problems? Report them on GitHub. Nothing is sent unless you send it
 If you like, send it to us: Send Report copies it and opens a new issue on GitHub in your browser. Paste it there; nothing goes until you post it.	如果愿意，可以把它发给我们：“发送报告”会复制这份报告，并在浏览器里打开 GitHub 上的新问题页面。把它粘贴进去；在你按下提交之前，什么都不会发出。
 The report is copied. Paste it into the new issue on GitHub.	报告已复制。请把它粘贴到 GitHub 上的新问题里。
 This World's file is damaged or incomplete.	这个世界的文件已损坏或不完整。
+A morning card opens each day: a letter, a find, and what was looked after overnight.	每天都从一张早晨卡片开始：一封信、一件发现，还有夜里被照料的东西。
+Today's choice is a card at the bottom. Up and down choose an answer; Enter takes it.	今天的选择是底部的一张卡片。用上下键选一个回答，按回车确定。
+Click someone to talk. Type anything, or pick one of the three things to ask under their answer.	点一个人就能和他们说话。随便输入什么，或者点他们回答下方的三个问题之一。
+A name at the top, such as Find Sofia, is a favour someone asked of you: click it to go to them.	顶部的名字（比如“去找索菲亚”）是有人托你办的事：点一下就会去找他们。
++ at the top makes something with your own hands: pick it, then click where it should stand. Take back undoes the latest.	顶部的 + 用你自己的双手做东西：选好之后，点你想放的地方。“收回”可以撤销最近的一件。
+When you are done for the day, let the day pass. After the first session's days, Goodnight ends the sitting until tomorrow.	今天玩够了，就选“让这一天过去”。第一次的几天过完后，说“晚安”，明天再见。
+Play freely, in Settings, lets the next day begin as soon as you want it.	在设置里打开“自由游玩”，下一天想什么时候开始都可以。
+Look closer with + and − at the left, or the scroll wheel.	用左边的 + 和 −，或者鼠标滚轮，可以拉近拉远。
+Esc puts away what is open. The menu at the top right has My Worlds, Settings and Help.	Esc 收起打开的东西。右上角的菜单里有“我的世界”、设置和帮助。
+{} @ {} works, but could not be loaded: {error}	{} @ {} 可以运行，但没能载入：{error}
+{} @ {} works, but could not be switched on: {error}	{} @ {} 可以运行，但没能打开：{error}
+Switched to {} @ {}, but it could not be loaded: {error}	已切换到 {} @ {}，但没能载入：{error}
+Updated {} @ {}, but it could not be loaded: {error}	已更新 {} @ {}，但没能载入：{error}
+Checking that it works…	正在检查能否正常运行…
+{} was updated, but could not be loaded: {error}	{} 已更新，但没能载入：{error}
+{} @ {} was installed, but did not pass its check, so it stays off: {error}	{} @ {} 已安装，但没有通过检查，所以保持关闭：{error}

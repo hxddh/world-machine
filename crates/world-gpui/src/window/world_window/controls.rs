@@ -577,6 +577,16 @@ impl ProjectionView {
         let command = event.keystroke.modifiers.platform || event.keystroke.modifiers.control;
         // While the player types, their keys are words, not moves.
         if self.typing(window, cx) {
+            // While words are being composed (Chinese or Japanese through
+            // an input method), Enter and Escape belong to the composing.
+            let composing = self
+                .looking
+                .say
+                .as_ref()
+                .is_some_and(|input| input.read(cx).composing());
+            if composing {
+                return;
+            }
             match key {
                 "enter" => self.say(cx),
                 "escape" => {

@@ -186,7 +186,7 @@ fn a_world_says_when_it_next_moves_on_its_own() {
     use world_gpui::i18n::Rest;
     assert_eq!(
         keeps_going_line(5 * 3600 + 10, "sol", Rest::Waits, false),
-        "Waits for you"
+        "Today is yours"
     );
     assert_eq!(
         keeps_going_line(9 * 3600, "day", Rest::Asleep, false),
@@ -202,7 +202,7 @@ fn a_world_says_when_it_next_moves_on_its_own() {
     );
     assert_eq!(
         keeps_going_line(0, "day", Rest::Waits, false),
-        "Waits for you"
+        "Today is yours"
     );
     for rest in [Rest::Waits, Rest::HeadingHome, Rest::Asleep] {
         assert_eq!(keeps_going_line(9 * 3600, "day", rest, true), "Play freely");

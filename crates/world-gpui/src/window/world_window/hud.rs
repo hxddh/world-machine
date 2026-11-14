@@ -3,6 +3,7 @@
 //! and a chapter's ending.
 
 use super::*;
+use gpui::rems;
 
 impl ProjectionView {
     /// Whether the player's hands have anything to do here.
@@ -213,8 +214,12 @@ impl ProjectionView {
                 .aria_expanded(open)
                 .cursor_pointer()
                 .when(open, |pill| pill.bg(color(tokens::ACCENT)))
-                .hover(|style| style.bg(color(tokens::SURFACE)))
-                .child(plus_glyph(open).size(px(16.0)))
+                // Open, the + is drawn in the surface colour: a surface
+                // under the pointer would hide it.
+                .when(!open, |pill| {
+                    pill.hover(|style| style.bg(color(tokens::SURFACE)))
+                })
+                .child(plus_glyph(open).size(rems(1.0)))
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx)));
             right = right.child(hint_under(handle, &[Pointer::Hands], cx));
         }
@@ -267,7 +272,7 @@ impl ProjectionView {
             .aria_keyshortcuts("Alt+Meta+S")
             .cursor_pointer()
             .hover(|style| style.bg(color(tokens::SURFACE)))
-            .child(strip_glyph().w(px(18.0)).h(px(16.0)))
+            .child(strip_glyph().w(rems(1.125)).h(rems(1.0)))
             .on_click(move |_, window, cx| {
                 pointers::used(Pointer::Strip);
                 show(window, cx);
@@ -292,6 +297,10 @@ impl ProjectionView {
                     .id("favour-handle")
                     .role(Role::Button)
                     .aria_label(favour.note.clone())
+                    // What the favour is, for whoever wonders what "Find
+                    // Sofia" asks of them.
+                    .tooltip(ui::tip(favour.note.clone()))
+                    .tooltip_show_delay(ui::TIP_DELAY)
                     .debug_selector(|| "favour-handle".into())
                     .cursor_pointer()
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -315,7 +324,7 @@ impl ProjectionView {
         .aria_expanded(self.looking.drawer)
         .cursor_pointer()
         .hover(|style| style.bg(color(tokens::SURFACE)))
-        .child(drawer_glyph().size(px(16.0)))
+        .child(drawer_glyph().size(rems(1.0)))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(cx)));
         right = right.child(hint_under(handle, &[Pointer::Drawer, Pointer::Letters], cx));
         div()
@@ -331,8 +340,11 @@ impl ProjectionView {
             // The gauges keep to their row; a handle added on the right
             // (a chip to take something back) wraps the handles, never
             // the gauges into a column.
+            // At large text the handles take a row of their own under the
+            // gauges rather than a narrow column beside them.
+            .flex_wrap()
             .child(gauges.flex_shrink_0())
-            .child(right.flex_1().min_w(px(0.0)).flex_wrap().justify_end())
+            .child(right.flex_1().min_w(rems(16.0)).flex_wrap().justify_end())
     }
 
     /// What the player's hands can make or do with `verb`, each thing
@@ -704,6 +716,12 @@ impl ProjectionView {
             ));
         }
         let id = command.id.clone();
+        // The day passing says what it does; "Choose" said nothing.
+        let choose_label: SharedString = if arrival::passes_day(command) {
+            command.title.clone().into()
+        } else {
+            "Choose".into()
+        };
         let actions = div()
             .flex()
             .items_center()
@@ -740,7 +758,7 @@ impl ProjectionView {
                 question.is_none() && command.unavailable.is_none(),
                 |actions| {
                     actions.child(
-                        ui::button("card-choose", "Choose", ButtonKind::Primary).on_click(
+                        ui::button("card-choose", choose_label, ButtonKind::Primary).on_click(
                             cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
                         ),
                     )

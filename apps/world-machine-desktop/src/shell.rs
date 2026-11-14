@@ -416,10 +416,16 @@ pub fn key_store_line(os: Os) -> &'static str {
 /// The short in-app Help page: how a World is played, a line each.
 pub const HELP_LINES: &[&str] = &[
     "Each day you come back, your World lives one more day. It is saved as you play.",
-    "Up and down choose a card; Enter takes it.",
-    "Look closer with + and −, a pinch, or the scroll wheel.",
+    "A morning card opens each day: a letter, a find, and what was looked after overnight.",
+    "Today's choice is a card at the bottom. Up and down choose an answer; Enter takes it.",
+    "Click someone to talk. Type anything, or pick one of the three things to ask under their answer.",
+    "A name at the top, such as Find Sofia, is a favour someone asked of you: click it to go to them.",
+    "+ at the top makes something with your own hands: pick it, then click where it should stand. Take back undoes the latest.",
+    "When you are done for the day, let the day pass. After the first session's days, Goodnight ends the sitting until tomorrow.",
+    "Play freely, in Settings, lets the next day begin as soon as you want it.",
+    "Look closer with + and − at the left, or the scroll wheel.",
     "The drawer: story, letters, keepsakes and the book (⌘I)",
-    "Esc puts away what is open.",
+    "Esc puts away what is open. The menu at the top right has My Worlds, Settings and Help.",
 ];
 
 /// Every line the shell shows, in English, on `os`: for the translation

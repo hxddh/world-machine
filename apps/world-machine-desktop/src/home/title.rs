@@ -269,12 +269,21 @@ impl WorldMachineHome {
                 .registry
                 .descriptor_for(&document.pack)
                 .map(|descriptor| descriptor.title.clone())
-                .unwrap_or_else(|| document.pack.id.clone());
+                .or_else(|| self.included_pack_title(&document.pack).map(str::to_string))
+                // Never a Pack's id ("world-machine.pocket-universe").
+                .unwrap_or_else(|| "World".to_string());
             let title = world_summary_title(document, &pack_title);
+            // The same day My Worlds and the World's window say: asleep,
+            // the day the player said goodnight to.
+            let lived = world_gpui::i18n::day_lived(
+                document.world_time,
+                document.display_calendar.as_ref(),
+                observer::asleep(document),
+            );
             let meta = world_card_meta(
                 &title,
                 &pack_title,
-                document.world_time,
+                lived,
                 document.display_calendar.as_ref(),
             );
             format!("{} · {meta}", ui::t(title))
@@ -357,6 +366,7 @@ impl WorldMachineHome {
             )
             .child(
                 div()
+                    .id("title-layout")
                     .absolute()
                     .top_0()
                     .left_0()
@@ -365,12 +375,16 @@ impl WorldMachineHome {
                     .flex_col()
                     .items_center()
                     // The name and the promise in the sky, the choices on
-                    // the shore, and the town between them.
+                    // the shore, and the town between them. At large text
+                    // they never squeeze onto each other: the page scrolls.
                     .justify_between()
+                    .gap_4()
+                    .overflow_y_scroll()
                     .pt(px(88.0))
                     .pb(px(84.0))
                     .child(
                         div()
+                            .flex_shrink_0()
                             .px_6()
                             .py_3()
                             .rounded_xl()
@@ -393,7 +407,7 @@ impl WorldMachineHome {
                                     .child(ui::t(shell::PROMISE)),
                             ),
                     )
-                    .child(buttons),
+                    .child(buttons.flex_shrink_0()),
             )
             .into_any_element()
     }
