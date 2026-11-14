@@ -22,6 +22,7 @@ The first stable 1.0, after `v1.0.0-pre.1` (2026-10-31). It is what a review of 
   - The title screen tells the same day as My Worlds and the World's window, and Home never shows a Pack's id.
   - "Today is yours" while a World's day is open (was "Waits for you"); the day-passing card's button says what it does (was "Choose").
   - Pack messages say "Checking that it works…" and "could not be loaded", not "durable round-trip" and "Registry rebuild".
+- **Making things.** Choosing a thing in the Make panel no longer builds it at once on whatever stood behind the tile: it asks for a spot, and stands where you click.
 - **At large text.** Settings, the title screen and the World's toolbar grow with the text: switches, glyphs and pills are sized in rems, volume rows wrap instead of squeezing, the title page scrolls instead of overlapping, and chips never break ("10 / 0%").
 - **Input methods.** Enter and Escape in the talk box belong to a Chinese or Japanese input method while it is composing.
 - **Failing in plain words, and recovering.**
