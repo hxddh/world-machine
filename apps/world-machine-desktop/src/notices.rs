@@ -55,7 +55,6 @@ pub fn every_line() -> Vec<&'static str> {
         KNOWN_ISSUES_TITLE,
         ACKNOWLEDGEMENTS_TITLE,
         "These notes are in English.",
-        "Help → Report a Problem… tells us about anything else.",
         "World Machine is built with the work of many others. Each piece of software below is used under the licence named over it.",
         "Every crate in Cargo.lock when the app was built, for every platform.",
     ];

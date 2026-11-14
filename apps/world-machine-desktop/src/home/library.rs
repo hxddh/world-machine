@@ -436,7 +436,14 @@ impl WorldMachineHome {
         cx.spawn(async move |this, cx| {
             let mut without_dialog = false;
             let destination = match save_dialog.await {
-                Ok(Ok(Some(path))) => canonical_world_path(path),
+                Ok(Ok(Some(path))) => {
+                    // The dialog asked about replacing the file it named;
+                    // a name the app had to end in .world was never asked
+                    // about, so that file is never replaced.
+                    let canonical = canonical_world_path(path.clone());
+                    without_dialog = canonical != path;
+                    canonical
+                }
                 Ok(Ok(None)) => return,
                 // No Save window on this computer: exported to Documents
                 // anyway, and Home says where.
@@ -477,14 +484,20 @@ impl WorldMachineHome {
             let _ = this.update(cx, |this, cx| {
                 // An open World is exported through its session, its latest
                 // turns written first.
+                // A file the save dialog chose was already agreed to be
+                // replaced; one the app chose itself never replaces anything.
                 let exported = match open_world_document(cx, &document_id) {
                     Some(document) => match document.try_borrow() {
-                        Ok(document) => document
+                        Ok(document) if without_dialog => document
                             .session
                             .export_file(&destination, &document.library),
+                        Ok(document) => document
+                            .session
+                            .export_chosen_file(&destination, &document.library),
                         Err(_) => Err(LibraryError::InUse(this.library.path(&document_id))),
                     },
-                    None => this.library.export_file(&document_id, &destination),
+                    None if without_dialog => this.library.export_file(&document_id, &destination),
+                    None => this.library.export_chosen_file(&document_id, &destination),
                 };
                 match exported {
                     Ok(()) if without_dialog => {

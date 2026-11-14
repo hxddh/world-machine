@@ -92,7 +92,13 @@ impl WorldMachineHome {
     /// only their program is brought up to the one this app ships.
     pub(crate) fn activate_included_packs(&mut self, cx: &mut Context<Self>) {
         let packs = self.included_packs.clone();
+        let builtin = crate::library_setup::builtin_pack_ids();
         for pack in packs {
+            // The app runs these Worlds itself: no Pack to install, test or
+            // launch, and nothing to wait for before New.
+            if builtin.contains(&pack.pack.id) {
+                continue;
+            }
             if self.included_pack_is_installed(&pack.pack) {
                 self.refresh_included_pack(&pack);
                 continue;
@@ -526,6 +532,10 @@ impl WorldMachineHome {
     }
 
     pub(crate) fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
+        // A World the app runs itself needs no Pack installed.
+        if crate::library_setup::builtin_pack_ids().contains(&pack.id) {
+            return true;
+        }
         self.pack_catalog.as_ref().is_some_and(|catalog| {
             catalog
                 .entries()

@@ -46,6 +46,7 @@ actions!(
         ImportWorld,
         InstallPack,
         RefreshLibrary,
+        ShowMyWorlds,
         OpenWorldCode,
         PasteWorldCode,
         // World menu, handled by the frontmost World window and greyed out
@@ -169,6 +170,7 @@ pub fn set_menus(cx: &mut App) {
             MenuItem::action("Paste World Code", PasteWorldCode),
             MenuItem::separator(),
             MenuItem::action("Refresh My Worlds", RefreshLibrary),
+            MenuItem::action("Show My Worlds", ShowMyWorlds),
         ]),
         Menu::new("World").items([
             MenuItem::action("Save As…", SaveWorldAs),

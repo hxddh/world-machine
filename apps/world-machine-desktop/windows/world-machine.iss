@@ -45,6 +45,8 @@ UninstallDisplayIcon={app}\World Machine.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; Double-clicking a .world or .worldcode file opens it in World Machine.
+ChangesAssociations=yes
 ; The player's Worlds live under %APPDATA%\World Machine and are never
 ; removed by uninstalling.
 
@@ -65,6 +67,18 @@ Source: "{#StageDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\World Machine"; Filename: "{app}\World Machine.exe"; IconFilename: "{app}\World Machine.ico"
 Name: "{autodesktop}\World Machine"; Filename: "{app}\World Machine.exe"; IconFilename: "{app}\World Machine.ico"; Tasks: desktopicon
+
+[Registry]
+; File types, per user or for all users as the install is (HKA). The app
+; reads the file from its command line (src/system_open.rs).
+Root: HKA; Subkey: "Software\Classes\.world"; ValueType: string; ValueName: ""; ValueData: "WorldMachine.World"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\WorldMachine.World"; ValueType: string; ValueName: ""; ValueData: "World Machine World"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\WorldMachine.World\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\World Machine.ico"
+Root: HKA; Subkey: "Software\Classes\WorldMachine.World\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\World Machine.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.worldcode"; ValueType: string; ValueName: ""; ValueData: "WorldMachine.WorldCode"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\WorldMachine.WorldCode"; ValueType: string; ValueName: ""; ValueData: "World Machine World Code"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\WorldMachine.WorldCode\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\World Machine.ico"
+Root: HKA; Subkey: "Software\Classes\WorldMachine.WorldCode\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\World Machine.exe"" ""%1"""
 
 [Run]
 Filename: "{app}\World Machine.exe"; Description: "{cm:LaunchProgram,World Machine}"; Flags: nowait postinstall skipifsilent

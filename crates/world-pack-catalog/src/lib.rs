@@ -477,10 +477,20 @@ impl PackCatalog {
     /// The returned ProcessPack values also carry the stored pins, so the same
     /// content check runs again immediately before each child process launch.
     pub fn trusted_source(&self) -> Result<ProcessPackSource, CatalogError> {
+        self.trusted_source_except(&BTreeSet::new())
+    }
+
+    /// The trusted source without the Packs whose ids are in `skip`: the
+    /// Worlds the app runs inside itself, which a Pack process would
+    /// only stand in for (and which are not verified or launched).
+    pub fn trusted_source_except(
+        &self,
+        skip: &BTreeSet<String>,
+    ) -> Result<ProcessPackSource, CatalogError> {
         let mut entries = self
             .entries
             .iter()
-            .filter(|entry| entry.enabled)
+            .filter(|entry| entry.enabled && !skip.contains(&entry.pack.id))
             .collect::<Vec<_>>();
         // Host intentionally makes the last registration for one Pack id active.
         // We only use ordering to encode the catalog's explicit `active` bit;
@@ -504,12 +514,36 @@ impl PackCatalog {
             if !entry.enabled {
                 return PackAvailability::Disabled;
             }
-            return match self.verified_pack(entry) {
+            // Home asks on every redraw, and verifying hashes the whole
+            // Pack program: the answer is kept while neither file changes.
+            let stamps = (
+                file_stamp(&entry.manifest_path),
+                file_stamp(&entry.command_path),
+            );
+            let key = (entry.manifest_path.clone(), entry.command_path.clone());
+            if let (Some(_), Some(_)) = stamps {
+                if let Some((cached_stamps, availability)) = availability_cache()
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(&key).cloned())
+                {
+                    if cached_stamps == stamps {
+                        return availability;
+                    }
+                }
+            }
+            let availability = match self.verified_pack(entry) {
                 Ok(_) => PackAvailability::Ready,
                 Err(error) => PackAvailability::Invalid {
                     reason: error.to_string(),
                 },
             };
+            if let (Some(_), Some(_)) = stamps {
+                if let Ok(mut cache) = availability_cache().lock() {
+                    cache.insert(key, (stamps, availability.clone()));
+                }
+            }
+            return availability;
         }
 
         let mut installed_versions = self
@@ -1302,6 +1336,26 @@ impl Error for CatalogError {}
 /// A digest written as lowercase hexadecimal.
 fn lower_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A file's length and modification time: what tells a cached answer
+/// about it from a stale one.
+type FileStamp = (u64, std::time::SystemTime);
+
+type AvailabilityCache = std::collections::HashMap<
+    (PathBuf, PathBuf),
+    ((Option<FileStamp>, Option<FileStamp>), PackAvailability),
+>;
+
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+fn availability_cache() -> &'static std::sync::Mutex<AvailabilityCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<AvailabilityCache>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
 }
 
 #[cfg(test)]

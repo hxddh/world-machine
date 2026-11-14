@@ -21,6 +21,21 @@ fn finder_knows_every_file_the_app_opens_and_what_it_is() {
     // What Finder hands the app goes down the Open menu's own paths.
     assert!(sharing::is_world_code_file(Path::new("/tmp/a.worldcode")));
     assert!(is_world_file(Path::new("/tmp/a.world")));
+    assert!(is_world_file(Path::new("/tmp/A.WORLD")));
+    // A name with a dot in it keeps it.
+    assert_eq!(
+        canonical_world_path(PathBuf::from("/tmp/St. Ives")),
+        PathBuf::from("/tmp/St. Ives.world")
+    );
+    assert_eq!(
+        canonical_world_path(PathBuf::from("/tmp/Harbour.World")),
+        PathBuf::from("/tmp/Harbour.World")
+    );
+    // A name in any script is kept as the World's id; a device name of
+    // Windows is not.
+    assert_eq!(sanitize_document_base("港町"), "港町");
+    assert_eq!(sanitize_document_base("con"), "con-world");
+    assert_eq!(sanitize_document_base(".hidden."), "hidden");
     let (url, path) = if cfg!(windows) {
         (
             "file:///C:/tmp/Leo%27s%20town.worldcode",

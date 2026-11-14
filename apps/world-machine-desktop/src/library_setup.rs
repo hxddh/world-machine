@@ -39,21 +39,22 @@ pub(crate) fn discover_pack_catalog_path(library: &WorldLibrary) -> PathBuf {
 
 /// The Worlds this app can create and open.
 ///
-/// Installed Packs go in first and the in-process copies only fill the gaps
-/// they leave. The two overlap: a World that ships as a real Pack is also
-/// compiled into this binary, and the Host refuses to register one Pack id and
-/// version twice — rightly, since two registrations claiming to be the same
-/// Pack version cannot both be it. Installing the built-ins first made that
-/// collision fail the Pack the observer actually installed, so Home reported a
-/// Registry rebuild failure on every launch and the installed Pack never
-/// became reachable. An installed Pack is the one that wins.
+/// The Worlds compiled into this binary (Tiny Society) run inside the app
+/// and always win: a turn is a function call, never a round trip to a
+/// child process that can time out and leave the World dead. Installed
+/// Packs fill in the Worlds the app does not carry (Pocket Universe and
+/// any external Pack); an installed copy of a built-in World is never
+/// verified or launched.
 pub(crate) fn build_registry(
     catalog: Option<&PackCatalog>,
 ) -> Result<world_host::WorldRegistry, String> {
     let mut registry = world_host::WorldRegistry::new();
+    registry
+        .install_source(&world_builtins::BuiltinWorlds)
+        .map_err(|error| error.to_string())?;
     if let Some(catalog) = catalog {
         let source = catalog
-            .trusted_source()
+            .trusted_source_except(builtin_pack_ids())
             .map_err(|error| error.to_string())?;
         let source = world_voice::with_settings(source, world_voice::pack_settings());
         let source = world_voice::with_crash_logs(
@@ -61,11 +62,27 @@ pub(crate) fn build_registry(
             crate::diagnostics::crash_log_dir().map(|dir| dir.join("Packs")),
         );
         registry
-            .install_source(&source)
+            .install_fallback_source(&source)
             .map_err(|error| error.to_string())?;
     }
-    registry
-        .install_fallback_source(&world_builtins::BuiltinWorlds)
-        .map_err(|error| error.to_string())?;
     Ok(registry)
+}
+
+/// The ids of the Worlds this binary runs itself.
+/// Worked out once: Home asks on every redraw.
+pub(crate) fn builtin_pack_ids() -> &'static std::collections::BTreeSet<String> {
+    use world_host::WorldPackSource;
+    static IDS: std::sync::OnceLock<std::collections::BTreeSet<String>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        world_builtins::BuiltinWorlds
+            .registrations()
+            .map(|registrations| {
+                registrations
+                    .into_iter()
+                    .map(|registration| registration.descriptor.pack.id)
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
 }

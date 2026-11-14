@@ -169,7 +169,7 @@ impl WorldMachineHome {
 
     fn pick(&mut self, item: MenuItem, window: &mut Window, cx: &mut Context<Self>) {
         self.menu_open = false;
-        if !app_menu::run_app_item(item, window, cx) {
+        if !app_menu::run_app_item(item, window, cx) && item == MenuItem::SaveAs {
             self.save_continue_copy(cx);
         }
         cx.notify();

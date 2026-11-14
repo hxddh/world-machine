@@ -315,6 +315,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             home
         });
         about::install_home_actions(&home, cx);
+        // My Worlds, from any World's window: Home's library, brought to
+        // the front, or opened again if it was closed.
+        cx.on_action(|_: &about::ShowMyWorlds, cx| show_my_worlds(cx));
         cx.set_global(HomeEntity(home.clone()));
         open_home_window(home, cx);
         cx.set_reduce_motion(reduce_motion);
@@ -370,6 +373,30 @@ fn restore_home_if_nothing_open(cx: &mut App) {
         if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
             open_home_window(home, cx);
         }
+    }
+}
+
+/// Home's library in front: its window raised if it is open, opened if
+/// it is not.
+#[cfg(gui)]
+fn show_my_worlds(cx: &mut App) {
+    let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) else {
+        return;
+    };
+    home.update(cx, |home, cx| {
+        home.view = HomeView::Library;
+        home.menu_open = false;
+        cx.notify();
+    });
+    let open = cx
+        .windows()
+        .into_iter()
+        .find_map(|window| window.downcast::<WorldMachineHome>());
+    match open {
+        Some(window) => {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        }
+        None => open_home_window(home, cx),
     }
 }
 

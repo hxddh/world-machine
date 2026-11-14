@@ -115,17 +115,27 @@ pub(crate) fn unique_document_id(
 }
 
 pub(crate) fn sanitize_document_base(value: &str) -> String {
-    value
+    let base = value
         .chars()
         .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+            if ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.') {
                 ch
             } else {
                 '-'
             }
         })
-        .take(80)
-        .collect()
+        .take(40)
+        .collect::<String>();
+    // Never hidden, never ending in a dot, and never a name Windows keeps
+    // for a device.
+    let base = base.trim_matches('.').to_string();
+    if WorldDocumentId::new(base.clone()).is_ok() {
+        base
+    } else if base.is_empty() {
+        base
+    } else {
+        format!("{base}-world")
+    }
 }
 
 pub(crate) fn suggested_world_file_name(semantic_title: &str, fallback_label: &str) -> String {
@@ -162,17 +172,22 @@ pub(crate) fn canonical_world_path(mut path: PathBuf) -> PathBuf {
         return path;
     };
 
-    if file_name.ends_with(WORLD_DOCUMENT_SUFFIX) {
+    if file_name
+        .to_ascii_lowercase()
+        .ends_with(WORLD_DOCUMENT_SUFFIX)
+    {
         return path;
     }
-    path.set_extension("world");
+    // Added, never swapped for what follows a dot: "St. Ives" is
+    // "St. Ives.world", not "St.world".
+    path.set_file_name(format!("{file_name}{WORLD_DOCUMENT_SUFFIX}"));
     path
 }
 
 pub(crate) fn is_world_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(WORLD_DOCUMENT_SUFFIX))
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(WORLD_DOCUMENT_SUFFIX))
 }
 
 pub(crate) fn is_world_pack_file(path: &Path) -> bool {

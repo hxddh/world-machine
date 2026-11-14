@@ -110,6 +110,7 @@ fn a_world_the_save_contract_refuses_is_not_offered_its_backup() {
     }
     // Nothing wrong but a missing backup: not offered either.
     fs::remove_file(world_library::backup_path(&path)).unwrap();
+    let _ = fs::remove_file(world_library::day_backup_path(&path));
     let damaged = LibraryError::Io(std::io::Error::other("damaged"));
     assert!(!offers_restore(&damaged, &path));
     let _ = fs::remove_dir_all(root);
