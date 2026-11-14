@@ -133,7 +133,7 @@ impl WorldMachineHome {
             .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
             .or_else(|| self.included_pack_title(&document.pack).map(str::to_string))
-            // Never a Pack's id ("world-machine.pocket-universe").
+            // Never a Pack's id.
             .unwrap_or_else(|| "World".to_string());
         let title = self.distinct_title(&document, &pack_title);
         let document_label = document.id.to_string();
@@ -745,7 +745,7 @@ impl WorldMachineHome {
                 .any(|included| included.featured && included.pack.id == descriptor.pack.id)
         });
         // The demo offers its one Pack, and no other. An included Pack that
-        // is not featured (Pocket Universe) is not part of this release:
+        // is not featured is not part of this release:
         // its Worlds still open, but New does not offer it.
         for descriptor in descriptors
             .into_iter()

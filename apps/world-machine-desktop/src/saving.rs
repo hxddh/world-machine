@@ -145,7 +145,7 @@ mod tests {
             catalog.extend(app);
             for line in every_line() {
                 // A line with a slot is translated as it is shown, filled.
-                let line = &line.replace("{name}", "Harbour").replace("{count}", "2");
+                let line = &line.replace("{name}", "Meadow").replace("{count}", "2");
                 let shown = catalog.translate(line);
                 assert!(
                     shown.as_deref().is_some_and(|shown| shown != line),

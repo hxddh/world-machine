@@ -270,7 +270,7 @@ impl WorldMachineHome {
                 .descriptor_for(&document.pack)
                 .map(|descriptor| descriptor.title.clone())
                 .or_else(|| self.included_pack_title(&document.pack).map(str::to_string))
-                // Never a Pack's id ("world-machine.pocket-universe").
+                // Never a Pack's id.
                 .unwrap_or_else(|| "World".to_string());
             let title = world_summary_title(document, &pack_title);
             // The same day My Worlds and the World's window say: asleep,

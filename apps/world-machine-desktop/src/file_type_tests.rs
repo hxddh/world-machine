@@ -28,8 +28,8 @@ fn finder_knows_every_file_the_app_opens_and_what_it_is() {
         PathBuf::from("/tmp/St. Ives.world")
     );
     assert_eq!(
-        canonical_world_path(PathBuf::from("/tmp/Harbour.World")),
-        PathBuf::from("/tmp/Harbour.World")
+        canonical_world_path(PathBuf::from("/tmp/Meadow.World")),
+        PathBuf::from("/tmp/Meadow.World")
     );
     // A name in any script is kept as the World's id; a device name of
     // Windows is not.

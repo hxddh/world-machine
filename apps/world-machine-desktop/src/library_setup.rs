@@ -39,11 +39,11 @@ pub(crate) fn discover_pack_catalog_path(library: &WorldLibrary) -> PathBuf {
 
 /// The Worlds this app can create and open.
 ///
-/// The Worlds compiled into this binary (Tiny Society) run inside the app
+/// The Worlds compiled into this binary run inside the app
 /// and always win: a turn is a function call, never a round trip to a
 /// child process that can time out and leave the World dead. Installed
-/// Packs fill in the Worlds the app does not carry (Pocket Universe and
-/// any external Pack); an installed copy of a built-in World is never
+/// Packs fill in the Worlds the app does not carry (the other included
+/// Packs and any external one); an installed copy of a built-in World is never
 /// verified or launched.
 pub(crate) fn build_registry(
     catalog: Option<&PackCatalog>,

@@ -91,7 +91,7 @@ mod tests {
     fn a_command_line_names_only_existing_files() {
         let dir = std::env::temp_dir().join(format!("wm-args-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("Harbour.world");
+        let file = dir.join("Meadow.world");
         std::fs::write(&file, b"x").unwrap();
         let found = files_from_args([
             std::ffi::OsString::from("-psn_0_12345"),

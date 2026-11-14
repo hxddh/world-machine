@@ -2599,7 +2599,7 @@ mod tests {
     fn an_emptied_world_file_offers_its_backup() {
         let root = temp_root("emptied");
         let library = WorldLibrary::new(root.clone());
-        let id = WorldDocumentId::new("harbour").unwrap();
+        let id = WorldDocumentId::new("meadow").unwrap();
         library.save(&id, &mock_archive(1)).unwrap();
         library.save(&id, &mock_archive(2)).unwrap();
         fs::write(library.path(&id), b"").unwrap();
@@ -2622,7 +2622,7 @@ mod tests {
     fn a_summary_is_read_from_the_head_or_the_whole_file() {
         let root = temp_root("summary-head");
         let library = WorldLibrary::new(root.clone());
-        let id = WorldDocumentId::new("harbour").unwrap();
+        let id = WorldDocumentId::new("meadow").unwrap();
         library.save(&id, &mock_archive(7)).unwrap();
         let path = library.path(&id);
         let size = fs::metadata(&path).unwrap().len() as usize;
