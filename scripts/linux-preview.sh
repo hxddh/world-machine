@@ -13,9 +13,10 @@
 # system appearance differ from a Mac, and nothing macOS-specific (keychain,
 # Finder open events, menus) is exercised.
 #
-# Needs: xvfb-run, xdotool, x11-utils (xwininfo, xwd), imagemagick, and the
-# GPUI Linux build dependencies (libxkbcommon-x11-dev, libvulkan-dev,
-# mesa-vulkan-drivers for a software renderer).
+# Needs: xvfb-run, xdotool, x11-utils (xwininfo), x11-apps (xwd),
+# imagemagick, libasound2-dev (the sound output), and the GPUI Linux build
+# dependencies (libxkbcommon-x11-dev, libvulkan-dev, mesa-vulkan-drivers for
+# a software renderer).
 #
 # Usage:
 #   [APPEARANCE=dark] [AWAY_HOURS=N] [FRESH=1] [HOUR=N] scripts/linux-preview.sh [output-dir] [click-x click-y]...

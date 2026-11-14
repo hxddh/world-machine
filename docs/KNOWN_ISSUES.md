@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v1.0.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app, which opens a new issue on GitHub. There is no support e-mail address yet, so support is through [GitHub Issues](https://github.com/hxddh/world-machine/issues).
+Current as of `v1.0.0` in the [changelog](../CHANGELOG.md). Report anything else with **Report a Problem…** in Help (in the app's menu on every computer), which opens a new issue on GitHub. There is no support e-mail address yet, so support is through [GitHub Issues](https://github.com/hxddh/world-machine/issues).
 
 ## Installation
 
@@ -12,7 +12,7 @@ Current as of `v1.0.0` in the [changelog](../CHANGELOG.md). Report anything else
 ## Using Worlds
 
 - **No World, World code or save from a v0.x preview opens (1.0's save contract).** 1.0 starts its own save format: a preview's World says "This World is from a preview version and can't be opened." and is listed on Home with that reason; its file is not touched. A World saved by a newer World Machine (or a newer Pack) is refused with "This World was saved by a newer World Machine. Update to open it.", never opened in part and never written over. The rule is in [SAVES.md](SAVES.md).
-- **A World whose file will not load can go back to its last good save.** Every save keeps the one before as `<name>.world.bak`; Home offers **Restore the last good save** when that backup opens. The damaged file is kept beside it as `<name>.world.damaged`. Only the one save before the last is kept.
+- **A World whose file will not load can go back to its last good save.** Every save keeps the one before as `<name>.world.bak`, and once a day the file as it was as `<name>.world.day.bak`; Home offers **Restore the last good save** when either opens. The damaged file is kept beside it as `<name>.world.damaged`. Nothing older than the day backup is kept.
 
 - **Removing a World that is open in a window is refused.** Close its window first. Renaming and exporting an open World from Home go through its window.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
