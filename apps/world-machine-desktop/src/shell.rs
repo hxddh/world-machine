@@ -210,7 +210,11 @@ pub fn step(len: usize, at: usize, step: Step) -> usize {
 pub enum MenuItem {
     Settings,
     About,
+    MyWorlds,
+    ImportWorld,
+    InstallPack,
     SaveAs,
+    ReloadWorld,
     CopyWorldCode,
     SaveWorldCode,
     OpenWorldCode,
@@ -226,7 +230,11 @@ impl MenuItem {
         match self {
             Self::Settings => "Settings…",
             Self::About => "About World Machine…",
+            Self::MyWorlds => "My Worlds",
+            Self::ImportWorld => "Import World…",
+            Self::InstallPack => "Install World Pack…",
             Self::SaveAs => "Save As…",
+            Self::ReloadWorld => "Reload from Disk",
             Self::CopyWorldCode => "Copy World Code",
             Self::SaveWorldCode => "Save World Code…",
             Self::OpenWorldCode => "Open World Code…",
@@ -241,7 +249,11 @@ impl MenuItem {
         match self {
             Self::Settings => "app-menu-settings",
             Self::About => "app-menu-about",
+            Self::MyWorlds => "app-menu-my-worlds",
+            Self::ImportWorld => "app-menu-import-world",
+            Self::InstallPack => "app-menu-install-pack",
             Self::SaveAs => "app-menu-save-as",
+            Self::ReloadWorld => "app-menu-reload-world",
             Self::CopyWorldCode => "app-menu-copy-world-code",
             Self::SaveWorldCode => "app-menu-save-world-code",
             Self::OpenWorldCode => "app-menu-open-world-code",
@@ -256,7 +268,8 @@ impl MenuItem {
     pub fn group(self) -> MenuGroup {
         match self {
             Self::Settings | Self::About => MenuGroup::App,
-            Self::SaveAs => MenuGroup::World,
+            Self::MyWorlds | Self::ImportWorld | Self::InstallPack => MenuGroup::Library,
+            Self::SaveAs | Self::ReloadWorld => MenuGroup::World,
             Self::CopyWorldCode
             | Self::SaveWorldCode
             | Self::OpenWorldCode
@@ -286,6 +299,7 @@ impl MenuItem {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuGroup {
     App,
+    Library,
     World,
     WorldCodes,
     Help,
@@ -319,13 +333,23 @@ pub enum MenuPlace {
 pub fn app_menu(place: MenuPlace) -> Vec<MenuItem> {
     let mut items = vec![MenuItem::Settings, MenuItem::About];
     match place {
+        // A World's window goes back to the library from here, on every
+        // platform: no menu bar is needed to reach Home, import a World
+        // or reload one whose Pack stopped.
         MenuPlace::World => items.extend([
+            MenuItem::MyWorlds,
+            MenuItem::ImportWorld,
             MenuItem::SaveAs,
+            MenuItem::ReloadWorld,
             MenuItem::CopyWorldCode,
             MenuItem::SaveWorldCode,
         ]),
-        MenuPlace::Home { has_world: true } => items.push(MenuItem::SaveAs),
-        MenuPlace::Home { has_world: false } => {}
+        MenuPlace::Home { has_world } => {
+            items.extend([MenuItem::ImportWorld, MenuItem::InstallPack]);
+            if has_world {
+                items.push(MenuItem::SaveAs);
+            }
+        }
     }
     items.extend([
         MenuItem::OpenWorldCode,
@@ -392,10 +416,16 @@ pub fn key_store_line(os: Os) -> &'static str {
 /// The short in-app Help page: how a World is played, a line each.
 pub const HELP_LINES: &[&str] = &[
     "Each day you come back, your World lives one more day. It is saved as you play.",
-    "Up and down choose a card; Enter takes it.",
-    "Look closer with + and −, a pinch, or the scroll wheel.",
+    "A morning card opens each day: a letter, a find, and what was looked after overnight.",
+    "Today's choice is a card at the bottom. Up and down choose an answer; Enter takes it.",
+    "Click someone to talk. Type anything, or pick one of the three things to ask under their answer.",
+    "A name at the top, such as Find Sofia, is a favour someone asked of you: click it to go to them.",
+    "+ at the top makes something with your own hands: pick it, then click where it should stand. Take back undoes the latest.",
+    "When you are done for the day, let the day pass. After the first session's days, Goodnight ends the sitting until tomorrow.",
+    "Play freely, in Settings, lets the next day begin as soon as you want it.",
+    "Look closer with + and − at the left, or the scroll wheel.",
     "The drawer: story, letters, keepsakes and the book (⌘I)",
-    "Esc puts away what is open.",
+    "Esc puts away what is open. The menu at the top right has My Worlds, Settings and Help.",
 ];
 
 /// Every line the shell shows, in English, on `os`: for the translation

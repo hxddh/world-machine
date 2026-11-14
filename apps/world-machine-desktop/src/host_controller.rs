@@ -158,7 +158,7 @@ impl world_gpui::ProjectionController for HostProjectionController {
         let result = document
             .session
             .handle(intent, &registry, &library)
-            .map_err(|error| error.to_string());
+            .map_err(|error| plain_turn_error(&error.to_string()));
         if result.is_ok() && is_library_world {
             mark_library_changed();
         }
@@ -175,3 +175,17 @@ impl world_gpui::ProjectionController for HostProjectionController {
         result
     }
 }
+
+/// What a turn that failed says to the player. A World run by a Pack
+/// program that stopped or stopped answering (crashed, timed out) says
+/// how to go on, never the protocol's own words, which go to the log.
+fn plain_turn_error(error: &str) -> String {
+    if error.contains("external Pack") || error.contains("stdin is closed") {
+        diagnostics::error(format!("turn: {error}"));
+        return ui::t(PACK_STOPPED).to_string();
+    }
+    error.to_string()
+}
+
+const PACK_STOPPED: &str =
+    "This World's program stopped. Choose Reload from Disk in the menu to go on.";

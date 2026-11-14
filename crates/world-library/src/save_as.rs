@@ -20,6 +20,24 @@ impl DurableWorldSession {
         &mut self,
         destination: PathBuf,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        self.save_as(destination, false)
+    }
+
+    /// [`Self::save_as_file`] to a file the player chose in a save dialog,
+    /// which has already asked whether to replace one that is there: that
+    /// file is replaced whole, unless a World open somewhere is using it.
+    pub fn save_as_chosen_file(
+        &mut self,
+        destination: PathBuf,
+    ) -> Result<ProjectionSnapshot, LibraryError> {
+        self.save_as(destination, true)
+    }
+
+    fn save_as(
+        &mut self,
+        destination: PathBuf,
+        replace: bool,
+    ) -> Result<ProjectionSnapshot, LibraryError> {
         // The new file is this World's alone from before it is written.
         let lock = Lock::take_new(&destination)?;
         let mut archive = required_archive(self.session.as_ref())?;
@@ -28,7 +46,7 @@ impl DurableWorldSession {
             archive,
             metadata: self.metadata.clone(),
         };
-        let revision = write_new_document_file(&destination, &document)?;
+        let revision = write_new_document_file(&destination, &document, replace)?;
 
         // What was handed over for the old file is written if it can be;
         // the World goes on in the new one either way, its writer and what
@@ -42,14 +60,20 @@ impl DurableWorldSession {
 fn write_new_document_file(
     path: &Path,
     document: &WorldDocument,
+    replace: bool,
 ) -> Result<DocumentRevision, LibraryError> {
-    if path.try_exists()? {
+    let exists = path.try_exists()?;
+    if exists && !replace {
         return Err(LibraryError::ExportDestinationExists(path.to_path_buf()));
     }
 
     let bytes = document.to_bytes()?;
     let revision = DocumentRevision::from_bytes(&bytes);
-    atomic_write_new(path, &bytes)?;
+    if exists {
+        crate::replace_file(path, &bytes)?;
+    } else {
+        atomic_write_new(path, &bytes)?;
+    }
     Ok(revision)
 }
 
@@ -87,7 +111,14 @@ fn atomic_write_new(path: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 Err(LibraryError::ExportDestinationExists(path.to_path_buf()))
             }
-            Err(error) => Err(LibraryError::Io(error)),
+            // No links on this disk (FAT, exFAT, many network folders).
+            Err(_) => match crate::revision::write_new_in_place(path, bytes) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    Err(LibraryError::ExportDestinationExists(path.to_path_buf()))
+                }
+                Err(error) => Err(LibraryError::Io(error)),
+            },
         }
     })();
 

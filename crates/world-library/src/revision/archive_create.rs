@@ -82,12 +82,31 @@ pub(crate) fn atomic_create(path: &Path, bytes: &[u8]) -> io::Result<()> {
         temp_file.write_all(bytes)?;
         temp_file.sync_all()?;
         drop(temp_file);
-        fs::hard_link(&temp_path, path)
+        match fs::hard_link(&temp_path, path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(error),
+            // A disk that cannot link (FAT and exFAT drives, many network
+            // and cloud folders) still gets the file: written in place as
+            // a new file, so one that is there is still never replaced.
+            Err(_) => write_new_in_place(path, bytes),
+        }
     })();
     // Once the hard link succeeds, the World is durably published. A leftover
     // hidden preparation file is cleanup debt, not a failed create operation.
     let _ = fs::remove_file(&temp_path);
     published
+}
+
+/// Writes `bytes` as a new file at `path`, refusing with `AlreadyExists`
+/// if one is there; a file left half written is removed.
+pub(crate) fn write_new_in_place(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    if written.is_err() {
+        drop(file);
+        let _ = fs::remove_file(path);
+    }
+    written
 }
 
 #[cfg(test)]

@@ -132,7 +132,9 @@ impl WorldMachineHome {
             .registry
             .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
-            .unwrap_or_else(|| document.pack.id.clone());
+            .or_else(|| self.included_pack_title(&document.pack).map(str::to_string))
+            // Never a Pack's id.
+            .unwrap_or_else(|| "World".to_string());
         let title = self.distinct_title(&document, &pack_title);
         let document_label = document.id.to_string();
 
@@ -707,6 +709,7 @@ impl WorldMachineHome {
             .included_packs
             .iter()
             .filter(|included| !self.included_pack_is_installed(&included.pack))
+            .filter(|included| included.featured)
             .filter(|included| !demo::ENABLED || demo::offers_pack(&included.pack.id))
             .filter(|included| {
                 featured_included.as_ref().is_none_or(|featured| {
@@ -741,10 +744,18 @@ impl WorldMachineHome {
                 .iter()
                 .any(|included| included.featured && included.pack.id == descriptor.pack.id)
         });
-        // The demo offers its one Pack, and no other.
+        // The demo offers its one Pack, and no other. An included Pack that
+        // is not featured is not part of this release:
+        // its Worlds still open, but New does not offer it.
         for descriptor in descriptors
             .into_iter()
             .filter(|descriptor| !demo::ENABLED || demo::offers_pack(&descriptor.pack.id))
+            .filter(|descriptor| {
+                !self
+                    .included_packs
+                    .iter()
+                    .any(|included| !included.featured && included.pack.id == descriptor.pack.id)
+            })
         {
             available = available.child(self.new_world_card(descriptor, cx));
         }

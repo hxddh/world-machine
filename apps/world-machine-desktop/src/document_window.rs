@@ -276,7 +276,10 @@ pub(crate) fn quit_after_saving(cx: &mut App) {
             gpui::PromptLevel::Critical,
             &message,
             Some(&detail),
-            &saving::QUIT_CHOICES,
+            &saving::QUIT_CHOICES
+                .map(|choice| ui::t(choice).to_string())
+                .each_ref()
+                .map(String::as_str),
             cx,
         );
         cx.spawn(async move |cx| {
@@ -380,7 +383,10 @@ impl WorldDocumentView {
             gpui::PromptLevel::Critical,
             &message,
             Some(&detail),
-            &saving::CLOSE_CHOICES,
+            &saving::CLOSE_CHOICES
+                .map(|choice| ui::t(choice).to_string())
+                .each_ref()
+                .map(String::as_str),
             cx,
         );
         cx.spawn_in(window, async move |this, cx| {
@@ -460,9 +466,16 @@ impl WorldDocumentView {
         let suggested_name = suggested_world_file_name(&semantic_title, &self.document_name);
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
-            let mut without_dialog = false;
+            let without_dialog;
             let destination = match save_dialog.await {
-                Ok(Ok(Some(path))) => canonical_world_path(path),
+                Ok(Ok(Some(path))) => {
+                    // The dialog asked about replacing the file it named;
+                    // a name the app had to end in .world was never asked
+                    // about, so that file is never replaced.
+                    let canonical = canonical_world_path(path.clone());
+                    without_dialog = canonical != path;
+                    canonical
+                }
                 Ok(Ok(None)) => return,
                 // No Save window on this computer: the World is saved in
                 // Documents anyway, and the title bar says where.
@@ -504,7 +517,13 @@ impl WorldDocumentView {
             let _ = this.update(cx, |this, cx| {
                 let result = {
                     let mut document = this.document.borrow_mut();
-                    document.session.save_as_file(destination.clone())
+                    // The save dialog has asked about replacing a file;
+                    // a place the app chose itself never replaces one.
+                    if without_dialog {
+                        document.session.save_as_file(destination.clone())
+                    } else {
+                        document.session.save_as_chosen_file(destination.clone())
+                    }
                 };
                 match result {
                     Ok(snapshot) => {
@@ -758,6 +777,7 @@ impl WorldDocumentView {
         if !app_menu::run_app_item(item, window, cx) {
             match item {
                 shell::MenuItem::SaveAs => self.save_as(cx),
+                shell::MenuItem::ReloadWorld => self.reload(cx),
                 shell::MenuItem::CopyWorldCode => self.copy_world_code(cx),
                 shell::MenuItem::SaveWorldCode => self.save_world_code(cx),
                 _ => {}

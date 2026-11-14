@@ -54,6 +54,7 @@ mod archive;
 #[path = "revision/archive_create.rs"]
 mod archive_create;
 pub(crate) use archive_create::atomic_create as create_new_file;
+pub(crate) use archive_create::write_new_in_place;
 
 // Fork a durable World through the same document revision boundary. Forking is
 // a Library/document operation: it snapshots the current World and records a new

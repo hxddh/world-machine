@@ -12,8 +12,11 @@ use pocket_universe::narrator::{NarrationFacts, Narrator};
 use std::path::Path;
 use std::time::Duration;
 
-/// A return should not wait long on a model that is still loading.
-const TIMEOUT: Duration = Duration::from_secs(30);
+/// A return should not wait long on a model that is still loading, and
+/// never longer than the host waits for a whole turn (5 s): past that the
+/// host stops this Pack, and the World with it. The World's own words
+/// stand in for a narration that does not come in time.
+const TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Said alongside the prompt; the prompt itself carries the facts and rules.
 const INSTRUCTIONS: &str = "You narrate a small world, saying only what the prompt's facts say. \

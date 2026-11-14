@@ -514,7 +514,15 @@ impl WorldDocument {
     /// says whether it may be opened.
     pub fn summary_from_bytes(bytes: &[u8]) -> Result<Option<DocumentSummary>, DocumentError> {
         if !bytes.starts_with(&GZIP_MAGIC) {
-            return Ok(None);
+            // A preview's file was JSON before it was gzipped; anything
+            // else (an empty or zeroed file, as a crash or a sync can
+            // leave) is a damaged World file, which its backup can stand
+            // in for, not a preview's.
+            return if looks_like_json(bytes) {
+                Ok(None)
+            } else {
+                Err(DocumentError::InvalidRoot)
+            };
         }
         let mut decoder = GzDecoder::new(bytes).take(MAX_DOCUMENT_BYTES);
         let mut json = Vec::new();
@@ -582,10 +590,24 @@ impl WorldDocument {
 fn check_file(json: &[u8]) -> Result<(), DocumentError> {
     match summary_prefix(json) {
         Prefix::Whole(summary) => (*summary)?.writer.check(),
-        Prefix::None => Err(DocumentError::PreviewFile),
+        Prefix::None if looks_like_json(json) => Err(DocumentError::PreviewFile),
+        // Not JSON at all: a damaged file, not a preview's.
+        Prefix::None => Err(DocumentError::InvalidRoot),
         // A summary that never ends: not a whole World file.
         Prefix::More => Err(DocumentError::InvalidRoot),
     }
+}
+
+/// What a damaged World file is said to be, wherever it is listed.
+pub const DAMAGED_FILE_MESSAGE: &str = "This World's file is damaged or incomplete.";
+
+/// Whether `bytes` begin as a JSON object does, as every World file any
+/// version wrote does once unpacked.
+fn looks_like_json(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| *byte == b'{')
 }
 
 /// A gzip header with nothing optional in it, as flate2 writes one.
@@ -959,7 +981,7 @@ impl fmt::Display for DocumentError {
         match self {
             Self::Persistence(error) => error.fmt(f),
             Self::Json(error) => write!(f, "invalid World document JSON: {error}"),
-            Self::InvalidRoot => write!(f, "World document JSON root must be an object"),
+            Self::InvalidRoot => f.write_str(DAMAGED_FILE_MESSAGE),
             Self::Io(error) => write!(f, "unreadable World document: {error}"),
             Self::TooLarge => write!(f, "World document is too large to open"),
             Self::PreviewFile => f.write_str(PREVIEW_SAVE_MESSAGE),
@@ -1323,6 +1345,18 @@ mod tests {
     /// (no summary, as before v0.25; or the previews' schema, as v0.25 to
     /// v0.30 wrote) or a newer World Machine wrote is refused whole, in
     /// the player's words, and a cut file is refused.
+    /// An empty or zeroed file is what a crash or a sync leaves: a damaged
+    /// World file, which the backup can stand in for, never a preview's.
+    #[test]
+    fn an_empty_or_zeroed_file_is_damaged_not_a_preview() {
+        for bytes in [Vec::new(), vec![0_u8; 4096], b"\x89PNG garbage".to_vec()] {
+            let summary = WorldDocument::summary_from_bytes(&bytes).unwrap_err();
+            assert_eq!(summary.age(), FormatAge::Current, "{summary:?}");
+            let whole = WorldDocument::from_bytes(&bytes).unwrap_err();
+            assert_eq!(whole.age(), FormatAge::Current, "{whole:?}");
+        }
+    }
+
     #[test]
     fn preview_and_newer_world_files_are_refused() {
         let document = WorldDocument::new(lived_archive()).with_display_title("Harbor");

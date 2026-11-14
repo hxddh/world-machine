@@ -40,6 +40,8 @@ pub(crate) struct Reading {
     /// saved now.
     pub(crate) saved: Option<Instant>,
     pub(crate) saving: bool,
+    /// When a strip last could not be saved as a picture.
+    pub(crate) failed: Option<Instant>,
 }
 
 /// The kind of a moment as the painter draws it.
@@ -826,7 +828,10 @@ impl ProjectionView {
                 this.reading.saving = false;
                 if saved {
                     this.reading.saved = Some(Instant::now());
+                    this.reading.failed = None;
                     this.cue(crate::Cue::Flip);
+                } else {
+                    this.reading.failed = Some(Instant::now());
                 }
                 cx.notify();
             });
@@ -895,6 +900,10 @@ impl ProjectionView {
             .reading
             .saved
             .is_some_and(|at| at.elapsed().as_secs_f32() < 2.5);
+        let failed = self
+            .reading
+            .failed
+            .is_some_and(|at| at.elapsed().as_secs_f32() < 2.5);
         let keep = moment.clone();
         div()
             .pt_1()
@@ -903,16 +912,15 @@ impl ProjectionView {
             .justify_between()
             .gap_3()
             .when(!self.reading.saving, |foot| {
-                foot.child(
-                    div()
-                        .text_xs()
-                        .text_color(gpui::rgb(INK_SOFT))
-                        .child(ui::t(if saved {
-                            "Saved to Pictures"
-                        } else {
-                            "Kept in the book"
-                        })),
-                )
+                foot.child(div().text_xs().text_color(gpui::rgb(INK_SOFT)).child(ui::t(
+                    if failed {
+                        "Couldn't save the picture"
+                    } else if saved {
+                        "Saved to Pictures"
+                    } else {
+                        "Kept in the book"
+                    },
+                )))
                 .child(
                     div()
                         .flex()

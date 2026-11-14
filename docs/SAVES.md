@@ -4,7 +4,7 @@ World Machine 1.0 starts its own save format. No save, World code, fixture or di
 
 ## What a World file is
 
-A `.world` file is one gzip stream of JSON, written atomically, with the file as it was before kept beside it as `<name>.world.bak`:
+A `.world` file is one gzip stream of JSON, written atomically, with the file as it was before kept beside it as `<name>.world.bak` (and a day backup, below):
 
 - `summary`: the Pack and its version, the World's time and event count, the file `schema` (`WORLD_FILE_SCHEMA`, 2 for 1.0) and the app that wrote it (`written_by`). A list of Worlds reads only this.
 - `document`: host metadata. This is what Home shows (name, cover, colours) and the sitting ledger (`host_sittings`: how many sittings, the local day the latest began on, the World days it passed, the morning read). None of it is an Event or State. The World never reads it, replay never needs it, and the local day in the ledger is the only wall-clock reading anywhere in the file. The ledger travels with the file, so a World that is moved, synced, saved as a new file, exported or imported keeps its sittings.
@@ -23,7 +23,14 @@ A save is refused whole, before any World is opened from it. Nothing is half-loa
 
 Both sentences are in the app's Chinese and Japanese catalogs. Home lists a refused file with its sentence instead of hiding it. A newer file is never written over: not by a rename, a save, an export or an import.
 
-A file that fails to load for any other reason (cut short, damaged) can be put back to its last good save. Home offers **Restore the last good save** when the `.bak` beside it reads as a 1.0 World file. The damaged file is kept beside it as `<name>.world.damaged` (`world_library::restore_backup`). Only the save before the last is kept.
+A file that fails to load for any other reason (cut short, damaged, emptied or zeroed by a crash or a sync) can be put back to its last good save. An empty or zeroed file is damaged, never a preview's. Home offers **Restore the last good save** when the `.bak` beside it, or else the day backup, reads as a 1.0 World file. The damaged file is kept beside it as `<name>.world.damaged` (`world_library::restore_backup`).
+
+Two backups are kept beside each World file:
+
+- `<name>.world.bak`: the save before the last, replaced by every save.
+- `<name>.world.day.bak`: the file as it stood before the first save of a day (once it is 20 hours old it is replaced), kept only if it reads whole. A save that goes wrong twice in a row cannot reach it.
+
+After a save the folder is synced too, so the rename survives a power cut on Linux. Save As and Export write in place on disks that cannot hard-link (FAT, exFAT, many network folders), and replace a file only when the save dialog already asked about replacing it.
 
 ## The rules, for anyone changing a Pack or the format
 

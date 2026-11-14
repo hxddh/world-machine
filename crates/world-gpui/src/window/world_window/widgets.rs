@@ -134,7 +134,7 @@ pub(crate) fn paper_at(daylight: scene::Daylight, dark: bool) -> gpui::Rgba {
 pub(super) fn pill() -> Div {
     div()
         .px_3()
-        .py(px(6.0))
+        .py(gpui::rems(0.375))
         .rounded_full()
         .bg(scene_paper().opacity(0.86))
         .shadow_sm()

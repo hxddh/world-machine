@@ -753,6 +753,7 @@ impl ProjectionView {
             (self.looking.photo_saved, "Photo saved to Pictures"),
             (self.looking.postcard_saved, "Postcard saved to Pictures"),
             (self.looking.postcard_failed, "Couldn't save the postcard"),
+            (self.looking.photo_failed, "Couldn't save the photo"),
         ]
         .into_iter()
         .filter_map(|(at, words)| Some((at?, words)))

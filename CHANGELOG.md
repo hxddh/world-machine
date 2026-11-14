@@ -2,7 +2,38 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## v1.0.0 (2026-10-31)
+## v1.0.0 (2026-11-14)
+
+The first stable 1.0, after `v1.0.0-pre.1` (2026-10-31). It is what a review of the pre-release found standing between it and a stranger using it: a World that could freeze or die mid-turn, things only the Mac's menu bar could reach, saves that failed on ordinary disks, and words and layouts that broke for new players and at large text. Saves from `v1.0.0-pre.1` open as they are; nothing in a World file, a Pack or an Action changed.
+
+- **Tiny Society runs inside the app.** The World compiled into the app always wins over its bundled Pack, which is no longer installed, tested or launched. A turn is a function call, not three round trips to a child process with a 5-second limit each, so a slow or stopped Pack can no longer freeze the window for up to 15 s or leave the World dead. There is no "Preparing… for its first launch" wait before New, and Home no longer hashes the Pack program on every redraw.
+- **Pocket Universe** stays a bundled Pack: its Worlds open, but New no longer offers it, as it is not part of 1.0. If its program stops mid-turn, the World says so in plain words and how to go on (**Reload from Disk**), and its narrator gives up within the host's limit instead of being stopped with the World.
+- **A menu on every platform.** The in-window menu now has **My Worlds**, **Import World…**, **Install World Pack…** and **Reload from Disk**, none of which needed anything but the Mac's menu bar before. A file named on the command line opens, and the Windows installer registers `.world` and `.worldcode`, so a double-click opens them.
+- **Saves.**
+  - Save As and Export work on disks without hard links (FAT, exFAT, many network and cloud folders).
+  - A file the save dialog already agreed to replace is replaced, rather than refused as existing; a name the app had to give a `.world` ending never replaces anything.
+  - An empty or zeroed World file, as a crash or a sync leaves, is damaged and offered back from its backup, never called "from a preview version".
+  - A day backup (`<name>.world.day.bak`) that a bad save cannot overwrite, beside the `.bak` of the save before.
+  - The folder is synced after a save; temporary names never collide with a crashed run's; a rename blocked for a moment on Windows is tried again.
+  - World names keep any script ("港町"), "St. Ives" keeps its dot, `.WORLD` imports, and names Windows keeps for devices are refused.
+  - Home reads each World's summary from the start of its file after a turn, not its whole history.
+- **For a new player.**
+  - Help explains the day: the morning, today's choice, talking, favours, making things, letting the day pass, Goodnight and Play freely, with this keyboard's shortcuts. The favour pill ("Find Sofia") says what it asks.
+  - The title screen tells the same day as My Worlds and the World's window, and Home never shows a Pack's id.
+  - "Today is yours" while a World's day is open (was "Waits for you"); the day-passing card's button says what it does (was "Choose").
+  - Pack messages say "Checking that it works…" and "could not be loaded", not "durable round-trip" and "Registry rebuild".
+- **Making things.** Choosing a thing in the Make panel no longer builds it at once on whatever stood behind the tile: it asks for a spot, and stands where you click.
+- **At large text.** Settings, the title screen and the World's toolbar grow with the text: switches, glyphs and pills are sized in rems, volume rows wrap instead of squeezing, the title page scrolls instead of overlapping, and chips never break ("10 / 0%").
+- **Input methods.** Enter and Escape in the talk box belong to a Chinese or Japanese input method while it is composing.
+- **Failing in plain words, and recovering.**
+  - A sound device that goes away (headphones, Bluetooth, a new default output) no longer silences the session; the output reopens with the next sound, and opening it never holds the window.
+  - Photo and moment strips say when they could not be saved.
+  - The save-failure dialogs are translated.
+  - Settings no longer starts a process on every redraw to read macOS's accessibility settings.
+
+**Still not done**, as in `v1.0.0-pre.1` below: nothing is signed or notarized; there is no Steam build; nothing has been measured on a real device or played by a stranger; Chinese and Japanese have not been read by native speakers. A turn still runs on the window's thread; now that it is a function call it takes milliseconds, not a round trip. See [KNOWN_ISSUES](docs/KNOWN_ISSUES.md).
+
+## v1.0.0-pre.1 (2026-10-31)
 
 **Worlds from the v0.x previews do not open.** 1.0 starts its own save format, by the owner's decision ([v0.30 review](docs/REVIEW_v0.30.md#already-decided-2026-10-30)). A World, World code or save from any v0.x release is refused whole with "This World is from a preview version and can't be opened." Home lists it with that reason, and the file is left exactly as it was. Start a new World. From 1.0 on, the [save contract](docs/SAVES.md) holds:
 - World files are schema 2, the archive is `format_version` 3 (4 in the compact encoding files are written in), World codes are `wm3:`, and Tiny Society and Pocket Universe are both `1.0.0`.

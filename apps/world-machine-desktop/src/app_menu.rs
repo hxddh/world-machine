@@ -16,7 +16,11 @@ pub(crate) fn action_for(item: MenuItem) -> Box<dyn Action> {
     match item {
         MenuItem::Settings => Box::new(about::Settings),
         MenuItem::About => Box::new(about::About),
+        MenuItem::MyWorlds => Box::new(about::ShowMyWorlds),
+        MenuItem::ImportWorld => Box::new(about::ImportWorld),
+        MenuItem::InstallPack => Box::new(about::InstallPack),
         MenuItem::SaveAs => Box::new(about::SaveWorldAs),
+        MenuItem::ReloadWorld => Box::new(about::ReloadWorld),
         MenuItem::CopyWorldCode => Box::new(about::CopyWorldCode),
         MenuItem::SaveWorldCode => Box::new(about::SaveWorldCode),
         MenuItem::OpenWorldCode => Box::new(about::OpenWorldCode),
@@ -32,7 +36,10 @@ pub(crate) fn action_for(item: MenuItem) -> Box<dyn Action> {
 /// window itself does (Save As, and copying or saving its own code).
 pub(crate) fn run_app_item(item: MenuItem, window: &mut Window, cx: &mut App) -> bool {
     match item {
-        MenuItem::SaveAs | MenuItem::CopyWorldCode | MenuItem::SaveWorldCode => false,
+        MenuItem::SaveAs
+        | MenuItem::ReloadWorld
+        | MenuItem::CopyWorldCode
+        | MenuItem::SaveWorldCode => false,
         _ => {
             window.dispatch_action(action_for(item), cx);
             true

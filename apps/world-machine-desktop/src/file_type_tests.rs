@@ -21,6 +21,21 @@ fn finder_knows_every_file_the_app_opens_and_what_it_is() {
     // What Finder hands the app goes down the Open menu's own paths.
     assert!(sharing::is_world_code_file(Path::new("/tmp/a.worldcode")));
     assert!(is_world_file(Path::new("/tmp/a.world")));
+    assert!(is_world_file(Path::new("/tmp/A.WORLD")));
+    // A name with a dot in it keeps it.
+    assert_eq!(
+        canonical_world_path(PathBuf::from("/tmp/St. Ives")),
+        PathBuf::from("/tmp/St. Ives.world")
+    );
+    assert_eq!(
+        canonical_world_path(PathBuf::from("/tmp/Meadow.World")),
+        PathBuf::from("/tmp/Meadow.World")
+    );
+    // A name in any script is kept as the World's id; a device name of
+    // Windows is not.
+    assert_eq!(sanitize_document_base("港町"), "港町");
+    assert_eq!(sanitize_document_base("con"), "con-world");
+    assert_eq!(sanitize_document_base(".hidden."), "hidden");
     let (url, path) = if cfg!(windows) {
         (
             "file:///C:/tmp/Leo%27s%20town.worldcode",
@@ -171,7 +186,7 @@ fn a_world_says_when_it_next_moves_on_its_own() {
     use world_gpui::i18n::Rest;
     assert_eq!(
         keeps_going_line(5 * 3600 + 10, "sol", Rest::Waits, false),
-        "Waits for you"
+        "Today is yours"
     );
     assert_eq!(
         keeps_going_line(9 * 3600, "day", Rest::Asleep, false),
@@ -187,7 +202,7 @@ fn a_world_says_when_it_next_moves_on_its_own() {
     );
     assert_eq!(
         keeps_going_line(0, "day", Rest::Waits, false),
-        "Waits for you"
+        "Today is yours"
     );
     for rest in [Rest::Waits, Rest::HeadingHome, Rest::Asleep] {
         assert_eq!(keeps_going_line(9 * 3600, "day", rest, true), "Play freely");

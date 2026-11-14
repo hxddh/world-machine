@@ -135,9 +135,9 @@ impl Render for NotesView {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(ui::caption(
-                    "Help → Report a Problem… tells us about anything else.",
-                ))
+                // The way to report that this build has on every
+                // platform, not a menu bar only a Mac shows.
+                .child(ui::caption(crate::shell::Support::current().line()))
                 .child(note_blocks(notices::known_issues())),
             Notes::Acknowledgements => acknowledgements(),
         };

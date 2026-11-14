@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod backups;
 mod change;
 mod lock;
 mod revision;
@@ -36,6 +37,8 @@ pub use world_code::{
     WORLD_CODE_PREFIX, WORLD_CODE_SUFFIX,
 };
 
+pub(crate) use backups::*;
+pub use backups::{backup_path, day_backup_path, has_good_backup, restore_backup, DAMAGED_SUFFIX};
 pub use lock::lock_path;
 pub use world_persistence::FormatAge;
 pub use writer::{files_written, flush_all as flush_all_writes};
@@ -48,6 +51,13 @@ pub const REMOVED_DIRECTORY: &str = "Removed";
 /// as it was is kept beside it as `<name>.world.bak`, so the save before
 /// the last is always there to go back to.
 pub const BACKUP_SUFFIX: &str = ".bak";
+/// What a World file's day backup adds to its name: once a day, the file as
+/// it was, if it reads whole, is kept as `<name>.world.day.bak` too. The
+/// `.bak` is only one save old, so a save that went wrong twice would leave
+/// nothing good; the day's is the save before the day's play.
+pub const DAY_BACKUP_SUFFIX: &str = ".day.bak";
+/// How old a day backup may grow before the next save replaces it.
+const DAY_BACKUP_AGE: std::time::Duration = std::time::Duration::from_secs(20 * 60 * 60);
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
@@ -55,13 +65,18 @@ pub struct WorldDocumentId(String);
 impl WorldDocumentId {
     pub fn new(value: impl Into<String>) -> Result<Self, LibraryError> {
         let value = value.into();
+        // Letters and digits of any script (a World named 港町 keeps its
+        // name), and - _ . between them. Never hidden (a leading dot),
+        // never ending in a dot (Windows drops it), never a name Windows
+        // keeps for a device.
         let valid = !value.is_empty()
             && value.len() <= 128
-            && value != "."
-            && value != ".."
+            && !value.starts_with('.')
+            && !value.ends_with('.')
+            && !is_reserved_on_windows(&value)
             && value
                 .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'));
+                .all(|ch| ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.'));
         if !valid {
             return Err(LibraryError::InvalidDocumentId(value));
         }
@@ -75,6 +90,21 @@ impl WorldDocumentId {
     fn file_name(&self) -> String {
         format!("{}{WORLD_DOCUMENT_SUFFIX}", self.0)
     }
+}
+
+/// Names Windows keeps for devices, which no file there may have, with or
+/// without an extension.
+fn is_reserved_on_windows(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_lowercase();
+    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || ((stem.starts_with("com") || stem.starts_with("lpt"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
 }
 
 impl fmt::Display for WorldDocumentId {
@@ -215,15 +245,10 @@ impl WorldLibrary {
     /// a newer World Machine's) is an error, which the list shows as the
     /// reason it cannot be opened.
     fn load_summary(&self, id: &WorldDocumentId) -> Result<Option<DocumentSummary>, LibraryError> {
-        let bytes = match fs::read(self.path(id)) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(LibraryError::Io(error)),
-        };
-        let summary = WorldDocument::summary_from_bytes(&bytes)?
-            .ok_or_else(|| LibraryError::from(DocumentError::PreviewFile))?;
-        summary.writer.check()?;
-        Ok(Some(summary))
+        // The summary is at the start of the file: Home lists every World
+        // after each turn, so it reads that start, not years of history.
+        // A summary the start does not hold whole is read from the file.
+        summary_of_file(&self.path(id), SUMMARY_HEAD_BYTES)
     }
 
     fn load_file(&self, id: &WorldDocumentId) -> Result<Option<ReadFile>, LibraryError> {
@@ -398,10 +423,10 @@ impl WorldLibrary {
         if !path.is_file() {
             return Err(LibraryError::UnknownDocument(id.clone()));
         }
-        // Its backup goes with it, so it is not left behind on its own.
-        let backup = backup_path(&path);
+        // Its backups go with it, so they are not left behind on their own.
+        let backups = [backup_path(&path), day_backup_path(&path)];
         let sources = std::iter::once(path)
-            .chain(backup.is_file().then_some(backup))
+            .chain(backups.into_iter().filter(|backup| backup.is_file()))
             .collect::<Vec<_>>();
 
         let removed_root = self.removed_root();
@@ -453,7 +478,26 @@ impl WorldLibrary {
         id: &WorldDocumentId,
         destination: &Path,
     ) -> Result<(), LibraryError> {
-        if destination.try_exists()? {
+        self.export(id, destination, false)
+    }
+
+    /// [`Self::export_file`] to a file the player chose in a save dialog,
+    /// which has already asked whether to replace one that is there.
+    pub fn export_chosen_file(
+        &self,
+        id: &WorldDocumentId,
+        destination: &Path,
+    ) -> Result<(), LibraryError> {
+        self.export(id, destination, true)
+    }
+
+    fn export(
+        &self,
+        id: &WorldDocumentId,
+        destination: &Path,
+        replace: bool,
+    ) -> Result<(), LibraryError> {
+        if !replace && destination.try_exists()? {
             return Err(LibraryError::ExportDestinationExists(
                 destination.to_path_buf(),
             ));
@@ -461,7 +505,7 @@ impl WorldLibrary {
         let file = self
             .load_file(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
-        export_read_file(file, destination)
+        export_read_file(file, destination, replace)
     }
 }
 
@@ -891,7 +935,26 @@ impl DurableWorldSession {
         destination: &Path,
         library: &WorldLibrary,
     ) -> Result<(), LibraryError> {
-        if destination.try_exists()? {
+        self.export(destination, library, false)
+    }
+
+    /// [`Self::export_file`] to a file the player chose in a save dialog,
+    /// which has already asked whether to replace one that is there.
+    pub fn export_chosen_file(
+        &self,
+        destination: &Path,
+        library: &WorldLibrary,
+    ) -> Result<(), LibraryError> {
+        self.export(destination, library, true)
+    }
+
+    fn export(
+        &self,
+        destination: &Path,
+        library: &WorldLibrary,
+        replace: bool,
+    ) -> Result<(), LibraryError> {
+        if !replace && destination.try_exists()? {
             return Err(LibraryError::ExportDestinationExists(
                 destination.to_path_buf(),
             ));
@@ -904,7 +967,7 @@ impl DurableWorldSession {
                 .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?,
             WorldDocumentTarget::File(path) => read_file(path)?,
         };
-        export_read_file(file, destination)
+        export_read_file(file, destination, replace)
     }
 
     /// Before a change: see [`WorldFile::ready_to_change`].
@@ -1437,108 +1500,6 @@ fn refuse_unopenable_file_at(path: &Path) -> Result<(), LibraryError> {
     }
 }
 
-/// What a damaged World file's name gains when its last good backup is
-/// put back in its place: it is kept beside it, never deleted.
-pub const DAMAGED_SUFFIX: &str = ".damaged";
-
-/// Whether the World file at `path` has a backup that opens as a World
-/// file of this World Machine's: the last good save, to put back when the
-/// file itself will not open ([`restore_backup`]).
-pub fn has_good_backup(path: &Path) -> bool {
-    read_file(&backup_path(path)).is_ok()
-}
-
-/// Puts the World file at `path` back to its last good save, its backup
-/// (see [`backup_path`]), for when the file itself fails to load: the
-/// backup is checked to read as a World file of this World Machine's
-/// first, and the file it replaces is kept beside it under
-/// [`DAMAGED_SUFFIX`], never deleted. The backup stays as it is. Refused
-/// while the World is open anywhere ([`LibraryError::InUse`]), and when
-/// there is no good backup. Returns where the damaged file was kept, if
-/// there was one.
-pub fn restore_backup(path: &Path) -> Result<Option<PathBuf>, LibraryError> {
-    let _lock = Lock::take(path)?;
-    let backup = backup_path(path);
-    let good = read_file(&backup)?;
-    let kept = if path.try_exists()? {
-        let mut name = path
-            .file_name()
-            .map(|name| name.to_os_string())
-            .unwrap_or_default();
-        name.push(DAMAGED_SUFFIX);
-        let mut damaged = path.with_file_name(&name);
-        let mut attempt = 2;
-        while damaged.try_exists()? {
-            let mut numbered = name.clone();
-            numbered.push(format!("-{attempt}"));
-            damaged = path.with_file_name(numbered);
-            attempt += 1;
-        }
-        fs::rename(path, &damaged)?;
-        Some(damaged)
-    } else {
-        None
-    };
-    // Written as any save is, atomically; the file it would keep as a
-    // backup was just moved aside, so the last good save stays the backup.
-    if let Err(error) = atomic_write(path, &good.bytes) {
-        if let Some(damaged) = &kept {
-            let _ = fs::rename(damaged, path);
-        }
-        return Err(error.into());
-    }
-    Ok(kept)
-}
-
-/// Where the backup of the World file at `path` is kept.
-pub fn backup_path(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|name| name.to_os_string())
-        .unwrap_or_default();
-    name.push(BACKUP_SUFFIX);
-    path.with_file_name(name)
-}
-
-/// Keeps the World file at `path`, as it is, as its backup (see
-/// [`backup_path`]), replacing the one before. A link where the folder
-/// allows one (nothing is copied, and the save that follows replaces the
-/// file rather than changing it), else a copy. Nothing to keep is not an
-/// error.
-fn keep_backup(path: &Path) -> io::Result<()> {
-    let backup = backup_path(path);
-    let file_name = backup
-        .file_name()
-        .ok_or_else(|| io::Error::other("world document path has no file name"))?
-        .to_string_lossy()
-        .into_owned();
-    // A name of its own, so two writers (two apps on one Worlds folder, or
-    // Home and a World's writer) never take each other's half-made file.
-    let temp = unique_temp_path(&backup, &file_name);
-    match fs::hard_link(path, &temp) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => match fs::copy(path, &temp) {
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
-        },
-    }
-    let kept = fs::rename(&temp, &backup);
-    // Gone once renamed; still there if it failed, or if the backup already
-    // was this very file (a rename onto itself does nothing).
-    let _ = fs::remove_file(&temp);
-    kept
-}
-
-/// A temporary name beside `path` that no other writer, in this process or
-/// another, is using: `.<file name>.<process>-<count>.tmp`.
-fn unique_temp_path(path: &Path, file_name: &str) -> PathBuf {
-    static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let count = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!(".{file_name}.{}-{count}.tmp", std::process::id()))
-}
-
 /// Lets go of something large, such as a long World's history, on a
 /// thread of its own, so nothing waits for it to be freed.
 pub(crate) fn drop_in_background<T: Send + 'static>(value: T) {
@@ -1566,19 +1527,6 @@ pub(crate) fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>
     match fs::read(path) {
         Ok(bytes) => Ok(Some(DocumentRevision::from_bytes(&bytes))),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(LibraryError::Io(error)),
-    }
-}
-
-/// Writes a World file just read to `destination` as a new file, never
-/// over one that is there (even one that appeared meanwhile).
-fn export_read_file(file: ReadFile, destination: &Path) -> Result<(), LibraryError> {
-    let bytes = file.document.to_bytes()?;
-    match revision::create_new_file(destination, &bytes) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(
-            LibraryError::ExportDestinationExists(destination.to_path_buf()),
-        ),
         Err(error) => Err(LibraryError::Io(error)),
     }
 }
@@ -1627,44 +1575,6 @@ fn unique_removed_path(removed_root: &Path, file_name: &str) -> Result<PathBuf, 
     Err(LibraryError::Io(io::Error::other(
         "the Removed folder already holds every candidate name for this World",
     )))
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Makes every World file written on this thread fail to write, as a
-    /// full disk or a folder taken away would.
-    pub(crate) static WRITES_FAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    #[cfg(test)]
-    if WRITES_FAIL.get() {
-        return Err(io::Error::other("the World file could not be written"));
-    }
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| io::Error::other("world document path has no file name"))?
-        .to_string_lossy();
-    let temp_path = unique_temp_path(path, &file_name);
-    let written = (|| {
-        let mut file = File::create_new(&temp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        // The file as it was is kept before it is replaced.
-        keep_backup(path)?;
-        fs::rename(&temp_path, path)
-    })();
-    if written.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    written
 }
 
 #[derive(Debug)]
@@ -2336,6 +2246,72 @@ mod tests {
         assert_eq!(target.load(&summary.id).unwrap().unwrap(), archive);
         assert!(external.is_file());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A save dialog has already asked whether to replace the file it
+    /// chose, so an export there replaces it whole.
+    #[test]
+    fn export_to_a_chosen_file_replaces_it() {
+        let root = temp_root("export-chosen");
+        let library = WorldLibrary::new(root.join("library"));
+        let id = WorldDocumentId::new("source").unwrap();
+        let destination = root.join("existing.world");
+        library.save(&id, &mock_archive(4)).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&destination, "replace me").unwrap();
+
+        library.export_chosen_file(&id, &destination).unwrap();
+        assert_eq!(read_archive_file(&destination).unwrap(), mock_archive(4));
+        // Nothing is left beside it.
+        let leftovers = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// An empty file beside a good backup is damaged, and restorable: it
+    /// is never listed as a preview's World.
+    #[test]
+    fn an_emptied_world_file_offers_its_backup() {
+        let root = temp_root("emptied");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("meadow").unwrap();
+        library.save(&id, &mock_archive(1)).unwrap();
+        library.save(&id, &mock_archive(2)).unwrap();
+        fs::write(library.path(&id), b"").unwrap();
+
+        let listing = library.listing().unwrap();
+        let unreadable = listing
+            .unreadable
+            .iter()
+            .find(|file| file.file_name == id.file_name())
+            .expect("the emptied file is listed as unreadable");
+        assert_eq!(unreadable.age, FormatAge::Current);
+        assert!(unreadable.restorable);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Home reads a World's summary from the start of its file, and from
+    /// the whole file when the start does not hold all of it.
+    #[test]
+    fn a_summary_is_read_from_the_head_or_the_whole_file() {
+        let root = temp_root("summary-head");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("meadow").unwrap();
+        library.save(&id, &mock_archive(7)).unwrap();
+        let path = library.path(&id);
+        let size = fs::metadata(&path).unwrap().len() as usize;
+        let whole = summary_of_file(&path, size + 1).unwrap().unwrap();
+        assert_eq!(whole.world_time, 7);
+        for head in [16, size / 2, size] {
+            assert_eq!(summary_of_file(&path, head).unwrap().unwrap(), whole);
+        }
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3244,8 +3220,23 @@ mod tests {
             library.restore_backup(&id).unwrap(),
             Some(root.join("restored.world.damaged-2"))
         );
-        // No good backup: refused, and the file left as it is.
+        // The .bak broken too: the day backup stands in for it.
+        assert!(day_backup_path(&path).is_file());
         fs::write(backup_path(&path), b"also broken").unwrap();
+        fs::write(&path, b"broken").unwrap();
+        assert!(has_good_backup(&path));
+        library.restore_backup(&id).unwrap();
+        // The day's save opens: older than the last good one, never newer.
+        assert!(
+            DurableWorldSession::open(id.clone(), &registry, &library)
+                .unwrap()
+                .snapshot()
+                .world_time
+                <= good.world_time
+        );
+        // No good backup at all: refused, and the file left as it is.
+        fs::write(backup_path(&path), b"also broken").unwrap();
+        fs::write(day_backup_path(&path), b"also broken").unwrap();
         fs::write(&path, b"broken").unwrap();
         assert!(!has_good_backup(&path));
         assert!(!library.listing().unwrap().unreadable[0].restorable);

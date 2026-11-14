@@ -92,7 +92,13 @@ impl WorldMachineHome {
     /// only their program is brought up to the one this app ships.
     pub(crate) fn activate_included_packs(&mut self, cx: &mut Context<Self>) {
         let packs = self.included_packs.clone();
+        let builtin = crate::library_setup::builtin_pack_ids();
         for pack in packs {
+            // The app runs these Worlds itself: no Pack to install, test or
+            // launch, and nothing to wait for before New.
+            if builtin.contains(&pack.pack.id) {
+                continue;
+            }
             if self.included_pack_is_installed(&pack.pack) {
                 self.refresh_included_pack(&pack);
                 continue;
@@ -162,7 +168,7 @@ impl WorldMachineHome {
                 ));
                 if let Err(error) = self.rebuild_registry() {
                     self.status = Some(HomeStatus::error(format!(
-                        "{} was updated, but Registry rebuild failed: {error}",
+                        "{} was updated, but could not be loaded: {error}",
                         pack.title
                     )));
                 }
@@ -341,14 +347,14 @@ impl WorldMachineHome {
                                 }
                                 Err(error) => {
                                     this.status = Some(HomeStatus::error(format!(
-                                        "Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}",
+                                        "{} @ {} works, but could not be loaded: {error}",
                                         pack.id, pack.version
                                     )));
                                 }
                             },
                             Err(error) => {
                                 this.status = Some(HomeStatus::error(format!(
-                                    "Pack {} @ {} passed its durable probe, but could not be enabled: {error}",
+                                    "{} @ {} works, but could not be switched on: {error}",
                                     pack.id, pack.version
                                 )));
                             }
@@ -363,7 +369,7 @@ impl WorldMachineHome {
                         }
                         let _ = this.rebuild_registry();
                         this.status = Some(HomeStatus::error(format!(
-                            "Installed and trusted {} @ {}, but its durable activation probe failed. The Pack remains disabled: {error}",
+                            "{} @ {} was installed, but did not pass its check, so it stays off: {error}",
                             pack.id, pack.version
                         )));
                     }
@@ -437,7 +443,7 @@ impl WorldMachineHome {
                 }
                 Err(error) => {
                     self.status = Some(HomeStatus::error(format!(
-                        "Changed active Pack to {} @ {}, but Registry rebuild failed: {error}",
+                        "Switched to {} @ {}, but it could not be loaded: {error}",
                         pack.id, pack.version
                     )))
                 }
@@ -476,7 +482,7 @@ impl WorldMachineHome {
                 }
                 Err(error) => {
                     self.status = Some(HomeStatus::error(format!(
-                        "Updated {} @ {}, but Registry rebuild failed: {error}",
+                        "Updated {} @ {}, but it could not be loaded: {error}",
                         pack.id, pack.version
                     )))
                 }
@@ -526,6 +532,10 @@ impl WorldMachineHome {
     }
 
     pub(crate) fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
+        // A World the app runs itself needs no Pack installed.
+        if crate::library_setup::builtin_pack_ids().contains(&pack.id) {
+            return true;
+        }
         self.pack_catalog.as_ref().is_some_and(|catalog| {
             catalog
                 .entries()
@@ -868,7 +878,7 @@ impl WorldMachineHome {
             .unwrap_or(PackAvailability::NotInstalled);
         let probing = self.is_pack_probing(&pack.pack);
         let state = if probing {
-            "Testing durable round-trip…".to_string()
+            "Checking that it works…".to_string()
         } else {
             match &availability {
                 PackAvailability::Ready if pack.active => "Active".to_string(),

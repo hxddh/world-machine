@@ -212,18 +212,14 @@ Preparing {title} for its first launch…	{title}の初回起動を準備して�
 Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…	信頼済みパック{} @ {}をテスト中 · 作成 → 保存 → 新しいプロセスで開く…
 Installed Packs catalog is unavailable	インストール済みパックのカタログを利用できません
 {title} is installed and ready.	{title}をインストールしました。すぐに使えます。
-Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}	パック{} @ {}は動作確認に合格しましたが、レジストリの再構築に失敗しました：{error}
-Pack {} @ {} passed its durable probe, but could not be enabled: {error}	パック{} @ {}は動作確認に合格しましたが、有効にできませんでした：{error}
 Installed and trusted {} @ {}, but its durable activation probe failed.	{} @ {}をインストールして信頼しましたが、有効化の動作確認に失敗しました。
 The Pack remains disabled: {error}	パックは無効のままです：{error}
 Start your first World	最初のワールドをはじめましょう
 Pack installation cancelled; no external code was installed.	パックのインストールを取り消しました。外部のコードは何もインストールされていません。
 Activated {} @ {} for new Worlds	{} @ {}を新しいワールドで使えるようにしました
-Changed active Pack to {} @ {}, but Registry rebuild failed: {error}	使用中のパックを{} @ {}に変更しましたが、レジストリの再構築に失敗しました：{error}
 Could not activate {} @ {}: {error}	{} @ {}を有効にできませんでした：{error}
 Enabled	有効
 Disabled	無効
-Updated {} @ {}, but Registry rebuild failed: {error}	{} @ {}を更新しましたが、レジストリの再構築に失敗しました：{error}
 Could not {} {} @ {}: {error}	「{}」を完了できませんでした：{} @ {}：{error}
 Could not open World: {} @ {} should be available, but is not registered	ワールドを開けませんでした：{} @ {}は利用できるはずですが、登録されていません
 Could not open World: {} @ {} is installed but disabled.	ワールドを開けませんでした：{} @ {}はインストールされていますが、無効になっています。
@@ -285,7 +281,6 @@ Identity	識別情報
 Nothing from this Pack has run yet.	このパックのものはまだ何も実行されていません。
 Trusting it approves exactly these bytes, then your World opens once its self-test passes.	信頼すると、まさにこの内容だけが承認され、自己テストに合格するとワールドが開きます。
 Trusting it approves exactly these bytes; any other version is refused.	信頼すると、まさにこの内容だけが承認されます。ほかのバージョンは拒否されます。
-Testing durable round-trip…	保存と復元をテスト中…
 Active	使用中
 Historical · available for saved Worlds	過去のバージョン · 保存したワールドで利用可能
 Disabled · trusted, not runnable until tested	無効 · 信頼済み、テストするまで実行不可
@@ -959,3 +954,34 @@ Every crate in Cargo.lock when the app was built, for every platform.	アプリ�
 Questions or problems? Report them on GitHub. Nothing is sent unless you send it.	質問や問題があれば、GitHubでお知らせください。あなたが送らないかぎり、何も送信されません。
 If you like, send it to us: Send Report copies it and opens a new issue on GitHub in your browser. Paste it there; nothing goes until you post it.	よければ送ってください。「レポートを送る」はレポートをコピーし、ブラウザでGitHubの新しいイシューを開きます。そこに貼り付けてください。あなたが投稿するまで何も送られません。
 The report is copied. Paste it into the new issue on GitHub.	レポートをコピーしました。GitHubの新しいイシューに貼り付けてください。
+This World's file is damaged or incomplete.	この世界のファイルは壊れているか、不完全です。
+A morning card opens each day: a letter, a find, and what was looked after overnight.	毎日、朝のカードから始まります。手紙、見つけたもの、そして夜のあいだに世話をされたもの。
+Today's choice is a card at the bottom. Up and down choose an answer; Enter takes it.	今日の選択は下のカードです。上下キーで答えを選び、Enterで決めます。
+Click someone to talk. Type anything, or pick one of the three things to ask under their answer.	人をクリックすると話せます。自由に入力するか、答えの下にある三つの質問から選んでください。
+A name at the top, such as Find Sofia, is a favour someone asked of you: click it to go to them.	上に出る名前（「ソフィアを探す」など）は誰かに頼まれたことです。クリックするとその人のところへ行きます。
++ at the top makes something with your own hands: pick it, then click where it should stand. Take back undoes the latest.	上の + で自分の手でものを作れます。選んでから、置きたい場所をクリックします。「片づける」で最後のひとつを戻せます。
+When you are done for the day, let the day pass. After the first session's days, Goodnight ends the sitting until tomorrow.	一日を終えたら「一日を過ごす」を選びましょう。最初の数日が過ぎたら、「おやすみなさい」でまた明日。
+Play freely, in Settings, lets the next day begin as soon as you want it.	設定の「自由に遊ぶ」をオンにすると、次の日をいつでも始められます。
+Look closer with + and − at the left, or the scroll wheel.	左の + と −、またはスクロールホイールで寄ったり引いたりできます。
+Esc puts away what is open. The menu at the top right has My Worlds, Settings and Help.	Escで開いているものを閉じます。右上のメニューにはマイワールド、設定、ヘルプがあります。
+{} @ {} works, but could not be loaded: {error}	{} @ {}は動きますが、読み込めませんでした：{error}
+{} @ {} works, but could not be switched on: {error}	{} @ {}は動きますが、オンにできませんでした：{error}
+Switched to {} @ {}, but it could not be loaded: {error}	{} @ {}に切り替えましたが、読み込めませんでした：{error}
+Updated {} @ {}, but it could not be loaded: {error}	{} @ {}を更新しましたが、読み込めませんでした：{error}
+Checking that it works…	動くか確かめています…
+{} was updated, but could not be loaded: {error}	{}を更新しましたが、読み込めませんでした：{error}
+{} @ {} was installed, but did not pass its check, so it stays off: {error}	{} @ {}をインストールしましたが、確認に通らなかったのでオフのままです：{error}
+Couldn't save the photo	写真を保存できませんでした
+Couldn't save the picture	画像を保存できませんでした
+This World's program stopped. Choose Reload from Disk in the menu to go on.	この世界のプログラムが止まりました。メニューの「ディスクから再読み込み」で続けられます。
+{name}: the latest turns could not be saved	{name}：最近のターンを保存できませんでした
+{count} Worlds could not save their latest turns	{count}個のワールドが最近のターンを保存できませんでした
+Save As… writes the whole World to a new file; Close Without Saving loses the turns since it was last saved.	「別名で保存…」はワールド全体を新しいファイルに書き出します。「保存せずに閉じる」を選ぶと、最後に保存してからのターンは失われます。
+Keep World Machine open to use Save As… in that World's window; quitting now loses those turns.	World Machineを開いたままにして、そのワールドのウィンドウで「別名で保存…」を使ってください。いま終了するとそのターンは失われます。
+Something else changed the World's file while it was open.	開いているあいだに、ほかの何かがワールドのファイルを変更しました。
+Another World Machine has this World open.	別のWorld Machineがこのワールドを開いています。
+The World's file could not be written.	ワールドのファイルを書き込めませんでした。
+Close Without Saving	保存せずに閉じる
+Keep Open	開いたままにする
+Keep World Machine Open	World Machineを開いたままにする
+Quit Without Saving	保存せずに終了

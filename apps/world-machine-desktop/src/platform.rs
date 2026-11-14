@@ -203,17 +203,11 @@ impl Platform for Mac {
     }
 
     fn increase_contrast(&self) -> bool {
-        Command::new("/usr/bin/defaults")
-            .args(["read", "com.apple.universalaccess", "increaseContrast"])
-            .output()
-            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+        universal_access("increaseContrast")
     }
 
     fn reduce_motion(&self) -> bool {
-        Command::new("/usr/bin/defaults")
-            .args(["read", "com.apple.universalaccess", "reduceMotion"])
-            .output()
-            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+        universal_access("reduceMotion")
     }
 
     fn host_description(&self) -> String {
@@ -224,6 +218,31 @@ impl Platform for Mac {
             env::consts::ARCH,
         )
     }
+}
+
+/// One of macOS's accessibility settings, read with `defaults`. Settings
+/// asks as it draws, so an answer is kept for a few seconds rather than
+/// starting a process on every redraw.
+#[cfg(any(target_os = "macos", test))]
+fn universal_access(key: &'static str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    static ANSWERS: OnceLock<Mutex<HashMap<&'static str, (Instant, bool)>>> = OnceLock::new();
+    let answers = ANSWERS.get_or_init(Default::default);
+    if let Some((at, on)) = answers.lock().ok().and_then(|map| map.get(key).copied()) {
+        if at.elapsed() < Duration::from_secs(5) {
+            return on;
+        }
+    }
+    let on = Command::new("/usr/bin/defaults")
+        .args(["read", "com.apple.universalaccess", key])
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1");
+    if let Ok(mut map) = answers.lock() {
+        map.insert(key, (Instant::now(), on));
+    }
+    on
 }
 
 /// Windows: files under `%APPDATA%`, the log under `%LOCALAPPDATA%`, and

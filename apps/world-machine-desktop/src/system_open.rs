@@ -15,6 +15,24 @@ pub fn install(application: &Application) {
             pending.extend(urls);
         }
     });
+    // Windows and Linux hand a double-clicked file to a new launch on its
+    // command line, not as an open event: those are opened the same way.
+    let files = files_from_args(std::env::args_os().skip(1));
+    if !files.is_empty() {
+        if let Ok(mut pending) = queue().lock() {
+            pending.extend(files);
+        }
+    }
+}
+
+/// The files named on a command line: every argument that is not an
+/// option (macOS's own `-psn_…` included) and names a file.
+pub fn files_from_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<String> {
+    args.into_iter()
+        .filter_map(|arg| arg.into_string().ok())
+        .filter(|arg| !arg.starts_with('-'))
+        .filter(|arg| std::path::Path::new(arg).is_file())
+        .collect()
 }
 
 pub fn drain_paths() -> Vec<Result<PathBuf, String>> {
@@ -67,6 +85,21 @@ mod tests {
             path_from_open_url("/tmp/portable.world").unwrap(),
             PathBuf::from("/tmp/portable.world")
         );
+    }
+
+    #[test]
+    fn a_command_line_names_only_existing_files() {
+        let dir = std::env::temp_dir().join(format!("wm-args-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Meadow.world");
+        std::fs::write(&file, b"x").unwrap();
+        let found = files_from_args([
+            std::ffi::OsString::from("-psn_0_12345"),
+            file.clone().into_os_string(),
+            dir.join("missing.world").into_os_string(),
+        ]);
+        assert_eq!(found, vec![file.to_string_lossy().into_owned()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -653,13 +653,13 @@ pub fn keeps_going(remaining_seconds: u64, unit: &str, rest: Rest) -> String {
     let state = match (rest, japanese(), chinese()) {
         (Rest::Asleep, true, _) => "おやすみ中",
         (Rest::HeadingHome, true, _) => "家路の途中",
-        (Rest::Waits, true, _) => "あなたを待っています",
+        (Rest::Waits, true, _) => "今日はあなたの一日",
         (Rest::Asleep, _, true) => "已经睡了",
         (Rest::HeadingHome, _, true) => "大家正往家走",
-        (Rest::Waits, _, true) => "在等你",
+        (Rest::Waits, _, true) => "今天由你安排",
         (Rest::Asleep, ..) => "Asleep",
         (Rest::HeadingHome, ..) => "Heading home",
-        (Rest::Waits, ..) => "Waits for you",
+        (Rest::Waits, ..) => "Today is yours",
     };
     if rest == Rest::Waits {
         return state.to_string();
@@ -764,7 +764,7 @@ mod tests {
         // Waiting, the day is here: no countdown to another (1.0 P2).
         assert_eq!(
             keeps_going(5 * 3600 + 10, "sol", Rest::Waits),
-            "Waits for you"
+            "Today is yours"
         );
         assert_eq!(
             keeps_going(4 * 3600, "day", Rest::Asleep),
@@ -782,7 +782,7 @@ mod tests {
             keeps_going(0, "night", Rest::Asleep),
             "Asleep · a new night comes with tomorrow's visit"
         );
-        assert_eq!(keeps_going(0, "night", Rest::Waits), "Waits for you");
+        assert_eq!(keeps_going(0, "night", Rest::Waits), "Today is yours");
         for rest in [Rest::Waits, Rest::HeadingHome, Rest::Asleep] {
             assert_eq!(rest_line(4 * 3600, "day", rest, true), "Play freely");
         }
@@ -799,7 +799,7 @@ mod tests {
         assert_eq!(span_label(&calendar("Day"), 20, 50), "第2–5天");
         let line = keeps_going(6 * 3600, "day", Rest::HeadingHome);
         assert_eq!(line, "大家正往家走 · 6 小时后便是新的一天");
-        assert_eq!(keeps_going(6 * 3600, "day", Rest::Waits), "在等你");
+        assert_eq!(keeps_going(6 * 3600, "day", Rest::Waits), "今天由你安排");
         assert!(!line.chars().any(|c| c.is_ascii_alphabetic()));
         assert_eq!(
             keeps_going(6 * 3600, "day", Rest::Asleep),
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(span_label(&calendar("Day"), 20, 50), "2–5日目");
         assert_eq!(
             keeps_going(6 * 3600, "day", Rest::Waits),
-            "あなたを待っています"
+            "今日はあなたの一日"
         );
         let line = keeps_going(6 * 3600, "day", Rest::HeadingHome);
         assert_eq!(line, "家路の途中 · あと6時間で新しい一日");
